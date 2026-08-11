@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as typertLoader from '@deepseek-ai/dsh-typert-loader'
 import { validateTypertManifest } from '@deepseek-ai/dsh-typert-loader'
@@ -114,9 +114,9 @@ async function boot(): Promise<Context> {
 async function linkZod(base: string): Promise<void> {
   const { symlink } = await import('node:fs/promises')
   const target = join(base, 'node_modules', 'zod')
-  const source = new URL(import.meta.resolve('zod/package.json')).pathname.replace(/\/package\.json$/, '')
+  const source = fileURLToPath(new URL('.', import.meta.resolve('zod/package.json')))
   await mkdir(join(base, 'node_modules'), { recursive: true })
-  await symlink(source, target, 'dir')
+  await symlink(source, target, process.platform === 'win32' ? 'junction' : 'dir')
 }
 
 function mountTypertLoader(ctx: Context, config: typertLoader.Config = {}): ReturnType<Context['plugin']> {
@@ -356,7 +356,7 @@ describe('typert loader', () => {
     await ctx.loader.create({ name: '@fixture/export-primitive' })
     await ctx.loader.await()
 
-    await expect(mountTypertLoader(ctx)).rejects.toThrow('unsupported shape')
+    await expect(mountTypertLoader(ctx)).rejects.toThrow('must be a string or an object with a string default')
   })
 
   it('caches a negative verdict for loader entries without a package root', LOADER_TEST_TIMEOUT, async () => {

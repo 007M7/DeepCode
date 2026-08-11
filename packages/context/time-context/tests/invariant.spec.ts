@@ -1,6 +1,6 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as TimeInvariant from '@deepseek-ai/dsh-time-context/invariant'
@@ -236,7 +236,7 @@ describe('time-context invariants', () => {
       .toThrow(/inside an open turn/)
   })
 
-  it('rejects a reading outside a prompt boundary', async () => {
+  it('rejects a reading outside prompt assembly', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
     ended.append('step/end', { turn: 1, step: 1 })

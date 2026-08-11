@@ -33,22 +33,8 @@ switch (invocation.mode) {
       environment: loadLayeredEnv('dsh'),
       profile: invocation.profile,
       patchFiles: invocation.patches,
+      args: invocation.args,
     })
-    break
-  }
-  case 'run': {
-    const { runProfile } = await import('./profile-boot.ts')
-    await runProfile({
-      environment: loadLayeredEnv('dsh'),
-      profile: invocation.profile,
-      patchFiles: invocation.patches,
-      task: invocation.task,
-    })
-    break
-  }
-  case 'web': {
-    const { runWeb } = await import('./web.ts')
-    await runWeb(invocation, loadLayeredEnv('dsh'))
     break
   }
   case 'plugin': {

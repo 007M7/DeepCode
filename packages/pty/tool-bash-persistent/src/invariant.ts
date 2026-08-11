@@ -4,7 +4,7 @@
  */
 
 /* jscpd:ignore-start */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-tool-bash-persistent'
@@ -17,7 +17,7 @@ export const inject = ['invariants']
 /**
  * No runtime invariant: the adapter's private owner-to-shell cache has no
  * observable event or data relation. Lifecycle tests prove its cleanup without
- * adding a public surface solely for an invariant.
+ * adding a public API solely for an invariant.
  */
 const install: InvariantInstaller = () => {}
 

@@ -7,7 +7,7 @@
  * [SessionsPort](./sessions-port.ts). Widening this interface is the
  * explicit act of widening what features may do to the sessions domain.
  */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -62,6 +62,15 @@ export interface ISessions {
    * @returns completion of the current or newly started refresh.
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void>
+
+  /**
+   * Record the composition one session now runs. The agent-preset seat calls
+   * this after a successful blank-session switch, so the header label moves
+   * with the composition instead of waiting for the next full list refresh.
+   * @param sessionId - the switched session.
+   * @param agentPreset - the preset id the host confirmed.
+   */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**

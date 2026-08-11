@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import WorkflowServiceDefault, {
   isFatalWorkflowError,
   WorkflowError,
@@ -123,7 +123,7 @@ describe('dsh-workflow (interface)', () => {
     expect(String(warn.mock.calls[0]![0])).toContain('[unrenderable thrown value]')
   })
 
-  it('has the expected export surface (default = the abstract service class)', () => {
+  it('has the expected exports (default = the abstract service class)', () => {
     expect(WorkflowServiceDefault).toBe(WorkflowService)
   })
 })

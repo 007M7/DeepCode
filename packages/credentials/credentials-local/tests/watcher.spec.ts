@@ -1,10 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '../src/index.ts'
+
+const fsHarness = vi.hoisted(() => ({
+  nextReadError: undefined as NodeJS.ErrnoException | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readFile: (async (path: unknown, ...rest: never[]) => {
+      const error = fsHarness.nextReadError
+      if (error !== undefined) {
+        fsHarness.nextReadError = undefined
+        throw error
+      }
+      return (actual.readFile as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
+    }) as typeof actual.readFile,
+  }
+})
 
 /** Credential documents are seeded owner-only, exactly as the provider creates them. */
 function writeCredentials(file: string, text: string): Promise<void> {
@@ -48,6 +67,7 @@ const KEY = credentialRef('DSH_CRED_PIPE')
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
+  fsHarness.nextReadError = undefined
   while (cleanups.length > 0) await cleanups.pop()!()
   ;(await fakeInstances()).length = 0
 })
@@ -104,6 +124,21 @@ describe('watcher pipeline', () => {
     instance!.watcher.emit('all', 'change', path)
     // The warn-and-keep path is asynchronous; give the serialized refresh a turn.
     await new Promise(resolve => setTimeout(resolve, 50))
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'good', source: 'file' })
+  })
+
+  it('keeps the last good snapshot when the read fails after its permission check', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: good\n')
+    const ctx = await boot({ path, debounceMs: 5 })
+    fsHarness.nextReadError = Object.assign(new Error('EACCES: injected read failure'), { code: 'EACCES' })
+
+    const [instance] = await fakeInstances()
+    instance!.watcher.emit('all', 'change', path)
+    await vi.waitFor(() => {
+      expect(fsHarness.nextReadError).toBeUndefined()
+    })
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'good', source: 'file' })
   })
 

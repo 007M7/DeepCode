@@ -48,7 +48,7 @@ pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包
 
 ### 在所有请求生产方中传播目标
 
-每个模型选择接口都同时携带 provider 与 model：声明式 agent、ACP（Agent Client Protocol）和 stdio 应用配置、JSON-RPC initialize 请求、subagent 覆盖与继承、工作流子 agent 覆盖，以及直接压缩摘要。subagent 先从父 agent 继承两个字段，再应用请求覆盖。系统提示词变量集合在 `model` 之外增加 `provider`。
+每条模型选择路径都同时携带 provider 与 model：声明式 agent、ACP（Agent Client Protocol）和 stdio 应用配置、JSON-RPC initialize 请求、subagent 覆盖与继承、工作流子 agent 覆盖，以及直接压缩摘要。subagent 先从父 agent 继承两个字段，再应用请求覆盖。系统提示词变量集合在 `model` 之外增加 `provider`。
 
 压缩配置在 `summarizationModel` 之外增加 `summarizationProvider`。两个值均为空时继承，均非空时选择显式目标；只配置其中一个会导致加载失败。继承优先使用最近一次记录的请求目标，没有时回退到 agent 创建选项。`compact/summary` 使用现有模型调用 envelope 记录两个字段。
 
@@ -60,7 +60,7 @@ JSON-RPC 运行时显式接收 provider 与 model。仅当 `deepseek` 提供方�
 
 **继续以模型名称作为注册表键，并增加通配适配器。** 通配机制会在精确注册与兜底插件之间引入回退顺序，使重复所有权取决于监听器顺序；若不再增加其他约定，仍无法区分不同提供方中相同的模型 ID。
 
-**将提供方与模型编码到一个字符串中。** OpenRouter 的 `openai/gpt-*` 等值已经包含类似提供方的前缀和斜杠。分隔符约定会把路由语法泄漏到每个模型选择接口，并需要转义规则；两个显式字段更清晰，也可以分别记录日志。
+**将提供方与模型编码到一个字符串中。** OpenRouter 的 `openai/gpt-*` 等值已经包含类似提供方的前缀和斜杠。分隔符约定会把路由语法泄漏到每个模型选择器，并需要转义规则；两个显式字段更清晰，也可以分别记录日志。
 
 **增加 `backend + provider + model`。** backend 键可以让 `dsh-llm-deepseek` 与 pi-ai 的 DeepSeek 实现共存，并按请求切换。最终采用的部署规则是一个提供方对应一个适配器所有者：同一上游的不同实现属于由插件组合选定的替代项。第三个路由维度会增加每个请求与配置的负担，却没有当前消费方。
 

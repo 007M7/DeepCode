@@ -1,7 +1,7 @@
 # Opt-in persistent PTY composition for the PTY snapshot scenario. The base
 # deployment already owns the shared sandbox provider and policy.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:

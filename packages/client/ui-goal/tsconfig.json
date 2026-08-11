@@ -30,6 +30,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../goal/goal"
     },
     {

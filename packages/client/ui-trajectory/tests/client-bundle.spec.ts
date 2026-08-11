@@ -2,15 +2,17 @@
 /**
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.__ModuleLoader__.load, resolves externals through the injected
- * require, returns the export surface (apply + inject), and a mounted apply
+ * require, returns the exports (apply + inject), and a mounted apply
  * registers the view tab into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationViewRegistry, SlotsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
 
@@ -50,37 +52,52 @@ describe('tsdown client artifact', () => {
       ['@deepseek-ai/dsh-client-runtime/client', await import('@deepseek-ai/dsh-client-runtime/client')],
       ['@deepseek-ai/dsh-client-ui-primitives', await import('@deepseek-ai/dsh-client-ui-primitives')],
     ])
-    const surface = handoff!.factory((spec) => {
+    const exports = handoff!.factory((spec) => {
       if (!modules.has(spec)) throw new Error(`unexpected require: ${spec}`)
       return modules.get(spec)
     })
-    return { handoff: handoff!, surface }
+    return { handoff: handoff!, exports }
   }
 
   it.skipIf(code === undefined)('hands off with the manifest id and a DI-require factory', async () => {
-    const { handoff, surface } = await loadArtifact()
+    const { handoff, exports } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
-    expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots', 'sessionHistory'])
+    expect(exports.apply).toBeTypeOf('function')
+    expect(exports.inject).toEqual([
+      'slots', 'conversationEvents', 'conversationViews', 'sessions', 'locale',
+    ])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
-    const { surface } = await loadArtifact()
+    const { exports } = await loadArtifact()
     const ctx = new Context()
     const slots = new SlotsService(ctx)
+    await ctx.plugin(ConversationEventRegistry).await()
+    await ctx.plugin(ConversationViewRegistry).await()
     // The conversation entry's role: the ring must be declared before riders land.
     slots.register({
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
-    // The plugin reads sessionHistory for its per-session history source;
-    // slot availability is tracked by slots.inject.
-    ctx.provide('sessionHistory', {})
-    const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
+    // Paging is session-owned; this registration-only probe never renders the
+    // entry, so the binding stays deliberately empty. The locale plugin backs
+    // the locale-aware view tab label (its settings scope needs a connection
+    // handle).
+    ctx.provide('sessions', { binding: () => undefined })
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    const locale = await import('@deepseek-ai/dsh-client-locale/client')
+    ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
+    const fiber = ctx.plugin(exports as { apply: (ctx: Context) => void })
     await fiber.await()
+    const events = ctx.get('conversationEvents') as ConversationEventRegistry
+    const views = ctx.get('conversationViews') as ConversationViewRegistry
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
+    expect(events.entries().length).toBeGreaterThan(0)
+    expect(views.entries()).toHaveLength(1)
     await fiber.dispose()
     expect(slots.entries('conversation.view')).toHaveLength(0)
+    expect(events.entries()).toEqual([])
+    expect(views.entries()).toEqual([])
   })
 
   it.skipIf(code === undefined)('injects plugin-tagged module CSS during factory execution', async () => {

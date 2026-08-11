@@ -2,17 +2,25 @@
  * Web runtime glue behavior: dist resolution through the bundle's own hook,
  * the frontend-static child claiming the fallback seat, the web-surface
  * prompt section and bash runtime variables, and URL-line printing with the
- * launcher's LAN snapshot.
+ * runtime's bind-dependent LAN snapshot.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { HttpServerService } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
+
+vi.mock('node:os', async importOriginal => ({
+  ...await importOriginal<typeof import('node:os')>(),
+  networkInterfaces: () => ({
+    lo0: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+    en0: [{ family: 'IPv4', internal: false, address: '192.168.1.5' }],
+  }),
+}))
 
 let dist: string | undefined
 
@@ -36,9 +44,10 @@ function stageDist(): string {
 }
 
 /** A fake httpServer capturing the fallback seat and index taps. */
-function fakeHttpServer(): { server: HttpServerService; seat: () => unknown } {
+function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: HttpServerService; seat: () => unknown } {
   let fallback: unknown
   const server = {
+    host,
     port: 4567,
     registerFallback: (handler: unknown) => {
       fallback = handler
@@ -47,6 +56,11 @@ function fakeHttpServer(): { server: HttpServerService; seat: () => unknown } {
     applyIndexTaps: (html: string) => html,
   } as unknown as HttpServerService
   return { server, seat: () => fallback }
+}
+
+/** A fake Loader whose settlement the test controls (the URL line waits on it). */
+function provideLoader(ctx: Context, settle: () => Promise<void> = async () => {}): void {
+  ctx.provide('loader', { await: settle } as never)
 }
 
 interface BashContribution {
@@ -59,7 +73,7 @@ describe('web-app runtime glue', () => {
   it('mounts dist serving, prompt section, bash variables, and prints the URL with the LAN snapshot', async () => {
     stageDist()
     const ctx = new Context()
-    const { server, seat } = fakeHttpServer()
+    const { server, seat } = fakeHttpServer('0.0.0.0')
     ctx.provide('httpServer', server)
     const contributions: BashContribution[] = []
     ctx.provide('bashEnv', {
@@ -68,35 +82,43 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
+    provideLoader(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, lanAddresses: ['192.168.1.5'] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(seat()).toBeDefined() // frontend-static claimed the fallback
+    expect(ctx.get('webRuntime')).toEqual({
+      lanAddresses: ['192.168.1.5'],
+      trustedHosts: ['192.168.1.5', 'lab.internal'],
+    })
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567 (LAN: http://192.168.1.5:4567)')
     const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
     expect(section?.text).toContain('http://127.0.0.1:4567')
-    expect(section?.text).toContain('--dev')
+    // The single update contract: the receiver is always on; no-refresh
+    // reloads additionally need the rebuild watcher.
+    expect(section?.text).toContain('pnpm run dev:web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
-    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567', DSH_WEB_MODE: 'development' })
+    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
   })
 
-  it('stays quiet in production mode with printUrl off and reports the production update contract', async () => {
+  it('stays quiet with printUrl off', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'app:web-surface')?.text)
-      .toContain('without `--dev`')
+      .toContain('rebuilding the affected Web artifacts')
     await ctx.fiber.dispose()
   })
 
@@ -111,11 +133,12 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, lanAddresses: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
+    expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
     expect(contributions).toEqual([])
     await ctx.fiber.dispose()
   })
@@ -125,13 +148,13 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await ctx.fiber.dispose()
   })
 
-  it('defers the URL line until Loader settlement and drops it when the server is gone', async () => {
+  it('defers the URL line until Loader settlement and drops it on failure or teardown', async () => {
     stageDist()
     // Settlement path: the line waits for loader.await() so supervisors can
     // RPC immediately after observing it.
@@ -139,15 +162,26 @@ describe('web-app runtime glue', () => {
     settled.provide('httpServer', fakeHttpServer().server)
     let release: () => void
     const settlement = new Promise<void>((resolve) => { release = resolve })
-    settled.provide('loader', { await: () => settlement } as never)
+    provideLoader(settled, () => settlement)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    apply(settled, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     release!()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await settled.fiber.dispose()
+
+    // Failed path: Loader reports the sibling failure; the app prints no URL
+    // for a process that is about to exit.
+    log.mockClear()
+    const failed = new Context()
+    failed.provide('httpServer', fakeHttpServer().server)
+    provideLoader(failed, async () => { throw new Error('boot failed') })
+    apply(failed, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    await failed.fiber.dispose()
 
     // Torn-down path: settlement resolves after the webserver is gone — no
     // line, no crash.
@@ -159,8 +193,8 @@ describe('web-app runtime glue', () => {
     await child
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
-    torn.provide('loader', { await: () => tornSettlement } as never)
-    apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    provideLoader(torn, () => tornSettlement)
+    apply(torn, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -176,7 +210,7 @@ describe('web-app runtime glue', () => {
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('httpServer', server)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')

@@ -1,6 +1,6 @@
 /** WorkspacesService projects the Workspace object manager for UI consumers. */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   DirectoryListing, IApiClient, RpcError,
   SessionId, WorkspaceId, WorkspaceView,
@@ -186,11 +186,11 @@ export class WorkspacesService implements IWorkspaces {
   }
 
   /**
-   * Create a Workspace by name or register an existing path.
-   * @param input - exactly one Host create spelling.
+   * Register an existing path as a Workspace.
+   * @param input - the Host create payload.
    * @returns the created or idempotently resolved Workspace.
    */
-  async create(input: { name: string } | { path: string }): Promise<WorkspaceView> {
+  async create(input: { path: string }): Promise<WorkspaceView> {
     const result = await this.manager.create(input)
     if (!result.ok) throw new WorkspaceCreateError(result.error)
     return result.value.workspace

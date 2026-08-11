@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -109,8 +109,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)(
       const version = await execFileAsync(join(codexBinDir, 'codex'), ['--version'], {
         env: { ...process.env, ...env },
       })
-      expect(codexPackage.version).toBe('0.146.0')
-      expect(version.stdout.trim()).toBe('codex-cli 0.146.0')
+      expect(codexPackage.version).toBe('0.147.0')
+      expect(version.stdout.trim()).toBe('codex-cli 0.147.0')
 
       const parent = {
         id: 'deepseek-e2e-parent',

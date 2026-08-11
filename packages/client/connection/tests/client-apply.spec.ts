@@ -2,7 +2,7 @@
  * Connection plugin browser-half apply: ctx.connection handle mounting, mode
  * selection off the page URL, and the single-consumer stream-loop ownership.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, type ConnectionHandle } from '../src/client/index.ts'
 import type { RpcMessage } from '../src/client/api.ts'
@@ -87,7 +87,7 @@ describe('connection client apply', () => {
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
-    // config omitted: the `config ?? {}` default arm is part of the surface.
+    // config omitted: the `config ?? {}` default arm is part of the API.
     const loop = handle.start({})
     expect(() => handle.start({})).toThrow(/already owned by another consumer/)
     loop.stop() // teardown must not throw; the fixture streams abort quietly

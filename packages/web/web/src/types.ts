@@ -1,7 +1,7 @@
 /**
  * Vocabulary for the web capability seam (`ctx.web`). Search and fetch deliberately share one
  * seam so provider selection, cancellation, errors, and product configuration have one owner,
- * while retaining separate request and result shapes.
+ * while retaining separate request and result types.
  * @module @deepseek-ai/dsh-web/types
  */
 
@@ -28,7 +28,7 @@ export interface WebSearchRequest {
  * Normalized search outcome. `content` is optional provider-generated answer
  * text or summary (Exa and DeepSeek return none; Perplexity returns a
  * generated answer).
- * `sources[]` is the portable citation surface. `truncated` is set by the seam
+ * `sources[]` is the portable citation shape. `truncated` is set by the seam
  * when it cut `sources[]` down to `maxResults`.
  */
 export interface WebSearchResult {

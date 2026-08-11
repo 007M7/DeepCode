@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Service } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context, Service } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'

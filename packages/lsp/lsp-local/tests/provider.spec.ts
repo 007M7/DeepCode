@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
@@ -38,9 +38,9 @@ describe('lsp-local provider resolution', () => {
     // A tiny executable script placed on a custom PATH dir: the load-time resolver must find it.
     const bin = join(root, 'bin')
     await mkdir(bin)
-    const exe = join(bin, 'fake-lsp')
-    await writeFile(exe, '#!/bin/sh\nexit 0\n')
-    await chmod(exe, 0o755)
+    const exe = join(bin, process.platform === 'win32' ? 'fake-lsp.cmd' : 'fake-lsp')
+    await writeFile(exe, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n')
+    if (process.platform !== 'win32') await chmod(exe, 0o755)
 
     const ctx = new Context()
     await ctx.plugin(Lsp)
@@ -49,7 +49,7 @@ describe('lsp-local provider resolution', () => {
     await expect(ctx.plugin(LspLocal, config('onpath', {
       command: 'fake-lsp',
       args: [],
-      env: { PATH: bin },
+      env: { PATH: bin, ...process.platform === 'win32' ? { PATHEXT: '.CMD' } : {} },
       extensionToLanguage: { '.ts': 'typescript' },
     }))).resolves.toBeDefined()
     await ctx.fiber.dispose()

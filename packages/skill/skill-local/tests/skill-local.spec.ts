@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
 import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillLocal from '../src/index.ts'
@@ -93,6 +93,10 @@ class TestFileSystem extends FileSystem {
   }
 
   override async streamText(_target: FsTarget): Promise<AsyncIterable<string>> {
+    throw new Error('not needed in skill tests')
+  }
+
+  override async readBytes(_target: FsTarget, _signal: AbortSignal | undefined, _maxBytes: number): Promise<Uint8Array> {
     throw new Error('not needed in skill tests')
   }
 
@@ -830,7 +834,7 @@ describe('LocalSkillProvider', () => {
 
       // Isolated providers see only their explicit roots: the environment
       // bundled root is a default root, so includeDefaultRoots: false must
-      // drop it — repository providers never re-claim the app's builtins.
+      // drop it — isolated providers never re-claim the app's builtins.
       const isolated = new Context()
       await isolated.plugin(SkillService)
       const customOnly = join(envHome, 'custom-only')

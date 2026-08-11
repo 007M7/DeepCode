@@ -1,16 +1,17 @@
 import { EventEmitter } from 'node:events'
 import type { Stats } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
 
 interface FakeWatcherControl {
   emitter: EventEmitter
   closeCalls: number
   options: Record<string, unknown>
+  path: string
 }
 
 interface FakeWatchFileControl {
@@ -63,9 +64,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 vi.mock('chokidar', () => ({
   default: {
-    watch(_path: unknown, options: Record<string, unknown>) {
+    watch(path: unknown, options: Record<string, unknown>) {
       const emitter = new EventEmitter() as EventEmitter & { close(): Promise<void> }
-      const control: FakeWatcherControl = { emitter, closeCalls: 0, options }
+      const control: FakeWatcherControl = { emitter, closeCalls: 0, options, path: String(path) }
       emitter.close = async () => {
         control.closeCalls += 1
         if (watcherHarness.closeErrors > 0) {
@@ -114,6 +115,53 @@ beforeEach(() => {
 })
 
 describe('skill-local watcher failures', () => {
+  it('canonicalizes an existing root before opening its native watcher', async () => {
+    const target = await tempDir('skill-watch-canonical-target')
+    const aliasParent = await tempDir('skill-watch-canonical-alias')
+    const alias = join(aliasParent, 'alias')
+    await symlink(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const root = join(alias, '.dsh/skills')
+    await writeSkill(root, 'canonical-skill')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(alias, '.dsh'),
+      agentsHome: join(alias, '.agents'),
+      watch: true,
+    })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['canonical-skill'])
+    expect(watcherHarness.watchers[0]?.path).toBe(await realpath(root))
+    expect(watcherHarness.watchers[0]?.options.persistent).toBe(true)
+    await fiber.dispose()
+  })
+
+  it('preserves a symlink root when link following is disabled', async () => {
+    const target = await tempDir('skill-watch-link-target')
+    const aliasParent = await tempDir('skill-watch-link-alias')
+    const alias = join(aliasParent, 'skills')
+    await writeSkill(target, 'linked-skill')
+    await symlink(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      includeDefaultRoots: false,
+      customSkillDirs: [alias],
+      watch: true,
+      watchFollowSymlinks: false,
+    })
+
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['linked-skill'])
+      expect(watcherHarness.watchers[0]?.path).toBe(alias)
+      expect(watcherHarness.watchers[0]?.options.followSymlinks).toBe(false)
+    } finally {
+      await fiber.dispose()
+      await rm(aliasParent, { recursive: true, force: true })
+      await rm(target, { recursive: true, force: true })
+    }
+  })
+
   it('ignores missing-path probes until the observed path actually changes', async () => {
     const home = await tempDir('skill-watch-missing-stable')
     const ctx = new Context()
@@ -205,24 +253,22 @@ describe('skill-local watcher failures', () => {
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected a root watcher')
 
-    first.emitter.emit('change', join(root, 'notes.txt'))
+    first.emitter.emit('change', join(first.path, 'notes.txt'))
     first.emitter.emit('change', join(home, 'outside.md'))
-    first.emitter.emit('change', join(root, 'watched-skill/references.md'))
-    first.emitter.emit('change', join(root, '.system/SKILL.md'))
+    first.emitter.emit('change', join(first.path, 'watched-skill/references.md'))
+    first.emitter.emit('change', join(first.path, '.system/SKILL.md'))
     await settle()
     expect(invalidations).toBe(0)
 
-    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
-    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
+    first.emitter.emit('change', join(first.path, 'watched-skill/SKILL.md'))
+    first.emitter.emit('change', join(first.path, 'watched-skill/SKILL.md'))
     await settle()
     expect(invalidations).toBe(1)
 
     watcherHarness.closeErrors = 1
     watcherHarness.startupErrors.push(new Error('runtime rewatch failed'))
     first.emitter.emit('error', new Error('runtime watch failed'))
-    await settle()
-    await settle()
-    expect(watcherHarness.watchers.length).toBeGreaterThanOrEqual(2)
+    await vi.waitFor(() => { expect(watcherHarness.watchers.length).toBeGreaterThanOrEqual(2) })
     expect(invalidations).toBeGreaterThanOrEqual(2)
     expect(await ctx.skills.snapshot()).toMatchObject({
       skills: [{ name: 'watched-skill' }],
@@ -230,7 +276,7 @@ describe('skill-local watcher failures', () => {
     })
 
     await fiber.dispose()
-    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
+    first.emitter.emit('change', join(first.path, 'watched-skill/SKILL.md'))
     first.emitter.emit('error', new Error('late error'))
     await settle()
   })
@@ -254,9 +300,11 @@ describe('skill-local watcher failures', () => {
     if (original === undefined) throw new Error('expected a root watcher')
 
     await rm(root, { recursive: true })
-    original.emitter.emit('unlinkDir', root)
+    original.emitter.emit('unlinkDir', original.path)
     await vi.waitFor(() => { expect(original.closeCalls).toBeGreaterThan(0) })
-    expect(watcherHarness.watchFiles.some(control => control.path === root)).toBe(true)
+    await vi.waitFor(() => {
+      expect(watcherHarness.watchFiles.some(control => control.path === original.path)).toBe(true)
+    })
 
     await fiber.dispose()
   })
@@ -280,11 +328,11 @@ describe('skill-local watcher failures', () => {
     if (original === undefined) throw new Error('expected a root watcher')
 
     await rm(root, { recursive: true })
-    original.emitter.emit('unlink', join(root, 'old-skill/SKILL.md'))
+    original.emitter.emit('unlink', join(original.path, 'old-skill/SKILL.md'))
     await settle()
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
 
-    const missingRoot = watcherHarness.watchFiles.find(control => control.path === root)
+    const missingRoot = watcherHarness.watchFiles.find(control => control.path === original.path)
     expect(missingRoot).toBeDefined()
     await writeSkill(root, 'recreated-skill')
     missingRoot!.listener({} as Stats, {} as Stats)

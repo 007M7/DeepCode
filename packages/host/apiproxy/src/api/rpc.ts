@@ -45,7 +45,13 @@ export interface RpcErrorDetailsMap {
   'directory-exists': { path: string }
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
+  'agent-preset-read-only': { agentPreset: string; reason: string }
+  'agent-preset-locked': { sessionId: SessionId; agentPreset: string }
+  'agent-preset-conflict': { sessionId: SessionId; requestedPreset: string; existingPreset?: string }
+  'agent-preset-not-found': { agentPreset: string; available: string[] }
+  'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
+  'attachment-error': { reason: string }
   'queue-item-not-found': { itemId: MessageId }
   'steer-unavailable': { itemId: MessageId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
@@ -111,7 +117,7 @@ export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: RpcError
 
 /**
  * Fold a transport exception into the RpcResult error branch (unified error
- * surface; 'internal' as the catch-all code). Lives with RpcResult so every
+ * API; 'internal' as the catch-all code). Lives with RpcResult so every
  * carrier consumer folds the same way.
  * @param error - the thrown value from the carrier.
  * @returns the error branch of an RpcResult.

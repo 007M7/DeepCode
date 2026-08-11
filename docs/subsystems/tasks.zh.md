@@ -2,7 +2,7 @@
 
 [English](tasks.md) | 中文
 
-长时间运行的生产方、`ctx.tasks` 与任务控制接口共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的字面形状。
+长时间运行的生产方、`ctx.tasks` 与任务控制命令共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的确切字段和变体。
 
 ## ID 与状态
 
@@ -38,7 +38,7 @@ interface TaskStart {
   label: string
   /**
    * Optional UTF-8 byte cap for each complete model-facing completion notice or
-   * output read, including control-surface status metadata.
+   * output read, including controller status metadata.
    */
   outputLimitBytes?: number
   /**
@@ -57,7 +57,7 @@ interface TaskStart {
 }
 ```
 
-`TaskHooks.done` 是完全停稳边界。可选的 `readOutput` 用来区分会消费输出的流式任务和仅有最终输出的任务。
+`TaskHooks.done` 会在生产方释放其资源后 resolve，而不是仅在工作完成时 resolve。可选的 `readOutput` 用来区分会消费输出的流式任务和仅有最终输出的任务。
 
 ```ts type-equiv
 /** Hooks through which the runtime controls and observes producer work. */
@@ -129,7 +129,7 @@ interface TaskSnapshot {
   finishedAt?: number
   /**
    * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion surfaces suppress redundant notices when set.
+   * terminal state. Completion reporters suppress redundant notices when set.
    */
   reported: boolean
 }
@@ -151,15 +151,15 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部提供方。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachController` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtasks--taskservice-abstract-seam"></a>
 
@@ -169,10 +169,10 @@ Abstract background task registry. Subclass, implement the abstract methods, and
 
 Implementations must honor these semantics:
 
-- Registrations outlive producer and control-surface fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
 - Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
 - Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
-- start refuses work while no control surface is attached, so a producer cannot start work that callers cannot collect or stop.
+- start refuses work while no attached task controller serves the spec's owner, so a producer cannot start work that owner cannot collect or stop. One registry serves every composition in the process, so this question — and completion-listener delivery — is owner-relative rather than process-wide: registrations made from an unscoped context serve every owner, and registrations made under an agent composition's scope serve exactly the agents composed under it.
 
 ```ts cordis-catalog
 /**
@@ -237,24 +237,50 @@ abstract kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'alrea
 abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 
 /**
- * Register an effect-scoped completion listener. Each listener is contained;
- * returned promises are observed but not awaited. No listener runs after
- * service disposal.
+ * Register an effect-scoped completion listener. It receives the settlements
+ * of the owners its registering context's scope covers; each listener is
+ * contained; returned promises are observed but not awaited. No listener runs
+ * after service disposal.
  * @param listener - receives each terminal snapshot and its exact owner.
  * @returns disposer that unregisters the listener.
  */
 abstract onTaskDone(listener: TaskDoneListener): () => void
 
 /**
- * Attach an effect-scoped surface that can read and stop tasks. {@link start}
- * refuses work while none is attached.
- * @param name - diagnostic label; duplicate names remain independent.
- * @returns disposer that detaches this surface.
+/**
+ * Register an effect-scoped observer of visible-set changes. It fires after
+ * every commit that changes what {@link list} returns for that owner —
+ * registration, every stopping transition (including the one teardown
+ * performs before it awaits a slow producer), settlement, owner-disposal
+ * removal, and the emptying that service disposal commits — so an observer
+ * re-reads rather than accumulating deltas.
+ *
+ * Delivery is owner-relative on the same terms as {@link onTaskDone}: an
+ * observer registered from an unscoped context — a host composition's own
+ * carrier — sees every owner, while one registered under an agent
+ * composition's scope sees exactly the agents composed under it.
+ *
+ * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+ * record under first-wins semantics a task controller couples to notice
+ * delivery, while this one carries no delivery meaning and marks nothing
+ * reported. Listeners are contained and never awaited.
+ * @param listener - receives the owner whose visible set changed, or
+ *   `undefined` when an unowned task changed and every caller's set did.
+ * @returns disposer that unregisters the listener.
  */
-abstract attachSurface(name: string): () => void
+abstract onTasksChanged(listener: TasksChangedListener): () => void
+
+/**
+ * Attach an effect-scoped controller that can read and stop tasks. It serves the
+ * owners its registering context's scope covers, and {@link start} refuses an
+ * owner no attached controller serves.
+ * @param name - diagnostic label; duplicate names remain independent.
+ * @returns disposer that detaches this controller.
+ */
+abstract attachController(name: string): () => void
 ```
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->

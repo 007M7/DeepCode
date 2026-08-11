@@ -58,6 +58,8 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话事件流读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 
+`foldConsumedWork(events)` 把这条事件流读回来，回答仅凭轮次序列无法回答的那个问题：一份日志消费掉的工作最终怎样了。它返回能够为已消费工作作出交代的最新 `turn/end`——即进入过模型 step 的轮次，或者认领了 inbox 输入、但在进入 step 之前失败、被停下或被拒绝的轮次——并额外给出「已接受的工作此后是否被从 inbox 中取消且从未运行」。两项事实都来自日志，因此无论由哪个所有者发起取消，读出来都一样。没有取走任何输入、或认领批次被改写清空后正常结束的无 step 轮次不描述工作，会被跳过；认领过输入、以 `blocked` 结束的轮次则是一份交代，因为拒绝把这些输入一并丢弃了。
+
 ### Agent 接口（`types.ts`）
 
 每个插件面向的 handle：
@@ -114,6 +116,6 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 - **环境身份可能比存活状态更久**：消费方在生命周期敏感工作前，仍要检查 `agent.status`、取消状态和所属能力约定。
 - **委派以外的 agent 间通道**：共享状态、流式子输出和后台／轮询语义仍在当前同步 `ctx.subagents` seam 之外。
 - **`agent/session-start` 不能为启动设置门禁**：它仍是同步且不可 veto 的通知；必须在发布前完成的异步组合属于工厂的 `setup(agentCtx)` 事务。
-- **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[关于停止操作接口的 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md)）。
+- **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[关于停止操作接口的 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-api.md)）。
 - **每条附加 `UserMessage` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入同一来源，因此该消息无法列出多个生产者。
 - **`SessionStartSource` 预留 `'clear'`/`'compact'`，但还没有发出方**：在驱动子系统落地前，只会出现 `'startup'`/`'resume'`（`TODO(compaction)`）。

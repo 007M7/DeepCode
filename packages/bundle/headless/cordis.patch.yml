@@ -1,14 +1,16 @@
 # The dsh-headless bundle patch: one-shot task mode directly over dsh-base.
-# It mounts no Host, HTTP server, Web runtime, or browser plugin. The launcher
-# patches the runner's `task`; the direct driver creates an Agent through the
-# core registry and prints the final durable assistant message.
+# It mounts no Host, HTTP server, Web runtime, or browser plugin. An ordinary
+# provider plugin injects `cmdlineArgs`, parses the task positional
+# (`dsh --profile headless "<task>"`) and this app's --help, then the direct
+# driver creates an Agent through the core registry and prints its durable result.
 
 - id: system-prompt
   config:
     persona: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
-# One-shot runs never watch or reload their composition.
+# The shared module-reload HMR row stays off; the launcher's watch-only
+# fallback still keeps the user patch layers live until the run exits.
 - id: hmr
   disabled: true
 
@@ -22,5 +24,12 @@
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker'
 
+    - id: headless-startup
+      name: '@deepseek-ai/dsh-headless/startup'
+
+    # Reads its task from the ordinary headlessStartup provider.
     - id: headless-runner
       name: '@deepseek-ai/dsh-headless'
+      inject: [headlessStartup]
+      config:
+        task: !!js ctx.headlessStartup.task

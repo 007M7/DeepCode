@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
@@ -275,10 +275,28 @@ describe('draft-provider model discovery', () => {
   it('reports cancellation during the body read as an abort, not a raw reason', async () => {
     const ctx = await harness()
     const controller = new AbortController()
-    // Chunked, so the headers arrive and the cancellation lands mid-body.
-    const slow = await listingServer({ chunks: ['{"data":[', '{"id":"a"}'], holdOpenMs: 400 })
-    const probe = ctx.llm.discoverModels('llm-pi-ai', { baseURL: slow.url, signal: controller.signal })
-    setTimeout(() => { controller.abort('test cancellation') }, 40)
+    const bodyRead = Promise.withResolvers<undefined>()
+    vi.stubGlobal('fetch', async (_url: string | URL, init?: RequestInit) => {
+      const signal = init?.signal
+      if (signal === undefined || signal === null) throw new Error('expected a discovery signal')
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(stream) {
+          bodyRead.resolve(undefined)
+          return new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => {
+              stream.error(signal.reason)
+              resolve()
+            }, { once: true })
+          })
+        },
+      }))
+    })
+    const probe = ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: 'https://slow.example/v1',
+      signal: controller.signal,
+    })
+    await bodyRead.promise
+    controller.abort('test cancellation')
 
     await expect(probe).rejects.toMatchObject({ code: 'ABORTED' })
   })

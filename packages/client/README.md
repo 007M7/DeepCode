@@ -23,16 +23,19 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-workspace/`](ui-workspace/README.md) | Provides workspace selection and creation surfaces. |
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface. |
 | [`ui-tool/`](ui-tool/README.md) | Composes Tool call trees and keyed per-Tool views. |
+| [`ui-workflow-run/`](ui-workflow-run/README.md) | Replays durable workflow runs as nested Chat disclosures with live-only child navigation. |
 | [`ui-goal/`](ui-goal/README.md) | Presents and manages the current goal. |
 | [`ui-trajectory/`](ui-trajectory/README.md) | Presents alternate views of agent activity. |
 | [`ui-command/`](ui-command/README.md) | Provides session-aware command discovery and dispatch. |
 | [`ui-slash/`](ui-slash/README.md) | Coordinates inline command and reference suggestions. |
 | [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions. |
 | [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references. |
+| [`ui-task/`](ui-task/README.md) | Lists this session's background tasks in the conversation header. |
 | [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
 | [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
 | [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
+| [`ui-agent-preset/`](ui-agent-preset/README.md) | Selects a session's agent preset and authors preset compositions. |
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |
 | [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
 | [`ui-models/`](ui-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |

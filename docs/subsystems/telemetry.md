@@ -56,13 +56,27 @@ interface TelemetryRecord {
 
 Only the first `assistant/chunk` of each `(turn, step)` ships — the stream-started signal; the rest drop at capture, so `seq` gaps are routine on the wire and never a loss signal. Every other [session event](session.md) type, including plugin-merged ones the seam never heard of, passes through whole. Delivery is best-effort: the cursor marks handed-off, not delivered, records can be lost (crash, reload window) and duplicated (cursor-less re-adoption, SDK retries), so receivers dedupe ledger records on `(session.id, event.seq)`; ops records deliberately omit that identity — they are signals to alert on, not entries to sum, and tolerate duplicates instead.
 
+## The sharing disclosure
+
+The seam's acknowledgement contract (owned by the [Service Definition README's sharing-disclosure section](../../packages/session/session-telemetry/README.md#the-sharing-disclosure)): every backend discloses its deployment-selected sharing policy through the required abstract `sharing` member on `ctx.telemetry`, and consumers render "not configured" only when no telemetry service is mounted. The disclosure states the current policy, never delivery or retention — handoff is the non-blocking enqueue, and batching, retry, and loss policy stay the reporting SDK's.
+
+```ts type-equiv
+/**
+ * Deployment-selected session-sharing policy disclosed by a mounted
+ * {@link Telemetry} backend to human-facing acknowledgement surfaces (the
+ * `/feedback` command's confirmation text). The seam owns the vocabulary so
+ * any backend can disclose a policy without depending on the OTel package;
+ * the values mirror the OTel backend's serialized `TelemetryMode` choices.
+ */
+type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
+```
+
 ## The backend contract
 
 ```ts type-equiv
 /**
- * The backend contract the coordinator hands records to — the minimum any
- * reporting SDK satisfies with zero bending. {@link Telemetry} is its
- * service-registered form; tests compose the coordinator with a bare
+ * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
 interface TelemetryBackend {
@@ -77,8 +91,8 @@ interface TelemetryBackend {
    */
   emit(record: TelemetryRecord): void
   /**
-   * Optional hint that a natural boundary (turn end) passed — a backend may
-   * forward it to its SDK's flush so records land at turn boundaries. Called
+   * Optional hint that a turn ended. A backend may forward it to its SDK's
+   * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
    * leave this unimplemented and let their SDK's own batching cadence govern
@@ -115,15 +129,15 @@ Every record passes the `telemetry/record` [waterfall](../cordis-primer.md#cordi
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtelemetry--telemetry-abstract-seam"></a>
 
 ### `ctx.telemetry` — `Telemetry` (abstract seam)
 
-The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 
 ```ts cordis-catalog
 /**
@@ -142,7 +156,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:148`](../../packages/session/session-telemetry/src/index.ts)
 
 <a id="telemetry-events"></a>
 

@@ -1,12 +1,12 @@
 /**
  * LLM service: adapter registry with a waterfall-interceptable streaming call
- * surface. Exports the `LlmService` default, the abstract `LlmAdapter` for
+ * API. Exports the `LlmService` default, the abstract `LlmAdapter` for
  * provider backends, and `BlockAssembler` for chunk assembly.
  *
  * @module @deepseek-ai/dsh-llm
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
@@ -17,6 +17,7 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
+  ModelModality,
   StreamChunk,
 } from './types.ts'
 import { freezeMessage, type Message } from './message.ts'
@@ -35,13 +36,14 @@ export * from './never.ts'
 export * from './error.ts'
 export * from './api-key.ts'
 export * from './types.ts'
+export * from './content.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     llm: LlmService
   }
@@ -182,8 +184,8 @@ export interface PreparedLlmCall {
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
- * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The direct-fetch
- * DeepSeek and library-backed pi-ai adapters intentionally exercise this contract through different internals.
+ * `attributionHeaders()`; prove the headers are added in the wire request or library header hook. The direct-fetch
+ * DeepSeek and library-backed pi-ai adapters meet this contract through different internals.
  */
 export abstract class LlmAdapter {
   /**
@@ -287,7 +289,7 @@ export interface DirectoryRegistrationHandle {
 
 /**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
- * surface, interceptable via the `llm/stream` waterfall.
+ * API, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()
@@ -575,6 +577,11 @@ export class LlmService extends Service {
     return this.registration(provider).retryPolicy
   }
 
+  /** Detach typed adapter-owned modality metadata. */
+  private detachedModalities(modalities: readonly ModelModality[] | undefined): ModelModality[] | undefined {
+    return modalities === undefined ? undefined : [...modalities]
+  }
+
   /**
    * Discover models advertised by one registered provider. Catalog membership
    * is advisory and never changes routing or request validation.
@@ -599,11 +606,13 @@ export class LlmService extends Service {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
       }
       seen.add(model.id)
+      const inputModalities = this.detachedModalities(model.inputModalities)
       return {
         provider: model.provider,
         id: model.id,
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
+        ...inputModalities === undefined ? {} : { inputModalities },
       }
     })
   }
@@ -653,6 +662,9 @@ export class LlmService extends Service {
         'INVALID_MODEL_CONTEXT',
       )
     }
+    // Capability metadata rides through: an explicit modality omission is
+    // negative capability downstream preflights act on (image admission).
+    const inputModalities = this.detachedModalities(resolved.inputModalities)
     const defaultMaxTokens = resolved.defaultMaxTokens
     if (defaultMaxTokens !== undefined
       && (!Number.isSafeInteger(defaultMaxTokens) || defaultMaxTokens <= 0)) {
@@ -666,6 +678,7 @@ export class LlmService extends Service {
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
+      ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
     }

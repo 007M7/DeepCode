@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { join, sep } from 'node:path'
 import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -881,7 +881,7 @@ describe('glob results', () => {
     expect(spill?.saves).toHaveLength(0)
   })
 
-  it('keeps the full nested Code value without creating a surface spill', async () => {
+  it('keeps the full nested Code value without creating a top-level spill', async () => {
     const { ctx, subprocess, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
     subprocess.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, {
@@ -1028,7 +1028,7 @@ describe('grep results', () => {
     expect(spill?.saves).toHaveLength(0)
   })
 
-  it('keeps every nested Code match in the value without creating a surface spill', async () => {
+  it('keeps every nested Code match in the value without creating a top-level spill', async () => {
     const { ctx, subprocess, spill } = await setup({ config: { grepMaxMatches: 1 }, spill: true })
     subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'one')}\n${matchLine('b.ts', 2, 'two')}\n`)
     const result = await call(ctx, 'grep', { pattern: 'o' }, {

@@ -12,7 +12,13 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { trimmedInstructionDigest } from './digest.ts'
-import { decodeScopeKey, renderWorkspaceContext, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE, type RenderedWorkspaceContext } from './render.ts'
+import {
+  decodeScopeKey,
+  renderWorkspaceInstructionSet,
+  type RenderedWorkspaceContext,
+  USER_GLOBAL_DIRECTORY,
+  USER_GLOBAL_FILE,
+} from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -64,7 +70,6 @@ export interface RenderedInstructionSet {
   /** Candidates retained by content deduplication and byte budgeting. */
   included: LoadedInstructionFile[]
 }
-
 /** Tri-state scope probe that distinguishes confirmed absence from provider failure. */
 export type ScopeInstructionProbe =
   | { kind: 'present'; file: ProbedInstructionFile }
@@ -420,26 +425,26 @@ export async function loadBaselineInstructionSet(
   const deduped = dedupInstructionFilesByDirectory(loaded)
   if (deduped.length === 0) {
     if (options.replacePreviousBaseline !== true) return undefined
+    const { rendered, included } = renderWorkspaceInstructionSet([], {
+      maxBytes: config.maxBytes,
+      replacePreviousBaseline: true,
+    })
     return {
-      rendered: renderWorkspaceContext([], {
-        maxBytes: config.maxBytes,
-        replacePreviousBaseline: true,
-      }),
+      rendered,
       observed: [],
-      included: [],
+      included,
     }
   }
-  const rendered = renderWorkspaceContext(deduped, {
+  const { rendered, included } = renderWorkspaceInstructionSet(deduped, {
     maxBytes: config.maxBytes,
     ...options.replacePreviousBaseline === undefined
       ? {}
       : { replacePreviousBaseline: options.replacePreviousBaseline },
   })
-  const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
   return {
     rendered,
     observed: loaded,
-    included: deduped.filter(file => !omitted.has(file.absolutePath)),
+    included,
   }
 }
 

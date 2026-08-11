@@ -3,17 +3,22 @@
  * (`ctx.tasks`). It keeps every record in memory and hands out fresh
  * snapshots, never live state.
  *
- * Registrations outlive producer and control-surface fibers. Agent or service
+ * Registrations outlive producer and controller fibers. Agent or service
  * disposal cancels live work and awaits compliant producers; a throwing
  * teardown cancel force-fails only the record and reports a possible orphan.
  * @module @deepseek-ai/dsh-tasks-local
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AnonymousEntries, ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
+import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskService, TaskId } from '@deepseek-ai/dsh-tasks'
-import type { TaskDoneListener, TaskKind, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from '@deepseek-ai/dsh-tasks'
+import type {
+  TaskDoneListener, TaskKind, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus,
+  TasksChangedListener,
+} from '@deepseek-ai/dsh-tasks'
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
@@ -50,6 +55,22 @@ function isTerminal(status: TaskStatus): boolean {
 }
 
 /**
+ * One scope's contributions: the task controllers attached from it and the
+ * completion listeners registered there. Both tables are anonymous because a
+ * contribution is identified by its own disposer, never by a name a second
+ * registrant could shadow.
+ */
+class TaskLayer implements ScopeLayer {
+  readonly controllers = new AnonymousEntries<symbol>()
+  readonly listeners = new AnonymousEntries<TaskDoneListener>()
+  readonly changed = new AnonymousEntries<TasksChangedListener>()
+
+  isEmpty(): boolean {
+    return this.controllers.isEmpty() && this.listeners.isEmpty() && this.changed.isEmpty()
+  }
+}
+
+/**
  * The in-memory `tasks` registry. See the Service Definition contract in
  * `@deepseek-ai/dsh-tasks` for the ownership, isolation, and lifecycle
  * semantics this implementation honors.
@@ -57,8 +78,19 @@ function isTerminal(status: TaskStatus): boolean {
 export class LocalTaskService extends TaskService {
   private store = new Map<TaskId, TrackedTask>()
   private counters = new Map<string, number>()
-  private surfaces = new Set<symbol>()
-  private listeners = new Set<TaskDoneListener>()
+  /**
+   * Surfaces and listeners layered by the scope that registered them, in the
+   * tools-registry shape: a contribution files into its registering context's
+   * scope, and a read unions the global layer with the reader's scope chain.
+   *
+   * The registry is one process-wide instance serving every composition, so a
+   * flat table would answer a per-owner question process-wide: one preset's
+   * task controls would hold `start()` open for an agent whose own composition
+   * loads none, and one settlement would reach every preset's notice listener.
+   * Layers make both reads owner-relative. Nothing derives a cache from a
+   * layer, so change notification is a no-op.
+   */
+  private readonly layers = new ScopedLayers<TaskLayer>(() => new TaskLayer(), () => {})
   private listenersClosed = false
   /** Owner agents with attached scope cleanup, mapped to the exact disposer. */
   private ownerCleanups = new Map<Agent, () => Promise<void> | void>()
@@ -72,8 +104,8 @@ export class LocalTaskService extends TaskService {
   }
 
   start(spec: TaskStart): TaskId {
-    if (this.surfaces.size === 0) {
-      throw new Error('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
+    if (!this.servesOwner(spec.owner)) {
+      throw new Error('background tasks unavailable: no task controller serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
     }
     if (spec.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
     if (spec.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
@@ -114,11 +146,14 @@ export class LocalTaskService extends TaskService {
     void hooks.done.then(
       (outcome) => { this.settle(task, outcome) },
       (error: unknown) => {
-        // Contain a producer contract violation so cleanup and waiters cannot hang.
-        this.selfCtx.logger.warn(`tasks: task ${task.id} 'done' rejected (producer contract violation): ${String(error)}`)
+        // Contain a producer contract violation (`done` rejected) so cleanup and waiters cannot hang.
+        this.selfCtx.logger.warn(`tasks: task ${task.id} producer done promise rejected (producer contract violation): ${String(error)}`)
         this.settle(task, { status: 'failed', detail: String(error) })
       },
     )
+    // Registration is complete and cannot fail from here, so the visible set
+    // has genuinely changed.
+    this.notifyChanged(task.owner)
     return id
   }
 
@@ -156,6 +191,7 @@ export class LocalTaskService extends TaskService {
     task.cancel(reason)
     task.status = 'stopping'
     task.reported = true
+    this.notifyChanged(task.owner)
     return 'requested'
   }
 
@@ -210,21 +246,57 @@ export class LocalTaskService extends TaskService {
   }
 
   onTaskDone(listener: TaskDoneListener): () => void {
-    const dispose = this.ctx.effect(() => {
-      this.listeners.add(listener)
-      return () => this.listeners.delete(listener)
-    }, 'tasks.onTaskDone()')
-    return () => void dispose()
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.listeners.append(listener),
+      { label: 'tasks.onTaskDone()' },
+    )
   }
 
-  attachSurface(name: string): () => void {
+  onTasksChanged(listener: TasksChangedListener): () => void {
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.changed.append(listener),
+      { label: 'tasks.onTasksChanged()' },
+    )
+  }
+
+  attachController(name: string): () => void {
     // One token per call keeps duplicate labels independently disposable.
     const token = Symbol(name)
-    const dispose = this.ctx.effect(() => {
-      this.surfaces.add(token)
-      return () => this.surfaces.delete(token)
-    }, 'tasks.attachSurface()')
-    return () => void dispose()
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.controllers.append(token),
+      { label: 'tasks.attachController()' },
+    )
+  }
+
+  /**
+   * Whether an attached task controller can collect and stop work owned by
+   * `owner`. The global layer holds every controller attached from an unscoped
+   * context — a host composition's own controls — and therefore serves every
+   * owner; a scoped controller serves exactly the agents composed under it.
+   * @param owner - the task's owner, or undefined for unowned work.
+   * @returns whether some reachable controller serves the owner.
+   */
+  private servesOwner(owner?: Agent): boolean {
+    if (!this.layers.global.controllers.isEmpty()) return true
+    return this.layers.chainLayers(owner === undefined ? undefined : scopeOf(owner.ctx))
+      .some(layer => !layer.controllers.isEmpty())
+  }
+
+  /**
+   * The completion listeners that own `owner`'s notices: the global layer's
+   * first, then each scoped layer along the owner's chain. A listener outside
+   * that chain belongs to another composition and must not deliver, or the
+   * owner reads one notice per mounted preset.
+   * @param owner - the settled task's owner, or undefined for unowned work.
+   * @returns the listeners to notify, in registration order per layer.
+   */
+  private *listenersFor(owner?: Agent): IterableIterator<TaskDoneListener> {
+    yield* this.layers.global.listeners.values()
+    const scope = owner === undefined ? undefined : scopeOf(owner.ctx)
+    for (const layer of this.layers.chainLayers(scope)) yield* layer.listeners.values()
   }
 
   /** Look up a task or fail loud. */
@@ -263,6 +335,35 @@ export class LocalTaskService extends TaskService {
   }
 
   /**
+   * The change observers that own `owner`'s updates, resolved exactly like
+   * {@link listenersFor}: the global layer — a host composition's own carrier,
+   * which serves every owner — then each scoped layer along the owner's chain.
+   * An observer outside that chain belongs to another composition and would
+   * otherwise be told about agents it does not compose.
+   * @param owner - the owner whose visible set moved, or undefined for unowned work.
+   * @returns the observers to notify, in registration order per layer.
+   */
+  private *changedFor(owner?: Agent): IterableIterator<TasksChangedListener> {
+    yield* this.layers.global.changed.values()
+    const scope = owner === undefined ? undefined : scopeOf(owner.ctx)
+    for (const layer of this.layers.chainLayers(scope)) yield* layer.changed.values()
+  }
+
+  /**
+   * Announce that one owner's visible set changed. Each listener is contained
+   * so an observer cannot break a lifecycle commit that already happened.
+   */
+  private notifyChanged(owner: Agent | undefined): void {
+    for (const listener of this.changedFor(owner)) {
+      try {
+        listener(owner)
+      } catch (error: unknown) {
+        this.selfCtx.logger.warn(`tasks: onTasksChanged listener threw: ${String(error)}`)
+      }
+    }
+  }
+
+  /**
    * Record the first terminal outcome, notify contained listeners, and release
    * waiters. First-wins preserves a teardown force-failure against late producer
    * settlement. Pending waits mark the task reported before listeners run.
@@ -276,7 +377,7 @@ export class LocalTaskService extends TaskService {
     if (task.waiters > 0) task.reported = true
     if (!this.listenersClosed) {
       const snapshot = this.snapshot(task)
-      for (const listener of this.listeners) {
+      for (const listener of this.listenersFor(task.owner)) {
         try {
           const returned = listener(snapshot, task.owner)
           void Promise.resolve(returned).catch((error: unknown) => {
@@ -291,6 +392,7 @@ export class LocalTaskService extends TaskService {
     task.waitResolvers.clear()
     for (const resolveWait of waitResolvers) resolveWait()
     task.markSettled()
+    this.notifyChanged(task.owner)
   }
 
   /**
@@ -323,6 +425,9 @@ export class LocalTaskService extends TaskService {
     this.cancelForTeardown(owned, 'owner disposed')
     await Promise.all(owned.map(task => task.settled))
     for (const task of owned) this.store.delete(task.id)
+    // Removal is the one visible-set change no per-task record carries, so it
+    // must be announced here or an observer keeps the dropped rows forever.
+    if (owned.length > 0) this.notifyChanged(owner)
   }
 
   /**
@@ -330,12 +435,20 @@ export class LocalTaskService extends TaskService {
    * effects. Throwing cancels are force-failed to avoid teardown deadlock.
    */
   private async disposeAll(): Promise<void> {
+    // The flag is the whole guard: each layer entry's undo belongs to the fiber
+    // that registered it, so this service may not drop them on its own way out.
     this.listenersClosed = true
-    this.listeners.clear()
     const all = [...this.store.values()]
     this.cancelForTeardown(all, 'tasks service disposed')
     await Promise.all(all.map(task => task.settled))
+    // Distinct owners whose records just disappeared. A change observer files
+    // into the layer of the context that registered it, so a consumer mounted
+    // outside this service — the api-proxy carrier registers from the mux
+    // stream — is still reachable here. Without this it keeps the rows it last
+    // received after a registry reload.
+    const emptied = new Set(all.map(task => task.owner))
     this.store.clear()
+    for (const owner of emptied) this.notifyChanged(owner)
     // Detach cross-fiber owner effects after the shared store is quiescent.
     const ownerCleanups = [...this.ownerCleanups.values()]
     this.ownerCleanups.clear()
@@ -353,6 +466,10 @@ export class LocalTaskService extends TaskService {
       try {
         task.cancel(reason)
         task.status = 'stopping'
+        // Teardown reaches settlement only after the producer releases, which a
+        // slow stop can defer; announcing the transition here is what keeps an
+        // observer from showing `running` for that whole window.
+        this.notifyChanged(task.owner)
       } catch (error: unknown) {
         const detail = `cancel threw during teardown; work may be orphaned: ${String(error)}`
         this.selfCtx.logger.warn(`tasks: cancel of ${task.id} threw during teardown; task record forced failed and work may be orphaned: ${String(error)}`)

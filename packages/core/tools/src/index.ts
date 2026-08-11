@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-tools
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -94,7 +94,7 @@ export { defineContentToolFixture, type ContentToolFixtureOptions } from './test
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
-// stays the single public surface for tool producers and UI adapters.
+// stays the single public API for tool producers and UI adapters.
 export type {
   ToolCallKind,
   FileLocation,
@@ -120,7 +120,7 @@ export type {
   WebSource,
 } from './presentation.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     tools: ToolRegistry
   }
@@ -160,13 +160,14 @@ declare module 'cordis' {
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
-     * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+     * Allow a listener to replace content in the DURABLE LOG COPY of one
+     * `run_code` sub-dispatch outcome before the bridge appends its
+     * `tool/code-dispatch` event. `next()` keeps the
      * content unchanged; a listener may return replacement blocks (e.g. the
      * spill policy's preview + locator for an oversized text result). Only the
      * logged copy is affected — the program already received the complete
      * value, and the model sees neither. A throwing listener is contained:
-     * the bridge falls back to logging the unshaped content.
+     * the bridge falls back to logging the original settled content.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
      * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
      * @mode waterfall
@@ -199,7 +200,7 @@ export interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection, computed only for surface calls. */
+  /** Pure replayable presentation projection, computed only for top-level calls. */
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
@@ -623,11 +624,16 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation. `native` (default) sends every visible schema; `code`
-   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a `ctx.codeRuntime` whose `language` has a registered
-   * SDK renderer (TypeScript or Python) and fail prompt assembly when it is
-   * absent or has no renderer. Under `code`, native names in `toolOrder` are invalid.
+   * Model presentation for agents that declare none of their own. `native`
+   * (default) sends every visible schema; `code` sends only `run_code` plus a
+   * generated SDK prompt; `both` sends both forms. Code modes require a
+   * `ctx.codeRuntime` whose `language` has a registered SDK renderer
+   * (TypeScript or Python) and fail prompt assembly when it is absent or has
+   * no renderer. Under `code`, native names in `toolOrder` are invalid.
+   *
+   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
+   * which is how an agent preset composes a Code Mode agent beside native
+   * ones in the same process.
    */
   mode?: ToolPresentationMode
   /**
@@ -641,13 +647,14 @@ export interface Config {
 }
 
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 export interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 
@@ -663,7 +670,7 @@ interface ToolView {
   readonly visible: ReadonlyMap<string, ToolDefinition>
   /** Pre-restriction capability names used by prompt-order validation. */
   readonly knownNames: ReadonlySet<string>
-  /** Current global names that a scoped restriction may name. */
+  /** Current inherited names a scoped restriction may name; its own are exempt. */
   readonly restrictableNames: ReadonlySet<string>
 }
 
@@ -682,6 +689,12 @@ class ToolLayer implements ScopeLayer {
   readonly tools: NamedEntries<ToolDefinition>
   readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
   readonly guards = new AnonymousEntries<ToolGuard>()
+  /**
+   * Presentation this scope's agent declared for itself, shadowing the
+   * deployment default. One cell rather than an entry table: two answers to
+   * "which form does the model see" is a contradiction, not a merge.
+   */
+  mode: ToolPresentationMode | undefined
 
   constructor(scope: ScopeKey | undefined) {
     this.tools = new NamedEntries(name => new Error(scope === undefined
@@ -692,9 +705,10 @@ class ToolLayer implements ScopeLayer {
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
     return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
+      && this.mode === undefined
   }
 
-  /** Whether every compiled restriction in this layer admits a global tool name. */
+  /** Whether every compiled restriction in this layer admits an inherited tool name. */
   admits(name: string): boolean {
     for (const filter of this.restrictions.values()) {
       if ((filter.allow !== undefined && !filter.allow.has(name))
@@ -772,51 +786,135 @@ export class ToolRegistry extends Service {
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
   )
-  private readonly mode: ToolPresentationMode
-  /** Reserved presentation transport, kept outside the filterable registration layers. */
-  private readonly codeTransport: ToolDefinition | undefined
+  /** Presentation for scopes that declare none; {@link presentAs} shadows it per scope. */
+  private readonly defaultMode: ToolPresentationMode
+  private readonly maxParallelSubCalls: number
+  /**
+   * Reserved presentation transport, kept outside the filterable registration
+   * layers. Built on first need rather than at construction: which agents run
+   * a code mode is no longer known when the service is constructed, and the
+   * transport is stateless beyond its closures over `this`.
+   */
+  private codeTransport: ToolDefinition | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
     // The schema already defaulted an omitted mode; the ?? narrows the
     // optional-input type for direct (non-Loader) construction in tests.
-    this.mode = config.mode ?? 'native'
-    // `run_code` is presentation infrastructure, not an end capability. It
-    // therefore does not enter the global layer: per-agent restrictions must
-    // not remove it, and a scoped registration must not shadow it. The
-    // visibility resolver appends this reserved definition after resolving
-    // the filterable global/scoped capability layers.
-    this.codeTransport = this.mode === 'native'
-      ? undefined
-      : createRunCodeTool(this, {
-        requireRuntime: () => this.requireCodeRuntime(),
-        peekRuntime: () => this.ctx.get('codeRuntime'),
-        maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
-        shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
-      })
+    this.defaultMode = config.mode ?? 'native'
+    this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
-    if (this.mode !== 'native') {
-      ctx.systemPrompt.section({
-        name: 'tools:sdk',
-        order: SDK_SECTION_ORDER,
-        // Regenerate from the calling scope's visible tools in stable order,
-        // picking the renderer that matches the loaded runtime's language.
-        // `requireCodeRuntime` already validated the language is in the table,
-        // so the guard below is defense-in-depth against a caller that bypassed
-        // it (impossible under normal composition).
-        text: (context) => {
-          const runtime = this.requireCodeRuntime()
-          // Own-property read: a language like `toString`/`constructor` would
-          // otherwise resolve an inherited Object.prototype member as a renderer.
-          const render = SDK_RENDERERS[runtime.language]
-          /* v8 ignore next 3 -- requireCodeRuntime rejects an unknown language before this ever runs. */
-          if (!Object.hasOwn(SDK_RENDERERS, runtime.language) || render === undefined) {
-            throw new Error(`dsh-tools: no SDK renderer registered for runtime language ${JSON.stringify(runtime.language)} (known: ${Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')})`)
-          }
-          return render(this.sdkSchemas(context.scope))
-        },
-      })
+    if (this.defaultMode !== 'native') {
+      ctx.systemPrompt.section(this.sdkSection())
     }
+  }
+
+  /**
+   * The generated-SDK prompt section, registered globally by a code-mode
+   * deployment and per scope by {@link presentAs}.
+   *
+   * The body regenerates from the CALLING scope, and renders empty for an
+   * agent presenting natively — an agent that opted out under a code-mode
+   * deployment still sees the global registration, and an empty section is
+   * dropped from the rendered prompt.
+   * @returns the section registration.
+   */
+  private sdkSection(): { name: string; order: number; text: (context: { scope?: ScopeKey }) => string } {
+    return {
+      name: 'tools:sdk',
+      order: SDK_SECTION_ORDER,
+      // Regenerate from the calling scope's visible tools in stable order.
+      text: (context) => {
+        const mode = this.modeFor(context.scope)
+        if (mode === 'native') return ''
+        const runtime = this.requireCodeRuntime(mode)
+        // Own-property read: a language like `toString`/`constructor` would
+        // otherwise resolve an inherited Object.prototype member as a renderer.
+        const render = SDK_RENDERERS[runtime.language]
+        /* v8 ignore next -- requireCodeRuntime rejects an unknown language before this runs. */
+        if (render === undefined) throw new Error(`dsh-tools: no SDK renderer for ${runtime.language}`)
+        return render(this.sdkSchemas(context.scope))
+      },
+    }
+  }
+
+  /**
+   * The presentation one scope's agent sees: its own declaration, else the
+   * deployment default.
+   * @param scope - the calling agent, or undefined for the global view.
+   * @returns the resolved presentation mode.
+   */
+  private modeFor(scope?: ScopeKey): ToolPresentationMode {
+    // Nearest scope wins along the chain: a preset's standing declaration
+    // covers every agent parented under it, and an agent's own (were one ever
+    // declared) would override its preset's. The mode decides what the model
+    // SEES, which is exactly the class of fact the chain inherits.
+    const layers = this.layers.chainLayers(scope)
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const mode = layers[index]?.mode
+      if (mode !== undefined) return mode
+    }
+    return this.defaultMode
+  }
+
+  /**
+   * The reserved `run_code` transport, built on first need.
+   *
+   * It never enters the global layer: per-agent restrictions must not remove
+   * it, and a scoped registration must not shadow it. The visibility resolver
+   * appends it after resolving the filterable global/scoped capability layers,
+   * and only for scopes whose mode actually presents it.
+   * @returns the shared transport definition.
+   */
+  private requireCodeTransport(): ToolDefinition {
+    this.codeTransport ??= createRunCodeTool(this, {
+      requireRuntime: () => this.requireCodeRuntime(this.defaultMode),
+      // The language-aware description/parameters getters read the runtime
+      // without demanding one, so a native-default process can still project
+      // the transport for an agent that chose code.
+      peekRuntime: () => this.ctx.get('codeRuntime'),
+      maxParallel: this.maxParallelSubCalls,
+      shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+    })
+    return this.codeTransport
+  }
+
+  /**
+   * Present the calling scope's tools in `mode` instead of the deployment
+   * default. Nearest scope on the chain wins, so a preset's standing
+   * declaration covers every agent joined under it.
+   *
+   * Scoped only, and one declaration per scope: this is how an agent preset
+   * composes Code Mode agents beside native ones in the same process, and a
+   * process-global override would be the `mode` config field instead.
+   * @param mode - the presentation the covered agents' models see.
+   * @returns the exact disposer that restores the deployment default.
+   */
+  presentAs(mode: ToolPresentationMode): () => void {
+    const ctx = this.ctx
+    if (scopeOf(ctx) === undefined) {
+      throw new Error('tools.presentAs() requires a scoped context (agent.ctx): a context-global presentation is the `mode` config field on the tools row')
+    }
+    const dispose = ctx.effect(function* (this: ToolRegistry) {
+      yield this.layers.effect(
+        ctx,
+        (layer) => {
+          if (layer.mode !== undefined) {
+            throw new Error(`tools.presentAs("${mode}") conflicts with "${layer.mode}" already declared for this scope; one composition selects one presentation`)
+          }
+          layer.mode = mode
+          return () => { layer.mode = undefined }
+        },
+        { label: 'tools.presentAs()' },
+      )
+      // The SDK section is per scope for the same reason the mode is. Under a
+      // deployment that already defaults to a code mode this shadows the
+      // global registration with an identical body, which costs nothing and
+      // keeps one rule instead of a case analysis.
+      if (mode !== 'native') yield ctx.systemPrompt.section(this.sdkSection())
+    }.bind(this), 'tools.presentAs()')
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
+    return dispose
   }
 
   /**
@@ -825,7 +923,8 @@ export class ToolRegistry extends Service {
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
-    if (this.mode === 'native') {
+    const mode = this.modeFor(scope)
+    if (mode === 'native') {
       const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
       return { schemas, knownNames: [...view.knownNames] }
     }
@@ -834,9 +933,9 @@ export class ToolRegistry extends Service {
     // flavor-table guard would otherwise surface first. This keeps the
     // renderer-table rejection the canonical assembly-time error for a
     // language with no SDK renderer.
-    this.requireCodeRuntime()
+    this.requireCodeRuntime(mode)
     const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
-    if (this.mode === 'code') {
+    if (mode === 'code') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
         knownNames: [RUN_CODE_NAME],
@@ -861,10 +960,10 @@ export class ToolRegistry extends Service {
    * point it is testable); rationale in the
    * [language-dispatch note](../../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md).
    */
-  private requireCodeRuntime(): CodeRuntime {
+  private requireCodeRuntime(mode: ToolPresentationMode): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')
     if (!runtime) {
-      throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
     }
     if (!Object.hasOwn(SDK_RENDERERS, runtime.language)) {
       const known = Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')
@@ -893,7 +992,10 @@ export class ToolRegistry extends Service {
       && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
       throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`)
     }
-    if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
+    // Reserved unconditionally: any agent may select a code mode for itself,
+    // so a name free to take under the deployment default would become a
+    // collision the moment a preset mounted.
+    if (name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
     }
     return this.layers.effect(
@@ -907,7 +1009,7 @@ export class ToolRegistry extends Service {
    * Restrict global tools for the calling agent scope. Empty filters, unknown
    * names, scope-local names, and reserved transport names fail. Restrictions
    * intersect; scoped registrations remain visible.
-   * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+   * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
    * @returns the exact disposer that lifts this restriction.
    */
   restrict(filter: ToolRestriction): () => void {
@@ -924,14 +1026,13 @@ export class ToolRegistry extends Service {
       ...allow !== undefined ? { allow: new Set(allow) } : {},
       ...deny !== undefined ? { deny: new Set(deny) } : {},
     }
-    if (this.codeTransport !== undefined
-      && [...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
+    if ([...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved Code Mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
     const known = this.view(scope).restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
+      throw new Error(`tools.restrict() names unknown inherited tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; a restriction filters what this scope inherits, never what it registers itself. Restrictable tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
     return this.layers.effect(
       this.ctx,
@@ -958,42 +1059,79 @@ export class ToolRegistry extends Service {
     )
   }
 
-  /** First monotonic denial from the global then matching scoped guard layers. */
+  /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
   private guardReason(exec: ToolExecution): string | undefined {
     const globalReason = this.layers.global.guardReason(exec)
     if (globalReason !== undefined) return globalReason
-    return exec.agent === undefined ? undefined : this.layers.peek(exec.agent)?.guardReason(exec)
+    if (exec.agent === undefined) return undefined
+    for (const layer of this.layers.chainLayers(exec.agent)) {
+      const reason = layer.guardReason(exec)
+      if (reason !== undefined) return reason
+    }
+    return undefined
   }
 
   /**
    * Resolve every registry fact one scope needs in one layer traversal. The
-   * visible map applies global restrictions, scoped shadowing, and the reserved
-   * presentation transport; the other sets retain the pre-restriction facts
-   * needed by restriction and prompt-order validation.
+   * visible map applies restrictions to the INHERITED surface, then the
+   * scope's own registrations and the reserved presentation transport; the
+   * other sets retain the pre-restriction facts needed by restriction and
+   * prompt-order validation.
+   *
+   * A restriction filters what a scope inherits — the global layer and every
+   * ancestor layer on its chain — and never what its OWN layer registers.
+   * That exemption is what a per-child capability filter has to keep intact:
+   * the delegation runtime registers a child's reporting and structured-output
+   * tools into the child's own layer, and a filter naming the capabilities the
+   * child may use must not strip the machinery it answers through.
+   *
+   * Reading the exempt set as "the global layer" instead of "not mine" held
+   * only while every model-facing tool sat in the host composition. Once
+   * presets moved them onto the agent plane they became an ANCESTOR
+   * contribution, so a child's filter silently stopped constraining anything
+   * it was given.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
-    const layer = this.layers.peek(scope)
+    // Scope-chain layers, farthest ancestor first, the exact scope last.
+    const layers = this.layers.chainLayers(scope)
+    // Chain-blind on purpose: this is the ONE layer whose registrations the
+    // scope owns rather than inherits, and it is absent until the scope
+    // contributes something.
+    const own = this.layers.peek(scope)
+    // Inherited surface, nearest ancestor last: a nearer scope's same-name
+    // entry shadows a farther one, and the global layer is the farthest.
+    const inherited = new Map<string, ToolDefinition>(this.layers.global.tools.entries())
+    for (const layer of layers) {
+      if (layer === own) continue
+      for (const [name, definition] of layer.tools.entries()) inherited.set(name, definition)
+    }
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    for (const [name, definition] of this.layers.global.tools.entries()) {
+    for (const [name, definition] of inherited) {
       knownNames.add(name)
       restrictableNames.add(name)
-      if (layer?.admits(name) ?? true) visible.set(name, definition)
+      // Restrictions intersect across the whole chain: any scope on it may
+      // mask an inherited name for everything nested inside it.
+      if (layers.every(layer => layer.admits(name))) visible.set(name, definition)
     }
-    // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
-    // and scope-local registrations are never part of the global filter above.
-    for (const [name, definition] of layer?.tools.entries() ?? []) {
-      knownNames.add(name)
-      visible.set(name, definition)
+    // The scope's own registrations last, shadowing an inherited name and
+    // outside the filter above.
+    if (own !== undefined) {
+      for (const [name, definition] of own.tools.entries()) {
+        knownNames.add(name)
+        visible.set(name, definition)
+      }
     }
     // Presentation infrastructure is resolved last and outside capability
     // filtering. Registration rejects this reserved name, so the insertion is
-    // an invariant assertion as well as protection against future layer changes.
-    if (this.codeTransport !== undefined) {
-      visible.set(RUN_CODE_NAME, this.codeTransport)
+    // an invariant assertion as well as protection against future layer
+    // changes. Per scope: a native agent must not find `run_code` in its
+    // dispatch table because some other agent in the process presents it.
+    if (this.modeFor(scope) !== 'native') {
+      visible.set(RUN_CODE_NAME, this.requireCodeTransport())
     }
     return { visible, knownNames, restrictableNames }
   }
@@ -1073,8 +1211,8 @@ export class ToolRegistry extends Service {
   /**
    * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
    * and return the content the bridge should log on `tool/code-dispatch`.
-   * Contained: a throwing listener falls back to the unshaped content — log
-   * shaping must never fail the dispatch or lose the settle event. Private:
+   * Contained: when a listener throws, the method logs the original settled
+   * content; that failure must not fail the dispatch or omit the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
    * receives it as a capability parameter (the `requireRuntime` idiom) — the
    * waterfall, not this invoker, is the public extension point.
@@ -1086,7 +1224,7 @@ export class ToolRegistry extends Service {
         () => Promise.resolve(dispatch.content),
       )
     } catch (error: unknown) {
-      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the original settled content`)
       return dispatch.content
     }
   }

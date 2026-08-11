@@ -10,7 +10,7 @@ A result can be several things at once — a process can time out AND exit 0 bec
 
 ## Honor public contracts on BOTH sides
 
-When an implementation boundary receives several representations of one outcome, normalize them before crossing the public contract. `LlmAdapter.stream()` implementations may throw or emit `finish {kind:'error'|'aborted'}`, but `LlmService.stream()` exposes model-request failures only as terminal finish chunks; middleware and consumer defects remain thrown. This keeps consumers from guessing whether a caught exception came from the provider, a wrapper, chunk logging, or their own assembly. Document the normalized contract where the type is defined; exercise every source form through the real consumer.
+When an implementation receives several representations of one outcome, normalize them before returning through the public API. `LlmAdapter.stream()` implementations may throw or emit `finish {kind:'error'|'aborted'}`, but `LlmService.stream()` exposes model-request failures only as terminal finish chunks; middleware and consumer defects remain thrown. This keeps consumers from guessing whether a caught exception came from the provider, a wrapper, chunk logging, or their own assembly. Document the normalized contract where the type is defined; exercise every source form through the real consumer.
 
 ## Async state is not synchronous state
 
@@ -20,7 +20,7 @@ When an implementation boundary receives several representations of one outcome,
 
 A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup async and await the children's exit (kill → await `done`), and close listener/notification registries BEFORE killing so late completions stay silent.
 
-## Contain callback exceptions at the boundary
+## Contain callback exceptions in the dispatcher
 
 A user-supplied listener that throws must not reject the promise it runs inside or starve the listeners after it. Wrap the dispatch loop in try/catch and log; one bad subscriber never breaks core lifecycle.
 

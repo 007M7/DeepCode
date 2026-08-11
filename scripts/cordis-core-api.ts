@@ -23,7 +23,7 @@ export interface CordisCoreApiPage {
   sections: CordisCoreApiSection[]
 }
 
-/** Explicit editorial grouping for the pinned Cordis core surface. */
+/** Explicit editorial grouping for the pinned Cordis core API. */
 export const CORDIS_CORE_API_PAGES: CordisCoreApiPage[] = [
   {
     out: 'docs/cordis-api/context.md',

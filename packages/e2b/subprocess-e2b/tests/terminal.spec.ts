@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { once } from 'node:events'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CommandExitError,
@@ -922,5 +922,21 @@ describe('E2B subprocess terminal service', () => {
     fake.groups = []
     await fiber.dispose()
     await expect(terminal.terminate()).resolves.toBeUndefined()
+  })
+
+  it('contains an immediate automatic terminal release rejection before disposal retries it', async () => {
+    const { fiber, fake } = await service()
+    fake.groups = []
+    const terminal = await (fiber.ctx).subprocess.spawnTerminal(spec())
+    const terminate = vi.spyOn(terminal, 'terminate')
+      .mockRejectedValueOnce(new Error('automatic release failed'))
+    fake.handle.succeed(0)
+    await terminal.done
+    await vi.waitFor(() => { expect(terminate).toHaveBeenCalledTimes(1) })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    await fiber.dispose()
+    expect(terminate).toHaveBeenCalledTimes(2)
+    expect(fake.handle.disconnects).toBe(1)
   })
 })

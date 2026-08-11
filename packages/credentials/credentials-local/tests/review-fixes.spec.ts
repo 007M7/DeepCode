@@ -3,7 +3,7 @@
 // broken observer never fails a committed write), and the YAML document
 // editor's isolation between entries.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -78,7 +78,7 @@ describe('read-modify-write', () => {
     const home = join(dir, 'home')
     const ctx = await boot({ path: join(home, '.credentials.yaml'), watch: false })
     await ctx.credentials.set(ALPHA, 'one')
-    expect((await stat(home)).mode & 0o777).toBe(0o700)
+    if (process.platform !== 'win32') expect((await stat(home)).mode & 0o777).toBe(0o700)
   })
 })
 

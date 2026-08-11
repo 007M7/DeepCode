@@ -120,7 +120,7 @@ export class WorkspaceManager {
   /**
    * Create or resolve a real Workspace, then publish its returned snapshot
    * without waiting for the changed frame.
-   * @param input - name under workspaceRoot or an existing absolute path.
+   * @param input - the existing absolute path to adopt.
    * @returns the wire result.
    */
   async create(input: WorkspaceCreateInput): Promise<RpcResult<{ workspace: WorkspaceView; created: boolean }>> {

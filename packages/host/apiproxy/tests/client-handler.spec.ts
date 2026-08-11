@@ -23,6 +23,7 @@ function scriptedApi(overrides: {
   host?: Partial<ApiProxy['host']>
   commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
+  agentPresets?: Partial<ApiProxy['agentPresets']>
   events?: Partial<ApiProxy['events']>
   goals?: Partial<ApiProxy['goals']>
   settings?: Partial<ApiProxy['settings']>
@@ -55,6 +56,10 @@ function scriptedApi(overrides: {
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       fork: r => ok(r, { sessionId: sid('s-fork') }),
       prompt: r => ok(r, { accepted: true as const }),
+      attachment: r => ok(r, {
+        attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        data: 'AA==',
+      }),
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
@@ -88,6 +93,15 @@ function scriptedApi(overrides: {
       ...overrides.commands,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
+    agentPresets: {
+      list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),
+      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '' }),
+      copy: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      openDocument: r => ok(r, { opened: true as const }),
+      remove: r => ok(r, {}),
+      ...overrides.agentPresets,
+    },
     goals: {
       create: err,
       edit: err,
@@ -119,6 +133,7 @@ function scriptedApi(overrides: {
     },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
+    downloads: { sessionLog: async () => new Response('stub', { status: 404 }) },
   }
 }
 
@@ -220,6 +235,18 @@ describe('unary round trip', () => {
     expect(anchored.result.ok).toBe(true)
     const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })
     expect(appended.result.ok).toBe(true)
+  })
+
+  it('routes the agent-preset roster and switch through the wire', async () => {
+    const c = client(scriptedApi())
+
+    const listed = await c.agentPresets.list({})
+    expect(listed.result).toEqual({ ok: true, value: { presets: [], authorable: false, hasDocument: false } })
+
+    // The switch carries the session it is about: the host refuses one whose
+    // conversation has started, and it can only know which by id.
+    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
+    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
   })
 
   it('passes business errors through as 200 + err result, not a throw', async () => {
@@ -406,8 +433,8 @@ describe('workspace domain round trip', () => {
     expect(archivedResponse.result).toEqual({ ok: true, value: { archivedSessionIds: ['s-arch'] } })
   })
 
-  it('rejects a create payload violating the exactly-one refine at the handler', async () => {
-    const response = await client(scriptedApi()).workspace.create({})
+  it('rejects a pathless create payload at the handler schema', async () => {
+    const response = await client(scriptedApi()).workspace.create({} as never)
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })

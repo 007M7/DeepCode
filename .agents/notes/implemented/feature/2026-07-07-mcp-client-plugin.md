@@ -153,13 +153,7 @@ Build the child environment from the subprocess seam's shared `scrubbedParentEnv
 
 ### Disconnection / crash
 
-No auto-reconnect. If the MCP server process exits or the transport closes:
-
-1. The effect disposes → all registered tools are unregistered (fiber-scoped disposers).
-2. Subsequent model calls to those tools → `ToolNotFoundError` → `isError: true`.
-3. Recovery: user edits `cordis.yml` (triggers HMR reload) or restarts the harness.
-
-This matches the ACP subagent pattern: "crash = terminal, report error, clean up, don't retry."
+A per-instance connection supervisor reconnects automatically after a lost connection with bounded exponential backoff and a per-outage attempt budget, re-running discovery on success; exhaustion unregisters the server's tools and stops until reload. The [auto-reconnect Agent Note](2026-08-06-mcp-client-auto-reconnect.md) owns that decision, including the `reconnect` config block and the `reconnect.enabled: false` opt-out that restores manual HMR/restart recovery.
 
 ## Alternatives considered
 
@@ -173,7 +167,7 @@ Rejected. There is no foreseeable alternative MCP client implementation — MCP 
 
 ### Auto-reconnect with exponential backoff
 
-Rejected for v1. Adds complexity (partial-availability state where tools are registered but temporarily non-functional), and stdio process crashes usually indicate a configuration problem that retrying won't fix. HMR already provides the manual recovery path. Can be added as a future `reconnect: boolean` config if needed.
+Rejected for v1: it added a partial-availability state (tools registered but temporarily non-functional), and stdio crashes often indicate configuration problems retrying cannot fix; HMR was the recovery path. Operational feedback reversed the deferral — the [auto-reconnect Agent Note](2026-08-06-mcp-client-auto-reconnect.md) implements it with a bounded per-outage budget and an opt-out.
 
 ### Bridge Resources and Prompts
 
@@ -206,9 +200,9 @@ Coverage is named per tier; each behavior lives at the cheapest tier that can ex
 ## Consequences
 
 - A `cordis.yml` entry per MCP server is the entire integration cost: `serverName: filesystem` + a stdio command (or a Streamable HTTP URL) puts `mcp__filesystem__read_file` in the model's tool list, callable, with the raw `read_file` on the wire.
-- Public names are part of session history and permission/config surfaces; the naming algorithm is a v1 contract pinned by tests, and changing it after release is a breaking change.
+- Public names are part of session history and permission/configuration APIs; the naming algorithm is a v1 contract pinned by tests, and changing it after release is a breaking change.
 - The `mcp__<serverName>__` qualifier costs tokens on every name. Accepted: descriptions and JSON schemas dominate tool-definition tokens, and the qualifier buys stable identity, collision isolation, and MCP-wide policy shapes (`mcp__*`, `mcp__github__*`).
 - **MCP SDK stability**: the `@modelcontextprotocol/sdk` is still evolving; breaking changes require updating the bridge. The version is pinned, and the SDK is widely adopted (Claude Desktop, Cursor, VS Code) so breaking changes are unlikely to be silent.
 - **Tool schema quality**: MCP servers may expose poorly-described tools (vague descriptions, incomplete JSON schemas). The harness passes them through as-is — garbage-in-garbage-out; that is the server author's responsibility, not the bridge's.
 - **Stdio process management**: a misbehaving MCP server that ignores signals could wedge dispose. The Cordis fiber disposal has bounded quiescence; a stuck transport eventually times out at the framework level.
-- Crash recovery is manual (HMR edit or restart) — accepted for v1; a `reconnect` config remains open as future work.
+- Crash recovery is automatic within the [reconnect budget](2026-08-06-mcp-client-auto-reconnect.md); manual reload remains the path after exhaustion or with `reconnect.enabled: false`.

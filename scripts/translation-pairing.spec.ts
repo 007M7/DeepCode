@@ -182,6 +182,9 @@ describe('translation pairing records', () => {
 describe('translation scope discovery', () => {
   it.each([
     'README.md',
+    'CONTRIBUTING.md',
+    'CONTRIBUTING.zh.md',
+    'CONTRIBUTING.i18n.yaml',
     'apps/cli/README.md',
     'future/subtree/readme.md',
     'packages/example/README.zh.md',
@@ -195,6 +198,7 @@ describe('translation scope discovery', () => {
 
   it.each([
     'packages/example/guide.md',
+    'packages/example/CONTRIBUTING.md',
     'examples/tutorial.md',
     'website/reference.md',
     'packages/example/README.txt',

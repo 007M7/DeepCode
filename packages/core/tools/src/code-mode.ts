@@ -28,7 +28,7 @@ export const SDK_SECTION_ORDER = 150
  * strings share one source of truth. Keyed by `CodeRuntime.language`, mirroring
  * `SDK_RENDERERS` in {@link ./index.ts}. The emitted flavor MUST match the
  * semantics the same language's SDK instructions promise, so the model never
- * receives a TypeScript-shaped schema beside a Python SDK (or vice versa).
+ * receives a TypeScript schema beside a Python SDK (or vice versa).
  */
 interface RunCodeFlavor {
   /** The tool `description` the model sees for this language. */
@@ -260,7 +260,7 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
 /**
  * Registry-private capabilities the bridge receives at construction — the
  * `requireRuntime` idiom: operations only the owning registry can mint stay
- * off its public service surface and flow here as closures instead.
+ * off its public service API and flow here as closures instead.
  */
 export interface RunCodeBridgeOptions {
   /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
@@ -338,8 +338,8 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
       exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
-      // The per-run scheduler, reusing the NATIVE concurrency contract through
-      // the registry's staged view (the loop scheduler's own boundary) — and the
+      // The per-run scheduler uses the registry's staged interface and follows
+      // the same concurrency rules as the native loop. It also follows the
       // native loop's SEQUENCING: every ordered stage (the dispatch-start
       // append, prepare = pre-execute/guards, finalize/finish = post-execute,
       // context deferral, the settle append) runs inside ONE driver lane, so
@@ -369,7 +369,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
       }
       const pendingQueue: PendingDispatch[] = []
       const inFlight = new Set<Promise<void>>()
-      /** Tracked settle-event side work (log shaping + append), drained at run settlement. */
+      /** Tracked settle-event side work (log-content listener + append), drained at run settlement. */
       const logWork = new Set<Promise<void>>()
       const commitQueue: PendingDispatch[] = []
       let exclusiveActive = false
@@ -394,7 +394,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
         driverRun = (async () => {
           try {
             for (;;) {
-              // Arm before inspecting state so a settle or submission landing
+              // Create the wakeup promise before inspecting state so a settle or submission arriving
               // between the checks and the await below cannot be lost.
               const signal = new Promise<void>((resolve) => { wake = resolve })
               const commitHead = commitQueue[0]
@@ -449,7 +449,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
         // entries, awaits the live pool, and drains the ordered commit lane —
         // including a commit already in progress when the program returned.
         await drive()
-        // Every settle's shaped append lands inside the open run_code turn
+        // Every settle event is appended inside the open run_code turn
         // (tasks self-remove on settlement).
         while (logWork.size > 0) await Promise.allSettled([...logWork])
       }
@@ -483,10 +483,10 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
             | { kind: 'post-result' | 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
             | undefined
           const settle = (result: ToolExecutionResult): void => {
-            // The program gets its value NOW: log shaping (e.g. a spill
-            // backend) must never delay the binding or occupy a dispatch
-            // slot. The shaped append is tracked side work; the run's
-            // settlement drains logWork so every settle event still lands
+            // The program gets its value NOW: the log-content listener (for
+            // example, a spill backend) must never delay the binding or occupy
+            // a dispatch slot. The event append is tracked side work; the run's
+            // settlement drains logWork so every settle event is still appended
             // inside the open turn (shapeDispatchLog is contained, so this
             // chain cannot reject).
             resolve(result.isError
@@ -495,9 +495,9 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
             const agent = exec.agent
             if (agent === undefined) return
             const task: Promise<void> = (async () => {
-              // The durable copy may be reshaped (e.g. spilled to a preview +
-              // locator) by the log-shaping waterfall; the program's value
-              // and the model contract are untouched.
+              // The listener may replace the durable copy with a preview and
+              // locator; the program's value and model-visible result are
+              // untouched.
               const logged = await shapeDispatchLog({
                 exec, agent, subCallId, name, isError: result.isError,
                 // The registry deep-froze this projection at result
@@ -560,16 +560,16 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
               for (const context of result.additionalContexts ?? []) {
                 exec.deferContext(context)
               }
-              // Like the context forwarding above, cross-boundary facts travel
-              // on the nested result and the composite forwards them: only a
-              // successful nested result can carry the terminal marker
+              // The composite forwards `additionalContexts` above and
+              // `concludesTurn` here from the nested result. Only a successful
+              // nested result can carry the terminal marker
               // (ToolExecutionFailure types it never), so a policy-converted
               // failure cannot stop the turn through a recovering program.
               if (result.concludesTurn) exec.concludeTurn()
               settle(result)
-              // Backpressure on the shaped-append side channel: pending log
-              // tasks (each retaining a full result while a slow backend
-              // stores it) are bounded by the pool cap — beyond it the
+              // Backpressure on pending event-append tasks: each task retains
+              // a full result while a slow backend stores it, so the pool cap
+              // bounds their count. Beyond the cap, the
               // ordered lane waits, so later sub-calls cannot start and
               // pending I/O/memory cannot grow without bound.
               while (logWork.size > maxParallel) await Promise.race(logWork)
@@ -578,7 +578,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
           wakeup()
           void drive()
         })
-        // A budget expiry or outer cancel that lands while this call was in
+        // A budget expiry or outer cancel that occurs while this call was in
         // flight already aborted the dispatch; stop the program now rather
         // than hand it a result from a run that is over.
         if (runOver()) {
@@ -646,7 +646,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
       kind: 'execute',
       rawInput: args.code,
     }),
-    // Deliberately no presentResult: the generic surface fallback keeps this
+    // Deliberately no presentResult: the generic card fallback keeps this
     // title and reads durable result content without duplicating a large raw
     // result into the host view payload.
   })
@@ -661,7 +661,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
   Object.defineProperty(definition, 'parameters', {
     enumerable: true,
     // Recompile through the same spec→schema projection defineTool used, so
-    // the emitted shape can never drift from the validated one.
+    // the emitted schema always matches the validated specification.
     get: () => parameterSchemaSpecToJsonSchema({
       code: { type: 'string', required: true, description: resolveFlavor(peekRuntime).codeDescription },
       description: { type: 'string', required: true, description: RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION },

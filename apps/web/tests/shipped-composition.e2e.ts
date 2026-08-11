@@ -5,6 +5,7 @@
 // surface itself.
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the tools/sandboxPolicy/approval Context merges.
@@ -12,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-permission'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-commands'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
@@ -34,9 +36,9 @@ const EXPECTED_TOOLS = [
   'list_agents',
   'ralph',
   'read',
+  'read_image',
   'send_message',
   'skill',
-  'str_replace_editor',
   'subagent',
   'subagent_fork',
   'task_kill',
@@ -66,15 +68,30 @@ afterEach(async () => {
 
 it('assembles the shipped Web catalog with the confined access default', async () => {
   scaffold = await launchWebScaffold()
-  const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
-  expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
-  // The packaged ripgrep binary ships with the dependency, so the pair is a
-  // fixed roster member on every host.
-  expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
+  const ctx = scaffold.ctx
+  // The catalog belongs to an AGENT, not to the process: every model-facing row
+  // now lives in a preset mounted under one session's scope, so the global
+  // layer holds nothing and a caller must name the agent to see anything. This
+  // composes from the deployment default — what a session that names no preset
+  // gets — which is the shape this test has always been about.
+  expect(ctx.tools.schemas().map(schema => schema.name)).toEqual([])
+  const handle = await ctx.agents.create({
+    sessionId: SessionId('shipped-composition'),
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+  })
+  try {
+    const names = ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()
+    expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
+    // The packaged ripgrep binary ships with the dependency, so the pair is a
+    // fixed roster member on every host.
+    expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
+  } finally {
+    await handle.dispose()
+  }
   // `workspace-write` is not "the workspace and nothing else": the shared roots
   // helper always admits the temp directories too. Pinning it against an
   // explicit mode keeps the claim independent of this surface's default, and
-  // keeps a future boundary test from being run inside /tmp — where an
+  // keeps a future sandbox-confinement test from being run inside /tmp — where an
   // "escape" write succeeds by design and reads as a sandbox failure.
   expect(writableRoots(scaffold.ctx.sandboxPolicy.resolve({ mode: 'workspace-write' }))).toEqual(
     expect.arrayContaining([canonicalPath('/tmp'), canonicalPath(tmpdir())]),
@@ -83,17 +100,78 @@ it('assembles the shipped Web catalog with the confined access default', async (
   expect(scaffold.ctx.approval.config.policy).toBe('ask')
   expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
 
-  const handle = await scaffold.ctx.agents.create({
+  const commandHandle = await scaffold.ctx.agents.create({
     sessionId: SessionId('shipped-command-catalog'),
     meta: { cwd: scaffold.workspaceCwd },
     agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   try {
-    expect(scaffold.ctx.commands.list(handle.agent)).toContainEqual({
+    expect(scaffold.ctx.commands.list(commandHandle.agent)).toContainEqual({
       name: 'feedback',
       description: 'record feedback about this session',
       input: { hint: '<text>' },
     })
+  } finally {
+    await commandHandle.dispose()
+  }
+}, 120_000)
+
+it('lets a preset producer reach the background-task registry', async () => {
+  scaffold = await launchWebScaffold()
+  const ctx = scaffold.ctx
+  const handle = await ctx.agents.create({
+    sessionId: SessionId('shipped-background-task'),
+    meta: { cwd: scaffold.workspaceCwd },
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+  })
+  try {
+    const signal = new AbortController().signal
+    // `tool-bash` is a preset row and `tasks` is a host registry; the producer
+    // resolves it with `ctx.get`, so a registry hidden behind a preset realm
+    // fails here — with every task control still listed in the catalog above.
+    const started = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-bash-background'),
+      name: 'bash',
+      arguments: {
+        command: 'printf SHIPPED_BACKGROUND_OK',
+        description: 'shipped background probe',
+        run_in_background: true,
+      },
+      agent: handle.agent,
+    })
+    expect({ isError: started.isError, content: started.content }).toEqual({
+      isError: false,
+      content: [{ type: 'text', text: 'started background task bash-1' }],
+    })
+
+    // The controller reads what the producer started: same registry, one
+    // owner. A per-preset registry would list nothing here even on success.
+    const listed = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-task-list'),
+      name: 'task_list',
+      arguments: {},
+      agent: handle.agent,
+    })
+    expect(listed.isError).toBe(false)
+    expect(listed.content).toEqual([
+      { type: 'text', text: expect.stringContaining('bash-1 [bash]') as unknown as string },
+    ])
+
+    // The full round trip: the output a host-plane producer wrote is collected
+    // through a preset-plane control, which is the linkage the realm severed.
+    const collected = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-task-output'),
+      name: 'task_output',
+      arguments: { task_id: 'bash-1', wait: true },
+      agent: handle.agent,
+    })
+    expect(collected.isError).toBe(false)
+    expect(collected.content).toEqual([
+      { type: 'text', text: expect.stringContaining('SHIPPED_BACKGROUND_OK') as unknown as string },
+    ])
   } finally {
     await handle.dispose()
   }

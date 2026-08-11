@@ -38,7 +38,7 @@ const ERROR_ALREADY_EXISTS = 183
 
 let bindings: Win32Bindings | undefined
 
-/** Load the small Win32 surface lazily so non-Windows processes never load Koffi. */
+/** Load the small Win32 API lazily so non-Windows processes never load Koffi. */
 async function win32(): Promise<Win32Bindings> {
   if (bindings !== undefined) return bindings
   const koffi = (await import('koffi')).default
@@ -91,7 +91,10 @@ function isEEXIST(error: unknown): boolean {
 
 async function assertDirectory(path: string): Promise<boolean> {
   try {
-    const info = await stat(path)
+    // A bare drive root is already short, and Node rejects its extended-length
+    // spelling as EISDIR. Descendants retain the namespace for long-path probes.
+    const probe = path === parse(path).root ? path : toNamespacedPath(path)
+    const info = await stat(probe)
     if (info.isDirectory()) return true
     const error = new Error(`path exists but is not a directory: ${path}`) as NodeJS.ErrnoException
     error.code = 'ENOTDIR'
@@ -141,7 +144,7 @@ export async function ensureDurableDirectoryWin32(target: string): Promise<void>
 async function createLeafDirectoryWin32(parent: string, target: string): Promise<void> {
   // Keep the staging component independent of the target basename so a legal
   // 255-byte target component does not make mkdtemp's sibling name too long.
-  const staging = await mkdtemp(join(parent, '.dsh-mkdir-'))
+  const staging = await mkdtemp(toNamespacedPath(join(parent, '.dsh-mkdir-')))
   try {
     await publishNewFileWin32(staging, target)
   } catch (error) {

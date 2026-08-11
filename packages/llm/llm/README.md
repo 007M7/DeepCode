@@ -6,7 +6,7 @@ Provider-neutral LLM vocabulary and abstract service. This package defines the c
 
 ## Service: `LlmService` (ctx key: `llm`)
 
-An adapter registry plus a single streaming call surface, interceptable via a waterfall event.
+An adapter registry plus a single streaming call API, interceptable via a waterfall event.
 
 ### Public API
 
@@ -73,7 +73,7 @@ Every adapter that puts a credential in an HTTP header judges it the same way be
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and can create an identified, frozen assistant message from them. The agent loop feeds it raw chunks (logging them for replay) while reading the assembled blocks for history.
 - `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at process boundaries.
 - `LlmError` — extends `HarnessError`; its stable `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) matches its frozen serializable `failure.code`. The payload may also retain validated status, `Retry-After`, and branded provider request id facts; policy remains outside the error.
-- `errorChain(value)` — renders a thrown value with its full `cause` chain and AggregateError members for diagnostic surfaces (UI notices, logger lines, durable `turn/end` messages), so transport wrappers like undici's `TypeError: fetch failed` surface the underlying `ECONNREFUSED`/DNS/TLS detail instead of masking it. Rendering only — route on `code`, never by parsing the result.
+- `errorChain(value)` — renders a thrown value with its full `cause` chain and AggregateError members for diagnostic outputs (UI notices, logger lines, durable `turn/end` messages), so transport wrappers like undici's `TypeError: fetch failed` surface the underlying `ECONNREFUSED`/DNS/TLS detail instead of masking it. Rendering only — route on `code`, never by parsing the result.
 - `CONTEXT_WINDOW_EXCEEDED_CODE` — the provider-neutral code both DeepSeek adapters use when a request exceeds the model context window, regardless of thrown-HTTP versus in-band finish delivery. `isContextWindowExceededError(detail)` is their shared conservative classifier for OpenAI-compatible provider detail.
 - `QUOTA_EXCEEDED_CODE` — the non-transient provider-neutral code for exhausted account quota, balance, credits, budget, or usage limits. `isQuotaExceededError(detail)` keeps those failures distinct from request-rate limits.
 - `EMPTY_RESPONSE_CODE` — the provider-neutral code both adapters use for a degenerate provider completion: a terminal `stop` that carried no content blocks at all. Classified as an error finish (not a successful empty message) because the attempt produced nothing durable; `dsh-llm-retry` retries it by default.

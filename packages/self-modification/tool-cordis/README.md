@@ -14,7 +14,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 Canonical successes are the inspection string, mount `{ id, pluginName, state, provides, waitingFor }`, and unmount `{ id, pluginName }`. Native rendering says whether the temporary Plugin is running or pending and that it remains available until unmounted or DSH restarts; unmount confirms that it was removed.
 
-Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
+Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement an SDK Plugin or installable profile bundle through the regular development workflow.
 
 ## Trust stance
 
@@ -87,3 +87,4 @@ Mounting or unmounting a prompt or tool contribution changes later request prefi
 - **The sandbox is containment for honest code, not a security boundary** — host-realm helpers on the sandbox global are reachable, so mount code can reach Node; load this plugin as deliberately as you would grant a bash tool (see § Trust stance).
 - **The `ctx` façade exposes no `effect()`** — mount code cannot register a bespoke disposer; `on`/`provide`/`tools.register` are the supported cleanup paths.
 - **`vmTimeoutMs` bounds only synchronous evaluation** — an async mount body escapes it; there is no async budget on mount code.
+- **Temporary Plugins belong to the composition, not to the session that mounted one** — the group fiber and the `dyn-N` table are this row's own, so every agent the row covers shares them: registered inside an agent preset's standing mount, one session's mount is visible in another session's tool catalog and `cordis_inspect what:"temporary"`, and the second mount of an id replaces the first. Several sessions running one preset concurrently is where that becomes observable. Per-session temporary plugins would need the group and table keyed by the calling agent.

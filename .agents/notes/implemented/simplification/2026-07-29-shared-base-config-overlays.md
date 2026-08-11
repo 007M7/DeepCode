@@ -22,7 +22,7 @@ Precedence is list order, last write winning per row: base, then the surface ove
 
 `--config <path>` now applies an overlay **instead of** the personal overlay, so a demo or test tree never inherits the user's provider and model. `--config-replace <path>` boots a file as the entire tree, bypassing base, surface overlay, and personal overlay alike; that is what the old `--config` did, so trees like `examples/web-cordis` moved to the new flag. Both flags survive the `/resume` execve handoff, or resuming would silently change the agent.
 
-A patch replaces its target row's whole `config` rather than merging, which shapes the split: a row whose value differs per surface lives in the overlays, never in the base, so no row is patched by three layers at once. Session identity therefore cannot ride a config key at all — it moved to `dsh-agent-loop`'s `CONFIGURED_AGENT_IDENTITIES_KEY`, as the launcher-owned identity record documented.
+A patch replaces its target row's whole `config` rather than merging. Therefore, a row whose value differs per surface lives in the overlays, never in the base, so no row is patched by three layers at once. Session identity cannot ride a config key at all — it moved to `dsh-agent-loop`'s `CONFIGURED_AGENT_IDENTITIES_KEY`, as the launcher-owned identity record documented.
 
 `examples/tui-agent`, `examples/cordis-agent`, `examples/code-mode`, and `packages/examples/tui-demo` are deleted. The TUI tests move to `apps/cli/tests/`, the cordis-toolset e2e to `packages/self-modification/tool-cordis/tests/`, and the supported Code Mode demo remains the ACP overlay at `examples/acp-agent/code-mode.cordis.yml`.
 

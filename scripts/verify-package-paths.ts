@@ -68,7 +68,7 @@ function isDriftedPackageReference(ref: string): boolean {
   // A missing reference is drift only when a path segment names a live package.
   // A leading segment that is itself an existing group directory is explained by
   // the group, not by a relocated leaf sharing its name (`client` is both the
-  // client-modules group and the scaffold leaf), so only later segments count.
+  // client-modules group and the sdk leaf), so only later segments count.
   const segments = ref.split('/').slice(1)
   const [group] = segments
   const scanned = group !== undefined && segments.length > 1 && existsSync(resolve(root, 'packages', group))

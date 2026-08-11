@@ -12,9 +12,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
-import { Context } from 'cordis'
-import { getOrCreateAnonymousUserId } from '../src/user-id.ts'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import TelemetryOtel, { Config, DEFAULT_TELEMETRY_MODE, TelemetryMode } from '../src/index.ts'
@@ -361,6 +361,31 @@ describe('TelemetryOtel wire', () => {
     await fiber.dispose()
     recordFeedback(session, 'after disposal')
     expect(warn).toHaveBeenCalledTimes(1)
+    expect(captures).toEqual([])
+  })
+
+  it('discloses the sharing policy for every mode', async () => {
+    const { url, captures } = await mockCollector()
+
+    const fullCtx = new Context()
+    await fullCtx.plugin(SessionStore)
+    const full = await fullCtx.plugin(TelemetryOtel, { exporter: { url } })
+    expect(fullCtx.telemetry.sharing).toBe('full')
+    await full.dispose()
+
+    const gatedCtx = new Context()
+    await gatedCtx.plugin(SessionStore)
+    const gated = await gatedCtx.plugin(TelemetryOtel, { mode: TelemetryMode.FEEDBACK_ONLY, exporter: { url } })
+    expect(gatedCtx.telemetry.sharing).toBe('feedback-only')
+    await gated.dispose()
+
+    const disabledCtx = new Context()
+    await disabledCtx.plugin(SessionStore)
+    const disabled = await disabledCtx.plugin(TelemetryOtel, { mode: TelemetryMode.DISABLED })
+    expect(disabledCtx.telemetry.sharing).toBe('disabled')
+    await disabled.dispose()
+
+    // No record was emitted by any mode, so nothing reached the collector.
     expect(captures).toEqual([])
   })
 

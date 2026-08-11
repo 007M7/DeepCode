@@ -15,7 +15,7 @@ import type { CommandHook, HookOutput } from './types.ts'
  * Claude Code and Codex apply to a hook whose config sets no `timeout`. It
  * lives here, once, as the protocol's default; the bridges' `defaultTimeoutMs`
  * config defaults to it, and a per-hook {@link CommandHook.timeoutSec} is the
- * override surface.
+ * override API.
  */
 export const DEFAULT_HOOK_TIMEOUT_MS = 600_000
 

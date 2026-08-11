@@ -23,16 +23,19 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-workspace/`](ui-workspace/README.md) | 提供 Workspace 选择与创建界面。 |
 | [`ui-conversation/`](ui-conversation/README.md) | 展示当前会话及其输入界面。 |
 | [`ui-tool/`](ui-tool/README.md) | 编排工具调用树和按工具键控的视图。 |
+| [`ui-workflow-run/`](ui-workflow-run/README.md) | 把持久工作流运行回放为 Chat 嵌套折叠项，并只为实时子 Session 提供导航。 |
 | [`ui-goal/`](ui-goal/README.md) | 展示和管理当前目标。 |
 | [`ui-trajectory/`](ui-trajectory/README.md) | 提供 agent（智能体）活动的其他视图。 |
 | [`ui-command/`](ui-command/README.md) | 提供会话感知的命令发现与分发。 |
 | [`ui-slash/`](ui-slash/README.md) | 协调内联命令和引用建议。 |
 | [`ui-skill/`](ui-skill/README.md) | 向内联建议添加 skill（技能）引用。 |
 | [`ui-subagent/`](ui-subagent/README.md) | 提供 subagent 导航、子会话记录状态和内联引用。 |
+| [`ui-task/`](ui-task/README.md) | 在会话标题栏列出当前会话的后台任务。 |
 | [`ui-model/`](ui-model/README.md) | 在会话界面中提供模型选择。 |
 | [`ui-permission/`](ui-permission/README.md) | 配置默认权限并切换当前会话的访问模式。 |
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |
 | [`ui-question/`](ui-question/README.md) | 展示 agent 请求的交互式问题。 |
+| [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并创作预设组装。 |
 | [`ui-settings/`](ui-settings/README.md) | 承载设置界面及其扩展区域。 |
 | [`ui-settings-general/`](ui-settings-general/README.md) | 提供常规设置分区。 |
 | [`ui-models/`](ui-models/README.md) | 提供模型提供方配置与 DeepSeek 配置引导。 |

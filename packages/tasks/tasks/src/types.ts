@@ -1,27 +1,14 @@
 /**
- * Types shared by task producers, the registry, and control surfaces. The
+ * Types shared by task producers, the registry, and controllers. The
  * service implementation lives in `./index.ts`.
  * @module @deepseek-ai/dsh-tasks/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { TaskId } from './brand.ts'
 
-/**
- * Identifies a background task. The registry generates `<kind>-N`; predictable
- * ids rely on owner authorization rather than secrecy.
- */
-export type TaskId = Branded<'TaskId'>
-
-/**
- * Brand a string as a {@link TaskId}.
- * @param id - the raw task-id string (the registry generates `<kind>-N`).
- * @returns the same string, branded; no validation is performed.
- */
-export function TaskId(id: string): TaskId {
-  return id as TaskId
-}
+export { TaskId } from './brand.ts'
 
 /**
  * Task lifecycle: `running`, optionally `stopping`, then exactly one terminal
@@ -63,7 +50,7 @@ export interface TaskStart {
   label: string
   /**
    * Optional UTF-8 byte cap for each complete model-facing completion notice or
-   * output read, including control-surface status metadata.
+   * output read, including controller status metadata.
    */
   outputLimitBytes?: number
   /**
@@ -132,7 +119,7 @@ export interface TaskSnapshot {
   finishedAt?: number
   /**
    * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion surfaces suppress redundant notices when set.
+   * terminal state. Completion reporters suppress redundant notices when set.
    */
   reported: boolean
 }
@@ -157,3 +144,14 @@ export type TaskDoneListener = (
   snapshot: TaskSnapshot,
   owner: Agent | undefined,
 ) => void | PromiseLike<void>
+
+/**
+ * Observation callback for a change to what one owner's {@link TaskService.list}
+ * would return. It is owner-granular rather than task-granular because the
+ * change may be a removal, which no per-task record can express, and because
+ * its consumers re-read the whole visible set anyway.
+ *
+ * An `undefined` owner means an unowned task changed, so every caller's visible
+ * set changed with it.
+ */
+export type TasksChangedListener = (owner: Agent | undefined) => void

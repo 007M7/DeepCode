@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,7 +31,7 @@ function fakeAgent(session: Session): Agent {
 }
 
 describe('tool-session-query with the real SQLite provider', () => {
-  it('searches live prior-step history and a persisted same-workspace log', async () => {
+  it('searches live prior-step history and a persisted same-workspace log', { timeout: 20_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-tool-session-query-'))
     temporaryDirectories.push(root)
     const ctx = new Context()

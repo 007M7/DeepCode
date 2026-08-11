@@ -18,7 +18,7 @@ Background subagents use the [generic background task runtime](../architecture/2
 
 Foreground calls retain their synchronous contract: await provider startup and `run.result`, return final text only for `completed`, map other terminal reasons to an errored tool result, and always dispose the run before returning.
 
-For a background call, the tool validates the parent and refuses an already-aborted execution signal before calling `ctx.tasks.start()`. The task runtime preflights the control surface and owner cleanup before invoking the producer starter. That starter creates an independent `AbortController` and begins `ctx.subagents.start()`; after the id is returned, the tool-call signal no longer owns the child.
+For a background call, the tool validates the parent and refuses an already-aborted execution signal before calling `ctx.tasks.start()`. The task runtime preflights the control API and owner cleanup before invoking the producer starter. That starter creates an independent `AbortController` and begins `ctx.subagents.start()`; after the id is returned, the tool-call signal no longer owns the child.
 
 The task registration maps the subagent seam as follows:
 
@@ -53,11 +53,11 @@ Agents and logs may be session-scoped, but the task registry and predictable ids
 
 ### Incremental child transcript output
 
-Streaming child history into the parent would blur the log boundary and make provider behavior diverge. This surface exposes final output only; richer observation belongs to session or UI tooling.
+Streaming child history into the parent would blur the log boundary and make provider behavior diverge. This tool exposes final output only; richer observation belongs to session or UI tooling.
 
 ## Testing
 
-Unit coverage pins stop-reason mapping, dispose-before-report behavior, startup and result failures, pre-aborted refusal, detachment from the starting call's signal, cancellation before and after provider publication, collection through the real task tools, the no-surface preflight fence, missing-runtime failure, and per-instance schema gating. Snapshot coverage pins the model-facing schemas.
+Unit coverage pins stop-reason mapping, dispose-before-report behavior, startup and result failures, pre-aborted refusal, detachment from the starting call's signal, cancellation before and after provider publication, collection through the real task tools, the no-controller preflight fence, missing-runtime failure, and per-instance schema gating. Snapshot coverage pins the model-facing schemas.
 
 ## Consequences
 

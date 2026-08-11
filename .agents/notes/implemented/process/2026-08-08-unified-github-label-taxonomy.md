@@ -27,18 +27,18 @@ The kind set is closed and mutually exclusive:
 | `kind/cleanup` | Preserves behavior while maintaining or simplifying implementation or repository process. |
 | `kind/dependency` | Updates dependencies without another dominant intent. |
 
-The kind records the dominant intent. Accompanying tests, documentation, cleanup, or dependency movement do not override a feature or bug fix. A new kind changes this classification contract and requires an explicit taxonomy and policy change.
+The kind records the dominant intent. Accompanying tests, documentation, cleanup, or dependency movement do not override a feature or bug fix. A new kind changes these classification rules and requires an explicit taxonomy and policy change.
 
 Repository policy rejects unsupported `kind/*` values and reserves every alias removed by the unification: `kind/bug`, `kind/documentation`, `feature`, `bug-fix`, `doc`, `cleanup`, `testing`, `dependencies`, `ci`, `cli`, `llm`, and `web-search`. Reserving the exact migrated set prevents an obsolete synonym from being recreated as an apparently unrelated operational label.
 
 ### Areas
 
-Areas name durable semantic domains rather than temporary initiatives, ownership, or every path touched incidentally. A pull request carries multiple areas when it changes distinct contracts, but it does not combine an umbrella and a narrower label for the same contract. GitHub's live `area/*` names and descriptions own the current inventory; this record owns the selection rule and the non-obvious boundaries that cannot fit reliably in short label descriptions.
+Areas name durable product or engineering subjects rather than temporary initiatives, ownership, or every path touched incidentally. A pull request carries multiple areas when it changes distinct behavior or APIs, but it does not combine an umbrella and a narrower label for the same change. GitHub's live `area/*` names and descriptions own the current inventory; this record defines selection cases that cannot fit reliably in short label descriptions.
 
 - `area/web` covers browser and Electron graphical interfaces, `area/vscode` covers the editor extension, and `area/api` covers cross-interface protocols and language SDKs.
 - `area/planning` covers goals, plans, todos, and scheduling, while `area/workflow` covers executable workflows and background task runtimes.
 - `area/artifact` deliberately combines artifacts, attachments, and multimodal delivery. Split labels become justified only when those concerns again need independent review or queries.
-- `area/tools` applies to generic registry, schema, and execution contracts. A concrete capability uses its own area unless it also changes that generic contract.
+- `area/tools` applies to generic registry, schema, and execution contracts. A concrete capability uses its own area unless it also changes one of those contracts.
 - `area/hooks` means the Claude Code and Codex bridges, `area/infra` covers build, release, CI, repository gates, generators, dependencies, and developer tooling, and `area/windows` covers native Windows product support rather than CI runner selection.
 
 The area set is intentionally extensible. When no existing description honestly covers a durable and reusable domain, an agent may create a concise `area/<lowercase-kebab-case>` label without separate approval. It must not create an area for one pull request, an incidental path, a temporary project, a status, or a person or team, and it reports the new label and rationale to the requester after applying it. Reusing an inaccurate area merely to avoid a justified addition is not acceptable.
@@ -61,11 +61,11 @@ Label migrations preserve meaning before removing aliases: add the canonical rep
 
 **Separate labels for every delivery shell or media lifecycle.** Browser and Electron delivery share one graphical domain, and artifact, attachment, and multimodal delivery currently share one review/query domain. A split belongs in a later taxonomy change only when it restores useful independent classification.
 
-**Broad implementation labels in place of semantic domains.** A concrete capability is not merely its tool, interface, filesystem, or process implementation. Generic implementation areas apply only when their own contracts change.
+**Broad implementation labels in place of product or engineering subjects.** A concrete capability is not merely its tool, interface, filesystem, or process implementation. Generic implementation areas apply only when their own behavior or API changes.
 
 **Kinds on Issues.** Native Issue Type already owns that classification; duplicating it as a label creates drift.
 
-**Exactly one area per pull request.** Coherent changes can materially affect several independent contracts, and dropping secondary areas hides affected scope.
+**Exactly one area per pull request.** Coherent changes can materially affect several independent APIs or behaviors, and dropping secondary areas hides affected scope.
 
 ## Consequences
 

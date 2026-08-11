@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
@@ -14,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { remediateFsError } from './error.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
-import type { FsSandboxSurface } from './sandbox.ts'
+import type { FsSandboxController } from './sandbox.ts'
 
 /**
  * Validate value constraints the schema DSL can't express: only a non-blank
@@ -43,7 +43,7 @@ ${verb} file
 }
 
 /**
- * The `write` tool's validated argument shape: the base parameters plus the
+ * The `write` tool's validated arguments: the base parameters plus the
  * two escalation fields, advertised only under a confining `ctx.fs` (absent
  * from the schema otherwise, so the validator rejects them before `execute`).
  */
@@ -57,9 +57,9 @@ interface WriteToolArgs {
 /**
  * Register the `write` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
- * @param sandbox - the shared sandbox-escalation surface (advertisement, mode stamping, denial mapping).
+ * @param sandbox - the shared sandbox-escalation API (advertisement, mode stamping, denial mapping).
  */
-export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
+export function applyWriteTool(ctx: Context, sandbox: FsSandboxController): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,

@@ -40,7 +40,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 ### Maintenance is the author's job, with a gate backstop
 
-`verify-type-equiv` catches a *drifted paste* of an already-documented type, but it cannot tell you a brand-new core type went undocumented. So AGENTS.md and the `dsh-code-review` skill were updated to require keeping the catalog in sync when a change adds or reshapes a documented type — the gate handles drift, the human handles new surface.
+`verify-type-equiv` catches a *drifted paste* of an already-documented type, but it cannot tell you a brand-new core type went undocumented. So AGENTS.md and the `dsh-code-review` skill were updated to require keeping the catalog in sync when a change adds or reshapes a documented type — the gate handles drift, the human handles new types.
 
 ## Alternatives considered
 

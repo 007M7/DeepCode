@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-locale'
 import { apply as clientApply, COMMON_NS, LocaleService, inject } from '@deepseek-ai/dsh-client-locale/client'
 import * as LocaleInvariant from '@deepseek-ai/dsh-client-locale/invariant'
@@ -14,16 +14,16 @@ describe('invariant companion', () => {
     await expect(ctx.plugin(LocaleInvariant).await()).resolves.toBeDefined()
   })
 
-  it('node-half apply is a no-op host placeholder', () => {
-    nodeApply()
-    expect(true).toBe(true) // reaching here without throw is the contract
+  it('node-half apply tolerates a Host without settings', () => {
+    nodeApply(new Context())
   })
 
   it('client apply provides ctx.locale seeded with the zh/en common namespace', async () => {
     // The feature registers its own Language settings row, hence the slots edge.
-    expect(inject).toEqual(['slots'])
+    expect(inject).toEqual(['slots', 'connection'])
     const ctx = new Context()
     new SlotsService(ctx)
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     await ctx.plugin({ inject, apply: clientApply }).await()
     const locale = ctx.get('locale')
     expect(locale).toBeInstanceOf(LocaleService)

@@ -15,6 +15,8 @@ import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import { copyFileDaclWin32, replaceFileWin32 } from './win32.ts'
 
 const BINARY_SAMPLE_BYTES = 8192
+// Bound one non-abortable FileHandle.read so cancellation is observed between chunks.
+const DIFF_BASIS_READ_CHUNK_BYTES = 64 * 1024
 
 function isENOENT(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -74,9 +76,8 @@ function versionOf(info: BigIntStats): FsVersion {
 }
 
 /**
- * Test hook: lets specs pin the atomic-write temp names (to prove
- * exclusive-open behavior without a name race) and observe the staged temp
- * file before it is renamed over the target.
+ * Test hook: lets specs pin the atomic-write temp names (to prove exclusive-open behavior without
+ * a name race), override native boundaries, and observe the staged temp file before publication.
  */
 export interface FsIoInternals {
   /** Override the host platform for native-publication unit coverage. */
@@ -97,6 +98,8 @@ export interface FsIoInternals {
   removeStagingDir?: (stagingDir: string) => Promise<void>
   /** Test hook after the temp file is written/synced but before final chmod+publication. */
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
+  /** Test hook after raw-read stat preflight and before bounded content I/O. */
+  inspectReadBytesAfterStat?: (target: LocalTarget) => void | Promise<void>
 }
 
 /** A resolved local path: the absolute path shown to callers and its realpath identity. */
@@ -380,6 +383,50 @@ export async function readWholeText(target: LocalTarget, signal?: AbortSignal): 
 }
 
 /**
+ * Read a whole regular file as raw bytes with no decoding or binary rejection.
+ * `maxBytes` bounds the complete content: the stat size short-circuits an
+ * oversized file before any content I/O, and the stream reads at most one byte
+ * beyond the cap so a file growing after stat cannot cause unbounded buffering.
+ * @param target - the resolved file to read.
+ * @param signal - aborts the read (`FS_ABORTED`).
+ * @param maxBytes - inclusive byte cap on the complete content (`FS_TOO_LARGE`).
+ * @param internals - test seam for a deterministic post-stat growth race.
+ * @returns the full raw content, at most `maxBytes` long.
+ */
+export async function readWholeBytes(
+  target: LocalTarget,
+  signal: AbortSignal | undefined,
+  maxBytes: number,
+  internals: FsIoInternals = {},
+): Promise<Uint8Array> {
+  const info = await statRegularFile(target, 'read', signal)
+  if (info.size > maxBytes) {
+    throw new FsError(`cannot read "${target.displayPath}": ${info.size} bytes exceeds the ${maxBytes}-byte limit`, 'FS_TOO_LARGE')
+  }
+  await internals.inspectReadBytesAfterStat?.(target)
+  const stream = createReadStream(target.targetKey, {
+    end: maxBytes,
+    ...signal ? { signal } : {},
+  })
+  const chunks: Buffer[] = []
+  let bytes = 0
+  try {
+    for await (const chunk of stream as AsyncIterable<Buffer>) {
+      bytes += chunk.length
+      if (bytes > maxBytes) {
+        throw new FsError(`cannot read "${target.displayPath}": content exceeds the ${maxBytes}-byte limit`, 'FS_TOO_LARGE')
+      }
+      chunks.push(chunk)
+    }
+  } catch (error: unknown) {
+    /* v8 ignore next 2 -- a mid-stream abort needs cancellation racing an active read; pre-abort is deterministic. */
+    if (isAbortError(error)) throw new FsError('read aborted', 'FS_ABORTED')
+    throw error
+  }
+  return Buffer.concat(chunks, bytes)
+}
+
+/**
  * Stream a whole regular UTF-8 text file as decoded text chunks. Same text
  * semantics as {@link readWholeText} (regular-file check, binary/NUL rejection,
  * cross-chunk UTF-8 decoding), but never holds the whole file in memory.
@@ -634,21 +681,67 @@ export async function readForEdit(
 }
 
 /**
- * Best-effort overwrite diff basis. Binary or invalid UTF-8 returns `null` so the write still
- * succeeds and presentation falls back to a whole-file diff.
- * @param absolutePath - the file to read (typically a target key); it must exist.
- * @param signal - aborts the read (`FS_ABORTED`).
- * @returns the LF-normalized text, or null for a binary or non-UTF-8 file.
+ * Best-effort overwrite diff basis. Binary, invalid UTF-8, a file at/above the byte limit,
+ * or a file deleted/made unreadable after the caller's preflight returns `null` so the write
+ * still succeeds and presentation falls back to a whole-file diff. The bound is enforced on
+ * the opened descriptor rather than a prior path stat, so concurrent external replacement or
+ * size changes cannot make this helper buffer more than `maxBytes`.
+ * @param absolutePath - the file to read (typically a target key).
+ * @param maxBytes - exclusive upper bound for bytes held as the contextual-diff basis.
+ * @param signal - aborts the read (`FS_ABORTED`); cancellation propagates, unlike I/O failure.
+ * @returns the LF-normalized text, or null for a non-regular, at/above-limit, binary, non-UTF-8,
+ * descriptor-size-changed, or unreadable file.
  */
-export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
-  const buffer = await readFileAbortable(absolutePath, 'read', signal)
-  if (buffer.includes(0)) return null
+export async function readTextForDiff(
+  absolutePath: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  throwIfAborted(signal, 'read')
   try {
-    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(buffer))
+    const handle = await open(absolutePath, 'r')
+    let buffer: Buffer
+    let total = 0
+    let openedSize = 0
+    try {
+      throwIfAborted(signal, 'read')
+      const info = await handle.stat()
+      throwIfAborted(signal, 'read')
+      if (!info.isFile()) return null
+      if (info.size >= maxBytes) return null
+      openedSize = info.size
+      // One extra byte detects growth after stat without retaining per-read backing buffers.
+      buffer = Buffer.allocUnsafe(openedSize + 1)
+      while (total < buffer.length) {
+        throwIfAborted(signal, 'read')
+        const length = Math.min(buffer.length - total, DIFF_BASIS_READ_CHUNK_BYTES)
+        const { bytesRead } = await handle.read(buffer, total, length, null)
+        if (bytesRead === 0) break
+        total += bytesRead
+      }
+    } finally {
+      await handle.close()
+    }
+    throwIfAborted(signal, 'read')
+    if (total !== openedSize) return null
+    const basis = buffer.subarray(0, total)
+    if (basis.includes(0)) return null
+    try {
+      return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(basis))
+    } catch (error: unknown) {
+      /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes;
+       * any other throw is an unreachable runtime fault. */
+      if (!(error instanceof TypeError)) throw error
+      return null
+    }
   } catch (error: unknown) {
-    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
-    if (!(error instanceof TypeError)) throw error
-    return null
+    // Cancellation is the caller's intent and still propagates.
+    if (error instanceof FsError) throw error
+    // A descriptor-phase errno — deleted or made unreadable after the caller's
+    // preflight, or a faulted read — costs only the optional basis: a committed
+    // write must not fail for a presentation-only pre-read.
+    if (error instanceof Error && 'code' in error) return null
+    throw error
   }
 }
 

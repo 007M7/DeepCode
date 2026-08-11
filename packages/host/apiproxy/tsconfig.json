@@ -30,6 +30,9 @@
       "path": "../../util/brand"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -37,6 +40,9 @@
     },
     {
       "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../preset/agent-presets"
     },
     {
       "path": "../../core/session"
@@ -67,6 +73,9 @@
     },
     {
       "path": "../../skill/skill"
+    },
+    {
+      "path": "../../tasks/tasks"
     },
     {
       "path": "../../interaction/commands"
