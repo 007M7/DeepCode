@@ -27,10 +27,10 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../scaffold/client"
+      "path": "../../sdk/client"
     },
     {
-      "path": "../../scaffold/protocol"
+      "path": "../../sdk/protocol"
     },
     {
       "path": "../subagent"

@@ -46,7 +46,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境叠加 `.env` 提供方 | 产品：稳定接口 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定接口 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定接口 |
-| [`scaffold/`](scaffold/README.md) | 创建／启动／驱动项目的工具：helper、启动器、初始化器、带两端的通信协议、启动器 telemetry | 产品：稳定接口 |
+| [`sdk/`](sdk/README.md) | 进程外运行时 SDK：JSON-RPC 协议、TypeScript 客户端和服务器插件 | 产品：稳定接口 |
 | [`acp/`](acp/README.md) | 仅面向自动化的 Agent Client Protocol 服务器 | 产品：稳定接口 |
 | [`interaction/`](interaction/README.md) | 人机协作平面：批准／交互 seam、权限预设、命令、用户问答工具 | 产品：稳定接口 |
 | [`boot/`](boot/README.md) | 共享的 app bin 启动粘合层 | 产品：稳定接口 |
