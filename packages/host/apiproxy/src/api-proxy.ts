@@ -43,10 +43,13 @@ import type {
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
+  DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+  flushLiveSessionLog,
   sessionLogExportDeps,
   sessionLogZipFilename,
   streamSessionLogZip,
   type SessionLogExportReady,
+  type SessionLogCompressionLevel,
 } from './session-export.ts'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 import {
@@ -543,6 +546,8 @@ export interface ApiProxyDefaults {
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native text-editor handoff; injectable for settings-document tests. */
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Validated DEFLATE level for session-log ZIP entries; defaults to 6. */
+  sessionExportCompressionLevel?: SessionLogCompressionLevel
   /**
    * Whether handing a path to the native opener can work at all — the
    * `hasDocument` capability the preset roster reports, and the switch
@@ -988,6 +993,8 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
+  const sessionExportCompressionLevel = defaults.sessionExportCompressionLevel
+    ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
     const { provider, model } = defaults.defaultModelSelection()
@@ -3490,24 +3497,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             { status: 500 },
           )
         }
+        if (!deps.sessionPersistence.supportsRawArtifacts) {
+          return new Response(
+            'session log export is unavailable: the persistence backend does not expose per-session raw artifacts',
+            { status: 501 },
+          )
+        }
         const ready: SessionLogExportReady = {
           sessionQuery: deps.sessionQuery,
           sessionPersistence: deps.sessionPersistence,
           attachments: deps.attachments,
+          sessions: deps.sessions,
         }
         let root: SessionRawArtifact | undefined
         try {
+          await flushLiveSessionLog(deps, request.sessionId, signal)
           root = await deps.sessionPersistence.readRaw(request.sessionId, signal)
+          signal.throwIfAborted()
         } catch {
-          // Backend read failure: answer 500 without echoing the error, which
-          // may carry absolute host paths into the browser error bar.
-          return new Response('session log export failed to read the stored artifact', { status: 500 })
+          signal.throwIfAborted()
+          // Root preparation failure: answer 500 without echoing the error,
+          // which may carry absolute host paths into the browser error bar.
+          return new Response('session log export failed to prepare the stored artifact', { status: 500 })
         }
         if (root === undefined) {
           return new Response('session not found', { status: 404 })
         }
         return new Response(
-          streamSessionLogZip(ready, root, request.sessionId, request.includeDescendants === true, signal),
+          streamSessionLogZip(
+            ready,
+            root,
+            request.sessionId,
+            request.includeDescendants === true,
+            sessionExportCompressionLevel,
+            signal,
+          ),
           {
             headers: {
               'content-type': 'application/zip',
