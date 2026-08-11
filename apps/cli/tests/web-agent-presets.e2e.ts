@@ -79,6 +79,9 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
     { id: 'skill-badge', disabled: false },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
+    // The always-on reload chain waits for the browser roster and bound port
+    // disabled above.
+    { id: 'client-hmr', disabled: true },
     // The shipped `-auto` chooser resolves its interaction from a running
     // host and so waits for the webserver disabled above; the browse variant
     // supplies `directoryPicker` without one.
