@@ -61,7 +61,10 @@ function stubAgent(session: Session): Agent {
 async function harness(
   root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
-  extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
+  extras: {
+    openPath?: (path: string, signal: AbortSignal) => Promise<void>
+    canOpenPath?: () => boolean
+  } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -103,6 +106,7 @@ async function harness(
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd: root,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
+    ...extras.canOpenPath === undefined ? {} : { canOpenPath: extras.canOpenPath },
   })
   return { api, ctx, storageDomain, root }
 }
@@ -225,6 +229,13 @@ describe('host.listDirectory / host.createDirectory', () => {
 })
 
 describe('host.openPath', () => {
+  it('describes whether this deployment can reach a user-visible native desktop', async () => {
+    const visible = await harness(undefined, undefined, { canOpenPath: () => true })
+    const headless = await harness(undefined, undefined, { canOpenPath: () => false })
+    expect(expectOk(await visible.api.host.describe(request({}))).canOpenPath).toBe(true)
+    expect(expectOk(await headless.api.host.describe(request({}))).canOpenPath).toBe(false)
+  })
+
   it('opens through the injected native boundary', async () => {
     const opened: string[] = []
     const { api } = await harness(undefined, undefined, {
