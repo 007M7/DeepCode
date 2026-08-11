@@ -12,6 +12,7 @@ import {
   type Scenario,
 } from '../src/index.ts'
 import {
+  assertChildSystemPromptSnapshot,
   assertUniqueSnapshotContents,
   claimSharedSnapshot,
   fixtureContext,
@@ -85,6 +86,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     prepareWorkspace: (cwd) => {
       writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
     },
@@ -126,6 +128,7 @@ function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.expected.md'), 'STALE PROMPT\n')
   writeFileSync(join(dir, 'pin-turn', 'tool-schemas.expected.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
   writeFileSync(join(dir, 'plain-turn', 'tool-schemas.1.expected.json'), '{"initial":[{"name":"stale-child"}],"changes":[]}\n')
+  writeFileSync(join(dir, 'plain-turn', 'system-prompt.1.expected.md'), 'STALE CHILD PROMPT\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -191,6 +194,8 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const childSchemas = readFileSync(join(refreshDir, 'plain-turn', 'tool-schemas.1.expected.json'), 'utf8')
     expect(childSchemas).toContain('"name": "child-only"')
     expect(childSchemas).not.toContain('stale-child')
+    const childPrompt = readFileSync(join(refreshDir, 'plain-turn', 'system-prompt.1.expected.md'), 'utf8')
+    expect(childPrompt).toBe('SYS PROMPT\n\nCHILD GUIDANCE\n')
 
     const pinSession = readFileSync(join(refreshDir, 'pin-turn', 'session.jsonl'), 'utf8')
     expect(pinSession).toContain('"cwd":"{{cwd}}"')
@@ -588,6 +593,34 @@ describe('formatSystemPromptSnapshot', () => {
   it('does not double the newline of a changed prompt', () => {
     expect(formatSystemPromptSnapshot('prompt\n', ['changed\n']))
       .toBe('prompt\n\n<!-- request/header change 1 -->\n\nchanged\n')
+  })
+})
+
+describe('assertChildSystemPromptSnapshot', () => {
+  const label = 'plain-turn/system-prompt.1.expected.md'
+
+  it('accepts a distinct non-empty canonical child prompt', () => {
+    expect(() => {
+      assertChildSystemPromptSnapshot('SYS PROMPT\n\nCHILD GUIDANCE\n', 'SYS PROMPT\n', label)
+    }).not.toThrow()
+  })
+
+  it('rejects an empty or non-canonical child prompt', () => {
+    expect(() => { assertChildSystemPromptSnapshot('\n', 'SYS PROMPT\n', label) }).toThrow(/non-empty prompt/)
+    expect(() => {
+      assertChildSystemPromptSnapshot('CHILD GUIDANCE', 'SYS PROMPT\n', label)
+    }).toThrow(/end in a newline/)
+  })
+
+  it('rejects a child prompt that duplicates its class pin', () => {
+    const classSnapshot = readFileSync(join(REPLAY_DIR, 'pin-turn', 'system-prompt.expected.md'), 'utf8')
+    const marker = classSnapshot.indexOf('\n<!-- request/header change ')
+    expect(marker).toBeGreaterThan(0)
+    const initialClassPin = classSnapshot.slice(0, marker)
+
+    expect(() => {
+      assertChildSystemPromptSnapshot(initialClassPin, initialClassPin, label)
+    }).toThrow(/must differ from its class pin/)
   })
 })
 
