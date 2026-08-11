@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-仓库通过根目录的 `pnpm` 脚本支持从源码运行。`pnpm dsh <args...>` 启动器会先完成整个仓库的构建，再启动源码 CLI（命令行界面）。它会丢弃成功构建的输出，使 CLI stdout 保持机器可读；在 stderr 中报告构建失败的诊断信息；并为 CLI 进程设置 `NODE_USE_ENV_PROXY=1`。用户使用 `pnpm dsh web` 选择 Web，使用 `pnpm dsh --profile headless "task"` 选择无头执行。独立的 ACP（Agent Client Protocol）示例仍可通过 `pnpm run demo:acp` 运行。
+仓库通过根目录的 `pnpm` 脚本支持从源码运行。`package.json` 中的 `dsh` 项先执行 `pnpm run build`，再通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`；构建输出会显示在 CLI（命令行界面）输出之前。该包脚本会转发参数并继承调用方环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，调用方可设置 `NODE_USE_ENV_PROXY=1`。用户使用 `pnpm dsh web` 选择 Web，使用 `pnpm dsh --profile headless "task"` 选择无头执行。独立的 ACP（Agent Client Protocol）示例仍可通过 `pnpm run demo:acp` 运行。
 
 仓库不分发源码安装器、安装器测试套件，也不分发依赖受管理的 `current` 符号链接和带时间戳 staging worktree 的 skill。源码检出的存放位置、Git 更新，以及用户在仓库外创建的任何启动器均由用户负责。
 
@@ -28,4 +28,4 @@ Status: implemented
 
 源码用户通过仓库脚本运行程序，而非使用已安装的 `dsh` 命令。仓库不提供原子升级切换，也不保留 staging 回滚检出；仓库同样不会自动集成个人源码修改或将其发布到上游。未来的分发机制必须说明为何应由其管理安装和升级状态，定义恢复行为，并补充测试与用户文档，同时不得让源码运行路径依赖该机制。未来任何发布工作流都必须隔离出一项获批功能，并在首次推送和创建草稿 PR（Pull Request）前取得明确批准。
 
-验证范围包括仓库内对已移除入口点的所有引用、文档链接、生成的第三方声明文件的新鲜度，以及通过 `pnpm dsh` 对源码 CLI 进行冒烟测试，验证先构建后启动且 stdout 不含构建日志。
+验证范围包括仓库内对已移除入口点的所有引用、文档链接、生成的第三方声明文件的新鲜度、`package.json` 中的先构建后启动命令，以及通过准确的 `node --import tsx/esm` 运行方式对源码 CLI 进行的冒烟测试。
