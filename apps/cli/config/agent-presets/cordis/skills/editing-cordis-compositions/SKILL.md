@@ -25,7 +25,7 @@ Two planes, and the choice is not about how "agent-related" something feels — 
 
 A preset is a directory holding one `agent.cordis.yml`, optionally beside a `preset.yml` carrying display metadata — `name` and `description` (and, for shipped presets, a roster `order`). Write the metadata too: a preset without it shows up in every picker as its bare directory name.
 
-**Do not assume where presets live.** Both roots come from this deployment's configuration, and no call reports them directly: `authorable` says only whether a writable root exists. `copy()` picks that root itself, and every preset's absolute path comes back from `list()` and `resolve()` — read it from there. A default install puts locally authored presets under `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<id>/` and the shipped set beside the deployment's own config, which is what to tell the user when they ask where to look, but never what to hand a file tool.
+Locally authored presets live one directory per preset under `${DSH_HOME:-$HOME/.dsh}/.agent-presets/`, and the shipped set sits beside the deployment's own config. Use those when the user asks where to look. Both roots are configuration rather than fixed locations, though, and no call reports them — `authorable` says only whether a writable one exists — so take the path you actually read or edit from `list()` or `resolve()`, which is also where `copy()` reports what it just created.
 
 ## The roster service
 

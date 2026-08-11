@@ -32,7 +32,7 @@ agent 按 `cordis_mount` 自身文档所述的方式够到 roster 服务：挂�
 
 「某行是否发布服务」改由 `cordis_inspect what:"services"` 回答，它会给出每个存活服务的持有 fiber。
 
-两个 preset 根都不是指导可以当作事实陈述的常量。`writableRoot()` 取配置中第一个 `user` 根，且没有任何调用会报告任一根的路径——`authorable` 只回答是否存在可写根，而 `list()` 无法揭示一个尚且为空的用户根。因此 skill 与 persona 只把 `${DSH_HOME:-$HOME/.dsh}/.agent-presets/` 作为默认安装下「用户问它在哪」的答案，并要求 agent 把每一个将要操作的路径都从 `list()` 或 `resolve()` 读回。
+指导保留 `${DSH_HOME:-$HOME/.dsh}/.agent-presets/` 作为「我的 preset 在哪」的答案——每个 `dsh` 启动器都把它们放在那里——同时把 agent 实际读取或编辑的路径改走 `list()` 或 `resolve()`。`Config.roots` 默认为 `[]`，两个根均由 `apps/cli` 补入，`writableRoot()` 取其中第一个 `user` 根，且没有任何调用会报告任一路径；`authorable` 只回答是否存在可写根，而 `list()` 无法揭示一个尚且为空的用户根。因此写出该路径对人讲是对的，喂给文件工具是错的。
 
 禁止改动随发布安装的约束，从创作步骤中的一段提升为顶部的 `## Off-limits` 一节，并扩展到禁止改宿主组装绕行。新增的自校验调用不削弱它：`copy()` 拒绝任何根已提供的 id，`remove()` 拒绝随部署发布的 preset。
 
