@@ -12,8 +12,8 @@ Status: implemented
 
 `tasks/` 如今是一个 bash 三件套形态的三包能力家族：
 
-- **`@deepseek-ai/dsh-tasks`（Service Definition）**——抽象的 `TaskService extends Service`，拥有 `ctx.tasks`、八个方法的约定（`start`、`list`、`get`、`read`、`kill`、`wait`、`onTaskDone`、`attachSurface`）、全部词汇类型（`TaskId`、`TaskKindMap`、`TaskStart`、`TaskHooks`、`TaskOutcome`、`TaskSnapshot`、`TaskRead`、`TaskDoneListener`），以及快照不变式配套插件。类级 JSDoc 陈述了每个 Service provider 都必须兑现的语义：注册的存续期长于生产方与控制接口的 fiber，有所有者的访问以会话为界，结算遵循首次结果优先且监听器错误被隔离，并且当没有任何已附加的控制接口服务于 spec 的所有者时 `start` 拒绝启动工作（控制接口与监听器按 scope 分层，因此一个进程级注册表能逐所有者地回答这两个问题）。
-- **`@deepseek-ai/dsh-tasks-local`（Service provider）**——`LocalTaskService`，即原样迁移的进程内注册表：内存存储、按 kind 划分的计数器、等待方簿记、`TASK_WAIT_TIMEOUT` deadline 代码、所有者清理 effect，以及强制失败的拆除。`dsh-timeout` 依赖随之迁入此包；Service Definition 包不含任何提供方依赖。
+- **`@deepseek-ai/dsh-tasks`（Service Definition）**——抽象的 `TaskService extends Service`，拥有 `ctx.tasks`、九个方法的约定（`start`、`list`、`get`、`read`、`kill`、`wait`、`onTaskDone`、`onTasksChanged`、`attachSurface`）、全部词汇类型（`TaskId`、`TaskKindMap`、`TaskStart`、`TaskHooks`、`TaskOutcome`、`TaskSnapshot`、`TaskRead`、`TaskDoneListener`），以及快照不变式配套插件。类级 JSDoc 陈述了每个 Service provider 都必须兑现的语义：注册的存续期长于生产方与控制接口的 fiber，有所有者的访问以会话为界，结算遵循首次结果优先且监听器错误被隔离，并且当没有任何已附加的控制接口服务于 spec 的所有者时 `start` 拒绝启动工作（控制接口与监听器按 scope 分层，因此一个进程级注册表能逐所有者地回答这两个问题）。
+- **`@deepseek-ai/dsh-tasks-local`（Service provider）**——`LocalTaskService`，即进程内注册表：内存存储、按 kind 划分的 id 计数器、等待方簿记、`TASK_WAIT_TIMEOUT` deadline 代码、所有者清理 effect、强制失败的拆除，以及默认值为 10 且可配置的准入策略。准入从同一组记录中按确切 owner 派生 `running` 加 `stopping` 容量，并为无 owner 任务使用一个共享桶；它不新增公开计数或第二个状态 owner。`dsh-timeout` 依赖与由 Schemastery 管理的 Service provider 配置都位于此包；Service Definition 包不含任何提供方依赖。
 - **`@deepseek-ai/dsh-tool-tasks`（Consumer）**——保持不变；它注入 `'tasks'`，从不导入提供方类型。
 
 各组合在原先加载 `dsh-tasks` 的位置改为加载 `dsh-tasks-local`：CLI（命令行界面）的 cordis.yml 配置项、`agent-spine-demo`、各测试 harness，以及工具目录生成器的启动流程。生产方的配置错误诊断信息（「background tasks unavailable: load …」）点名 `dsh-tasks`——即声明缺失的 `ctx.tasks` 服务的 Service Definition 包；Service Definition 包自身的对外呈现（其 README 与直接挂载防线）会指向各 Service provider，因此当另一个后端日后成为推荐默认时，生产方的消息依旧正确。生产方、`TaskKindMap` 声明合并和控制接口仍然只导入 `@deepseek-ai/dsh-tasks`。
@@ -30,6 +30,6 @@ Status: implemented
 
 ## 后果
 
-换来的是：任务注册表如今与全仓库通行的 seam 形态一致；持久化、远程或带插桩的注册表将是一个实现八个抽象方法的同级 Service provider，这样的注册表落地时，任何生产方、控制接口或 `TaskKindMap` 扩展方都无需改动。Service Definition 的 README 陈述约定；生命周期簿记方面的事实归 Service provider 的 README 所有。注册表行为测试套件（所有者清理、结算、等待、拆除）随 `dsh-tasks-local` 存放；Service Definition 包保留一个桩子类（stub subclass）测试，固定 `ctx.tasks` 下的注册行为与单一服务的重复注册行为，外加基于探针的不变式测试套件。
+换来的是：任务注册表如今与全仓库通行的 seam 形态一致；持久化、远程或带插桩的注册表将是一个实现九个抽象方法的同级 Service provider，这样的注册表落地时，任何生产方、控制接口或 `TaskKindMap` 扩展方都无需改动。Service Definition 的 README 陈述约定；生命周期簿记方面的事实归 Service provider 的 README 所有。注册表行为测试套件（所有者清理、结算、等待、拆除）随 `dsh-tasks-local` 存放；Service Definition 包保留一个桩子类（stub subclass）测试，固定 `ctx.tasks` 下的注册行为与单一服务的重复注册行为，外加基于探针的不变式测试套件。
 
 代价是：多出一个包，即多一份 manifest（元数据清单）、tsconfig、README 与不变式配套插件；同时各组合必须点名 Service provider 包。`abstract` 在运行时会被擦除，而这个包名过去正是可挂载的具体注册表，因此直接挂载 Service Definition 时，其构造函数会明确报错——一条陈旧的组合配置行会在加载时得到「load a Service provider such as @deepseek-ai/dsh-tasks-local」，而不是一个未完整注册的 `ctx.tasks` 在远离错误配置处才失败。

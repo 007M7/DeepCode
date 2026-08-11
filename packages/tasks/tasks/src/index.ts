@@ -67,10 +67,11 @@ export abstract class TaskService extends Service {
   }
 
   /**
-   * Preflight access, validation, and owner cleanup before starting and
-   * atomically registering work. A throwing starter leaves nothing registered;
-   * after it returns, registration cannot fail. Settlement records the outcome,
-   * notifies listeners, and releases waiters.
+   * Preflight access, validation, owner cleanup, and implementation-owned
+   * admission before starting and atomically registering work. Any preflight
+   * rejection leaves no task id or execution resource. A throwing starter
+   * leaves nothing registered; after it returns, registration cannot fail.
+   * Settlement records the outcome, notifies listeners, and releases waiters.
    * @param spec - task identity, owner, and synchronous starter.
    * @returns the registry-issued `<kind>-N` id.
    */

@@ -572,6 +572,7 @@ describe('completion notices', () => {
       const prior = producer({ kind: 'pty-send' })
       ctx.tasks.start(prior.spec)
       prior.settle({ status: 'completed' })
+      await tick()
     }
     const inject = vi.fn()
     const owner = fakeAgent(ctx, 'sess-1', inject)

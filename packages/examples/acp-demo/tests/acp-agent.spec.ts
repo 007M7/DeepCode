@@ -182,6 +182,19 @@ describe('dsh-acp-demo composition', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards task admission config to the bundled task provider', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      tasks: { maxConcurrentTasksPerOwner: 2 },
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    expect((ctx.tasks as unknown as { config: { maxConcurrentTasksPerOwner: number } })
+      .config.maxConcurrentTasksPerOwner).toBe(2)
+    await ctx.fiber.dispose()
+  })
+
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
       provider: 'mock',

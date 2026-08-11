@@ -10,6 +10,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AnonymousEntries, ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
@@ -22,6 +23,18 @@ import type {
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
+
+/** Default maximum number of active tasks in one exact-owner bucket. */
+const DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER = 10
+
+/** Configuration for the process-local task registry. */
+export interface Config {
+  /** Maximum `running` plus `stopping` tasks per exact owner; omission defaults to 10. */
+  maxConcurrentTasksPerOwner?: number
+}
+
+/** Configuration after defaults and load-time validation. */
+type ResolvedConfig = Required<Config>
 
 /** The registry's mutable per-task record (never handed out — see {@link LocalTaskService.snapshot}). */
 interface TrackedTask {
@@ -76,6 +89,16 @@ class TaskLayer implements ScopeLayer {
  * semantics this implementation honors.
  */
 export class LocalTaskService extends TaskService {
+  static Config: z<Config> = z.object({
+    maxConcurrentTasksPerOwner: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER),
+  })
+
+  /** Validated registry configuration. */
+  readonly config: ResolvedConfig
   private store = new Map<TaskId, TrackedTask>()
   private counters = new Map<string, number>()
   /**
@@ -97,8 +120,14 @@ export class LocalTaskService extends TaskService {
   /** Service context used by detached settlement continuations and teardown. */
   private readonly selfCtx: Context
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx)
+    const maxConcurrentTasksPerOwner = config.maxConcurrentTasksPerOwner
+      ?? DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER
+    if (!Number.isSafeInteger(maxConcurrentTasksPerOwner) || maxConcurrentTasksPerOwner <= 0) {
+      throw new TypeError('tasks-local: maxConcurrentTasksPerOwner must be a positive safe integer')
+    }
+    this.config = { maxConcurrentTasksPerOwner }
     this.selfCtx = ctx
     ctx.effect(() => () => this.disposeAll(), 'tasks teardown')
   }
@@ -114,6 +143,13 @@ export class LocalTaskService extends TaskService {
       throw new Error(`invalid outputLimitBytes: expected a positive safe integer, got ${JSON.stringify(spec.outputLimitBytes)}`)
     }
     if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
+
+    const active = this.activeTaskCount(spec.owner)
+    if (active >= this.config.maxConcurrentTasksPerOwner) {
+      throw new Error(
+        `background task limit reached for this owner (${active}/${this.config.maxConcurrentTasksPerOwner} active); use task_kill to stop an unneeded task, wait for it to finish, then retry`,
+      )
+    }
 
     const hooks = spec.run()
     const count = (this.counters.get(spec.kind) ?? 0) + 1
@@ -283,6 +319,15 @@ export class LocalTaskService extends TaskService {
     if (!this.layers.global.surfaces.isEmpty()) return true
     return this.layers.chainLayers(owner === undefined ? undefined : scopeOf(owner.ctx))
       .some(layer => !layer.surfaces.isEmpty())
+  }
+
+  /** Count authoritative active records for one exact owner or the shared unowned bucket. */
+  private activeTaskCount(owner: Agent | undefined): number {
+    let count = 0
+    for (const task of this.store.values()) {
+      if (task.owner === owner && (task.status === 'running' || task.status === 'stopping')) count += 1
+    }
+    return count
   }
 
   /**

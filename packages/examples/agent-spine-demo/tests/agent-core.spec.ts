@@ -10,6 +10,7 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
@@ -157,6 +158,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('tasks')).toBeDefined()
+    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner).toBe(10)
     expect(ctx.get('invariants')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('goals')).toBeUndefined()
@@ -297,6 +299,15 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
     })
     expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards task admission config to the process-local provider', async () => {
+    const ctx = await mount({
+      tasks: { maxConcurrentTasksPerOwner: 3 },
+      workspaceContext: false,
+    })
+    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner).toBe(3)
     await ctx.fiber.dispose()
   })
 
@@ -716,6 +727,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false as const,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
+      tasks: { maxConcurrentTasksPerOwner: 4 },
       toolTasks: false as const,
       invariants: { enabled: false },
     }
@@ -730,6 +742,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,
+      tasks: appConfig.tasks,
       toolTasks: appConfig.toolTasks,
       invariants: appConfig.invariants,
     })

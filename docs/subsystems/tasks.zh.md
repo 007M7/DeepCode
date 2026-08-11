@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachSurface` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachSurface` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理与准入会使用确切的已注册 `Agent` 实例。本地 Service provider 的 `maxConcurrentTasksPerOwner` 配置必须是正的安全整数，默认值为 `10`；它按确切 owner 统计 `running` 与 `stopping` 记录，所有无 owner 任务共享一个服务级桶，并在生产方终止结算后释放容量。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期与准入策略见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -176,10 +176,11 @@ Implementations must honor these semantics:
 
 ```ts cordis-catalog
 /**
- * Preflight access, validation, and owner cleanup before starting and
- * atomically registering work. A throwing starter leaves nothing registered;
- * after it returns, registration cannot fail. Settlement records the outcome,
- * notifies listeners, and releases waiters.
+ * Preflight access, validation, owner cleanup, and implementation-owned
+ * admission before starting and atomically registering work. Any preflight
+ * rejection leaves no task id or execution resource. A throwing starter
+ * leaves nothing registered; after it returns, registration cannot fail.
+ * Settlement records the outcome, notifies listeners, and releases waiters.
  * @param spec - task identity, owner, and synchronous starter.
  * @returns the registry-issued `<kind>-N` id.
  */

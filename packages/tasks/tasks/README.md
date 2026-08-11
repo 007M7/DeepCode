@@ -6,7 +6,7 @@ The background task registry contract (`ctx.tasks`). The abstract `TaskService` 
 
 ## Service contract
 
-- `start(spec): TaskId` validates the control surface, spec, exact live owner, and optional positive `outputLimitBytes` before calling the producer's `run()` once. A starter throw leaves nothing registered; successful return commits without another failable step.
+- `start(spec): TaskId` validates the control surface, spec, exact live owner, optional positive `outputLimitBytes`, and any provider-owned admission policy before calling the producer's `run()` once. A preflight rejection or starter throw leaves no task id or registered work; successful return commits without another failable step.
 - `get(id, caller?)` and `list(caller?)` return non-consuming snapshots. Listing includes only caller-owned and unowned tasks.
 - `read(id, caller?)` consumes the single cursor for stream tasks and reads terminal output idempotently for final-output tasks.
 - `kill(id, caller?, reason?)` invokes producer cancellation before changing status. A cancellation throw leaves the task running; success changes it to `stopping` and marks terminal delivery reported.

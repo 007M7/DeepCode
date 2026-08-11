@@ -2,7 +2,13 @@
 
 [English](README.md) | 中文
 
-[`@deepseek-ai/dsh-tasks`](../tasks/README.md) 注册表约定的进程本地实现：`LocalTaskService` 把每条记录保存在内存中，按 kind 签发 `<kind>-N` id，并且只交出全新快照，从不交出实时状态。它没有配置；作为插件加载后即注册为 `ctx.tasks`。
+[`@deepseek-ai/dsh-tasks`](../tasks/README.md) 注册表约定的进程本地实现：`LocalTaskService` 把每条记录保存在内存中，按 kind 签发 `<kind>-N` id，并且只交出全新快照，从不交出实时状态。作为插件加载后即注册为 `ctx.tasks`。
+
+## 准入
+
+`maxConcurrentTasksPerOwner` 必须是正的安全整数，默认值为 `10`。调用生产方之前，`start()` 会统计确切 owner 的 `running` 与 `stopping` 记录；所有无 owner 任务共享另一个独立的服务级桶。终止历史不占用容量，处于 `stopping` 的任务只有在生产方 `done` 结算后才释放名额。
+
+达到容量时，`start()` 会在生产方执行和 id 分配前失败；错误会给出上限，并告诉模型使用 `task_kill`、等待任务完全停稳后再重试。注册表不会排队或抢占任务，也不会维护第二份可变计数。
 
 ## 生命周期
 

@@ -7,7 +7,7 @@ import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
-import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import LocalTaskService, { type Config as TasksConfig } from '@deepseek-ai/dsh-tasks-local'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -76,10 +76,10 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   return { spec, settle, reject, cancels }
 }
 
-async function harness() {
+async function harness(config: TasksConfig = {}) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalTaskService)
+  await ctx.plugin(LocalTaskService, config)
   ctx.tasks.attachSurface('test-surface')
   return ctx
 }
@@ -164,6 +164,105 @@ describe('LocalTaskService.start', () => {
     expect(() => ctx.tasks.start(producer({ kind: '' as TaskKind }).spec)).toThrow('invalid task kind')
     expect(() => ctx.tasks.start(producer({ label: '' }).spec)).toThrow('invalid task label')
     expect(() => ctx.tasks.start(producer({ outputLimitBytes: 0 }).spec)).toThrow('outputLimitBytes')
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid maxConcurrentTasksPerOwner config: %s',
+    async (maxConcurrentTasksPerOwner) => {
+      const ctx = new Context()
+      await expect(ctx.plugin(LocalTaskService, { maxConcurrentTasksPerOwner }))
+        .rejects.toThrow()
+      expect(() => new LocalTaskService(new Context(), { maxConcurrentTasksPerOwner }))
+        .toThrow('maxConcurrentTasksPerOwner must be a positive safe integer')
+    },
+  )
+
+  it('accepts the largest safe integer limit', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: Number.MAX_SAFE_INTEGER })
+    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner)
+      .toBe(Number.MAX_SAFE_INTEGER)
+  })
+
+  it('defaults each owner bucket to ten active tasks', async () => {
+    const ctx = await harness()
+    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner).toBe(10)
+    const live = Array.from({ length: 10 }, () => producer())
+    for (const task of live) ctx.tasks.start(task.spec)
+
+    const blocked = producer()
+    const run = vi.fn(() => blocked.spec.run())
+    expect(() => ctx.tasks.start({ ...blocked.spec, run }))
+      .toThrow('background task limit reached for this owner (10/10 active)')
+    expect(run).not.toHaveBeenCalled()
+    for (const task of live) task.settle({ status: 'completed' })
+  })
+
+  it('rejects before producer start and id allocation, then admits immediately after settlement', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const first = producer()
+    expect(ctx.tasks.start(first.spec)).toBe('bash-1')
+
+    const blocked = producer()
+    const run = vi.fn(() => blocked.spec.run())
+    expect(() => ctx.tasks.start({ ...blocked.spec, run }))
+      .toThrow('use task_kill to stop an unneeded task, wait for it to finish, then retry')
+    expect(run).not.toHaveBeenCalled()
+
+    first.settle({ status: 'completed' })
+    await tick()
+    expect(ctx.tasks.start(blocked.spec)).toBe('bash-2')
+  })
+
+  it('keeps a stopping task in the bucket until producer settlement', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const first = producer()
+    const id = ctx.tasks.start(first.spec)
+    expect(ctx.tasks.kill(id)).toBe('requested')
+
+    const replacement = producer()
+    expect(() => ctx.tasks.start(replacement.spec)).toThrow('(1/1 active)')
+
+    first.settle({ status: 'killed' })
+    await tick()
+    expect(ctx.tasks.start(replacement.spec)).toBe('bash-2')
+  })
+
+  it.each(['completed', 'killed', 'failed'] as const)(
+    'releases the bucket after a %s terminal outcome',
+    async (status) => {
+      const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+      const first = producer()
+      ctx.tasks.start(first.spec)
+      first.settle({ status })
+      await tick()
+      expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
+    },
+  )
+
+  it('isolates exact owners, replacement objects with the same session id, and the unowned bucket', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const oldOwner = stubAgent(ctx, 'shared-session')
+    const detachOld = ctx.agents.register(oldOwner)
+    const oldTask = producer({ owner: oldOwner })
+    ctx.tasks.start(oldTask.spec)
+
+    const otherOwner = stubAgent(ctx, 'other-session')
+    ctx.agents.register(otherOwner)
+    expect(() => ctx.tasks.start(producer({ owner: otherOwner }).spec)).not.toThrow()
+
+    detachOld()
+    const replacement = stubAgent(ctx, 'shared-session')
+    ctx.agents.register(replacement)
+    expect(() => ctx.tasks.start(producer({ owner: replacement }).spec)).not.toThrow()
+
+    ctx.tasks.start(producer().spec)
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('(1/1 active)')
+    expect(() => ctx.tasks.start(producer({ owner: oldOwner }).spec))
+      .toThrow('is not the registered agent instance')
+
+    oldTask.settle({ status: 'completed' })
+    await tick()
+    await disposeAgentScope(oldOwner)
   })
 
   it('issues kind-prefixed ids from per-kind counters', async () => {
