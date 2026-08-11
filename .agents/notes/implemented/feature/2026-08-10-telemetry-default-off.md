@@ -6,7 +6,7 @@ English | [中文](2026-08-10-telemetry-default-off.zh.md)
 
 ## Problem
 
-DeepSeek Harness is entering its public beta phase. During internal testing, telemetry was enabled by default — the session OTel backend and the dsh-sdk launcher both reported without a positive deployment choice — to help diagnose reported issues. For public beta, outbound reporting must require an explicit opt-in from the deployment.
+DeepSeek Harness has two outbound telemetry feeds. During internal testing, the shared base mounted telemetry with a baked-in production endpoint, and both feeds reported by default to help diagnose reported problems: the session OTel backend could export complete session content, tool data, prompts, and workspace paths when its mode was omitted, while the dsh-sdk launcher feed reported by default. A fresh installation therefore permitted outbound reporting without a positive deployment choice.
 
 ## Decision
 
@@ -28,4 +28,4 @@ The versioned Web welcome notice states that Session Log upload is off by defaul
 
 ## Consequences
 
-All public beta profiles and projects make no telemetry network request by default — a break from the internal-testing default of reporting when configured. Internal deployments that still need reporting select one mode for both feeds: `FEEDBACK_ONLY` permits only feedback-triggered Session Log sharing, while `FULL` also enables launcher reporting. The existing hard opt-out remains effective, and uploading modes retain their endpoint validation, redaction responsibility, batching, and shutdown behavior.
+Fresh profiles and projects make no telemetry network request. Internal deployments select one mode for both feeds: `FEEDBACK_ONLY` permits only feedback-triggered Session Log sharing, while `FULL` also enables launcher reporting. The existing hard opt-out remains effective, and uploading modes retain their endpoint validation, redaction responsibility, batching, and shutdown behavior.
