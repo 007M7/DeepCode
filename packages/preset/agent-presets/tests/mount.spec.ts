@@ -528,10 +528,12 @@ describe('replacing a composition', () => {
     expect(warnings).toEqual([])
   })
 
-  it('says nothing when the deployment configures no roster at all', async () => {
+  it('says nothing when the composition opts out of every root', async () => {
     // Presets are optional: every surface except the Web bundle keeps its
     // model-facing rows in the host plane, so an agent with a chain of one is
-    // exactly right there and the diagnostic must stay silent.
+    // exactly right there and the diagnostic must stay silent. Opting out is
+    // what makes this rosterless — empty `roots` alone would still derive the
+    // harness-home root, which is a roster like any other.
     const rosterless = await harness({ default: 'standard', roots: [], includeUserRoot: false })
     const warnings: string[] = []
     rosterless.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof rosterless.logger.warn
