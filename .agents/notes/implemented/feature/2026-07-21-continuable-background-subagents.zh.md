@@ -37,7 +37,7 @@ durable child Session
 
 用户界面适配器打开 child 会话时，只读取持久化 transcript，不会仅为展示而恢复 agent。用户输入通过继续执行管理器，启动或加入与 parent 输入相同的 Task 激活。由用户启动的 Task 会保留当前加载的精确 parent Agent 作为通知目标，`task_output` 仍是唯一结果路径。只要 Task 尚未标记为已报告，现有完成监听器最多注入一条主动通知；`kill`、终态读取或终态等待都可能将其标记为已报告，并抑制这条通知。因此，仅允许在该 parent 实例保持存活时进行用户交互。可以比 parent 存活更久、并将结论显式合并回去的用户自有会话属于[交互式 side session](../../proposed/feature/2026-07-08-interactive-side-sessions.md)，不属于这一由 Task 持有的生命周期。
 
-如果没有附加任务控制器，`TaskService.start()` 会拒绝 producer。因此，接受 child 输入的用户界面适配器必须附加任务控制器，或运行于加载了 `@deepseek-ai/dsh-tool-tasks` 的部署中；仅加载 Task 服务并不足够。SDK 生成的 spawn 与 fork 组合在挂载 subagent 工具时，也会挂载 `@deepseek-ai/dsh-tasks-local` 与 `@deepseek-ai/dsh-tool-tasks`。这项依赖是 parent 和用户启动的激活共用 Task 结果、取消和通知路径所付出的代价。
+如果没有附加任务控制器，`TaskService.start()` 会拒绝 producer。因此，接受 child 输入的用户界面适配器必须附加任务控制器，或运行于加载了 `@deepseek-ai/dsh-tool-tasks` 的部署中；仅加载 Task 服务并不足够。这项依赖是 parent 和用户启动的激活共用 Task 结果、取消和通知路径所付出的代价。
 
 取消始终作用于当前完整激活。如果用户消息和 parent 消息已经加入同一个轮次，任一调用方发起取消都会中止该轮次、dispose 其 run，并将对应 Task 结算为 `killed`；这些消息没有独立的结果或取消权。`followup()` 要求调用方提供信号；若在线 steering 正在等待请求准入时该信号被中止，激活自有的 controller 会被中止，以便提供方丢弃待处理消息，并且该调用仅在子 agent 完全停稳后结算。若需要独立取消，后续消息必须另起轮次，而不能加入当前轮次。
 
@@ -111,8 +111,7 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 - `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：缺少 flush 监听器、flush 监听器已脱离或监听器持续失败时，均会以 `DURABILITY_FAILED` 拒绝；循环检查点的瞬时失败可在最终确认成功后继续完成，发生取消时最终检查点无论成功还是失败都由取消优先决定结果，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent/tests/continuation.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务和 `ctx.subagents`）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次前、对模型隐藏、带版本、在服务分配的 child id 下持久化，并在初始 prompt admission 阻止请求或抛出异常时仍保留；取消、steering、cold follow-up、授权、所有权冲突与 resume 竞态保留上述约定。
 - `packages/subagent/tool-subagent-control/tests/tool-subagent-control.spec.ts` 固定 `send_message` 的 schema、coordinator 来源标记、两种路由渲染、未送达失败、无 agent 时的拒绝，以及 HMR（热模块替换）dispose。
-- `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖配置的后台路由：可继续模式要求提供方可恢复，并在不要求 `send_message` 的情况下返回两个 id；即使提供方可以恢复，一次性模式仍保持普通的 Task 确认消息。
-- `packages/scaffold/helper/tests/project.spec.ts` 固定生成的 spawn 与 fork 组合中的 Task 服务及面向模型的 Task 控制工具。
+- `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖配置的后台路由：可继续模式要求提供方可恢复，并在不要求 `send_message` 的情况下返回两个 id；即使提供方可以恢复，一次性模式仍保持普通的 Task 确认消息；它还固定 Task 服务集成及面向模型的 Task 控制工具。
 - 无密钥 ACP 快照场景 `subagent-continuable`（examples/acp-agent）固定模型可见的 transcript：双 id 确认消息、最终持久性确认失败（该失败通过 `task_output` 呈现，且不包含未经确认的 child 输出），以及一次 `send_message` 后续操作——其已启动的 Task 会带着「id 不可用」失败。
 
 ## 影响

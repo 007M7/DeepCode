@@ -19,6 +19,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { GoalProjection, GoalRef } from '@deepseek-ai/dsh-goal/client'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
 import { GoalDock } from './GoalBar.tsx'
+import { GoalCommandInputView } from './GoalCommandInputView.tsx'
+import { goalCommandInputDefinition } from './goal-command-input.ts'
 import { en, zh, type GoalKey } from './locales.ts'
 
 export { GoalBar, GoalDock } from './GoalBar.tsx'
@@ -35,8 +37,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 const NS = 'goal'
 
-/** Required services: slots for the dock entry, sessions for the projected ref, API for Remote mutations, locale for the copy. */
-export const inject = ['slots', 'sessions', 'remote', 'remote.goals', 'locale']
+/** Required services for the Goal dock, command-input projection, Remote mutations, and copy. */
+export const inject = ['slots', 'sessions', 'remote', 'remote.goals', 'locale', 'conversationEvents']
 
 /** Map one generated Remote call, including synchronous namespace lookup failures, to the fields rendered by the goal strip. */
 async function settle(invoke: () => Promise<unknown>): Promise<GoalActionResult> {
@@ -68,7 +70,14 @@ function isRemoteError(value: unknown): value is { readonly code: string; readon
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.conversationEvents.register(goalCommandInputDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-goal: dictionaries')
+
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: 'command-input',
+    locale: NS,
+  }, GoalCommandInputView))
 
   const sessions = ctx.sessions
 

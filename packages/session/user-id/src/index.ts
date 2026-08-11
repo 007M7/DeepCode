@@ -6,8 +6,7 @@
  * and never derived from the hostname, network address, git remote, or any
  * other identifying source. It is scoped to the harness home, not the
  * machine: every process sharing one `$DSH_HOME` reports the same id, and
- * deleting the file mints a fresh identity on the next launch. The dsh-sdk
- * launcher telemetry keeps its own separate store.
+ * deleting the file mints a fresh identity on the next launch.
  *
  * Reads and writes are synchronous so boot-time and command consumers can
  * use one API. The result is memoized per resolved file path: one process

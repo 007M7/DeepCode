@@ -68,8 +68,8 @@ export class LocalAttachmentStore extends AttachmentStore {
     return saveImageFile(this.root, input, this.imageLimits)
   }
 
-  async readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
-    return readImageFile(this.root, ref)
+  async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
+    return readImageFile(this.root, ref, signal)
   }
 }
 

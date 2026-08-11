@@ -16,8 +16,10 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-// Empty type import carries the loader Context merge for the settlement await.
+// Empty type imports carry the loader Context merge for the settlement await
+// and the cmdline Context merge for the appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-cmdline'
 
 /** Stable Cordis plugin name. */
 export const name = 'headless-runner'
@@ -41,22 +43,18 @@ interface RunOutcome {
   reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
 }
 
-/**
- * Process-facing effects of one run, injectable for tests. The launcher owns
- * bounded tree shutdown and wires `exit()` to it.
- */
-export interface HeadlessIo {
+/** Process-facing effects of one run: output streams plus the launcher's bounded exit request. */
+interface HeadlessIo {
   stdout: { write(chunk: string): unknown }
   stderr: { write(chunk: string): unknown }
   /** Request process exit with `code` after the tree disposes. */
   exit(code: number): void
 }
 
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /** Process-facing effects provided before the headless tree mounts. */
-    headlessIo?: HeadlessIo
-  }
+/** The process streams the runner writes to; tests substitute captures. */
+export const internals: { stdout: HeadlessIo['stdout']; stderr: HeadlessIo['stderr'] } = {
+  stdout: process.stdout,
+  stderr: process.stderr,
 }
 
 /** Aggregate the last assistant text and turn outcome in one owned interval. */
@@ -137,13 +135,16 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
 
 /**
  * Mount the one-shot direct driver.
- * @param ctx - plugin context carrying core services and the launcher-owned IO seam.
+ * @param ctx - plugin context carrying core services and the launcher-provided exit request.
  * @param config - validated task config.
  */
 export function apply(ctx: Context, config: Config): void {
-  const io = ctx.headlessIo
-  if (io === undefined) {
-    throw new Error('headless-runner: the launcher must provide ctx.headlessIo before the tree mounts')
+  // Read through the global service store, not the property proxy: appExit is
+  // an optional host value, never an injected dependency.
+  const exit = ctx.get('appExit')
+  if (exit === undefined) {
+    throw new Error('headless-runner: the launcher must provide ctx.appExit before the tree mounts')
   }
+  const io: HeadlessIo = { stdout: internals.stdout, stderr: internals.stderr, exit }
   void run(ctx, config.task, io).catch((error: unknown) => { fail(io, error) })
 }
