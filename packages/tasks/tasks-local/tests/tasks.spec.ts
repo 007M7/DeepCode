@@ -444,8 +444,9 @@ describe('LocalTaskService.wait', () => {
     const ctx = await harness()
     const controller = new AbortController()
     const seen: TaskSnapshot[] = []
-    // The listener aborts after settlement has assigned delivery to this waiter
-    // but before its resolve microtask; the waiter must still receive the result.
+    // The listener aborts after settlement released this waiter but before its
+    // resolve microtask runs. Releasing waiters ahead of the announcement is
+    // what makes that abort harmless; this is the guard on that ordering.
     ctx.tasks.onTaskDone((snapshot) => {
       seen.push(snapshot)
       controller.abort()
@@ -591,6 +592,51 @@ describe('LocalTaskService owner cleanup', () => {
     expect(cancels).toEqual(['owner disposed'])
     // Snapshots dropped: nothing of the owner's remains, listing is empty.
     expect(ctx.tasks.list(owner)).toEqual([])
+  })
+
+  it('publishes the settled visible set before announcing completion', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const p = producer({ owner })
+    ctx.tasks.start(p.spec)
+    // Registered after start so only the settlement's notifications are ordered.
+    const order: string[] = []
+    ctx.tasks.onTasksChanged(() => void order.push('changed'))
+    ctx.tasks.onTaskDone(() => void order.push('done'))
+
+    p.settle({ status: 'completed' })
+    await tick()
+
+    // A completion reporter may open a turn synchronously. Announcing before
+    // the visible set is published would let a client render that turn while
+    // its task row still reads `running`.
+    expect(order).toEqual(['changed', 'done'])
+  })
+
+  it('reports a teardown-cancelled record so completion reporters stay quiet', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const seen: TaskSnapshot[] = []
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
+
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'subagent',
+      label: 'long research',
+      owner,
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
+    })
+
+    // Observers still receive the terminal record; the report bit is what
+    // keeps a notice reporter from addressing an owner being destroyed.
+    await disposeAgentScope(owner)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.reported).toBe(true)
   })
 
   it('attaches one cleanup per owner and drains all owned tasks with the scope', async () => {
