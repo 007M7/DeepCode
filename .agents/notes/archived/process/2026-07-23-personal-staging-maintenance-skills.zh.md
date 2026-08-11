@@ -1,6 +1,7 @@
 # Agent Note: 个人集成分支维护 skill
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-07-23-personal-staging-maintenance-skills.md) | 中文
 
