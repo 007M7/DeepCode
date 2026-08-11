@@ -18,7 +18,7 @@ The package declares the log-only `feedback/record { text }` session event and e
 
 `dsh-commands` still writes its `command/run` / `command/done` lifecycle pair around `/feedback`, but this command sets `recordInput: false`. Its `command/run` therefore carries the command identity and source without `args`; the feedback text exists only in `feedback/record`, while `command/done` carries the acknowledgement outcome. All three records are log-only and non-surface. Their appends enter persistence's ordinary bounded write path; nothing forces a flush, so acknowledgement reports that the feedback is in the log rather than already on disk.
 
-Capture remains inert for the running agent and model. The optional OTel telemetry package later adds one infrastructure consumer: it observes `feedback/record` as a release trigger in `FEEDBACK_ONLY` mode and as the local-only warning trigger in `DISABLED` mode, without changing the feedback event or command path. See [Feedback-gated session telemetry](2026-08-05-feedback-gated-session-telemetry.md).
+Capture remains inert for the running agent and model. The optional OTel telemetry package later adds one infrastructure consumer: it observes `feedback/record` as a release trigger in `FEEDBACK_ONLY` mode and as the local-only warning trigger in `DISABLED` mode, without changing the feedback event or command path. See [Feedback-gated session telemetry](2026-08-05-feedback-gated-session-telemetry.md) and the [acknowledgement sharing disclosure](2026-08-07-feedback-acknowledgement-sharing-disclosure.md).
 
 ### Why feedback owns an event
 

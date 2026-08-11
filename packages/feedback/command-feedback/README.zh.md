@@ -8,10 +8,23 @@
 
 | 输入 | 结果 |
 |---|---|
-| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded for session {sessionId}` 确认，随后显示 `User: {userId}`。 |
+| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded for session {sessionId}`、`User: {userId}` 加会话共享披露确认。 |
 | `/feedback` | 返回一个直接用法错误。仅含空白的输入视为空输入。 |
 
 前后空白会被丢弃，但除此之外，反馈内容不会被解析：没有截断、大小写折叠或控制词。看起来像另一个命令的文本（例如 `/feedback /plan felt slow`）就是反馈内容。重复执行命令时，每次都会产生一个事件；不会发生替换或合并。
+
+## 会话共享披露
+
+确认文本会点名接收会话的 id，并报告该会话如何被共享；该信息通过插件上下文（`ctx.get('telemetry')`，绝不是声明的注入）从已挂载的 [`telemetry`](../../session/session-telemetry/README.md) 服务读取。披露是依据后端 [`TelemetrySharingStatus`](../../session/session-telemetry/README.md) 选择的一句话：
+
+| 披露的状态 | 确认文本中的句子 |
+|---|---|
+| `full` | `Session sharing is enabled.` |
+| `feedback-only` | `Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.` |
+| `disabled` | `Session sharing is disabled.` |
+| 无服务 | `Session sharing is not configured.` |
+
+披露只陈述部署当前的共享策略，绝不承诺投递或留存：在 `full` 或 `feedback-only` 下，记录被交给后端的非阻塞入队，批处理、重试与丢失策略归 SDK 负责，因此句子不声称任何内容已到达采集端；`disabled` 也不声称未来不会重新配置。披露不新增任何事件，也绝不会进入模型 surface。
 
 ## 本插件做什么、不做什么
 
@@ -56,4 +69,5 @@
 - **没有结构化字段**：一条条目就是一个自由文本字符串，没有类别、严重程度或关联事件链接，因此无法在不重读文本的情况下按主题过滤反馈。
 - **不支持修改或撤回**：会话日志是仅追加的，本包也不新增 tombstone，因此错误的条目会一直保留在记录中，只能由后续条目取代。
 - **没有显式持久化屏障**：确认文本紧随追加而非 flush，因此紧临崩溃前记录的条目可能与其他未 flush 的尾部一同丢失。为反馈强制同步写盘并不值得；需要该保证的消费方可自行等待 `ctx.sessions.flush(session)`。
+- **新会话上没有可见的确认**：Web 转录只在会话激活后渲染命令行，因此在仍为空白的新会话上执行 `/feedback` 会记录事件但不会显示确认行。发送首条消息后再记录反馈即可正常渲染。
 - **随附的产品入口中只有 Web 使用此命令**：无头模式、ACP 自动化和 JSON-RPC 不提供命令适配器，因此 `/feedback` 在那里不可用。

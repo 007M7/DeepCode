@@ -17,6 +17,7 @@ export class ConversationEventRegistry extends ConversationDefinitionRegistry<Co
    * @returns idempotent disposer.
    */
   register(definition: ConversationNodeDefinition): () => void {
+    assertDefinitionTarget(definition)
     return this.registerDefinition(
       definition.kind,
       definition,
@@ -31,6 +32,9 @@ export class ConversationEventRegistry extends ConversationDefinitionRegistry<Co
    * @returns idempotent disposer.
    */
   registerFallback(definition: ConversationNodeDefinition): () => void {
+    assertDefinitionTarget(definition)
+    const target = definition.target
+    if (target === undefined) throw new Error('conversation fallback Definition must declare a target')
     if (this.fallback !== undefined) throw new Error('conversation fallback Definition is already registered')
     const owner = this.ctx
     const dispose = owner.effect(() => {
@@ -52,5 +56,12 @@ export class ConversationEventRegistry extends ConversationDefinitionRegistry<Co
   fallbackEntry(): ConversationNodeDefinition | undefined {
     return this.fallback
   }
+}
 
+function assertDefinitionTarget(definition: ConversationNodeDefinition): void {
+  if ((definition.target === undefined) !== (definition.buildViewNode === undefined)) {
+    throw new Error(
+      `conversation Definition "${definition.kind}" must declare target and buildViewNode together`,
+    )
+  }
 }

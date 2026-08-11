@@ -93,7 +93,7 @@ describe('/feedback real Loader composition through cordis.yml', () => {
     const userId = getOrCreateAnonymousUserId({ env: { DSH_HOME: root } })
     expect(accepted?.result).toEqual({
       kind: 'success',
-      text: `Feedback recorded for session feedback-loader-agent\nUser: ${userId}`,
+      text: `Feedback recorded for session feedback-loader-agent\nUser: ${userId}. Session sharing is not configured.`,
     })
     const rejected = await context.commands.execute(owner, '/feedback', signal)
     expect(rejected?.result).toEqual({

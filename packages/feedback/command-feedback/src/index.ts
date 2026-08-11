@@ -8,6 +8,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { Telemetry, TelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
 
@@ -15,6 +16,42 @@ export const name = 'command-feedback'
 export const inject = ['commands']
 
 const USAGE = 'Usage: /feedback <text>'
+
+/** Fail closed when a future sharing status reaches the sentence switch. */
+/* v8 ignore next 3 -- only the ignored default arm calls this; the closed union cannot reach it via the public API. */
+function assertNever(value: never): never {
+  throw new Error(`command-feedback: unsupported sharing status ${JSON.stringify(value)}`)
+}
+
+/** The acknowledgement's sharing sentence for a disclosed policy. */
+function sharingSentence(sharing: TelemetrySharingStatus): string {
+  switch (sharing) {
+    case 'full':
+      return 'Session sharing is enabled.'
+    case 'feedback-only':
+      return 'Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.'
+    case 'disabled':
+      return 'Session sharing is disabled.'
+    /* v8 ignore next 2 -- the seam's closed union cannot reach the default; a future status must be given a sentence here. */
+    default:
+      return assertNever(sharing)
+  }
+}
+
+/**
+ * The sharing disclosure appended to the acknowledgement: the mounted
+ * backend's disclosed policy, or a "not configured" notice when no backend
+ * is mounted. Read through the plugin context so the command still works
+ * when the telemetry service is absent.
+ * @param telemetry - the mounted telemetry service, or undefined.
+ * @returns one sentence describing this session's sharing policy.
+ */
+function sharingDisclosure(telemetry: Telemetry | undefined): string {
+  if (telemetry === undefined) {
+    return 'Session sharing is not configured.'
+  }
+  return sharingSentence(telemetry.sharing)
+}
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -42,17 +79,20 @@ export function recordFeedback(session: Session, text: string): void {
  * Validate, record, and acknowledge one feedback entry. Returning an error
  * leaves no `feedback/record` event.
  * @param invocation - receiving agent, raw command input, and UI cancellation.
+ * @param ctx - plugin context used to read the optional telemetry service.
  * @returns an acknowledgement containing the receiving session and anonymous
- * user ids, or a usage error when no feedback text was supplied.
+ * user ids plus the session-sharing disclosure, or a usage error when no
+ * feedback text was supplied.
  */
-function executeFeedbackCommand(invocation: CommandInvocation): CommandResult {
+function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): CommandResult {
   if (invocation.rawInput.trim().length === 0) {
     return { kind: 'error', text: `Feedback text is required. ${USAGE}` }
   }
   recordFeedback(invocation.agent.session, invocation.rawInput)
+  const telemetry = ctx.get('telemetry')
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}\nUser: ${getOrCreateAnonymousUserId()}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}\nUser: ${getOrCreateAnonymousUserId()}. ${sharingDisclosure(telemetry)}`,
   }
 }
 
@@ -63,6 +103,6 @@ export function apply(ctx: Context): void {
     description: 'record feedback about this session',
     input: { hint: '<text>' },
     recordInput: false,
-    handler: executeFeedbackCommand,
+    handler: invocation => executeFeedbackCommand(invocation, ctx),
   })
 }

@@ -10,7 +10,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type {
@@ -297,7 +299,8 @@ describe('DetailsPanel Output section (read)', () => {
     const nodes = over.nodes ?? []
     const runningCalls = over.runningCalls ?? []
     return {
-      sessionId: SID, chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
+      sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
+      chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
       nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
