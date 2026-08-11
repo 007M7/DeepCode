@@ -22,7 +22,7 @@ Status: implemented
 
 - **依赖扫描加部分 `patchOrder`**（最初的草案）：扫描 `dependencies` 找出组合包、未列出者按字母序排列，会产生两个真源和一条隐式决胜规则；一份显式有序的 `dsh.profile.bundles` 列表更小、完全确定。在 profile 内直接 `pnpm add` 只会安装一个库，不激活任何 patch——行为显式，没有暗中扫描。
 - **内置组合包使用 `link:` 条目**：pnpm 无法对指向安装目录的 `link:` 做版本管理、安装或更新，它会把机器路径嵌进用户文件，并且在安装目录移动后失效。双锚点解析加上每次启动修复的符号链接回退提供了同样的保证（「组合包来自安装目录」），且没有这些繁文缛节。
-- **在组合包 manifest 中放一个启动前 `context` 模块**承载启动期取值（dist 路径、flag 事实）：否决，改用纯插件——粘合逻辑就是普通配置行和由应用持有的启动服务，因此组合始终可完整 dump，manifest 保持纯数据。启动器持有的 `ctx.headlessIo` 宿主钩子是唯一由宿主提供的 slot，且在任何配置树条目挂载之前，于 `boot()` 的 `prepare` 钩子中提供。
+- **在组合包 manifest 中放一个启动前 `context` 模块**承载启动期取值（dist 路径、flag 事实）：否决，改用纯插件——粘合逻辑就是普通配置行和由应用持有的启动服务，因此组合始终可完整 dump，manifest 保持纯数据。启动器提供的宿主 slot（`ctx.cmdlineArgs`、`ctx.appExit` 与环境快照）在任何配置树条目挂载之前，于 `boot()` 的 `prepare` 钩子中提供。
 - **组合包的传递式自动应用**：只有直接列在 `dsh.profile.bundles` 中的条目才贡献层；想重新导出另一个组合包 patch 的元组合包，必须在自己的 patch 文件中显式完成。
 
 ## Consequences

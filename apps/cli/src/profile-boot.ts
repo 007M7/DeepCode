@@ -189,9 +189,20 @@ export interface RunProfileOptions {
   args: readonly string[]
 }
 
-/** Re-throw setup failures unless this invocation's signal already owns shutdown. */
-function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
-  if (!signal.aborted) throw error
+/**
+ * Re-throw a watcher-setup failure unless a shutdown already owns the tree:
+ * a signal aborted this invocation, or an app requested exit (`ctx.appExit`
+ * from a fast one-shot) and the root's disposal rejected the in-flight setup
+ * await. Either way the failure describes a tree that is exiting as asked,
+ * not a broken watch.
+ * @param ctx - the booted root context.
+ * @param signal - this invocation's signal-shutdown fact.
+ * @param error - the setup failure.
+ */
+function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown): void {
+  if (signal.aborted) return
+  if (ctx.fiber.state !== FiberState.ACTIVE || ctx.get('loader') === undefined) return
+  throw error
 }
 
 /**
@@ -256,11 +267,12 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   })
   app.current = ctx
   // A surface can dispose the whole tree while boot or this post-boot watcher
-  // setup is still in flight. Loader presence and fiber state own
-  // liveness; the local signal fact distinguishes that expected exit race
-  // from a real HMR error.
-  // Watching is unconditional: a one-shot surface exits through its bounded
-  // shutdown, which disposes the watchers before the loop drains.
+  // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
+  // presence and fiber state own liveness; the initial check skips a tree
+  // that already exited, and the catch below re-checks for an exit that
+  // landed mid-setup. Watching is unconditional: a one-shot surface exits
+  // through its bounded shutdown, which disposes the watchers before the
+  // loop drains.
   if (!signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
@@ -289,7 +301,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         compose: composeLive,
       })
     } catch (error) {
-      suppressSignalShutdownError(signalShutdown.signal, error)
+      suppressShutdownError(ctx, signalShutdown.signal, error)
     }
   }
   return { ctx, shutdown }
