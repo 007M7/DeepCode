@@ -55,6 +55,8 @@ export class WorkspaceManager {
   private orderRequestGeneration = 0
   /** Increments on order frames so a later remote commit outranks an older unary echo. */
   private orderFrameGeneration = 0
+  /** Last complete order accepted from a Host baseline, frame, or current unary echo. */
+  private committedOrder: WorkspaceId[] = []
   /**
    * Ids this process has seen removed, kept for the connection's lifetime so
    * a late changed frame or a stale baseline row cannot resurrect a deleted
@@ -171,8 +173,8 @@ export class WorkspaceManager {
   ): Promise<RpcResult<{ workspaceIds: WorkspaceId[] }>> {
     const requestGeneration = ++this.orderRequestGeneration
     const frameGeneration = this.orderFrameGeneration
-    const previousOrder = this.itemViews().map(workspace => workspace.workspaceId)
-    this.installOrder(insertIdBefore(previousOrder, workspaceId, beforeWorkspaceId))
+    const localOrder = this.itemViews().map(workspace => workspace.workspaceId)
+    this.installOrder(insertIdBefore(localOrder, workspaceId, beforeWorkspaceId))
     let result: RpcResult<{ workspaceIds: WorkspaceId[] }>
     try {
       ;({ result } = await this.api.workspace.insertBefore({
@@ -182,16 +184,16 @@ export class WorkspaceManager {
     } catch (error) {
       if (requestGeneration === this.orderRequestGeneration
         && frameGeneration === this.orderFrameGeneration) {
-        this.installOrder(previousOrder)
+        this.installOrder(this.committedOrder)
       }
       throw error
     }
     if (result.ok && requestGeneration === this.orderRequestGeneration
       && frameGeneration === this.orderFrameGeneration) {
-      this.installOrder(result.value.workspaceIds)
+      this.installOrder(result.value.workspaceIds, true)
     } else if (!result.ok && requestGeneration === this.orderRequestGeneration
       && frameGeneration === this.orderFrameGeneration) {
-      this.installOrder(previousOrder)
+      this.installOrder(this.committedOrder)
     }
     return result
   }
@@ -239,7 +241,7 @@ export class WorkspaceManager {
     else if (envelope.payload.type === 'host/workspace-removed') this.remove(envelope.payload.workspaceId)
     else if (envelope.payload.type === 'host/workspace-order-changed') {
       this.orderFrameGeneration++
-      this.installOrder(envelope.payload.workspaceIds)
+      this.installOrder(envelope.payload.workspaceIds, true)
     }
     else if (envelope.payload.type === 'host/archived-sessions-changed') {
       this.installArchived(envelope.payload.archivedSessionIds)
@@ -292,9 +294,12 @@ export class WorkspaceManager {
     this.notifier.markDirty()
   }
 
-  /** Reorder known Workspace objects by a complete Host id sequence. */
-  private installOrder(workspaceIds: readonly WorkspaceId[]): void {
-    this.refreshFrames?.push({ type: 'order', workspaceIds })
+  /** Reorder known Workspace objects, optionally recording a Host-committed sequence. */
+  private installOrder(workspaceIds: readonly WorkspaceId[], committed = false): void {
+    if (committed) {
+      this.refreshFrames?.push({ type: 'order', workspaceIds })
+      this.committedOrder = [...workspaceIds]
+    }
     const rank = new Map(workspaceIds.map((id, index) => [id, index]))
     const items = [...this.items].sort((left, right) => {
       const leftId = left.getSnapshot().view?.workspaceId
@@ -317,6 +322,9 @@ export class WorkspaceManager {
     // late unary response cannot roll back a newer frame.
     const installed = index === -1 ? undefined : this.items[index]?.getSnapshot().view
     if (installed !== undefined && Date.parse(view.updatedAt) < Date.parse(installed.updatedAt)) return
+    if (!this.committedOrder.includes(view.workspaceId)) {
+      this.committedOrder = [view.workspaceId, ...this.committedOrder]
+    }
     if (identity !== undefined) {
       this.items = index === -1
         ? [identity, ...this.items]
@@ -334,6 +342,7 @@ export class WorkspaceManager {
   private remove(workspaceId: WorkspaceId, direct = false): void {
     this.refreshFrames?.push({ type: 'remove', workspaceId })
     this.removedIds.add(workspaceId)
+    this.committedOrder = this.committedOrder.filter(id => id !== workspaceId)
     const items = this.items.filter(item =>
       item.getSnapshot().view?.workspaceId !== workspaceId)
     if (items.length === this.items.length) {
@@ -367,6 +376,7 @@ export class WorkspaceManager {
       installed.set(view.workspaceId, workspace)
     }
     this.items = [...installed.values()]
+    this.committedOrder = views.map(view => view.workspaceId)
   }
 
   private itemViews(): readonly WorkspaceView[] {

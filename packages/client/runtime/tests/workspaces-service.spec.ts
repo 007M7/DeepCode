@@ -115,6 +115,35 @@ describe('WorkspaceManager', () => {
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
   })
 
+  it('rolls overlapping rejected reorders back to the last Host-confirmed order', async () => {
+    const api = new FakeApiClient()
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('one'), workspace('two'), workspace('three')] as never[],
+    }))
+    const manager = new WorkspaceManager(api)
+    await manager.refresh()
+    const firstGate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceInsertBefore']>>>()
+    const secondGate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceInsertBefore']>>>()
+    let request = 0
+    api.onWorkspaceInsertBefore = () => request++ === 0 ? firstGate.promise : secondGate.promise
+
+    const first = manager.insertBefore(wid('three'), wid('one'))
+    const second = manager.insertBefore(wid('two'), wid('three'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'three', 'one'])
+
+    firstGate.resolve(err({
+      code: 'workspace-not-found', message: 'first rejected', details: { workspaceId: 'three' },
+    }))
+    await expect(first).resolves.toMatchObject({ ok: false })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'three', 'one'])
+
+    secondGate.resolve(err({
+      code: 'workspace-not-found', message: 'second rejected', details: { workspaceId: 'two' },
+    }))
+    await expect(second).resolves.toMatchObject({ ok: false })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two', 'three'])
+  })
+
   it('replays removal over an in-flight baseline and ignores duplicate or late updates', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()

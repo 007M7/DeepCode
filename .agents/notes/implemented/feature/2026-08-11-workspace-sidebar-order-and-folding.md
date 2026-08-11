@@ -16,7 +16,7 @@ Workspace groups themselves had no user-controlled durable order. Browser-native
 
 The Workspace registry owns a durable `workspaceIds` order and exposes `insertBefore(id, beforeId?)` with DOM `insertBefore` semantics. The Host RPC `workspace.insertBefore` returns the complete committed order, and a pure order mutation emits `host/workspace-order-changed` with the same complete order. Unknown source or anchor ids reject as `workspace-not-found`; self-anchored and already-positioned moves do not write.
 
-The client installs a Workspace drag optimistically. Request and frame generations ensure that only the latest unary echo can replace local order and that a newer Host frame outranks an older response; a latest rejected request restores the preceding order. Every successful list baseline restores Host order so reconnects adopt durable changes made elsewhere.
+The client installs a Workspace drag optimistically. Request and frame generations ensure that only the latest unary echo can replace local order and that a newer Host frame outranks an older response; a latest rejected request restores the last complete order accepted from a Host baseline, frame, or current unary echo. Every successful list baseline restores Host order so reconnects adopt durable changes made elsewhere.
 
 ### Session folding and view order
 
@@ -28,7 +28,7 @@ The combined view menu offers **Manual** and **Last updated** over one browser-l
 
 Workspace hit testing uses the complete rendered group section, including visible Session rows. One insertion boundary is shared by the preceding group's lower half and the following group's upper half, and the indicator is an absolutely positioned line that does not affect layout. A tree-body overlay draws the first boundary at the same negative offset outside the scrolling clip, so its hollow leading circle remains visible without moving the list. During a Session drag, document-level `dragover` and `drop` handlers accept the native operation; if release occurs outside the Workspace list, `dragend` commits the last valid marker.
 
-Search is a header action while collapsed and expands across the title and trailing actions. An outside click collapses an empty search but retains a non-empty query. Compact Workspace and Session rows, a 24px bottom fade, and the absence of per-Workspace Session counts preserve vertical space without removing navigation affordances.
+Search is a header action while collapsed and expands across the title and trailing actions. An outside click collapses a query that is empty after trimming but retains a non-empty query. Compact Workspace and Session rows, a 24px bottom fade, and the absence of per-Workspace Session counts preserve vertical space without removing navigation affordances.
 
 ## Alternatives considered
 
@@ -53,4 +53,4 @@ Search is a header action while collapsed and expands across the title and trail
 
 ## Testing
 
-Domain and Host tests cover durable Workspace moves, no-op and invalid anchors, restart recovery, full-order RPC responses, and order frames. Runtime tests cover optimistic order, frame/response precedence, rejection rollback, reconnect baselines, and New Session target priority. UI tests cover five-row folding, transient expansion reset, order-preserving mode switches, one-time recent-update promotion, selected view indicators, expanded-section Workspace hit testing, an unclipped first insertion boundary, outside-list Session drops, search collapse rules, and compact CSS dimensions.
+Domain and Host tests cover durable Workspace moves, no-op and invalid anchors, restart recovery, full-order RPC responses, and order frames. Runtime tests cover optimistic order, frame/response precedence, overlapping rejection rollback to Host-confirmed order, reconnect baselines, and New Session target priority. UI tests cover five-row folding, transient expansion reset, order-preserving mode switches, one-time recent-update promotion, selected view indicators, expanded-section Workspace hit testing, an unclipped first insertion boundary, outside-list Session drops, search collapse rules, and compact CSS dimensions.
