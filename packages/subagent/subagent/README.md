@@ -76,6 +76,14 @@ The manager derives three internal residency conditions from Agent quiescence an
 
 The manager reserves the child identity, resolves the durable descriptor, calls `ctx.agents.create()` (or `ctx.agents.resume()` for cold resume) through a private activation-owner scope, installs the returned `AgentHandle` in the Activation, establishes any continuable-parent ownership, and then submits the prompt. Cold resume never dispatches through a provider because the persisted Session already holds the initial prefix and the folded descriptor is the whole reconstruction input.
 
+### Settlement delivery
+
+When a resident Activation settles, the manager tells the child's durable direct parent, in the parent's own turn stream, that the child produced everything it is going to. Delivery is unconditional for every child whose id a caller actually received: it does not consider whether the child called `report`, because the endings that most need an account — a token ceiling, a model failure, cancellation, teardown — are exactly the ones where the child never got to choose. A materialization rolled back before its first accepted message stays silent, since that caller was told the child was not established. The message carries the epoch's stop reason, its final assistant content when it produced any, and durable provenance `{ kind: 'subagent-settled', form: 'notice', senderSessionId: <child-id> }` — a different source kind from a child-authored `subagent-report`, so a transcript never credits the child with words the runtime wrote.
+
+Two ordering rules make the delivery reliable rather than lucky, and both are why this belongs to the manager instead of an external `subagent/end` listener. First, the send happens **before** the child's ownership release, while the parent still counts the child and is therefore structurally unable to be judged settled. Second, a parent that is itself a resident Activation receives the message through the same waking-admission accounting as a report, so the window between the synchronous send and the microtask that admits it is not mistaken for quiescence — `Agent.status` folds context maintenance into `idle`, and a waking send behind maintenance only arms a deferred wake. Without either rule the parent can be disposed with the notice still in an inbox that `cancel()` clears, which loses it silently.
+
+An idle parent receives the notice as one ordinary later turn. A busy parent is steered into its nearest step boundary instead, so several children settling together cost one step rather than one turn each; steering rather than injecting also means a driver that retires between the status read and the send still claims the message. A parent whose own lineage is already draining receives the notice by injection, with no wake at all: `Agent.followup()` on a quiescent parent starts a turn and `cancel()` does not arm against a later one, so waking during teardown would spend a model request on an Agent its host is about to dispose — once per tree layer, since each layer's notice then wakes the layer above it. The injected message reaches a parent that is still reading its inbox, and the log records the account either way, but it does not outlive that parent's own disposal: `AgentHandle.dispose()` is a `keepInbox: false` cancel, which durably cancels an unclaimed notice. A resumed parent therefore has no pending notice to read: `list_agents` tells it which children exist and whether each is live or stored, while the outcome itself stays in the child's own Session, which a `send_message` reaches by resuming that child. A parent that has left the registry is not an error: the notice is dropped and the child's own Session remains the durable record. Delivery never blocks or fails teardown — a rejected send is logged, because retaining a child to retry a notice would pin its whole ancestry in `waiting` forever.
+
 A continuation-managed parent Activation records each child Session id in an `ownedChildren` set before the child can run and disposes only after every owned child Activation completes `AgentHandle` disposal (child-first). Teardown propagates Agent cancellation top-down before awaiting slow descendants, while handle release remains child-first. Top-level and other non-continuation Agents have no Activation and stay outside this waiting graph. Final settlement awaits a best-effort `ctx.sessions.flush(child.session)` before handle disposal. A listener rejection is logged without failing the Activation because listener participation does not identify a persistence backend; the persisted state may therefore be missing or stale on resume.
 
 ## Lifecycle events
@@ -100,11 +108,25 @@ Continuable Activations await a best-effort final session flush without treating
 
 ## Model Experience
 
+### Settlement notice
+
+#### What the model sees
+
+One user-role parent message opening with the outcome — `Background subagent <child-id> finished and will do no further work unless you send it more.`, or the matching line for a child that was stopped, ran out of room, declined, or failed — followed by `Its closing message:` and the child's final assistant content, or `It left no closing message.` when it produced none. This is the service's only direct parent-side contribution; delegation schemas, parent continuation and discovery, and the child-scoped `report` belong to `dsh-tool-subagent`, `dsh-tool-subagent-control`, and `dsh-tool-subagent-report`.
+
+#### Token effect
+
+One notice per settled Activation in the parent's request, sized by the child's final message. A child that both reports and settles costs the parent both.
+
+#### KV Cache effect
+
+Append-only in the parent: the notice follows its reusable request prefix. Reaching an idle parent starts one independent model request; reaching a busy one does not.
+
 ### Child delegation-scope statement
 
 #### What the model sees
 
-Every in-process child's runtime-context snapshot carries the `subagent:delegation` statement below, after the sandbox-policy and approval-policy sentences; parent-side rendering stays with `dsh-tool-subagent` (delegation schemas), `dsh-tool-subagent-control` (continuation and discovery), and `dsh-tool-subagent-report` (the child-scoped `report`).
+Every in-process child's runtime-context snapshot carries the `subagent:delegation` statement below, after the sandbox-policy and approval-policy sentences.
 
 ##### The delegation-scope statement
 

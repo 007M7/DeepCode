@@ -76,6 +76,14 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 管理器预留子 agent 身份、解析持久化描述符，通过私有的 activation-owner 作用域调用 `ctx.agents.create()`（冷恢复时为 `ctx.agents.resume()`），把返回的 `AgentHandle` 安装到 Activation 中，建立任何可继续父级所有权，然后提交提示词。冷恢复绝不通过提供方分发，因为持久化 Session 已持有初始前缀，折叠后的描述符即是全部重建输入。
 
+### 结算投递
+
+当一个驻留 Activation 结算时，管理器会在父级自身的轮次流中告知该子级持久化的直接父级：这个子级已经产出它将产出的全部内容。对每个调用方真正拿到过 id 的子级，这条投递都是无条件的：它不考虑该子级是否调用过 `report`，因为最需要这条投递的结束方式——token 上限、模型失败、取消、拆卸——恰恰是子级根本没有机会选择的那些。在第一条消息被接受之前就回滚的物化保持静默，因为那位调用方已被告知该子级未建立。消息会携带该 epoch 的终止原因、它产出过的最终 assistant 内容，以及持久化来源 `{ kind: 'subagent-settled', form: 'notice', senderSessionId: <child-id> }`——与子级自撰的 `subagent-report` 是不同的来源 kind，因此 transcript（文本记录）绝不会把运行时写下的话算到子级头上。
+
+有两条顺序规则让这条投递可靠而非侥幸，它们也正是这件事属于管理器而非外部 `subagent/end` listener 的原因。第一，发送发生在子级所有权释放**之前**，此时父级仍然计入该子级，因此在结构上不可能被判定为已结算。第二，本身就是驻留 Activation 的父级会通过与 report 相同的唤醒准入记账接收该消息，因此同步发送与承认它的那个 microtask 之间的窗口不会被误判为静止——`Agent.status` 会把上下文维护折叠成 `idle`，而维护期间的唤醒发送只会预置一次延后唤醒。缺少其中任一条规则，父级都可能在通知仍留在 inbox 时被 dispose，而 `cancel()` 会清空该 inbox，于是通知被静默丢失。
+
+空闲父级会以一个普通的后续轮次收到该通知。繁忙父级则被 steer 到其最近的 step 边界，因此同时结算的多个子级只消耗一个 step，而不是各自一个轮次；采用 steer 而非 inject 还意味着：即便驱动在状态读取与发送之间退出，该消息仍会被认领。若父级自身所在的谱系已在 draining，则该通知改为 inject 送达，完全不唤醒：对静息父级调用 `Agent.followup()` 会开启一个轮次，而 `cancel()` 不会对之后的轮次设防，因此在拆卸期间唤醒，会在宿主即将 dispose 的 Agent 上白花一次模型请求——而且每层树各一次，因为每层自己的通知又会唤醒它上面那层。被 inject 的消息会送达仍在读取自身 inbox 的父级，而无论如何日志都会记录这份记账；但它不会比该父级自身的 dispose 活得更久：`AgentHandle.dispose()` 是一次 `keepInbox: false` 的 cancel，会持久地取消尚未被认领的通知。因此 resume 后的父级没有待处理通知可读：`list_agents` 只告诉它有哪些子级、各自是在线还是仅存于存储；结局本身留在子级自己的 Session 里，一次 `send_message` 会通过 resume 该子级把它取回。已离开注册表的父级不算错误：通知被丢弃，子级自身的 Session 仍是持久记录。投递绝不会阻塞或使拆卸失败——发送被拒只会记录日志，因为为了重试一条通知而保留子级，会把它的整条祖先链永久钉在 `waiting` 上。
+
 受继续执行管理的父级 Activation 会在子 agent 能够运行之前，把每个子 agent 的 Session id 记录到 `ownedChildren` 集合中，并且只有在每个所拥有的子 agent Activation 完成 `AgentHandle` dispose 之后才会 dispose（子先于父）。拆卸会先自顶向下传播 Agent 取消，再等待缓慢的后代，而 handle 释放仍保持 child-first。顶层及其他非继续执行的 Agent 没有 Activation，处于该等待图之外。最终结算会在 dispose handle 前等待 best-effort 的 `ctx.sessions.flush(child.session)`。listener rejection 会被记录，但不会使 Activation 失败，因为 listener 是否参与无法标识持久化后端；因此，恢复时持久化状态可能缺失或陈旧。
 
 ## 生命周期事件
@@ -100,11 +108,25 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 模型体验
 
+### 结算通知
+
+#### 模型看到的内容
+
+一条用户角色的父级消息，开头是结果本身——`Background subagent <child-id> finished and will do no further work unless you send it more.`，或子级被停止、耗尽额度、拒绝任务或失败时的对应句子——随后是 `Its closing message:` 与子级的最终 assistant 内容；若子级没有产出内容，则是 `It left no closing message.`。这是本服务面向父级的唯一直接贡献；委派 schema、父级延续与发现以及子级作用域的 `report` 分别归 `dsh-tool-subagent`、`dsh-tool-subagent-control` 和 `dsh-tool-subagent-report` 所有。
+
+#### Token 影响
+
+父级请求中，每个已结算的 Activation 一条通知，长度取决于子级的最终消息。既上报又结算的子级会让父级同时支付两份。
+
+#### KV Cache 影响
+
+在父级中仅追加：通知位于其可复用请求前缀之后。到达空闲父级会启动一次独立的模型请求，到达繁忙父级则不会。
+
 ### 子级委派范围声明
 
 #### 模型看到的内容
 
-每个进程内子 agent 的运行时上下文快照都携带下方的 `subagent:delegation` 声明，位于沙箱策略与审批策略语句之后；父级侧的渲染仍归 `dsh-tool-subagent`（委派 schema）、`dsh-tool-subagent-control`（延续与发现）和 `dsh-tool-subagent-report`（子级作用域的 `report`）所有。
+每个进程内子 agent 的运行时上下文快照都携带下方的 `subagent:delegation` 声明，位于沙箱策略与审批策略语句之后。
 
 ##### 委派范围声明
 

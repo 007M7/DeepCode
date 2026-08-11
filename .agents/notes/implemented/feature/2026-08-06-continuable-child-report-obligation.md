@@ -29,7 +29,7 @@ The section is registered on the child's own scope, the same mechanism [child co
 
 Nothing rejects a child that never reports. No runtime path inspects whether a report was sent, and `report` still accepts zero or many calls per turn. The change is model-facing wording plus a scheduling default; the service authority, acknowledgement, and recovery contracts are unchanged.
 
-That boundary is deliberate: prompt text can only reach a child that is still running its own loop. A child stopped by an error, a token ceiling, cancellation, or teardown never gets the chance to comply. Covering those cases needs an account the runtime keeps itself, which this package cannot supply and does not claim to.
+That boundary is deliberate: prompt text can only reach a child that is still running its own loop. A child stopped by an error, a token ceiling, cancellation, or teardown never gets the chance to comply, which is why the runtime keeps its own account of settlement rather than trusting this instruction ([manager-owned settlement delivery](2026-08-06-manager-owned-subagent-settlement-delivery.md)).
 
 ### Snapshot coverage
 
@@ -57,4 +57,4 @@ The assembled ACP `subagent-report` scenario now exercises the shipped default: 
 
 Waking by default amplifies model work in deep trees. The deployment owns that through `reportDelivery`, and the amplification is bounded by one turn per accepted report.
 
-A child can still finish without reporting, and this change cannot detect it. Closing that case needs the runtime's own settlement account, which this package does not own.
+A child can still finish without reporting, and this change cannot detect it. Only the runtime's own [settlement account](2026-08-06-manager-owned-subagent-settlement-delivery.md) closes that case.

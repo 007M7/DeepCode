@@ -549,6 +549,9 @@ describe('dsh-tool-subagent-report result independence', () => {
       expect(ctx.agents.get(started.childId) === undefined).toBe(true)
     }, { timeout: 5_000 })
 
+    // The parent does learn the child settled — that account is the
+    // continuation service's, carried under its own `subagent-settled` source.
+    // Nothing turns the child's final answer into a report it did not send.
     expect(reports(parent)).toEqual([])
     expect(userTexts((await ctx.sessionPersistence.load(started.childId)).events)).toEqual(['child task'])
     expect(ctx.get('tasks')).toBeUndefined()

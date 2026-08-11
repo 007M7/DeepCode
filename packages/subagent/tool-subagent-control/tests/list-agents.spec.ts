@@ -16,6 +16,7 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as tool from '../src/list-agents.ts'
+import { parkParent } from './park-parent.ts'
 
 /** One scripted response that may wait on a caller-released gate before streaming. */
 interface GatedEntry {
@@ -63,6 +64,7 @@ async function setupWith(adapter: MockAdapter | GatedAdapter) {
   await ctx.plugin(tool)
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+  parkParent(ctx, parent)
   return { ctx, parent, adapter }
 }
 

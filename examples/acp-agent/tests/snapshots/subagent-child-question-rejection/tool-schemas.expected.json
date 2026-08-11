@@ -294,7 +294,7 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive only its subagent id, never its result, and it works on its own. Use this for work whose result you do not need returned by this call; `send_message` sends it more work.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a background subagent that keeps its conversation: this call returns only its subagent id, and the subagent works on its own from there. You are told when it finishes, so never poll or wait on it; `send_message` sends it more work.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -308,7 +308,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message."
+            "description": "Run as a background subagent that keeps its conversation and return only its subagent id. This call does not wait for it; you are told when it finishes. Send it more work with send_message."
           }
         },
         "required": [

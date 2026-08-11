@@ -82,6 +82,20 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('reports a prompt a pre-step rejection discarded as refusal, not completion', async () => {
+    const { ctx, parent } = await setup([])
+    // A UserPromptSubmit deny or a policy plugin: the child claims its prompt,
+    // the rejection discards it, and the turn closes `blocked` with no step.
+    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
+      if (subject === parent) return next()
+      return { kind: 'reject' as const }
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'refusal' })
+    await run.dispose()
+  })
+
   it('does not add a final durability checkpoint to a foreground run', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     let flushes = 0
