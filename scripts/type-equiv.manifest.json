@@ -304,7 +304,7 @@
     {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandInputDescriptor",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
@@ -319,12 +319,12 @@
     {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandResult",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandDescriptor",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",

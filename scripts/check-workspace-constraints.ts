@@ -53,7 +53,9 @@ const releaseMemberDirectory = /^(?:packages\/[^/]+\/[^/]+|apps\/[^/]+|vendor\/[
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'config'],
-  '@deepseek-ai/dsh-frontend': ['dist'],
+  // The Web build emits sourcemaps for browser debugging; publishing them is
+  // what the payload policy forbids, so the bundle ships without them.
+  '@deepseek-ai/dsh-frontend': ['dist', '!dist/**/*.map'],
 }
 
 /** The subset of package.json fields this constraint check cares about. */
@@ -152,7 +154,6 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
-  const typeRTRemoteNavigation = hasTypeRTRemoteNavigation(manifest)
   return [
     'lib/index.js',
     // Every package publishes its invariant ownership companion as a separate
@@ -185,13 +186,8 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     ...hasExportPair(manifest, './client/typert', './lib/typert.client.d.ts', './lib/typert.client.js')
       ? ['lib/typert.client.js', 'lib/typert.client.d.ts']
       : [],
-    ...typeRTRemoteNavigation
-      ? [
-        'lib/typert.remote-client.js',
-        'lib/typert.remote-client.d.ts',
-        'lib/typert.remote-client.d.ts.map',
-        'src',
-      ]
+    ...hasTypeRTRemoteNavigation(manifest)
+      ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts']
       : [],
   ]
 }
@@ -270,9 +266,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 
   if (manifest.name?.startsWith('@deepseek-ai/')) {
     const allowedSources = publicationSourceAllowlist[manifest.name] ?? []
-    const publicationPolicy = { typeRTRemoteNavigation: hasTypeRTRemoteNavigation(manifest) }
     for (const file of manifest.files ?? []) {
-      if (isForbiddenPublicationFile(file, publicationPolicy) && !allowedSources.includes(file)) {
+      if (isForbiddenPublicationFile(file) && !allowedSources.includes(file)) {
         errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
       }
     }

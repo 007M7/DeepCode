@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-04-declaring-a-provider-from-the-models-page.md
-2026-08-04-declaring-a-provider-from-the-models-page.md: 3e7ff9c3bd58b73185c669a224a59cd017ecfb42
-2026-08-04-declaring-a-provider-from-the-models-page.zh.md: a4255f8e29b696e84ff3accf636714cdfc0855f1
+2026-08-04-declaring-a-provider-from-the-models-page.md: 179a31396d34228e7a0cd510edac4c535af3162e
+2026-08-04-declaring-a-provider-from-the-models-page.zh.md: 3fca60554769fbf5f5be0d2bc76edf3ab3b71578

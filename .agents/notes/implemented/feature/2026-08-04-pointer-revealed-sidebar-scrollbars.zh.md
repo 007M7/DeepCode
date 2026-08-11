@@ -50,9 +50,9 @@ Status: implemented
 
 ## 测试
 
-`packages/client/ui-sidebar/tests/pointer-scrollbars.spec.tsx` 用假定时器把这个类走过各次跃迁：进入时显示，拖尾结束前 1 毫秒仍然显示，结束后 1 毫秒转为静默，以及窗口内折返会取消隐藏。另有两条覆盖几何判定的离开：落在列盒子之外的 `pointermove` 会在没有任何 DOM leave 的情况下隐藏滚动条（即设置面板那种形态），落回盒子之内的则取消待触发的隐藏。它还在拖尾进行中卸载组件并断言没有定时器存活——待触发的隐藏落到已销毁的组件上，正是这种写法容易犯的错。事件用的是带 `relatedTarget` 的 `pointerover`／`pointerout`，因为 React 由它们合成 enter 与 leave，而会忽略原生的那两个事件。
+`packages/client/ui-sidebar/tests/pointer-scrollbars.client.spec.tsx` 用假定时器把这个类走过各次跃迁：进入时显示，拖尾结束前 1 毫秒仍然显示，结束后 1 毫秒转为静默，以及窗口内折返会取消隐藏。另有两条覆盖几何判定的离开：落在列盒子之外的 `pointermove` 会在没有任何 DOM leave 的情况下隐藏滚动条（即设置面板那种形态），落回盒子之内的则取消待触发的隐藏。它还在拖尾进行中卸载组件并断言没有定时器存活——待触发的隐藏落到已销毁的组件上，正是这种写法容易犯的错。事件用的是带 `relatedTarget` 的 `pointerover`／`pointerout`，因为 React 由它们合成 enter 与 leave，而会忽略原生的那两个事件。
 
-`packages/client/ui-sidebar/tests/scrollbar-quiet-styles.spec.ts` 直接读样式表：该规则必须写出这组变量的两半——只重新绑定静止态滑块，会让指针一碰到滚动条就露出 hover 颜色——并且不得出现 `scrollbar-gutter`，那属于滚动区域自己。
+`packages/client/ui-sidebar/tests/scrollbar-quiet-styles.client.spec.ts` 直接读样式表：该规则必须写出这组变量的两半——只重新绑定静止态滑块，会让指针一碰到滚动条就露出 hover 颜色——并且不得出现 `scrollbar-gutter`，那属于滚动区域自己。
 
 `apps/web/tests/sidebar-scrollbar.e2e.ts` 是两半在真实引擎里汇合的地方。它在每次读取颜色前先把指针停在列表上，因为一个从不移动鼠标的场景全程测到的都是静默状态，会在未实际验证目标行为的情况下通过。随后它自己的用例把指针移开，断言在 leave 当下滑块仍在绘制，轮询直到它解析为 `rgba(0, 0, 0, 0)`，在该状态下重新测量几何以证明滚动条隐藏期间那份预留依然生效，并以编程方式滚动列表——键盘或触摸拖动所做的事——来钉住无指针滚动不绘制任何滑块。提交的 golden 记录了两套调色板下、两个指针位置上的滑块颜色。
 

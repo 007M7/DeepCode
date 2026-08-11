@@ -12,14 +12,13 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   launchWebScaffold,
   watchConsole,
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, conversationContextKey, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const TURN_COUNT = 12
