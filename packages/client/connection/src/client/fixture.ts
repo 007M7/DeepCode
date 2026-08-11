@@ -2305,7 +2305,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       interrupt: request => Promise.resolve(ok(request, { accepted: true as const })),
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
+      describe: request => ok(request, {
+        version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, canOpenPath: true,
+      }),
       // Deterministic native pick: the keyless lanes drive the full
       // pick-then-adopt path without an OS chooser (design-mock content,
       // same tree the browse primitives serve).

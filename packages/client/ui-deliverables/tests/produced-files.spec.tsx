@@ -6,7 +6,7 @@
  * (HMR safety) against the real SlotsService.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
@@ -19,7 +19,9 @@ import type {
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
+import {
+  fitProducedFiles, ProducedFiles, type ProducedFilesProps,
+} from '../src/client/ProducedFiles.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
   type DeliverablesTurnData,
@@ -27,9 +29,20 @@ import {
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  if (originalClientWidth === undefined) {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidth)
+  }
+})
 
 class TestTurnDataStore implements ConversationLocationDataStore<ConversationTurnDataMap> {
   private readonly values = new Map<string, unknown>()
@@ -268,22 +281,132 @@ describe('produced-file Turn data', () => {
 
 describe('ProducedFiles row', () => {
   const t = makeTranslate(zh)
+  const capability = (
+    canOpenPath: boolean | undefined,
+    isLoopback = true,
+  ): Pick<ProducedFilesProps, 'isLoopback' | 'useHostDescription'> => {
+    const description = canOpenPath === undefined
+      ? undefined
+      : { version: 'test', cwd: '/workspace', attachedSessions: 1, canOpenPath }
+    return {
+      isLoopback,
+      useHostDescription: selector => selector(description),
+    }
+  }
 
-  it('renders capped chips with the full path reachable and opens one on click', () => {
-    // Seven files: six chips plus an explicit remainder — the row bounds what
-    // it shows and says so rather than dropping the rest silently.
+  it('selects the largest prefix using the exact remainder width', () => {
+    expect(fitProducedFiles(230, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(2)
+    expect(fitProducedFiles(145, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(1)
+    expect(fitProducedFiles(300, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(3)
+    // A zero-width lane is a pre-layout test/hidden state, not evidence that
+    // every chip overflowed; keep the bounded initial prefix until measured.
+    expect(fitProducedFiles(0, 8, [70, 60], [60, 50, undefined])).toBe(2)
+    expect(fitProducedFiles(128, 8, [60, 60], [70, 50, undefined])).toBe(2)
+    // Candidate-specific suffix widths matter at the 10 -> 9 digit boundary.
+    expect(fitProducedFiles(126, 8, [60], [70, 50])).toBe(1)
+    expect(fitProducedFiles(20, 8, [60], [70, 50])).toBe(0)
+  })
+
+  it('keeps one measured line, updates on resize, and opens a file or the workspace folder', () => {
     const paths = ['deep/a.html', 'b.css', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
     const openFile = vi.fn<(path: string) => void>()
-    const view = render(<ProducedFiles matched={paths} openFile={openFile} t={t} />)
+    let available = 226
+    let resize: ResizeObserverCallback | undefined
+    const disconnect = vi.fn()
+    const observeNode = vi.fn<(target: Element) => void>()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe(target: Element): void {
+        expect(target).toBeInstanceOf(Element)
+        observeNode(target)
+      }
+      disconnect(): void { disconnect() }
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) { return this.hasAttribute('data-produced-files-row') ? available : 0 },
+    })
+    const rect = (width: number): DOMRect => ({
+      x: 0, y: 0, width, height: 22, top: 0, right: width, bottom: 22, left: 0,
+      toJSON: () => ({}),
+    })
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function getProbeRect(this: HTMLElement) {
+        if (this.closest('[aria-hidden="true"]') === null) return rect(0)
+        if (this.tagName !== 'BUTTON') return rect(60)
+        return rect(this.textContent === 'a.html' || this.textContent === 'b.css' ? 50 : 100)
+      })
+
+    const view = render(
+      <ProducedFiles matched={paths} openFile={openFile} {...capability(true)} t={t} />,
+    )
     expect(view.getByText('产物')).toBeTruthy()
-    // Chips carry the basename; the full path stays reachable as the title.
+    const row = view.container.querySelector('[data-produced-files-row]')
+    if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
+    // The third probe is 100px: two chips plus the remainder fit, three do not.
+    expect(within(row).getAllByRole('button')).toHaveLength(2)
+    expect(within(row).getByText('+ 5 个文件')).toBeTruthy()
     const chip = view.getByRole('button', { name: '打开 deep/a.html' })
     expect(chip.textContent).toBe('a.html')
     expect(chip.getAttribute('title')).toBe('deep/a.html')
     expect(view.queryByRole('button', { name: '打开 g.ts' })).toBeNull()
-    expect(view.getByText('还有 1 个')).toBeTruthy()
     fireEvent.click(chip)
     expect(openFile).toHaveBeenCalledWith('deep/a.html')
+
+    const showFolder = view.getByRole('button', { name: '在文件夹中显示' })
+    fireEvent.click(showFolder)
+    expect(openFile).toHaveBeenLastCalledWith('.')
+
+    available = 150
+    act(() => { resize?.([], {} as ResizeObserver) })
+    expect(within(row).getAllByRole('button')).toHaveLength(1)
+    expect(within(row).getByText('+ 6 个文件')).toBeTruthy()
+
+    // A missing/unsupported computed gap falls back to zero rather than NaN.
+    vi.stubGlobal('getComputedStyle', () => ({ columnGap: '', gap: '' } as CSSStyleDeclaration))
+    available = 165
+    act(() => { resize?.([], {} as ResizeObserver) })
+    expect(within(row).getAllByRole('button')).toHaveLength(2)
+
+    // Ref callbacks leave nulls in the probe arrays when the candidate set
+    // shrinks; the replacement observer must skip those stale slots.
+    observeNode.mockClear()
+    view.rerender(
+      <ProducedFiles matched={paths.slice(0, 1)} openFile={openFile} {...capability(true)} t={t} />,
+    )
+    expect(within(row).getAllByRole('button')).toHaveLength(1)
+    expect(observeNode).toHaveBeenCalledTimes(3)
+
+    view.unmount()
+    expect(disconnect).toHaveBeenCalledTimes(2)
+    bounds.mockRestore()
+  })
+
+  it('keeps the folder action absent without overflow or a local native opener', () => {
+    const openFile = vi.fn<(path: string) => void>()
+    const view = render(
+      <ProducedFiles matched={['a.md']} openFile={openFile} {...capability(true)} t={t} />,
+    )
+    const overflowing = ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']
+    expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    for (const unavailable of [capability(false), capability(true, false), capability(undefined)]) {
+      view.rerender(<ProducedFiles matched={overflowing} openFile={openFile} {...unavailable} t={t} />)
+      expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    }
+  })
+
+  it('uses singular English copy when exactly one file is hidden', () => {
+    const view = render(
+      <ProducedFiles
+        matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
+        openFile={() => {}}
+        {...capability(false)}
+        t={makeTranslate(en)}
+      />,
+    )
+    const row = view.container.querySelector('[data-produced-files-row]')
+    if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
+    expect(within(row).getByText('+ 1 file')).toBeTruthy()
   })
 })
 
@@ -340,7 +463,12 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
-    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    const hostDescription = { getSnapshot: () => undefined, subscribe: () => () => {} }
+    ctx.provide('connection', {
+      api: { settings: {} },
+      isLoopback: false,
+      hostDescription,
+    } as never)
     // ui-theme's Appearance row binds a durable scope through these two.
     ctx.provide('remote', { $on: () => () => {} } as never)
     ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
@@ -348,7 +476,9 @@ describe('plugin registration', () => {
 
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(1)
+    const [entry] = ctx.slots.entries('conversation.chat.turnTail')
+    expect(entry).toBeDefined()
+    expect(entry?.inject?.()).toEqual({ isLoopback: false, hooks: { hostDescription } })
 
     // The prose face is live while the plugin is: a produced turn yields a
     // resolver whose matches open through the owner-supplied opener.

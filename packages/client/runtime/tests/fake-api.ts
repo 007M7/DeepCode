@@ -90,8 +90,15 @@ export class FakeApiClient implements IApiClient {
   onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
 
-  onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
-    () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
+  onDescribe: (payload: unknown) => Promise<RpcResponse<{
+    version: string
+    cwd: string
+    attachedSessions: number
+    canOpenPath: boolean
+  }>> =
+    () => Promise.resolve(ok({
+      version: '0-fake', cwd: '/f', attachedSessions: 0, canOpenPath: true,
+    }))
   onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
     () => Promise.resolve(ok({ path: null }))
   onOpenPath: (payload: unknown) => Promise<RpcResponse<{ opened: true }>> =
