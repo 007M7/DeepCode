@@ -3379,10 +3379,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const committedWorkspaces = ctx.workspace.list()
         const committedWorkspaceIds = new Set(
-          ctx.workspace.list().map(workspace => String(workspace.id)),
+          committedWorkspaces.map(workspace => String(workspace.id)),
         )
-        let committedWorkspaceOrder = ctx.workspace.list().map(workspace => workspaceView(workspace).workspaceId)
+        let committedWorkspaceOrder = committedWorkspaces.map(workspace => workspace.id)
         // Frame-dedup baseline, same posture as committedWorkspaceIds: the
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.

@@ -310,14 +310,16 @@ describe('workspace.create', () => {
 
 describe('workspace.insertBefore', () => {
   it('commits the complete order, streams one order frame, and maps unknown ids', async () => {
-    const { api, root } = await harness()
+    const { api, ctx, root } = await harness()
     const first = expectOk(await api.workspace.create(request({ path: stageDir(root, 'first') }))).workspace
     const second = expectOk(await api.workspace.create(request({ path: stageDir(root, 'second') }))).workspace
     const third = expectOk(await api.workspace.create(request({ path: stageDir(root, 'third') }))).workspace
 
     const abort = new AbortController()
+    const listWorkspaces = vi.spyOn(ctx.workspace, 'list')
     const stream: AsyncIterator<RpcRequest<HostFrame>> =
       api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    expect(listWorkspaces).toHaveBeenCalledTimes(1)
     const changed = nextHostFrame(stream)
     const reordered = expectOk(await api.workspace.insertBefore(request({
       workspaceId: first.workspaceId,
