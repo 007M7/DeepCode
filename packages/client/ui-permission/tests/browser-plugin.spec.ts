@@ -12,6 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
 import {
@@ -37,6 +38,9 @@ async function bench() {
   const locale = new LocaleService(ctx)
   locale.setLocale('en')
   ctx.provide('locale', locale)
+  // The plugin injects `remote`; forwarded events reach it through the same
+  // `$dispatch` handoff the connection sink makes.
+  new TestRemote(ctx)
   ctx.slots.register({
     name: 'root',
     children: {
@@ -158,8 +162,8 @@ describe('ui-permission browser plugin', () => {
   it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
     expect(b.decoration()).toBeDefined()
-    b.ctx.emit('settings/changed', 'another')
-    b.ctx.emit('settings/changed', 'permission')
+    b.ctx.remote.$dispatch('settings/document-updated', ['another', 1])
+    b.ctx.remote.$dispatch('settings/document-updated', ['permission', 1])
     b.ctx.emit('connection/reset')
     await b.fiber.dispose()
     expect(b.decoration()).toBeUndefined()
