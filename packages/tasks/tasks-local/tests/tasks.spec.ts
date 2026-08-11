@@ -172,33 +172,25 @@ describe('LocalTaskService.start', () => {
       const ctx = new Context()
       await expect(ctx.plugin(LocalTaskService, { maxConcurrentTasksPerOwner }))
         .rejects.toThrow()
-      expect(() => new LocalTaskService(new Context(), { maxConcurrentTasksPerOwner }))
-        .toThrow('maxConcurrentTasksPerOwner must be a positive safe integer')
     },
   )
 
   it('accepts the largest safe integer limit', async () => {
     const ctx = await harness({ maxConcurrentTasksPerOwner: Number.MAX_SAFE_INTEGER })
-    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner)
-      .toBe(Number.MAX_SAFE_INTEGER)
+    expect(ctx.tasks).toBeInstanceOf(LocalTaskService)
   })
 
   it('defaults each owner bucket to ten active tasks', async () => {
     const ctx = await harness()
-    expect((ctx.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner).toBe(10)
     const live = Array.from({ length: 10 }, () => producer())
     for (const task of live) ctx.tasks.start(task.spec)
 
     const blocked = producer()
     const run = vi.fn(() => blocked.spec.run())
     expect(() => ctx.tasks.start({ ...blocked.spec, run }))
-      .toThrow('background task limit reached for this owner (10/10 active)')
+      .toThrow('background task limit reached for this owner (limit: 10)')
     expect(run).not.toHaveBeenCalled()
     for (const task of live) task.settle({ status: 'completed' })
-  })
-
-  it('defaults direct construction when the config schema is bypassed', () => {
-    expect(new LocalTaskService(new Context()).config.maxConcurrentTasksPerOwner).toBe(10)
   })
 
   it('rejects before producer start and id allocation, then admits immediately after settlement', async () => {
@@ -224,7 +216,7 @@ describe('LocalTaskService.start', () => {
     expect(ctx.tasks.kill(id)).toBe('requested')
 
     const replacement = producer()
-    expect(() => ctx.tasks.start(replacement.spec)).toThrow('(1/1 active)')
+    expect(() => ctx.tasks.start(replacement.spec)).toThrow('(limit: 1)')
 
     first.settle({ status: 'killed' })
     await tick()
@@ -260,7 +252,7 @@ describe('LocalTaskService.start', () => {
     expect(() => ctx.tasks.start(producer({ owner: replacement }).spec)).not.toThrow()
 
     ctx.tasks.start(producer().spec)
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('(1/1 active)')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('(limit: 1)')
     expect(() => ctx.tasks.start(producer({ owner: oldOwner }).spec))
       .toThrow('is not the registered agent instance')
 

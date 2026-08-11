@@ -33,9 +33,6 @@ export interface Config {
   maxConcurrentTasksPerOwner?: number
 }
 
-/** Configuration after defaults and load-time validation. */
-type ResolvedConfig = Required<Config>
-
 /** The registry's mutable per-task record (never handed out — see {@link LocalTaskService.snapshot}). */
 interface TrackedTask {
   id: TaskId
@@ -97,8 +94,8 @@ export class LocalTaskService extends TaskService {
       .default(DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER),
   })
 
-  /** Validated registry configuration. */
-  readonly config: ResolvedConfig
+  /** Schemastery-defaulted active-task limit. */
+  private readonly maxConcurrentTasksPerOwner: number
   private store = new Map<TaskId, TrackedTask>()
   private counters = new Map<string, number>()
   /**
@@ -120,14 +117,10 @@ export class LocalTaskService extends TaskService {
   /** Service context used by detached settlement continuations and teardown. */
   private readonly selfCtx: Context
 
-  constructor(ctx: Context, config: Config = {}) {
+  constructor(ctx: Context, config: Config) {
     super(ctx)
-    const maxConcurrentTasksPerOwner = config.maxConcurrentTasksPerOwner
-      ?? DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER
-    if (!Number.isSafeInteger(maxConcurrentTasksPerOwner) || maxConcurrentTasksPerOwner <= 0) {
-      throw new TypeError('tasks-local: maxConcurrentTasksPerOwner must be a positive safe integer')
-    }
-    this.config = { maxConcurrentTasksPerOwner }
+    // Schemastery validates and fills the default before constructing the service.
+    this.maxConcurrentTasksPerOwner = (config as Required<Config>).maxConcurrentTasksPerOwner
     this.selfCtx = ctx
     ctx.effect(() => () => this.disposeAll(), 'tasks teardown')
   }
@@ -145,9 +138,9 @@ export class LocalTaskService extends TaskService {
     if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
 
     const active = this.activeTaskCount(spec.owner)
-    if (active >= this.config.maxConcurrentTasksPerOwner) {
+    if (active >= this.maxConcurrentTasksPerOwner) {
       throw new Error(
-        `background task limit reached for this owner (${active}/${this.config.maxConcurrentTasksPerOwner} active); use task_kill to stop an unneeded task, wait for it to finish, then retry`,
+        `background task limit reached for this owner (limit: ${this.maxConcurrentTasksPerOwner}); use task_kill to stop an unneeded task, wait for it to finish, then retry`,
       )
     }
 

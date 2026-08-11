@@ -25,7 +25,7 @@ describe('tasks-local through a real Loader composition', () => {
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-tasks-local'",
       '  config:',
-      '    maxConcurrentTasksPerOwner: 2',
+      '    maxConcurrentTasksPerOwner: 1',
       '',
     ].join('\n'))
 
@@ -47,6 +47,20 @@ describe('tasks-local through a real Loader composition', () => {
     await context.loader.await()
 
     expect(context.tasks).toBeInstanceOf(LocalTaskService)
-    expect((context.tasks as LocalTaskService).config.maxConcurrentTasksPerOwner).toBe(2)
+    context.tasks.attachController('loader-test')
+    let settle!: (outcome: { status: 'killed' }) => void
+    context.tasks.start({
+      kind: 'bash',
+      label: 'hold loader slot',
+      run: () => ({
+        cancel: () => { settle({ status: 'killed' }) },
+        done: new Promise((resolve) => { settle = resolve }),
+      }),
+    })
+    expect(() => context!.tasks.start({
+      kind: 'bash',
+      label: 'blocked loader task',
+      run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
+    })).toThrow('(limit: 1)')
   })
 })
