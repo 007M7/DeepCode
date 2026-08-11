@@ -170,7 +170,7 @@
 
 .searchExpanded {
   width: calc(100% + 4px);
-  height: 34px;
+  height: 30px;
   margin-inline: -2px;
   padding: 0 4px 0 0;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -196,7 +196,7 @@
 
 .searchExpanded .searchButton {
   width: 28px;
-  height: 34px;
+  height: 30px;
 }
 
 .searchButton:hover {
