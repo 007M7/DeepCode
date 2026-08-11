@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Worker } from 'node:worker_threads'
 import { Context } from '@deepseek-ai/cordis'
@@ -9,6 +10,7 @@ import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRu
 import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRun, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
 import * as workerEngineModule from '../src/index.ts'
 import WorkerThreadWorkflowEngine, { type Config } from '../src/index.ts'
+import { workerSpawnEnv } from '../src/host.ts'
 import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
@@ -559,21 +561,46 @@ describe('dsh-workflow-worker-thread', () => {
       expect(result.value).toBe('fine')
     })
 
-    it('the worker spawns with an EMPTY environment: an escaped script finds no ambient credentials', async () => {
+    it('the worker spawns with a scrubbed environment: an escaped script finds no ambient credentials', async () => {
       const { ctx, parent } = await setup()
       // A canary in the HARNESS process's env: with an inherited environment
       // the escape below would read it back (exactly how DEEPSEEK_API_KEY
-      // would leak); env: {} in the spawn options is what keeps it out.
+      // would leak); the worker env keeps every ambient variable out. Windows
+      // additionally receives the host temp path (TMP/TEMP) so `os.tmpdir()`
+      // inside the worker resolves instead of degrading to a cwd-relative
+      // `undefined\temp` (tsx writes its transform cache there).
       process.env.WORKFLOW_ENV_CANARY = 'leak me'
       try {
         const result = await run(ctx, parent, scripted(`
           const proc = ${ESCAPE}
-          return { canary: proc.env.WORKFLOW_ENV_CANARY ?? null, keys: Object.keys(proc.env).length }
+          return { canary: proc.env.WORKFLOW_ENV_CANARY ?? null, keys: Object.keys(proc.env).sort() }
         `))
         expect(result.stopReason).toBe('completed')
-        expect(result.value).toEqual({ canary: null, keys: 0 })
+        const expectedKeys = process.platform === 'win32' ? ['TEMP', 'TMP'] : []
+        expect(result.value).toEqual({ canary: null, keys: expectedKeys })
       } finally {
         delete process.env.WORKFLOW_ENV_CANARY
+      }
+    })
+
+    it('workerSpawnEnv injects the host temp path on win32 and leaves the POSIX peer empty', () => {
+      const tmp = tmpdir()
+      expect(workerSpawnEnv('win32')).toEqual({ TMP: tmp, TEMP: tmp })
+      expect(workerSpawnEnv('linux')).toEqual({})
+    })
+
+    it('workerSpawnEnv forwards TSX_TSCONFIG_PATH when the snapshot harness pins it', () => {
+      const tsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
+      vi.stubEnv('TSX_TSCONFIG_PATH', tsconfig)
+      try {
+        expect(workerSpawnEnv('linux')).toEqual({ TSX_TSCONFIG_PATH: tsconfig })
+        expect(workerSpawnEnv('win32')).toEqual({
+          TMP: tmpdir(),
+          TEMP: tmpdir(),
+          TSX_TSCONFIG_PATH: tsconfig,
+        })
+      } finally {
+        vi.unstubAllEnvs()
       }
     })
 
@@ -589,10 +616,13 @@ describe('dsh-workflow-worker-thread', () => {
       try {
         const result = await run(ctx, parent, scripted(`
           const proc = ${ESCAPE}
-          return { keys: Object.keys(proc.env), tsconfig: proc.env.TSX_TSCONFIG_PATH }
+          return { keys: Object.keys(proc.env).sort(), tsconfig: proc.env.TSX_TSCONFIG_PATH }
         `))
         expect(result.stopReason).toBe('completed')
-        expect(result.value).toEqual({ keys: ['TSX_TSCONFIG_PATH'], tsconfig })
+        const expectedKeys = process.platform === 'win32'
+          ? ['TEMP', 'TMP', 'TSX_TSCONFIG_PATH']
+          : ['TSX_TSCONFIG_PATH']
+        expect(result.value).toEqual({ keys: expectedKeys, tsconfig })
       } finally {
         delete process.env.TSX_TSCONFIG_PATH
         delete process.env.WORKFLOW_ENV_CANARY

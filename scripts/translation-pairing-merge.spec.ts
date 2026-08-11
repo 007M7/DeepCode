@@ -1,7 +1,14 @@
 /** Integration coverage for automatic and explicit pairing-record conflict resolution. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +22,7 @@ import {
   renderTranslationPairingRecord,
   translationPairPaths,
 } from './translation-pairing-record.ts'
+import { removeFixtureSafely } from './test-fixture-cleanup.ts'
 
 const driver = fileURLToPath(new URL('./merge-translation-pairing.ts', import.meta.url))
 const driverLauncher = fileURLToPath(new URL('./merge-translation-pairing-driver.sh', import.meta.url))
@@ -28,7 +36,7 @@ interface Fixture {
 }
 
 afterEach(() => {
-  for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true })
+  for (const fixture of fixtures.splice(0)) removeFixtureSafely(fixture)
 })
 
 function git(fixture: Fixture, args: string[]): string {

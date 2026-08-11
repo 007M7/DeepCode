@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-workflow-worker-thread/host
  */
 
+import { tmpdir } from 'node:os'
 import { Worker } from 'node:worker_threads'
 import type { WorkerOptions } from 'node:worker_threads'
 import { fileURLToPath } from 'node:url'
@@ -29,17 +30,41 @@ interface ChildRecord {
 }
 
 /**
+ * The scrubbed worker environment: no ambient credentials, no loader flags.
+ * Windows derives `os.tmpdir()` from `TMP`/`TEMP` and falls back to the
+ * literal relative path `undefined\temp` when the environment is empty, so
+ * tsx's transform cache would land in a cwd-relative `undefined/temp`
+ * directory; the host's real temp path (not a credential) is injected there.
+ * The unbuilt shape additionally forwards `TSX_TSCONFIG_PATH` for path
+ * resolution.
+ * @param platform - host platform; overridable so tests exercise both peer arms.
+ * @returns the scrubbed worker environment object.
+ */
+export function workerSpawnEnv(platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  if (platform === 'win32') {
+    const tmp = tmpdir()
+    env.TMP = tmp
+    env.TEMP = tmp
+  }
+  if (process.env.TSX_TSCONFIG_PATH !== undefined) {
+    env.TSX_TSCONFIG_PATH = process.env.TSX_TSCONFIG_PATH
+  }
+  return env
+}
+
+/**
  * Resolve a built worker bundle or an unbuilt bootstrap that installs both tsx
  * transforms inside the worker. Both shapes clear `execArgv` and the ambient
- * environment; the unbuilt shape forwards only `TSX_TSCONFIG_PATH` for path
- * resolution.
+ * environment (the worker only sees the platform temp path and, unbuilt,
+ * `TSX_TSCONFIG_PATH`).
  * @param init - the run payload, passed as `workerData`.
  * @returns the entry path or URL and the Worker options to spawn it with.
  */
 function resolveWorkerSpawn(init: WorkerInit): { entry: string | URL; options: WorkerOptions } {
   /* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/); the built-worker e2e exercises this shape for real */
   if (!import.meta.url.endsWith('.ts')) {
-    return { entry: fileURLToPath(new URL('./worker.cjs', import.meta.url)), options: { workerData: init, env: {}, execArgv: [] } }
+    return { entry: fileURLToPath(new URL('./worker.cjs', import.meta.url)), options: { workerData: init, env: workerSpawnEnv(), execArgv: [] } }
   }
   // Resolve tsx only for unbuilt consumers and install it before importing TS.
   const workerEntry = new URL('./worker.ts', import.meta.url)
@@ -56,7 +81,7 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: string | URL; options: W
     entry: new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`),
     options: {
       workerData: init,
-      env: process.env.TSX_TSCONFIG_PATH === undefined ? {} : { TSX_TSCONFIG_PATH: process.env.TSX_TSCONFIG_PATH },
+      env: workerSpawnEnv(),
       execArgv: [],
     },
   }

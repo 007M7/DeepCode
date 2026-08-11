@@ -53,7 +53,7 @@ class GatedAdapter extends LlmAdapter {
 
 const roots: string[] = []
 afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 /** Boot the full continuable stack: loop, persistence, providers, and subagents. */
