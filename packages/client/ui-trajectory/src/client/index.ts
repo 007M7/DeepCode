@@ -55,7 +55,7 @@ export function apply(ctx: Context): void {
           const response = await fetch(url)
           if (!response.ok) {
             const detail = await response.text().catch(() => '')
-            throw new Error(`导出失败：HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
+            throw new Error(`Export failed: HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
           }
           downloadBlob(await response.blob(), sessionLogZipFilename(sessionId))
         },

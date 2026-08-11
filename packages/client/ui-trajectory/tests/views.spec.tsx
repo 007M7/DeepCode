@@ -336,9 +336,9 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
     expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '折叠轮次' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '展开轮次' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
     await vi.waitFor(() => {
@@ -552,10 +552,10 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: '折叠轮次',
+      name: 'Collapse turns',
     }).disabled).toBe(false)
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: '折叠调用',
+      name: 'Collapse calls',
     }).disabled).toBe(false)
     expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -1127,7 +1127,7 @@ describe('session log export', () => {
     const b = await bench(historySnapshot(NODES))
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    fireEvent.click(screen.getByRole('button', { name: '导出会话日志' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledOnce()
     })
@@ -1143,7 +1143,7 @@ describe('session log export', () => {
     const b = await bench(historySnapshot(NODES))
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    fireEvent.click(screen.getByRole('button', { name: '导出会话日志' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
     await vi.waitFor(() => {
       const alert = screen.queryByRole('alert')
       expect(alert).not.toBeNull()
@@ -1167,7 +1167,7 @@ describe('TrajectoryView branches', () => {
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
     )
-    const duration = screen.getByRole('button', { name: '使用实际时长' })
+    const duration = screen.getByRole('button', { name: 'Use actual duration' })
 
     expect(duration.getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(duration)
@@ -1183,7 +1183,7 @@ describe('TrajectoryView branches', () => {
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
     )
-    expect(screen.getByRole('button', { name: '使用实际时长' }).getAttribute('aria-pressed'))
+    expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
       .toBe('true')
   })
 
