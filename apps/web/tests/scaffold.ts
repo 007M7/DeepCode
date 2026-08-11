@@ -246,6 +246,13 @@ export interface LaunchOptions {
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
   /**
+   * Mount the shipped telemetry row in FULL mode against this exporter URL
+   * instead of disabling it. Used to pin a real backend disclosure in
+   * assembled coverage; point the URL at a local dead endpoint so no record
+   * leaves the process.
+   */
+  telemetryUrl?: string
+  /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
@@ -334,6 +341,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   } catch (error) {
     const failures: unknown[] = [error]
     await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    restoreSkillRootEnvironment()
     if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
     throw error
   }
@@ -395,8 +403,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment).
-    { id: 'telemetry-otel', disabled: true },
+    // names in the ambient environment). A scenario that pins a real backend
+    // disclosure passes a local dead endpoint instead of disabling the row.
+    options.telemetryUrl === undefined
+      ? { id: 'telemetry-otel', disabled: true }
+      : { id: 'telemetry-otel', config: { exporter: { url: options.telemetryUrl }, shutdownTimeoutMillis: 1_000 } },
     {
       id: 'webserver',
       config: { host: '127.0.0.1', port: 0 },
