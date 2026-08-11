@@ -2,7 +2,7 @@
 
 Status: implemented
 
-English | [中文](2026-06-20-public-agent-stop-surface.zh.md)
+English | [中文](2026-06-20-public-agent-stop-api.zh.md)
 
 ## Problem
 

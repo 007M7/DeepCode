@@ -71,7 +71,7 @@ const MARKDOWN_FIXTURE = [
   '- first item',
   '  - nested item',
   '',
-  '| Surface | State |',
+  '| Area | State |',
   '| --- | --- |',
   '| history | rendered |',
   '| streaming | stable |',

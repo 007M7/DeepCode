@@ -43,7 +43,7 @@ bash 所有者 token 比较依赖共享的 `Agent.id`/`SessionId` 在存活 agen
 
 - **公开的 `BashTask.owner` 字段**而非 `BashExecutor.ownerOf(id)` Service Definition 方法：否决。一条读取路径即可，无需冗余 API。
 - **为 agent 的会话生命周期使用兄弟 Cordis effect**：否决。fiber 卸载时并发释放兄弟 effect（`Promise.all`），store 拥有的 append 发布钩子的移除与循环的关闭 `session/flush` 产生竞争；单一复合 effect 的有序 LIFO 链才能在两条释放路径上都捕获关闭的 `turn/end`。
-- **在 `cancel()` 之外另设一个仅中止步骤的 `abort()`**：最初发布过，后因无人使用而移除；`cancel()` 是唯一的公开停止原语（见[公开停止接口 Agent Note](../simplification/2026-06-20-public-agent-stop-surface.md)）。
+- **在 `cancel()` 之外另设一个仅中止步骤的 `abort()`**：最初发布过，后因无人使用而移除；`cancel()` 是唯一的公开停止原语（见[公开停止接口 Agent Note](../simplification/2026-06-20-public-agent-stop-api.md)）。
 
 ## 后果
 

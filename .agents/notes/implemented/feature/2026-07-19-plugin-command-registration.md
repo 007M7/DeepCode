@@ -24,7 +24,7 @@ A `CommandDefinition` contains a lowercase name without `/`, a non-empty descrip
 
 ### Scope and lifecycle
 
-An unscoped registration is global. A command-injected plugin mounted beneath an agent context inherits that agent's scope key and lifetime, so its definition shadows a same-named global only for that exact agent. The child declares its own `commands` injection because `agent.ctx` intentionally inherits the core agent-loop dependency surface; adding a UI service to the loop merely to enable scoped registration would invert the dependency graph.
+An unscoped registration is global. A command-injected plugin mounted beneath an agent context inherits that agent's scope key and lifetime, so its definition shadows a same-named global only for that exact agent. The child declares its own `commands` injection because `agent.ctx` intentionally inherits the core agent-loop dependency API; adding a UI service to the loop merely to enable scoped registration would invert the dependency graph.
 
 Registration and removal emit the unfiltered, non-vetoing `commands/change` registry notification. Adapters recompute each live agent's effective view rather than trying to infer which sessions a change affects. The registry contains and logs each observer failure independently, so a broken UI refresh cannot roll back another plugin's mutation or starve a later observer. Cordis ownership removes definitions when their producer, UI instance, or agent scope unloads, so HMR cannot leave stale discovery entries or handlers.
 

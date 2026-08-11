@@ -6,7 +6,7 @@
  * across domains.
  *
  * Layer model (lower may not import higher):
- *   0  contract/            shared contract surface (types + slot declarations)
+ *   0  contract/            shared contract API (types + slot declarations)
  *   1  <domain>/ + service  domain implementations (skeleton/, chat/, ...)
  *   2  apply.ts, index.ts   assembly point and re-export shell
  *
@@ -71,7 +71,7 @@ function checkPackage(pkgName: string, clientDir: string): Violation[] {
         imported: spec,
         reason: fromDomain === ''
           ? `top-level non-assembly file imports domain "${toDomain}" (only apply/index may assemble)`
-          : `domain "${fromDomain}" imports sibling domain "${toDomain}" (route shared surface through contract/)`,
+          : `domain "${fromDomain}" imports sibling domain "${toDomain}" (route shared API through contract/)`,
       })
     }
   }

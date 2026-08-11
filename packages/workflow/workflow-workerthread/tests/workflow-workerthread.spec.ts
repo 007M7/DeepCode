@@ -1379,7 +1379,7 @@ describe('dsh-workflow-workerthread', () => {
     }, 15_000)
   })
 
-  describe('service surface', () => {
+  describe('service API', () => {
     it('run ids are unique and lifecycle meta is the run\'s borrowed immutable value', async () => {
       const { ctx, parent } = await setup()
       let eventMeta: WorkflowRunInfo | undefined

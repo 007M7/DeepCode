@@ -414,7 +414,7 @@ export abstract class AbstractApiClient implements IApiClient {
     }
   }
 
-  // ---- IApiClient surface (arrow properties so destructured/passed references stay bound) ----
+  // ---- IApiClient API (arrow properties so destructured/passed references stay bound) ----
 
   readonly sessions: IApiClient['sessions'] = {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),

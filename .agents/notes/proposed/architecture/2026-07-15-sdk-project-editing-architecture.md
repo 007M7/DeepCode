@@ -117,7 +117,7 @@ Link mode preserves the ordinary project file shape. `@deepseek-ai/*` points int
 - Adding an ordinary feature, feature option, or parameter extends only its typed spec or owning behavior object, without adding a central switch to create or config workflows
 - Helper owns the feature model, npm dependency and other resource configuration, and inconsistent-state detection
 - Structured files change through `*File` document objects; one-shot files and complete product copy come from package-owned Handlebars templates, and business decisions do not enter a template DSL
-- `dsh-sdk start/dev/build/config` is the runtime product surface, typecheck uses `tsc -b` directly, HMR is not injected by command mode, and only the scripts package transitively supplies `node-addon-require-builtin`
+- `dsh-sdk start/dev/build/config` is the runtime product API, typecheck uses `tsc -b` directly, HMR is not injected by command mode, and only the scripts package transitively supplies `node-addon-require-builtin`
 - `--link-workspace` exists only as a hidden repository-development option and preserves one module identity under npm, pnpm, and Yarn
 
 ## Risks

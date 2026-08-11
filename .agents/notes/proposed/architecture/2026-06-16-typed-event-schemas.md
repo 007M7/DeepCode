@@ -23,7 +23,7 @@ So the real proposal is: **replace the compile-time merge-extensible-map pattern
 
 ## Blast radius (measured)
 
-A migration of the event/vocabulary surface to runtime schemas touches, at minimum:
+A migration of the event/vocabulary API to runtime schemas touches, at minimum:
 
 - **Six merge-extensible maps** (~370 LOC of core types): `ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap` (in `dsh-llm`); `TurnTriggerMap`, `TurnEndReasonMap`, `SessionEventMap` (in `dsh-session`).
 - **~10 `declare module` augmentation sites** across `dsh-agent`, `dsh-agent-loop`, `dsh-bash`, `dsh-llm`, `dsh-session`, `dsh-session-persistence`, `dsh-system-prompt`, `dsh-tools` — each would move from declaration merging to a runtime `register()` call.

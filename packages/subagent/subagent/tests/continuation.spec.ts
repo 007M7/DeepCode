@@ -2059,7 +2059,7 @@ describe('continuable lifecycle observation', () => {
   })
 })
 
-describe('continuable public surface', () => {
+describe('continuable public API', () => {
   it('exposes no host authority, residency query, cancellation, steering, or report operation', async () => {
     const { ctx } = await setup([])
     const subagents: Record<string, unknown> = ctx.subagents as unknown as Record<string, unknown>

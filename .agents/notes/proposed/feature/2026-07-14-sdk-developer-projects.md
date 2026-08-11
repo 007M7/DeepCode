@@ -130,7 +130,7 @@ The SDK curates its builtin support set instead of exposing npm packages automat
 
 - `dsh-sdk add [package-spec]` unifies local-plugin creation with external Cordis plugin installation: without a package or repository source it creates a local plugin/tool, while a supplied source adds the npm dependency and `cordis.yml` config entry; the source model leaves room for GitHub repositories and other extensions
 - Non-interactive create/config: both workflows require a TTY in this phase and provide no complete input contract for automation
-- More feature-specific inputs: this product surface exposes only finite feature options, secrets, and a few dedicated values in this phase rather than a generic parameter interface for Cordis plugin config
+- More feature-specific inputs: this product API exposes only finite feature options, secrets, and a few dedicated values in this phase rather than a generic parameter interface for Cordis plugin config
 
 ## Alternatives considered
 
@@ -144,7 +144,7 @@ The SDK curates its builtin support set instead of exposing npm packages automat
 
 **A private local-plugin discovery protocol.** Ordinary package-manager workspaces, root npm dependencies, TypeScript references, and Cordis config entries already express the complete relationship. Another discovery protocol would create hidden state understood only by the SDK.
 
-**A `dsh-sdk create` command for existing projects.** Create already provides one editable local-plugin skeleton, and later plugins can use ordinary workspace and Cordis mechanisms manually. A parallel command would add a second scaffolding product surface without adding composition functionality.
+**A `dsh-sdk create` command for existing projects.** Create already provides one editable local-plugin skeleton, and later plugins can use ordinary workspace and Cordis mechanisms manually. A parallel command would add a second scaffolding product API without adding composition functionality.
 
 **Automatically expose every new Cordis plugin as a builtin.** An npm package cannot say how several plugins compose into one product feature, nor can it derive exclusivity, feature requirements, secrets, interface applicability, or security constraints. The support set requires human curation; automation is suitable only for checking whether candidates have been classified.
 

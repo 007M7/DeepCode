@@ -15,7 +15,7 @@ import { createLayoutStore } from './stores.ts'
 import { LayoutService } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 
-// Contract surface only (export-convergence rule: cross-package consumers
+// Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
 // ILayout: the ctx.layout face consumers and test fakes type against.
 // OwnerShare contracts below are the render-side halves registrants compose
@@ -64,7 +64,7 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
+/** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
 export const inject = ['slots', 'theme']
 
 /**

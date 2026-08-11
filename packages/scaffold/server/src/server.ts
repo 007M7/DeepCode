@@ -1,5 +1,5 @@
 /**
- * JSON-RPC method and notification surface for out-of-process harness SDKs.
+ * JSON-RPC methods and notifications for out-of-process harness SDKs.
  * The surrounding context owns plugins, persistence, and configured adapters.
  *
  * @module @deepseek-ai/dsh-jsonrpc/server

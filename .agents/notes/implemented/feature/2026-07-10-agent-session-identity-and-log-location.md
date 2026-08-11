@@ -29,7 +29,7 @@ interface SessionPersistence {
 
 `path` is an absolute local path to the backend's dedicated log for `meta`; `kind` identifies the representation. JSONL returns `{ kind: 'jsonl', path }` using its resolved root and path helpers. SQLite and any backend without an honest local per-session artifact return `undefined`. The query creates and flushes nothing, so it can report a lazy target path before that file exists.
 
-The model-facing bash package owns a `ctx.bashEnv` registry. A contributor declares its stable name, every `DSH_*` key it may return, a description for each key, and `resolve(execution: ToolExecution)`. Duplicate contributor names, duplicate key ownership, reserved keys, malformed declarations, undeclared runtime output, and non-string output fail loudly. Registration is a Cordis effect and is removed with the contributing plugin fiber. `list()` exposes declarations without running resolvers, keeping the environment surface enumerable for diagnostics and future prompt/UI consumers.
+The model-facing bash package owns a `ctx.bashEnv` registry. A contributor declares its stable name, every `DSH_*` key it may return, a description for each key, and `resolve(execution: ToolExecution)`. Duplicate contributor names, duplicate key ownership, reserved keys, malformed declarations, undeclared runtime output, and non-string output fail loudly. Registration is a Cordis effect and is removed with the contributing plugin fiber. `list()` exposes declarations without running resolvers, keeping the environment API enumerable for diagnostics and future prompt/UI consumers.
 
 The registry rebuilds a trusted overlay for every foreground and background bash `ToolExecution`:
 
@@ -48,7 +48,7 @@ The [Claude Code and Codex hook bridges](2026-06-30-hook-bridges.md) resolve tra
 
 ## Peer product findings
 
-Peer products separate stable identity from physical storage. Codex injects stable `CODEX_THREAD_ID` into spawned shells while recorder and hook surfaces own transcript paths. Claude Code supplies `session_id` and `transcript_path` as structured hook/status input. OpenCode carries identity in structured tool context; Kimi Code expands a session placeholder; Reasonix keeps the active session path on its controller. The portable rule is to inject identity at the invocation boundary, let storage resolve location, and never use a process-global current-session variable in a concurrent harness.
+Peer products separate stable identity from physical storage. Codex injects stable `CODEX_THREAD_ID` into spawned shells while recorder and hook integrations own transcript paths. Claude Code supplies `session_id` and `transcript_path` as structured hook/status input. OpenCode carries identity in structured tool context; Kimi Code expands a session placeholder; Reasonix keeps the active session path on its controller. The portable rule is to inject identity at the invocation boundary, let storage resolve location, and never use a process-global current-session variable in a concurrent harness.
 
 ## Lifecycle and persistence semantics
 
@@ -78,7 +78,7 @@ A keyless full-loop integration drives the real agent loop, JSONL persistence, t
 
 **Have each persistence backend register bash env directly.** That reverses the dependency from storage into one consumer and forces bash into deployments that do not use it. `locate()` is also still required by hooks.
 
-**A model-facing `session_info` tool.** It adds schema and another call while bash already supplies the query surface; the registry generalizes to future environment facts without one tool per fact.
+**A model-facing `session_info` tool.** It adds schema and another call while bash already supplies the query API; the registry generalizes to future environment facts without one tool per fact.
 
 ## Consequences
 
