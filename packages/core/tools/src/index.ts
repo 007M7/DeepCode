@@ -43,6 +43,20 @@ import { renderToolsSdkPy } from './py-types.ts'
  * with its zh pair, plus this package's own README pair and the
  * {@link Config.mode} JSDoc.
  */
+/**
+ * Prompt order of the `code` collapse statement: after the persona and before
+ * the 100-199 per-tool guidance band, so the model reads which tools it may
+ * call before it reads what each one is for.
+ */
+const COLLAPSE_SECTION_ORDER = 99
+
+/**
+ * The model-facing statement of the `code` collapse. Names the consequence
+ * (the call fails) and the route (inside the program), because a rule the
+ * model can only discover by being denied is one it corrects too late.
+ */
+const CODE_ONLY_INSTRUCTION = `\`${RUN_CODE_NAME}\` is the only tool you can call directly — a tool call naming any other tool fails. Reach every tool the SDK declares below from inside the program.`
+
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,
   python: renderToolsSdkPy,
@@ -478,8 +492,19 @@ export interface ToolFailure {
  * distinguish it from a tool body's own error.
  */
 export class ToolNotFoundError extends HarnessError {
-  constructor(toolName: string) {
-    super(`unknown tool "${toolName}"`, 'UNKNOWN_TOOL')
+  /**
+   * @param toolName - the name the caller asked for.
+   * @param reachableFrom - how the model reaches this tool instead, when the
+   *   name IS visible and only the presentation denies calling it directly.
+   *   Omitted for a name that is registered nowhere.
+   */
+  constructor(toolName: string, reachableFrom?: string) {
+    super(
+      reachableFrom === undefined
+        ? `unknown tool "${toolName}"`
+        : `unknown tool "${toolName}": ${reachableFrom}`,
+      'UNKNOWN_TOOL',
+    )
     this.name = 'ToolNotFoundError'
   }
 }
@@ -806,7 +831,34 @@ export class ToolRegistry extends Service {
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.defaultMode !== 'native') {
+      ctx.systemPrompt.section(this.collapseSection())
       ctx.systemPrompt.section(this.sdkSection())
+    }
+  }
+
+  /**
+   * The prompt statement of the `code` executor collapse, registered wherever
+   * {@link sdkSection} is and rendering empty outside an effective `code`.
+   *
+   * Every tool contributes its own guidance section naming its tool, none of
+   * them qualify how that tool is reached, and they all render before the SDK
+   * (orders 100-199 against {@link SDK_SECTION_ORDER}). Without this the model
+   * reads a catalog of tools it is told to use and no statement that only
+   * `run_code` may be called, so it emits a native call, receives
+   * `UNKNOWN_TOOL` for a tool the prompt just declared, and concludes the
+   * deployment is inconsistent. {@link COLLAPSE_SECTION_ORDER} places the rule
+   * before that guidance rather than after it.
+   *
+   * `both` renders empty: native calls do execute there, so the rule is false.
+   * @returns the section registration.
+   */
+  private collapseSection(): { name: string; order: number; text: (context: { scope?: ScopeKey }) => string } {
+    return {
+      name: 'tools:code-only',
+      order: COLLAPSE_SECTION_ORDER,
+      // The SAME predicate the executor denies by, so the prompt cannot state
+      // a rule the registry does not enforce (see `collapses`).
+      text: context => this.modeFor(context.scope) === 'code' ? CODE_ONLY_INSTRUCTION : '',
     }
   }
 
@@ -908,11 +960,14 @@ export class ToolRegistry extends Service {
         },
         { label: 'tools.presentAs()' },
       )
-      // The SDK section is per scope for the same reason the mode is. Under a
-      // deployment that already defaults to a code mode this shadows the
-      // global registration with an identical body, which costs nothing and
-      // keeps one rule instead of a case analysis.
-      if (mode !== 'native') yield ctx.systemPrompt.section(this.sdkSection())
+      // The SDK and collapse sections are per scope for the same reason the
+      // mode is. Under a deployment that already defaults to a code mode this
+      // shadows the global registration with an identical body, which costs
+      // nothing and keeps one rule instead of a case analysis.
+      if (mode !== 'native') {
+        yield ctx.systemPrompt.section(this.collapseSection())
+        yield ctx.systemPrompt.section(this.sdkSection())
+      }
     }.bind(this), 'tools.presentAs()')
     // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
     return dispose
@@ -1367,7 +1422,18 @@ export class ToolRegistry extends Service {
         if (signal.aborted) {
           return { kind: 'final-result', exec: execution, result: toolAbortedBeforeDispatchResult() }
         }
-        return { kind: 'final-result', exec: execution, result: toolErrorResult(new ToolNotFoundError(name)) }
+        // The name IS visible here, so the denial carries the route the model
+        // must take instead. Without it the model reads a bare `unknown tool`
+        // for a tool the prompt just declared and concludes the deployment is
+        // broken rather than correcting itself.
+        return {
+          kind: 'final-result',
+          exec: execution,
+          result: toolErrorResult(new ToolNotFoundError(
+            name,
+            `only \`${RUN_CODE_NAME}\` is callable directly — call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+          )),
+        }
       }
       return { kind: 'ready', exec: execution }
     } catch (error: unknown) {

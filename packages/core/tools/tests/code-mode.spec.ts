@@ -135,6 +135,32 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).not.toContain('run_code:')
   })
 
+  it("mode 'code' states the run_code-only rule BEFORE the per-tool guidance that names each tool", async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    // Stand in for a real tool's guidance section, which sits in the 100-199
+    // band and names its tool without saying how it is reached.
+    ctx.systemPrompt.section({ name: 'tool:echo', order: 100, text: 'Use the echo tool.' })
+
+    const assembly = await systemPrompt.assemble()
+    const names = assembly.sections.map(section => section.name)
+    const rule = assembly.sections.find(section => section.name === 'tools:code-only')
+    expect(rule?.text).toContain(`\`${RUN_CODE_NAME}\` is the only tool you can call directly`)
+    // The rule is worthless after the guidance it qualifies.
+    expect(names.indexOf('tools:code-only')).toBeLessThan(names.indexOf('tool:echo'))
+    expect(names.indexOf('tools:code-only')).toBeLessThan(names.indexOf('tools:sdk'))
+  })
+
+  it("mode 'both' omits the run_code-only rule, because native calls do execute there", async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'both' })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    // Registered (the deployment is non-native) but empty, so the renderer
+    // drops it: `both` executes the native call the rule would forbid.
+    expect(assembly.sections.find(section => section.name === 'tools:code-only')?.text).toBe('')
+    expect(assembly.tools.map(tool => tool.name)).toContain('echo')
+  })
+
   it('projects deeply nested output schemas into the Code Mode SDK without structured-clone recursion', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     let output: JsonSchemaNode = { type: 'string' }
@@ -1574,6 +1600,11 @@ describe('the run_code dispatch bridge', () => {
     })
     expect(result.isError).toBe(true)
     expect(result.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    // The name IS declared to this model, so a bare `unknown tool` reads as a
+    // broken deployment. The denial carries the route instead.
+    expect(result.error?.message).toBe(
+      `unknown tool "write": only \`${RUN_CODE_NAME}\` is callable directly — call \`write\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+    )
   })
 
   it('routes a pre-aborted collapsed call through ABORTED_BEFORE_DISPATCH', async () => {
