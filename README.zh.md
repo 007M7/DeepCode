@@ -93,4 +93,6 @@ DeepSeek Harness 目前处于内测阶段。
 
 第三方依赖及其许可证在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中披露。
 
+## 参与贡献
+
 向本仓库贡献前，请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
