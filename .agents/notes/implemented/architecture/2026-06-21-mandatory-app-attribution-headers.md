@@ -32,7 +32,7 @@ The provider-neutral identity is owned by `dsh-llm` (`packages/llm/llm/src/attri
 
 - product token for `User-Agent`: `deepseek-harness` (continuity with the pre-Agent Note wire value and the repo/org identity)
 - version: read from the owning package's manifest via `createRequire`, never a hand-copied constant
-- app URL: `https://github.com/deepseek-ai/deepseek-harness-sdk` - the planned public home, which must exist before release
+- app URL: `https://github.com/deepseek-ai/deepseek-harness` - the repository home
 
 The default is mandatory and non-empty. White-label deployments pass their own `AppIdentity` to `attributionHeaders(identity)` - the override hook is the function parameter, with no deployment config plumbing until a consumer needs it - and omission falls back to the harness default rather than suppressing attribution. There is no per-request API for the model, user prompt, session id, cwd, user email, API key owner, or local machine identity to influence these fields.
 
@@ -76,8 +76,6 @@ The landed contract:
 ## Consequences
 
 **Providers see that traffic comes from the harness.** That is the point, but it means deployments that previously blended into generic SDK traffic become identifiable. Mitigation: send only static public product data and let forks/white-label deployments pass their own `AppIdentity`.
-
-**The app URL points at a repository that does not exist yet.** `deepseek-ai/deepseek-harness-sdk` is the planned public home; until it is created the URL is a dangling promise that blocks release.
 
 **Header support differs by client library.** The hand-rolled adapter sets headers directly; the pi-ai-backed adapter depends on pi-ai continuing to honor `StreamOptions.headers` (merged last over provider defaults). The wire-level mock-server tests are the guard: if a pi-ai upgrade stops delivering the header, the suite goes red. This is useful pressure on the abstraction: a provider adapter that cannot set mandatory headers cannot fully implement the harness LLM contract.
 

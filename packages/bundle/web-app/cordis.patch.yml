@@ -60,6 +60,11 @@
       config:
         backend: json
 
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 

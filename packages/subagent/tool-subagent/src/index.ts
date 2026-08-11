@@ -330,6 +330,9 @@ export function apply(ctx: Context, config: Config): void {
               : outputValueText(value.output),
         }],
       },
+      // Children never mutate the parent session; the one parent-owned write
+      // (tasks.start) is a synchronous commutative insertion.
+      isConcurrencySafe: () => true,
       async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {
