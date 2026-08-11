@@ -148,6 +148,7 @@ describe('apply', () => {
     ctx.provide('sessions', {})
     await ctx.plugin(SlashService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    new TestRemote(ctx)
     const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
