@@ -1561,6 +1561,40 @@ describe('the run_code dispatch bridge', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
   })
+  it('denies a model-direct native-tool call under code mode as UNKNOWN_TOOL', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    registerEcho(ctx, 'write')
+    const result = await registry.execute({
+      signal: testToolSignal,
+      callId: CallId('call-1'),
+      name: 'write',
+      arguments: { text: 'hello' },
+    })
+    expect(result.isError).toBe(true)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error is a union type
+    expect((result.error as any).code).toBe('UNKNOWN_TOOL')
+  })
+
+  it('routes a pre-aborted collapsed call through ABORTED_BEFORE_DISPATCH', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    registerEcho(ctx, 'write')
+    const aborted = new AbortController()
+    aborted.abort()
+    const result = await registry.execute({
+      signal: aborted.signal,
+      callId: CallId('call-1'),
+      name: 'write',
+      arguments: { text: 'hello' },
+    })
+    expect(result.isError).toBe(true)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error is a union type
+    expect((result.error as any).code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+  })
+
 })
 
 /**
