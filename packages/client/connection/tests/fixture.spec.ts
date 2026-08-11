@@ -267,9 +267,8 @@ describe('createFixtureApi', () => {
     expect(seen).toHaveLength(1)
     const added = seen[0]
     if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
-    expect(Number.isFinite(added.createdAt)).toBe(true)
     expect(added).toEqual({
-      type: 'host/session-added', sessionId: createdId, createdAt: added.createdAt, blank: true, cwd: '/tmp/fixture',
+      type: 'host/session-added', sessionId: createdId, blank: true, cwd: '/tmp/fixture',
     })
     const list = await api.sessions.list(req({}))
     if (!list.result.ok) throw new Error('list failed')
@@ -707,9 +706,8 @@ describe('createFixtureApi', () => {
     // write pushes the fresh workspace snapshot after session-added.
     const added = seen[0]
     if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
-    expect(Number.isFinite(added.createdAt)).toBe(true)
     expect(added).toEqual({
-      type: 'host/session-added', sessionId: id, createdAt: added.createdAt, blank: true, cwd: '/tmp/fixture',
+      type: 'host/session-added', sessionId: id, blank: true, cwd: '/tmp/fixture',
     })
     expect(seen[1]).toMatchObject({
       type: 'host/workspace-changed',
@@ -741,9 +739,8 @@ describe('createFixtureApi', () => {
     })
     const added = frames[1]
     if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
-    expect(Number.isFinite(added.createdAt)).toBe(true)
     expect(added).toEqual({
-      type: 'host/session-added', sessionId: preallocated, createdAt: added.createdAt, blank: true,
+      type: 'host/session-added', sessionId: preallocated, blank: true,
       cwd: made.result.value.workspace.path,
     })
 

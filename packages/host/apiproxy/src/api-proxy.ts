@@ -466,7 +466,6 @@ function sessionListFields(header: SessionHeader, events: readonly SessionEvent[
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
-    createdAt: session.header.createdAt,
     // Excludes end-seed: a resumed-but-untouched session
     // must not sort as freshly worked in.
     updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
@@ -500,7 +499,6 @@ async function summarizeCold(
   }
   return {
     sessionId: meta.id,
-    createdAt: meta.createdAt,
     updatedAt,
     running: false,
     // Lazy persistence keeps never-appended sessions out of list(); reading
@@ -3394,7 +3392,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
-              createdAt: session.header.createdAt,
               // Derived at frame time like summarize(); a just-created session
               // has run no turn yet, so this is constantly true in practice.
               blank: sessionBlank(session),

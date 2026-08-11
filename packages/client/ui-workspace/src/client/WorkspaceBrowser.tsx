@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCheckOutline16, IconCloseFill14, IconPersonalizationOutline16,
+  Button, IconCloseFill14, IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -89,24 +89,19 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
   t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
-  const optionLabel = (label: string, selected: boolean) => (
-    <span className={css.viewOptionLabel}>
-      <span>{label}</span>
-      {selected && <IconCheckOutline16 className={css.viewOptionCheck} />}
-    </span>
-  )
   return (
     <Menu
       open={open}
       onClose={() => { setOpen(false) }}
       items={[
         { type: 'label' as const, id: 'group-by', text: t('groupBy.label') },
-        { id: 'workspace', label: optionLabel(t('groupBy.workspace'), groupBy === 'workspace') },
-        { id: 'flat', label: optionLabel(t('groupBy.flat'), groupBy === 'flat') },
+        { id: 'workspace', label: t('groupBy.workspace') },
+        { id: 'flat', label: t('groupBy.flat') },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
-        { id: 'manual', label: optionLabel(t('orderBy.manual'), orderBy === 'manual'), disabled: groupBy !== 'workspace' },
-        { id: 'updated', label: optionLabel(t('orderBy.updated'), orderBy === 'updated') },
+        { id: 'manual', label: t('orderBy.manual'), disabled: groupBy !== 'workspace' },
+        { id: 'updated', label: t('orderBy.updated') },
       ]}
+      selectedIds={[groupBy, orderBy]}
       onSelect={(id) => {
         if (id === 'workspace' || id === 'flat') onGroupPick(id)
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
@@ -280,7 +275,7 @@ function SessionTree({
     })
   }, [recentSessionOrder, workspaces])
   const groups = useMemo(
-    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, { expandedProjects }, 'manual'),
+    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, { expandedProjects }),
     [list, orderedWorkspaces, archivedSessionIds, expandedProjects],
   )
   const now = Date.now()
@@ -684,12 +679,12 @@ export function WorkspaceBrowser({
     const onClick = (event: MouseEvent): void => {
       if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true) return
       searchInput.current?.blur()
-      if (query !== '') return
+      if (normalizedQuery !== '') return
       setSearchExpanded(false)
     }
     document.addEventListener('click', onClick)
     return () => { document.removeEventListener('click', onClick) }
-  }, [query, wide, searchExpanded])
+  }, [normalizedQuery, wide, searchExpanded])
 
   useEffect(() => {
     if (normalizedQuery === '') {

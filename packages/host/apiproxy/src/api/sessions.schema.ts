@@ -51,7 +51,6 @@ export const sessionEventSchema = z.object({
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
 export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
-  createdAt: z.number().optional(),
   updatedAt: z.number(),
   running: z.boolean(),
   blank: z.boolean(),

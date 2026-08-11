@@ -541,9 +541,8 @@ export class SessionManager {
         : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
       const { result } = await this.api.sessions.create(payload)
       if (result.ok) {
-        const createdAt = Date.now()
         this.recordMutation({ kind: 'upsert', summary: {
-          sessionId: result.value.sessionId, createdAt, updatedAt: createdAt, running: false, blank: true,
+          sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
           ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
           ...(result.value.agentPreset !== undefined ? { agentPreset: result.value.agentPreset } : {}),
         } })
@@ -553,11 +552,9 @@ export class SessionManager {
         // so expose it immediately as Ungrouped while the caller keeps the
         // prompt buffer and decides whether to retry attachment.
         if (publishedSessionId !== undefined) {
-          const createdAt = Date.now()
           this.recordMutation({ kind: 'upsert', summary: {
             sessionId: publishedSessionId,
-            createdAt,
-            updatedAt: createdAt,
+            updatedAt: Date.now(),
             running: false,
             blank: true,
           } })
@@ -591,9 +588,8 @@ export class SessionManager {
         ? result.value.sessionId
         : workspaceAttachSessionId(result.error)
       if (childId !== undefined) {
-        const createdAt = Date.now()
         this.recordMutation({ kind: 'upsert', summary: {
-          sessionId: childId, createdAt, updatedAt: createdAt, running: false, blank: false,
+          sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
           parentSessionId: opts.sessionId,
           ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
         } })
@@ -620,9 +616,8 @@ export class SessionManager {
    * @param agentPreset - the preset id the host confirmed.
    */
   noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    const createdAt = Date.now()
     this.recordMutation({ kind: 'upsert', summary: {
-      sessionId, createdAt, updatedAt: createdAt, running: false, blank: true, agentPreset,
+      sessionId, updatedAt: Date.now(), running: false, blank: true, agentPreset,
     } })
   }
 
@@ -799,10 +794,8 @@ export class SessionManager {
     const frame = envelope.payload
     switch (frame.type) {
       case 'host/session-added': {
-        const createdAt = frame.createdAt ?? Date.now()
         this.mergeSummary({
-          sessionId: frame.sessionId, createdAt, updatedAt: createdAt,
-          running: false, blank: frame.blank,
+          sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
           ...(frame.origin !== undefined ? { origin: frame.origin } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
@@ -1055,8 +1048,7 @@ export class SessionManager {
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
-        prev !== undefined && prev.createdAt === entry.createdAt
-        && prev.updatedAt === entry.updatedAt && prev.running === entry.running
+        prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
         && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth

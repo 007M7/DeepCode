@@ -1387,11 +1387,10 @@ interface FixtureWorld {
 /** Build the fixture's legacy API and Remote RPC faces over one state graph. */
 function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // The resident fixture sessions all carry history, so none of them is blank.
-  const fixtureSessionsNow = Date.now()
   const sessions: SessionSummary[] = options.empty ? [] : [
-    { sessionId: sid('fx-alpha'), createdAt: fixtureSessionsNow - 180_000, updatedAt: fixtureSessionsNow, running: true, blank: false, cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-beta'), createdAt: fixtureSessionsNow - 120_000, updatedAt: fixtureSessionsNow - 60_000, running: false, blank: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-gamma'), createdAt: fixtureSessionsNow - 60_000, updatedAt: fixtureSessionsNow - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, blank: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const modelSelections = new Map<SessionId, ModelSelection>(sessions.map(session => [
@@ -2047,16 +2046,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             return ok(request, { sessionId: requestedId })
           }
         }
-        const createdAt = Date.now()
         const created: SessionSummary = {
-          sessionId: requestedId ?? sid(`fx-${nextSession++}`), createdAt, updatedAt: createdAt, running: false, blank: true, cwd,
+          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
         modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
-          emitHost({ type: 'host/session-added', sessionId: created.sessionId, createdAt, blank: true, cwd })
+          emitHost({ type: 'host/session-added', sessionId: created.sessionId, blank: true, cwd })
         }
         if (workspace !== undefined && options.failWorkspaceAttach) {
           emitSession()
@@ -2123,16 +2121,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         let cut = boundary.seq + 1
         while (cut < log.length && log[cut]?.type !== 'turn/start') cut++
-        const createdAt = Date.now()
         const child: SessionSummary = {
-          sessionId: sid(`fx-${nextSession++}`), createdAt, updatedAt: createdAt, running: false, blank: false,
+          sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: false,
           parentSessionId: sessionId,
           ...source.cwd === undefined ? {} : { cwd: source.cwd },
         }
         logs.set(child.sessionId, log.slice(0, cut))
         sessions.push(child)
         emitHost({
-          type: 'host/session-added', sessionId: child.sessionId, createdAt, blank: false,
+          type: 'host/session-added', sessionId: child.sessionId, blank: false,
           parentSessionId: sessionId,
           ...source.cwd === undefined ? {} : { cwd: source.cwd },
         })

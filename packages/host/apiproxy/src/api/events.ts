@@ -128,7 +128,6 @@ export type HostFrame =
   | {
     type: 'host/session-added'
     sessionId: SessionId
-    createdAt?: number
     blank: boolean
     parentSessionId?: SessionId
     origin?: 'subagent'

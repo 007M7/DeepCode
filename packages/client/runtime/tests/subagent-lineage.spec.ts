@@ -11,7 +11,7 @@ function summary(
   running = false,
 ): SessionSummary {
   return {
-    id: sid(id), displayTitle: id, running, blank: false, createdAt: 0, updatedAt: 0,
+    id: sid(id), displayTitle: id, running, blank: false, updatedAt: 0,
     ...(parentId === undefined ? {} : { parentId }),
     ...(origin === undefined ? {} : { origin }),
   }

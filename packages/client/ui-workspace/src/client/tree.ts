@@ -29,7 +29,6 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
-  createdAt: number
   updatedAt: number
 }
 
@@ -108,10 +107,6 @@ function byRecency(a: SessionSummary, b: SessionSummary): number {
   return a.id < b.id ? -1 : 1
 }
 
-function sortSessions(sessions: SessionSummary[]): void {
-  sessions.sort(byRecency)
-}
-
 /**
  * Ordinary sessions are visible; among blank sessions, only the current one
  * is visible. Subagent children use their parent header catalog; archived
@@ -141,10 +136,12 @@ function buildGroup(
   createdAt: number | undefined,
   label: string,
   members: readonly SessionSummary[],
-  orderBy: SessionOrderBy,
+  order: 'account' | 'recency',
 ): Group {
   const sessions = [...members]
-  if (orderBy !== 'manual') sortSessions(sessions)
+  // Workspace order is the caller-selected sessionIds; only Ungrouped lacks
+  // an account order and therefore falls back to recency.
+  if (order === 'recency') sessions.sort(byRecency)
   return { key, workspaceId, cwd, createdAt, label, sessions }
 }
 
@@ -157,7 +154,6 @@ function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
-  orderBy: SessionOrderBy,
 ): Group[] {
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
@@ -172,7 +168,7 @@ function groupByWorkspace(
     }
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
-      Date.parse(workspace.createdAt), workspace.title, members, orderBy,
+      Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
   const stray = list.ids
@@ -180,10 +176,7 @@ function groupByWorkspace(
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
   if (stray.length > 0) {
-    groups.push(buildGroup(
-      UNGROUPED_KEY, undefined, undefined, undefined, UNGROUPED_LABEL, stray,
-      orderBy === 'manual' ? 'updated' : orderBy,
-    ))
+    groups.push(buildGroup(UNGROUPED_KEY, undefined, undefined, undefined, UNGROUPED_LABEL, stray, 'recency'))
   }
   return groups
 }
@@ -199,7 +192,6 @@ function sessionNode(
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: s.completed === true,
-    createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
@@ -217,7 +209,6 @@ function sessionNode(
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
  * @param view - local expansion arrays.
- * @param orderBy - local session ordering mode.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -225,7 +216,6 @@ export function deriveGroups(
   workspaces: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[],
   view: TreeView,
-  orderBy: SessionOrderBy = 'manual',
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
   const expandedProjects = new Set(view.expandedProjects)
@@ -235,7 +225,7 @@ export function deriveGroups(
     : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
         ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, orderBy)) {
+  for (const g of groupByWorkspace(list, workspaces, archived)) {
     const expanded = expandedProjects.has(g.key)
     groups.push({
       key: g.key,
@@ -273,7 +263,7 @@ export function deriveFlat(
     if (s === undefined || !sessionVisible(s, list.current, archived)) continue
     rows.push(s)
   }
-  sortSessions(rows)
+  rows.sort(byRecency)
   return rows.map(session => sessionNode(session, descendants))
 }
 

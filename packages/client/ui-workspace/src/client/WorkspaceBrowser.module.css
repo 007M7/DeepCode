@@ -38,19 +38,6 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.viewOptionLabel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-}
-
-.viewOptionCheck {
-  flex: none;
-  color: var(--dsw-alias-label-primary);
-}
-
 /* Section header: title, an inline search control, and the two trailing
    actions. Expanding search collapses the action cluster and takes its room. */
 .sectionHeader {

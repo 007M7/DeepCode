@@ -66,8 +66,6 @@ export interface SessionSummary {
    * selected blank entry.
    */
   blank: boolean
-  /** Durable session creation time. */
-  createdAt: number
   updatedAt: number
   /** Current host-computed projection values retained by the object layer. */
   projectionValues?: Readonly<Partial<SessionProjectionMap>>
@@ -669,7 +667,6 @@ export class SessionsService implements ISessions {
         running: entry.running,
         ...(entry.completed ? { completed: true } : {}),
         blank: entry.blank,
-        createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         ...(entry.pendingInteraction === undefined
           ? {}
@@ -703,7 +700,6 @@ export class SessionsService implements ISessions {
             origin: 'subagent',
             running: child.activity === 'running',
             blank: false,
-            createdAt: 0,
             updatedAt: 0,
           }
         } else if (summary.displayTitle !== displayTitle) {

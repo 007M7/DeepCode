@@ -22,7 +22,7 @@ const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, createdAt: updatedAt, updatedAt, ...overrides,
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
 })
 const sessionState = (items: readonly SessionSummary[], overrides: Partial<SessionListState> = {}): SessionListState => ({
   ids: items.map(item => item.id),
@@ -107,8 +107,11 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+      '按工作区', '单列表', '手动排序', '最近更新',
+    ])
+    expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
-    expect(screen.queryByText('创建时间')).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     // Store-driven flip: title changes, rows flatten newest-first, headers gone.
     expect(b.store.getSnapshot().groupBy).toBe('flat')
@@ -405,6 +408,11 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(search)
     const input = screen.getByPlaceholderText<HTMLInputElement>('搜索会话…')
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.click(document.body)
+    expect(search.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(search)
     fireEvent.change(input, { target: { value: 'kept' } })
     fireEvent.click(document.body)
     expect(search.getAttribute('aria-expanded')).toBe('true')
