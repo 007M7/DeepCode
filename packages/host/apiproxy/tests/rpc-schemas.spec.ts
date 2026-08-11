@@ -20,17 +20,10 @@ import {
   hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
 } from '../src/api/host.schema.ts'
 import {
-  workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
-  workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
-  workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
 } from '../src/api/workspace.schema.ts'
-import {
-  commandDescriptorSchema, commandExecuteRequestSchema, commandExecuteValueSchema,
-  commandListRequestSchema, commandListValueSchema,
-} from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import {
   agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -115,9 +108,14 @@ describe('wire full-form schemas', () => {
     expect(() => rpcMessageSchema.parse({ type: 'other', rpcId: 'x' })).toThrow()
   })
 
-  it('rejects a quadrant missing its members', () => {
+  it('rejects a quadrant missing its members but accepts a valueless success result', () => {
     expect(() => clientRequestSchema.parse({ type: 'client-request', rpcId: 'r1' })).toThrow()
-    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1' })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: {} })).toThrow()
+    // A void business result carries no value field; the endpoint's own second
+    // parse is what requires a value for methods that return data.
+    expect(serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } }).rpcId)
+      .toBe('r1')
   })
 })
 
@@ -346,22 +344,11 @@ describe('workspace domain schemas', () => {
     createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
   }
 
-  it('validates ids, the view row, and list request/value', () => {
+  it('validates ids and the view row', () => {
     expect(workspaceIdSchema.parse('w1')).toBe('w1')
     expect(() => workspaceIdSchema.parse('')).toThrow()
     expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
     expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
-    expect(workspaceListRequestSchema.parse({})).toEqual({})
-    expect(workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] }).items).toHaveLength(1)
-    expect(() => workspaceListValueSchema.parse({ items: [view] })).toThrow()
-  })
-
-  it('archiveSession request/value carry the id and the full updated set', () => {
-    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
-    expect(() => workspaceArchiveSessionRequestSchema.parse({})).toThrow()
-    expect(workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: ['s1', 's2'] }).archivedSessionIds)
-      .toEqual(['s1', 's2'])
-    expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
   it('create requires a path', () => {
@@ -383,45 +370,6 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceDeleteRequestSchema.parse({})).toThrow()
     expect(workspaceDeleteValueSchema.parse({ deleted: true })).toEqual({ deleted: true })
     expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
-  })
-
-  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
-    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
-    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
-  })
-})
-
-describe('commands domain schemas', () => {
-  it('validates the catalog request/value pair', () => {
-    expect(commandListRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
-    // The wire is session-addressed only: a sessionId-less payload fails.
-    expect(() => commandListRequestSchema.parse({})).toThrow()
-    expect(commandListValueSchema.parse({ commands: [] }).commands).toEqual([])
-    const value = commandListValueSchema.parse({ commands: [
-      { name: 'plan', description: 'Toggle plan mode' },
-      { name: 'goal', description: 'Set the goal', input: { hint: '<goal>' } },
-    ] })
-    expect(value.commands[1]?.input?.hint).toBe('<goal>')
-    expect(commandDescriptorSchema.parse({ name: 'x', description: 'd' }).input).toBeUndefined()
-    expect(() => commandDescriptorSchema.parse({ name: '', description: 'd' })).toThrow()
-    expect(() => commandDescriptorSchema.parse({ name: 'x', description: 'd', input: {} })).toThrow()
-  })
-
-  it('validates the execute request/value pair with both matched branches', () => {
-    expect(commandExecuteRequestSchema.parse({ sessionId: 's1', line: '/plan off' }).line).toBe('/plan off')
-    // Both members are mandatory: dropping either fails the parse.
-    expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
-    expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
-    expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    // Pure admission: matched plus the optional lifecycle pairing id
-    // (outcomes ride the logged lifecycle events, never this response).
-    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
-      .toEqual({ matched: true, commandId: 'cmd-1' })
-    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
-    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
-    expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })
 

@@ -78,6 +78,12 @@ class GoalService extends Service {
   }
 
   @Remote
+  maybe(value: string | null | undefined): string | null | undefined {
+    this.calls.push('maybe')
+    return value
+  }
+
+  @Remote
   fail(request: unknown): never {
     void request
     this.calls.push('fail')
@@ -945,7 +951,7 @@ describe('TypertGatewayService', () => {
     expect(connection).toMatchObject({ channel: '/api', authority: 'trusted-host' })
 
     registerAgentLookup(ctx, { id: 'agent-1' })
-    registerStrict(ctx, [createDescriptor()])
+    registerStrict(ctx, [createDescriptor(), maybeDescriptor()])
     expect(connection.matches?.('goals/create')).toBe(true)
     expect(connection.matches?.('goals/passthrough')).toBe(true)
     expect(connection.matches?.('goals')).toBe(false)
@@ -973,6 +979,15 @@ describe('TypertGatewayService', () => {
     if (invalid.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
     expect(invalid.error.message).toMatch(/exactly one plain-object args field/)
 
+    await expect(handler('goals/maybe', { args: {} }, signal)).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    })
+    await expect(handler('goals/maybe', { args: { value: null } }, signal)).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
+
     for (const endpoint of ['goals', '/create', 'goals/', 'goals/create/extra']) {
       const result = await handler(endpoint, { args: {} }, signal)
       expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
@@ -987,7 +1002,11 @@ describe('TypertGatewayService', () => {
     }
 
     service.businessError = 'non-error failure' as unknown as Error
-    await expect(handler('goals/fail', { args: { request: null } }, signal)).resolves.toEqual({
+    await expect(handler(
+      'goals/fail',
+      { args: { request: null } },
+      new AbortController().signal,
+    )).resolves.toEqual({
       ok: false,
       error: { code: 'internal', message: 'non-error failure', details: {} },
     })
@@ -1298,6 +1317,28 @@ function strictOnlyDescriptor(): InvocationDescriptor {
     method: 'strictOnly',
     invocation: { kind: 'direct' },
     parameters: [{ name: 'request', wire: 'request', source: 'json', codec: value }],
+    result: value,
+  }
+}
+
+function maybeDescriptor(): InvocationDescriptor {
+  const value = strictCodec(
+    '@fixture/gateway#MaybeValue',
+    z.union([z.string(), z.null(), z.undefined()]),
+  )
+  return {
+    id: '@fixture/gateway#goals/maybe',
+    service: 'goals',
+    namespace: 'goals',
+    method: 'maybe',
+    invocation: { kind: 'direct' },
+    parameters: [{
+      name: 'value',
+      wire: 'value',
+      source: 'json',
+      acceptsUndefined: true,
+      codec: value,
+    }],
     result: value,
   }
 }

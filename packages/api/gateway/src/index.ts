@@ -70,6 +70,18 @@ export class TypertGatewayError extends Error {
   }
 }
 
+/** Business invocation lost its carrier cancellation race. */
+class RemoteInvocationCancelled extends Error {
+  /**
+   * @param endpoint - canonical Remote endpoint.
+   * @param cause - business rejection observed after carrier cancellation.
+   */
+  constructor(endpoint: string, cause: unknown) {
+    super(`Remote invocation "${endpoint}" was aborted`, { cause })
+    this.name = 'RemoteInvocationCancelled'
+  }
+}
+
 /**
  * Resolve strict generated definitions or conservative SRC markers against
  * current Cordis Services and TypeRT providers.
@@ -157,7 +169,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
 
-    const result = await Reflect.apply(method, receiver, args) as unknown
+    let result: unknown
+    try {
+      result = await Reflect.apply(method, receiver, args) as unknown
+    } catch (error) {
+      if (request.signal?.aborted === true) throw new RemoteInvocationCancelled(endpoint, error)
+      throw error
+    }
     return decode(descriptor.result, result, 'result-invalid', endpoint, 'result')
   }
 
@@ -190,6 +208,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
         args: payload.args,
         signal,
       })
+      // A void or explicitly absent business result carries no `value` field;
+      // JSON has no `undefined`, and the envelope's optional slot is the one
+      // representation of absence that both args and results already use.
       return { ok: true, value }
     } catch (error) {
       return rpcFailure(error)
@@ -439,6 +460,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
 }
 
 function rpcFailure(error: unknown): ConnectionRpcResult {
+  if (error instanceof RemoteInvocationCancelled) {
+    return {
+      ok: false,
+      error: { code: 'cancelled', message: error.message, details: {} },
+    }
+  }
   if (error instanceof TypeRTLookupFailure) {
     return { ok: false, error: error.failure as ConnectionRpcError }
   }
@@ -559,7 +586,15 @@ function assertExactArguments(
   if (descriptor.invocation.kind === 'context') expected.add(descriptor.invocation.wire)
   const actual = Reflect.ownKeys(args)
   const extra = actual.filter(key => typeof key !== 'string' || !expected.has(key))
-  const missing = [...expected].filter(key => !Object.hasOwn(args, key))
+  // A JSON field may be omitted when the strict descriptor declares absence,
+  // and always under SRC: a weak descriptor reads parameter names from the
+  // JavaScript signature and cannot see which are optional, so LIB is where an
+  // omitted required argument is caught. Lookup ids are never omissible.
+  const acceptsMissing = new Set(descriptor.parameters
+    .filter(parameter => parameter.source === 'json'
+      && (parameter.acceptsUndefined === true || parameter.codec.mode === 'src-json'))
+    .map(parameter => parameter.wire))
+  const missing = [...expected].filter(key => !Object.hasOwn(args, key) && !acceptsMissing.has(key))
   if (extra.length === 0 && missing.length === 0) return
   const clauses: string[] = []
   if (missing.length > 0) clauses.push(`missing ${missing.map(key => JSON.stringify(key)).join(', ')}`)
@@ -575,7 +610,10 @@ function decode(
   field: string,
 ): unknown {
   try {
-    if (codec.mode === 'strict') value = codec.schema.parse(value)
+    if (codec.mode === 'strict') {
+      value = codec.schema.parse(value)
+      if (value === undefined) return value
+    }
     assertJsonValue(value, new Set())
     return value
   } catch (cause) {
