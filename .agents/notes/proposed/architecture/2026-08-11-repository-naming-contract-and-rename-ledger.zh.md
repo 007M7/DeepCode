@@ -26,7 +26,9 @@ Status: proposed
 
 `SDK` 表示受支持的 Python 和 TypeScript SDK 所使用、基于 JSON-RPC 的客户端／服务器协议。保留 `@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 和协议身份 `deepseek-harness-sdk-runtime`。将 JSON-RPC 服务器重命名并纳入该系列。不得将 DeepSeek Harness 本身称为 SDK，也不得恢复已移除的项目生成器、启动器、辅助工具或启动器遥测包。
 
-本提案部分取代[包重新分组决策](../../implemented/architecture/2026-07-29-package-regrouping.md)中的两项约定：暂定目标 `@deepseek-ai/dsh-sdk-server` 改为 `@deepseek-ai/dsh-sdk-jsonrpc-server`，并且 `SDK` 不再描述整个仓库。[移除 SDK 项目工具链](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md)仍负责说明删除范围，以及保留运行时 SDK 栈的决策。
+如果本提案获准，它将部分取代三项现行决策。它会替换[包重新分组决策](../../implemented/architecture/2026-07-29-package-regrouping.md)中保留的 `bash/`、`pty/` 和 `self-modification/` 组名，以及两项暂定包名。它只替换[移除 SDK 项目工具链](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md)中将整个仓库称为 SDK 的说法；后者仍负责说明删除范围和保留的运行时 SDK。它只替换[工具调用超时策略](../../implemented/architecture/2026-07-07-tool-call-timeout-policy.md)中的包名理由；超时机制及其 `guard/timeout-policy/` 归属保持不变。
+
+如果其他已实现说明中的包、路径或类型被重命名，而其边界和理由保持不变，则本提案不会取代这些说明。实现阶段只更新其中的事实名称。只有本提案改变既有决策时才添加双向链接；尚未获准的提案不会让现行的已实现说明提前描述未交付名称。
 
 ### 按实际职责命名
 
@@ -49,6 +51,7 @@ Status: proposed
 | `Registry` | 对象拥有一组动态的具名注册项。它定义查找规则、重复项或优先级规则、注册生命周期和资源释放。 | 调用方的主要约定是分派、执行、取消、策略执行或编排。运行时可以在内部包含注册表。 |
 | `Runtime` | 对象运行实时工作。它跨调用拥有分派、取消、提供方协调或操作生命周期。 | 对象只存储记录、返回目录、解析单个值或保存配置。`Runtime` 不是 `Service` 的通用替代词。 |
 | `Resolver` | 对象根据所提供的输入计算或定位一个答案，通常不拥有答案的生命周期。 | 对象拥有可变集合或长时间运行的执行生命周期。 |
+| `Binder` | 对象将一个已声明接口附加到调用方的上下文或生命周期，并返回绑定后的值。 | 对象以集合形式拥有绑定值、控制其领域状态，或仅转换数据。 |
 | `Engine` | 对象实现领域算法或有状态执行模型，例如工作流、压缩或查询求值。 | 对象只选择提供方，或跨协议边界转发请求。 |
 | `Policy` | 对象决定允许、选择、限制或观察什么。 | 对象执行决策所允许的机制。策略和执行器必须分别命名。 |
 | `Executor` | 对象在一项能力内运行明确的请求或已解析的规范。 | 对象拥有宽泛的应用生命周期或提供方目录。 |
@@ -59,7 +62,7 @@ Status: proposed
 | `Config` | 对象拥有一个已解析的配置值，或一份边界严格受限的配置记录及其更新约定。 | 对象存储通用集合、执行工作或公开不相关的设置。 |
 | `Service` | 对象拥有一项职责内聚的领域服务，且以上更精确的职责词都无法如实描述其职责范围。 | 仅因为类继承自 Cordis `Service` 而使用该名称，或因为确定真正的职责需要进一步思考。 |
 
-实用判断方式很直接。如果调用方主要调用 `register()` 并收到资源释放函数，应使用 `Registry`。如果调用方主要调用 `run()`、`dispatch()`、`cancel()` 或 `execute()`，应使用 `Runtime`、`Engine` 或 `Executor`。如果调用方主要浏览选项，应使用 `Directory`。如果对象只将领域数据映射为 UI 数据，应使用 `Presenter`。如果它还会更改状态，就不是呈现器。
+实用判断方式很直接。如果调用方主要调用 `register()` 并收到资源释放函数，应使用 `Registry`。如果调用方主要调用 `run()`、`dispatch()`、`cancel()` 或 `execute()`，应使用 `Runtime`、`Engine` 或 `Executor`。如果调用方主要浏览选项，应使用 `Directory`。如果对象主要将一份规范绑定到调用方拥有的上下文和生命周期，应使用 `Binder`。如果对象只将领域数据映射为 UI 数据，应使用 `Presenter`。如果它还会更改状态，就不是呈现器。
 
 ### 使用能够补充信息的限定词
 
@@ -94,14 +97,17 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 |---|---|---|
 | `packages/bash/` | `packages/shell/` | 该组包含方言无关的执行器 seam、Bash 和 PowerShell 实现、环境支持以及 shell 工具。 |
 | `@deepseek-ai/dsh-bash`, `ctx.bash` | `@deepseek-ai/dsh-shell`, `ctx.shell` | PowerShell 已经实现该 seam。此项能力是 shell 执行，而不是 Bash。 |
-| 方言无关的 `BashExecutor`、`BashExecRequest`、`BashExecSpec`、`BashProcess` 和 `BashRunResult` 名称 | `ShellExecutor`、`ShellExecRequest`、`ShellExecSpec`、`ShellProcess` 和 `ShellRunResult` | 这些类型横跨 Bash 和 PowerShell 实现。描述 Bash 语法或行为的叶层类型保留 `Bash`。 |
+| 方言无关的 `BashExecutor`、`BashExecRequest`、`BashExecSpec`、`BashProcess`、`BashRunResult`、`BashSandboxInfo`、`BashProcessRead` 和 `BashProcessStatus` 名称 | 对应的 `Shell*` 名称 | 这些类型横跨 Bash 和 PowerShell 实现。描述 Bash 语法或行为的叶层类型保留 `Bash`。 |
+| `BASH_SETTINGS_NAMESPACE`，设置命名空间 `bash` | `SHELL_SETTINGS_NAMESPACE`，设置命名空间 `shell` | 两个 shell 提供方都注册这项由能力拥有的设置分区。常量和持久化命名空间必须使用能力名称。 |
 | `@deepseek-ai/dsh-bash-env`, `ctx.bashEnv`, `BashEnvRegistry` | `@deepseek-ai/dsh-shell-env`, `ctx.shellEnv`, `ShellEnvRegistry` | Bash 和 PowerShell 工具共享该环境注册表。 |
+| `docs/subsystems/bash.md` | `docs/subsystems/shell.md` | 该子系统页面记录方言无关的能力。 |
 | `packages/pty/` | `packages/terminal/` | 该包系列负责持久终端会话。原始 PTY 分配仍位于子进程层。 |
 | `@deepseek-ai/dsh-pty`, `ctx.pty`, `PtyService` | `@deepseek-ai/dsh-terminal`, `ctx.terminals`, `TerminalSessionService` | 调用方管理多个具名终端会话，而不是通过该服务分配原始 PTY。 |
 | 公开的高层 `Pty*` 会话和后端名称 | `Terminal*` 名称 | 公开抽象是终端会话。保留底层 `SubprocessTerminal*` 名称，因为它们已经说明底层机制。 |
 | `@deepseek-ai/dsh-pty-local`, `LocalPtyBackend` | `@deepseek-ai/dsh-terminal-bash`, `BashTerminalBackend` | 该提供方依赖 Bash 提示符和 shell 行为。`local` 隐藏了实际方言。 |
 | `@deepseek-ai/dsh-tool-pty` | `@deepseek-ai/dsh-tool-terminal` | 面向模型的工具已使用 `terminal_*`；包应采用相同的产品名词。 |
 | `packages/pty/tool-bash-persistent` | `shell/tool-bash-persistent/` | 该工具是 Bash 工具，应与 shell 工具放在一起。保留其 NPM 名称：`persistent` 将它与一次性 `bash` 区分开来，而 `bash-terminal` 会混淆产品工具与终端会话系列。 |
+| `docs/subsystems/pty.md` | `docs/subsystems/terminal.md` | 该页面记录终端会话，而不是原始 PTY 分配。 |
 
 保留 Bash 和 PowerShell 专用的叶层包、插件 id、类型和工具。这些方言名称准确无误。
 
@@ -116,6 +122,9 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `@deepseek-ai/dsh-tasks-local`, `LocalTaskService` | `@deepseek-ai/dsh-jobs-local`, `LocalJobRegistry` | 这是作业注册表的进程内提供方。此处的 `local` 有明确含义，因为作业和回调都存在于同一进程。 |
 | `@deepseek-ai/dsh-tool-tasks` | `@deepseek-ai/dsh-tool-jobs` | 消费方控制作业注册表，应使用相同的领域名词。 |
 | `task_output`, `task_list`, `task_kill` | `job_output`, `job_list`, `job_kill` | 这些模型工具操作的是作业，而不是用户任务。`run_in_background` 返回 `JobId`。 |
+| `@deepseek-ai/dsh-client-ui-task`、`client/ui-task/` | `@deepseek-ai/dsh-client-ui-jobs`、`client/ui-jobs/` | 该客户端包呈现后台作业集合，而不是一项用户任务。 |
+| `TaskView`、线路帧 `session/tasks`、`tasksBySession` | `JobView`、线路帧 `session/jobs`、`jobsBySession` | 浏览器约定及其镜像应采用与注册表和工具相同的作业领域名称。 |
+| `docs/subsystems/tasks.md` | `docs/subsystems/jobs.md` | 该子系统页面必须采用公开的作业词汇。 |
 
 保留基础 LSP 包、`ctx.lsp`、LSP 协议类型和 LSP 工具。该 seam 有意公开语言服务器语义；错误的只有提供方限定词。
 
@@ -129,8 +138,10 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `packages/interaction/permission/` | `packages/interaction/permission-presets/` | 该包拥有沙箱与审批设置的具名组合，而不负责执行权限。 |
 | `@deepseek-ai/dsh-permission`, `ctx.permission`, `PermissionService` | `@deepseek-ai/dsh-permission-presets`, `ctx.permissionPresets`, `PermissionPresetService` | 该服务选择并持久化预设。沙箱和审批服务负责执行结果。 |
 | `@deepseek-ai/dsh-client-ui-permission` | `@deepseek-ai/dsh-client-ui-permission-presets` | UI 编辑和选择权限预设。 |
+| `docs/subsystems/permission.md` | `docs/subsystems/permission-presets.md` | 该页面记录预设选择，而不是权限执行。 |
 | `@deepseek-ai/dsh-user-interaction`, `user-interaction/` | `@deepseek-ai/dsh-user-questions`, `user-questions/` | 该 seam 仅支持批量问题和答案。审批、命令和目录选择属于其他交互 seam。 |
-| `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | 这些名称说明唯一受支持的交互形态。保留 `AskUserQuestion*`、`ask_user_question` 工具和 `@deepseek-ai/dsh-tool-ask-user`。 |
+| `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | 这些名称说明唯一受支持的交互形式。保留 `AskUserQuestion*`、`ask_user_question` 工具和 `@deepseek-ai/dsh-tool-ask-user`。 |
+| `docs/subsystems/user-interaction.md` | `docs/subsystems/user-questions.md` | 该页面只记录问题和答案。 |
 
 保留 `/permission`、`permissions` 投影、`permission` 设置命名空间和 `permission/preset`；它们都是准确的产品词汇或持久化词汇。保留完整名称 `PermissionPresetSettingsController`。删除 `Preset` 会去掉限定其权限的词。另行制定提案以移除 `both` 工具呈现模式；本次重命名不移除行为。
 
@@ -142,7 +153,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | 协议包中的 `GatewayService` | `TypertRemoteService` | 该基类标记要导出为 Remote 的同进程服务。它不是 API 网关。 |
 | `bindTypeRTGateway`、`typertGateway` 绑定 | `bindTypertRemote`、`typertRemote` | 这些绑定公开 Typert Remote 服务，而非具体的 API 网关服务。 |
 | 公开的 `TypeRT*` 标识符和小驼峰形式的 `typeRT*` 标识符 | `Typert*` 和 `typert*` | `Typert` 是唯一规范的产品拼写。 |
-| 协议接口 `TypeRTService` | `TypertRegistry` | 该接口注册并查找 Typert 元数据。具体注册表已采用这一职责名。 |
+| 协议接口 `TypeRTService` | `TypertRegistryContract` | 该协议拥有的接口是现有具体类 `TypertRegistry` 所实现的依赖倒置接口。不同的后缀可避免导入和声明冲突。 |
 | `ToolRegistry` | `ToolRuntime` | 该类拥有呈现、审批与防护策略、分派、取消、验证、终结和观察。注册只是内部组成部分。 |
 | `ToolRegistryScheduler`, `TOOL_REGISTRY_SCHEDULER` | `ToolRuntimeScheduler`, `TOOL_RUNTIME_SCHEDULER` | 调度器控制运行时分派，而不是注册。 |
 
@@ -152,7 +163,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 | 当前名称 | 提议名称 | 理由 |
 |---|---|---|
-| `ctx.workspace` | `ctx.workspaces` | `WorkspaceRegistry` 拥有多个工作区。复数键与注册表职责一致。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
+| Host `ctx.workspace` | Host `ctx.workspaces` | `WorkspaceRegistry` 拥有多个工作区。复数键与注册表职责一致。现有 Client `ctx.workspaces` 在独立的 Cordis 上下文中运行，因此共享拼写是有意设计的，不会在运行时冲突。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
 | `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | 该包为 agent（智能体）加载分层的 `AGENTS.md` 和 `CLAUDE.md` 文件。它并非通用工作区上下文。 |
 | 插件名称和持久来源名称 `workspace-context` 与 `workspace-instructions` | `agent-instructions` | 记录的来源是一类具体的 agent 指令。以 `AgentInstruction*` 替换公开的 `WorkspaceInstruction*` 名称。该术语不包括系统消息、开发者消息或用户消息。 |
 | `ctx.telemetry`、抽象类 `Telemetry` | `ctx.sessionTelemetry`、`SessionTelemetryBackend` | 该服务捕获会话账本遥测，并交给报告后端。它不是仓库级指标或追踪服务。 |
@@ -160,16 +171,18 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `TelemetryCoordinator`、`TelemetryRecord`、`TelemetrySeverity`、`TelemetrySharingStatus` 和 `TelemetryCapture` | 对应的 `SessionTelemetry*` 名称 | 这些公开类型只属于会话遥测。 |
 | `telemetry/record` | `session-telemetry/record` | 事件名称必须说明所属领域。 |
 | `TelemetryOtel`、`TelemetryMode`，插件 `telemetry-otel` | `OpenTelemetrySessionBackend`、`SessionTelemetryMode`，插件 `session-telemetry-otel` | 提供方名称同时说明 OpenTelemetry 机制和会话作用域。保留包名 `dsh-session-telemetry` 和 `dsh-session-telemetry-otel`。 |
+| `docs/subsystems/telemetry.md` | `docs/subsystems/session-telemetry.md` | 该页面记录会话遥测，而不是仓库级可观测性。 |
 | `session/user-id/`, `@deepseek-ai/dsh-user-id` | `session/anonymous-user-id/`, `@deepseek-ai/dsh-anonymous-user-id` | 该值是随机关联 id，并非经过身份验证的用户身份。 |
 | `USER_ID_FILE_NAME`、`.userid`，反馈标签 `User` | `ANONYMOUS_USER_ID_FILE_NAME`、`.anonymous-user-id`，反馈标签 `Anonymous user` | 文件和 UI 不得暗示账户身份。保留现有 `AnonymousUserId` 函数和标准 OTel 属性 `user.id`。 |
 | `util/environment/`, `@deepseek-ai/dsh-environment` | `util/launch-environment/`, `@deepseek-ai/dsh-launch-environment` | 该包在启动时捕获一份不可变的分层快照。它不是通用环境 API。 |
 | 公开的 `Environment*`、`createEnvironmentSnapshot`、`environmentOf`、`DSH_ENVIRONMENT_KEY` | `LaunchEnvironment*`、`createLaunchEnvironmentSnapshot`、`launchEnvironmentOf`、`DSH_LAUNCH_ENVIRONMENT_KEY` | 这些名称说明快照的生命周期和用途。 |
 | `ctx.launcherEnvironment` | `ctx.launchEnvironment` | 该值描述应用启动，而不只描述启动器组件。保留来源标签 `process`、`project-env` 和 `user-env`。 |
 
-### 工作流、目标与压缩
+### 日程、工作流、目标与压缩
 
 | 当前名称 | 提议名称 | 理由 |
 |---|---|---|
+| `ScheduleOwner` | `ScheduleRuntime` | 该逐 agent 对象运行实时定时器、持久化投影、分派、空闲等待和资源释放。`Owner` 没有说明这一执行职责。耦合的私有 `owner*` 名称也改用 `runtime*`。 |
 | `WorkflowService`, `ctx.workflows` | `WorkflowEngine`, `ctx.workflowEngine` | 一个引擎负责解析并执行工作流程序。复数键错误地暗示这是注册表。保留 `@deepseek-ai/dsh-workflow` 以及工作流事件和工具。 |
 | `@deepseek-ai/dsh-workflow-workerthread`, `WorkerWorkflowEngine` | `@deepseek-ai/dsh-workflow-worker-thread`, `WorkerThreadWorkflowEngine` | `worker thread` 是准确的 Node 机制，仓库拼写要求使用完整单词。 |
 | `@deepseek-ai/dsh-goal-session`, `goal/goal-session/` | `@deepseek-ai/dsh-goal-round-driver`, `goal/goal-round-driver/` | 该插件驱动同一会话内的 Goal Rounds。它既不存储目标，也不定义会话。保留 `GoalService`、目标来源、事件和约定。 |
@@ -238,7 +251,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 |---|---|---|
 | `@deepseek-ai/dsh-hooks-claude`、`ClaudeHookConfig`、`parseClaudeConfig`，方言 `claude` | `@deepseek-ai/dsh-hooks-claude-code`、`ClaudeCodeHookConfig`、`parseClaudeCodeConfig`，方言 `claude-code` | 该钩子桥接面向 Claude Code，而非所有 Anthropic 或 Claude 产品。 |
 | `@deepseek-ai/dsh-repeat-tool-guard`，插件／来源 `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-reminder`，插件／来源 `repeat-tool-reminder` | 该插件向模型添加提醒，并不阻止工具调用，也不执行防护决策。 |
-| `@deepseek-ai/dsh-timeout-policy` | `@deepseek-ai/dsh-tool-timeout-policy` | 该策略适用于工具执行。与早期尚未定案的 `timeout-guard` 目标相比，这一限定词更准确。 |
+| `@deepseek-ai/dsh-timeout-policy` | `@deepseek-ai/dsh-tool-call-timeout-policy` | 完整的 `tool-call` 限定词说明该策略限制的对象，而不会把插件称为面向模型的工具。保留其 `guard/timeout-policy/` 目录和插件 id `timeout-policy`；`packages/*/tool-*` 目录约定仍只适用于注册工具的包。 |
 | `PlanModeService` | `PlanModeController` | 该对象控制进入和退出计划模式的状态转换，而不是通用执行运行时。 |
 | `packages/self-modification/` | `packages/extensions/` | 该组包含仓库插件检查和挂载工具。`extensions` 说明稳定的包职责，但不声称 agent 会修改自身。保留包名 `tool-cordis` 和仓库插件名称。 |
 | `packages/support/` | `packages/test-support/` | 该组仅包含测试基础设施，其路径必须明确说明这一点。 |
@@ -267,13 +280,13 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 |---|---|---|
 | `SlotsService` | `SlotRegistry` | 该对象拥有具名 slot 声明和注册项。 |
 | `SessionsService` | `SessionRuntime` | 该对象拥有实时客户端会话协调职责，而不是被动的会话列表。 |
-| `SessionHistoryService` | `SessionHistoryRegistry` | 该对象拥有已注册和已加载的历史记录条目。 |
 | `WorkspacesService` | `WorkspaceRuntime` | 该客户端对象协调实时工作区选择和操作。如果清单未点名更改某个现有 `ctx` 键，则该键保持不变。 |
 | `LocaleService` | `LocaleRuntime` | 该对象协调区域设置定义、选择、持久化和变更发布。 |
 | `ThemeService` | `ThemeRuntime` | 该对象协调主题、偏好解析、系统感知和变更发布。 |
 | `LayoutService` | `LayoutController` | 该对象控制当前 UI 布局状态。 |
 | `@deepseek-ai/dsh-client-ui-model` | `@deepseek-ai/dsh-client-ui-model-selection` | 该包控制会话的模型选择。单数 `model` 名称作用域过宽。 |
-| `ModelService`, `ctx.models` | `ModelDirectoryRegistry`, `ctx.modelDirectories` | 该服务注册多个模型目录。每个 `ModelDirectory` 仍是面向消费方的可选模型目录。 |
+| `ModelService`, `ctx.models` | `ModelDirectoryResolver`, `ctx.modelDirectories` | 它唯一的公开操作 `directoryFor(sessionId)` 为每个实时会话解析并保留一个目录。它没有注册 API，因此使用 `Registry` 并不准确。每个 `ModelDirectory` 仍是面向消费方的可选模型目录。 |
+| `SettingsScopeService` | `SettingsScopeBinder` | 它唯一的操作把一份命名空间规范绑定到调用方的传输层和生命周期，并返回 `SettingsScopeController`。保留 `ctx.settingsScope`；它命名的是单一绑定能力，而不是 scope 集合。 |
 | `@deepseek-ai/dsh-client-ui-models` | `@deepseek-ai/dsh-client-ui-settings-models` | 该包拥有 Models 设置面板。保留 `ModelsSettingsStore`；它保存一个具有数据操作和订阅能力的设置视图模型，确实是存储。 |
 | `@deepseek-ai/dsh-client-ui-plugin-config`、`client/ui-plugin-config/` | `@deepseek-ai/dsh-client-ui-settings-plugins`、`client/ui-settings-plugins/` | 该包拥有 Plugins 设置分区，而不是通用的插件配置系统。目标名称归入 `ui-settings-*` 系列，并采用该分区的复数产品名。 |
 | `PluginConfigSection`、`PluginConfigSectionProps`、`PluginConfigSectionInjected`、`settings.pluginConfig` | `PluginsSettingsSection`、`PluginsSettingsSectionProps`、`PluginsSettingsSectionInjected`、`settings.plugins` | 这些名称描述 Plugins 设置呈现。每张卡片仍编辑一个插件的配置，但该分区本身是设置 UI。 |
@@ -335,10 +348,10 @@ PascalCase 标识符内部使用 `Ui`，不要使用 `UI`。除非清单明确�
 ## 验收标准
 
 - 应用清单中的每项映射；如果决策发生变化，则必须在实施前修订本提案并说明原因。
-- 每个系列只有一套公开词汇。不得留下兼容包、重新导出别名、重复的 `ctx` 键、双重插件 id、双重事件 id、旧工具别名或回退解析器。
+- 每个系列只有一套公开词汇。同一个 Cordis 上下文中不得留下兼容包、重新导出别名、重复的 `ctx` 键、双重插件 id、双重事件 id、旧工具别名或回退解析器。
 - 变更只能重命名。运行时行为、包边界、默认值、策略、持久化语义和模型行为必须保持等价，只有标识符本身可见时除外。
 - 包目录、NPM 名称、导入、manifest（元数据清单）、TypeScript 引用和路径、Cordis 配置、插件 id、服务键、事件、工具、RPC 名称、清单点名的持久化名称、fixture、快照、示例、生成的目录和当前文案都采用新词汇。
-- 实现合入时，以事实性名称和路径变更更新当前处于 implemented 状态的 Agent Note。包重新分组说明应记录 `dsh-sdk-jsonrpc-server`，且不再将仓库称为 SDK。架构决策仍然有效的说明，不得被重写为新的决策。
+- 实现合入时，以事实性名称和路径变更更新当前处于 implemented 状态的 Agent Note。包重新分组说明应记录新的分组清单和包名目标，SDK 移除说明不得再将仓库称为 SDK，超时策略说明应记录新的包名理由。架构决策仍然有效的说明，不得被重写为新的决策。
 - 配对的包创建指南应包含职责词约定，`packages/AGENTS.md` 应链接到该约定，术语表应记录选定用词和 `Typert` 拼写，根项目文案应将产品称为 DeepSeek Harness，而不是 DeepSeek Harness SDK。
 - 已移除的 SDK 项目工具链继续保持不存在。
 - 聚焦测试覆盖每个重命名系列；在完整实现上，源代码平面的类型检查、构建、包卫生检查、生成参考资料门禁、受可见标识符影响的快照、翻译配对、`doc-sync` 和 lint 均应通过。
@@ -352,6 +365,6 @@ PascalCase 标识符内部使用 `Ui`，不要使用 `UI`。除非清单明确�
 
 一些名称会变得更长。额外增加的词只有在防止误述权限或机制时才有意义。如果名称中的词不能全部限定职责，长名称仍然是失败的命名。
 
-如果评审人只检查后缀而不检查行为，职责词汇就会沦为机械套用。指南必须保留本说明中的直接判断方式：检查调用方执行什么操作、对象拥有什么生命周期，以及对象控制什么失败或策略。
+如果评审人只检查后缀而不检查行为，职责词就会被机械套用。指南必须保留本说明中的直接判断方式：检查调用方执行什么操作、对象拥有什么生命周期，以及对象控制什么失败或策略。
 
 清单点名的旧磁盘名称、协议值、工具名称和配置项将停止工作。发布前接受这一后果。如果负责解析的解析器能够识别陈旧配置，实现必须明确报错；不得静默接受两种形式。

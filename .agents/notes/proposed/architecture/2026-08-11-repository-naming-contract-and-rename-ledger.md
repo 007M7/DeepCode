@@ -26,7 +26,9 @@ Implementation can use more than one PR to keep review practical. One PR must no
 
 `SDK` means the JSON-RPC-based client/server protocol used by the supported Python and TypeScript SDKs. Keep `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and the wire identity `deepseek-harness-sdk-runtime`. Rename the JSON-RPC server into that family. Do not call DeepSeek Harness itself an SDK, and do not restore the removed project generator, launcher, helper, or launcher telemetry packages.
 
-This proposal partially supersedes two clauses in the [package-regrouping decision](../../implemented/architecture/2026-07-29-package-regrouping.md): the deferred target `@deepseek-ai/dsh-sdk-server` becomes `@deepseek-ai/dsh-sdk-jsonrpc-server`, and `SDK` no longer describes the repository as a whole. The [SDK project toolchain removal](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md) remains the owner of the deletion and of the decision to keep the runtime SDK stack.
+If accepted, this proposal will partially supersede three active decisions. It replaces the retained `bash/`, `pty/`, and `self-modification/` group names and both deferred package targets in the [package-regrouping decision](../../implemented/architecture/2026-07-29-package-regrouping.md). It replaces only the repository-wide SDK claim in the [SDK project toolchain removal](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md), which remains the owner of the deletion and the surviving runtime SDK. It replaces only the package-name rationale in the [tool-call timeout policy](../../implemented/architecture/2026-07-07-tool-call-timeout-policy.md); the timeout mechanism and its `guard/timeout-policy/` home remain unchanged.
+
+Other implemented notes that use a renamed package, path, or type are not superseded when their boundary and rationale remain intact. The implementation updates those factual names. It adds reciprocal links only where this proposal changes a decision; a proposal does not make current implemented notes describe unshipped names.
 
 ### Name the role that exists
 
@@ -49,6 +51,7 @@ Use `Service` only when no sharper role is honest. `GoalService` and `SessionTit
 | `Registry` | The object owns a dynamic set of named registrations. It defines lookup, duplicate or precedence rules, registration lifetime, and disposal. | The main caller contract is dispatch, execution, cancellation, policy enforcement, or orchestration. A runtime can contain a registry as an internal part. |
 | `Runtime` | The object runs live work. It owns dispatch, cancellation, provider coordination, or operation lifecycle across calls. | The object only stores records, returns a catalog, resolves one value, or holds configuration. `Runtime` is not a generic replacement for `Service`. |
 | `Resolver` | The object computes or locates one answer from supplied inputs, usually without owning the answer's lifecycle. | It owns a mutable collection or a long-running execution lifecycle. |
+| `Binder` | The object attaches one declared interface to the caller's context or lifecycle and returns the bound value. | It owns the bound value as a collection, controls its domain state, or merely converts data. |
 | `Engine` | The object implements a domain algorithm or stateful execution model, such as workflow, compaction, or query evaluation. | It only selects a provider or forwards a request across a protocol boundary. |
 | `Policy` | The object decides what is allowed, selected, limited, or observed. | It performs the mechanism that the decision permits. Keep policy and executor names separate. |
 | `Executor` | The object runs an explicit request or resolved specification in one capability. | It owns a broad application lifecycle or a catalog of providers. |
@@ -59,7 +62,7 @@ Use `Service` only when no sharper role is honest. `GoalService` and `SessionTit
 | `Config` | The object owns one resolved configuration value or one tightly bounded configuration record and its update contract. | It stores a general collection, executes work, or exposes unrelated settings. |
 | `Service` | The object owns a cohesive domain service whose authority cannot be stated honestly as one of the sharper roles above. | The name is used only because the class extends Cordis `Service`, or because choosing the real role takes more thought. |
 
-The practical tests are direct. If callers mainly call `register()` and receive a disposer, use `Registry`. If callers mainly call `run()`, `dispatch()`, `cancel()`, or `execute()`, use `Runtime`, `Engine`, or `Executor`. If callers mainly browse choices, use `Directory`. If the object only maps domain data to UI data, use `Presenter`. If it also changes state, it is not a presenter.
+The practical tests are direct. If callers mainly call `register()` and receive a disposer, use `Registry`. If callers mainly call `run()`, `dispatch()`, `cancel()`, or `execute()`, use `Runtime`, `Engine`, or `Executor`. If callers mainly browse choices, use `Directory`. If an object mainly binds one specification to caller-owned context and lifetime, use `Binder`. If the object only maps domain data to UI data, use `Presenter`. If it also changes state, it is not a presenter.
 
 ### Use qualifiers that add information
 
@@ -94,14 +97,17 @@ Keep `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and `deepse
 |---|---|---|
 | `packages/bash/` | `packages/shell/` | The group contains the dialect-neutral executor seam, Bash and PowerShell implementations, environment support, and shell tools. |
 | `@deepseek-ai/dsh-bash`, `ctx.bash` | `@deepseek-ai/dsh-shell`, `ctx.shell` | PowerShell already implements this seam. The capability is shell execution, not Bash. |
-| Dialect-neutral `BashExecutor`, `BashExecRequest`, `BashExecSpec`, `BashProcess`, and `BashRunResult` names | `ShellExecutor`, `ShellExecRequest`, `ShellExecSpec`, `ShellProcess`, and `ShellRunResult` | These types cross both Bash and PowerShell implementations. Leaf types that describe Bash syntax or behavior keep `Bash`. |
+| Dialect-neutral `BashExecutor`, `BashExecRequest`, `BashExecSpec`, `BashProcess`, `BashRunResult`, `BashSandboxInfo`, `BashProcessRead`, and `BashProcessStatus` names | Corresponding `Shell*` names | These types cross both Bash and PowerShell implementations. Leaf types that describe Bash syntax or behavior keep `Bash`. |
+| `BASH_SETTINGS_NAMESPACE`, settings namespace `bash` | `SHELL_SETTINGS_NAMESPACE`, settings namespace `shell` | Both shell providers register this capability-owned settings section. The constant and durable namespace must use the capability name. |
 | `@deepseek-ai/dsh-bash-env`, `ctx.bashEnv`, `BashEnvRegistry` | `@deepseek-ai/dsh-shell-env`, `ctx.shellEnv`, `ShellEnvRegistry` | The environment registry is shared by Bash and PowerShell tools. |
+| `docs/subsystems/bash.md` | `docs/subsystems/shell.md` | The subsystem page documents the dialect-neutral capability. |
 | `packages/pty/` | `packages/terminal/` | The package family owns persistent terminal sessions. Raw PTY allocation remains in the subprocess layer. |
 | `@deepseek-ai/dsh-pty`, `ctx.pty`, `PtyService` | `@deepseek-ai/dsh-terminal`, `ctx.terminals`, `TerminalSessionService` | Callers manage multiple named terminal sessions. They do not allocate raw PTYs through this service. |
 | Public high-level `Pty*` session and backend names | `Terminal*` names | The public abstraction is a terminal session. Keep low-level `SubprocessTerminal*` names because they already name the substrate. |
 | `@deepseek-ai/dsh-pty-local`, `LocalPtyBackend` | `@deepseek-ai/dsh-terminal-bash`, `BashTerminalBackend` | The provider depends on Bash prompt and shell behavior. `local` hides the actual dialect. |
 | `@deepseek-ai/dsh-tool-pty` | `@deepseek-ai/dsh-tool-terminal` | The model-facing tools are already `terminal_*`; the package should use the same product noun. |
 | `packages/pty/tool-bash-persistent` | `shell/tool-bash-persistent/` | The tool is a Bash tool and belongs with shell tools. Keep its npm name: `persistent` distinguishes it from one-shot `bash`, while `bash-terminal` would blur the product tool with the terminal-session family. |
+| `docs/subsystems/pty.md` | `docs/subsystems/terminal.md` | The page documents terminal sessions, not raw PTY allocation. |
 
 Keep the Bash- and PowerShell-specific leaf packages, plugin ids, types, and tools. Their dialect names are accurate.
 
@@ -116,6 +122,9 @@ Keep the Bash- and PowerShell-specific leaf packages, plugin ids, types, and too
 | `@deepseek-ai/dsh-tasks-local`, `LocalTaskService` | `@deepseek-ai/dsh-jobs-local`, `LocalJobRegistry` | This is the process-local provider of the job registry. Here `local` is meaningful because the jobs and callbacks live in one process. |
 | `@deepseek-ai/dsh-tool-tasks` | `@deepseek-ai/dsh-tool-jobs` | The consumer controls the job registry and should use the same domain noun. |
 | `task_output`, `task_list`, `task_kill` | `job_output`, `job_list`, `job_kill` | These model tools act on jobs, not user tasks. `run_in_background` returns a `JobId`. |
+| `@deepseek-ai/dsh-client-ui-task`, `client/ui-task/` | `@deepseek-ai/dsh-client-ui-jobs`, `client/ui-jobs/` | The client package presents the background-job collection. It is not one user task. |
+| `TaskView`, wire frame `session/tasks`, `tasksBySession` | `JobView`, wire frame `session/jobs`, `jobsBySession` | The browser contract and its mirror expose the same job domain as the registry and tools. |
+| `docs/subsystems/tasks.md` | `docs/subsystems/jobs.md` | The subsystem page must use the public job vocabulary. |
 
 Keep the base LSP package, `ctx.lsp`, LSP protocol types, and the LSP tool. The seam deliberately exposes language-server semantics; only its provider qualifier is wrong.
 
@@ -129,8 +138,10 @@ Keep the base LSP package, `ctx.lsp`, LSP protocol types, and the LSP tool. The 
 | `packages/interaction/permission/` | `packages/interaction/permission-presets/` | The package owns named combinations of sandbox and approval settings, not permission enforcement. |
 | `@deepseek-ai/dsh-permission`, `ctx.permission`, `PermissionService` | `@deepseek-ai/dsh-permission-presets`, `ctx.permissionPresets`, `PermissionPresetService` | The service selects and persists presets. Sandbox and approval services enforce the result. |
 | `@deepseek-ai/dsh-client-ui-permission` | `@deepseek-ai/dsh-client-ui-permission-presets` | The UI edits and selects permission presets. |
+| `docs/subsystems/permission.md` | `docs/subsystems/permission-presets.md` | The page documents preset selection, not permission enforcement. |
 | `@deepseek-ai/dsh-user-interaction`, `user-interaction/` | `@deepseek-ai/dsh-user-questions`, `user-questions/` | The seam supports question batches and answers only. Approval, commands, and directory picking are separate interaction seams. |
-| `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | These names state the one supported interaction shape. Keep `AskUserQuestion*`, the `ask_user_question` tool, and `@deepseek-ai/dsh-tool-ask-user`. |
+| `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | These names state the one supported interaction form. Keep `AskUserQuestion*`, the `ask_user_question` tool, and `@deepseek-ai/dsh-tool-ask-user`. |
+| `docs/subsystems/user-interaction.md` | `docs/subsystems/user-questions.md` | The page documents questions and answers only. |
 
 Keep `/permission`, the `permissions` projection, the `permission` settings namespace, and `permission/preset`; they are accurate product or durable vocabulary. Keep the full `PermissionPresetSettingsController` name. Dropping `Preset` would remove the word that limits its authority. Plan a separate proposal to remove the `both` tool-presentation mode; this rename does not remove behavior.
 
@@ -142,7 +153,7 @@ Keep `/permission`, the `permissions` projection, the `permission` settings name
 | `GatewayService` in the protocol package | `TypertRemoteService` | The base class marks a same-process service for Remote export. It is not the API gateway. |
 | `bindTypeRTGateway`, `typertGateway` binding | `bindTypertRemote`, `typertRemote` | These bindings expose Typert Remote services, not the concrete API gateway service. |
 | Public `TypeRT*` and camel-case `typeRT*` identifiers | `Typert*` and `typert*` | `Typert` is the one canonical product spelling. |
-| Protocol interface `TypeRTService` | `TypertRegistry` | The interface registers and looks up Typert metadata. The concrete registry already uses this role. |
+| Protocol interface `TypeRTService` | `TypertRegistryContract` | The protocol-owned interface is the dependency-inverted face implemented by the existing concrete `TypertRegistry`. A distinct suffix prevents an import and declaration collision. |
 | `ToolRegistry` | `ToolRuntime` | The class owns presentation, approval and guard policy, dispatch, cancellation, validation, finalization, and observation. Registration is only one internal part. |
 | `ToolRegistryScheduler`, `TOOL_REGISTRY_SCHEDULER` | `ToolRuntimeScheduler`, `TOOL_RUNTIME_SCHEDULER` | The scheduler controls runtime dispatch, not registration. |
 
@@ -152,7 +163,7 @@ Keep `@deepseek-ai/dsh-tools` and `ctx.tools`. Keep `@deepseek-ai/dsh-api-gatewa
 
 | Current | Proposed | Reason |
 |---|---|---|
-| `ctx.workspace` | `ctx.workspaces` | `WorkspaceRegistry` owns multiple workspaces. The plural key matches the registry role. Keep `@deepseek-ai/dsh-workspace`, `WorkspaceRegistry`, `Workspace`, and `workspace.*` wire names. |
+| Host `ctx.workspace` | Host `ctx.workspaces` | `WorkspaceRegistry` owns multiple workspaces. The plural key matches the registry role. The existing Client `ctx.workspaces` runs in a separate Cordis context, so the shared spelling is intentional and cannot collide at runtime. Keep `@deepseek-ai/dsh-workspace`, `WorkspaceRegistry`, `Workspace`, and `workspace.*` wire names. |
 | `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | The package loads hierarchical `AGENTS.md` and `CLAUDE.md` files for the agent. It is not general workspace context. |
 | Plugin and durable source names `workspace-context` and `workspace-instructions` | `agent-instructions` | The recorded source is a specific class of agent instructions. `AgentInstruction*` replaces public `WorkspaceInstruction*` names. This term does not include system, developer, or user messages. |
 | `ctx.telemetry`, abstract `Telemetry` | `ctx.sessionTelemetry`, `SessionTelemetryBackend` | The service captures session-ledger telemetry and hands it to a reporting backend. It is not a repository-wide metrics or tracing service. |
@@ -160,16 +171,18 @@ Keep `@deepseek-ai/dsh-tools` and `ctx.tools`. Keep `@deepseek-ai/dsh-api-gatewa
 | `TelemetryCoordinator`, `TelemetryRecord`, `TelemetrySeverity`, `TelemetrySharingStatus`, and `TelemetryCapture` | Corresponding `SessionTelemetry*` names | These public types belong only to session telemetry. |
 | `telemetry/record` | `session-telemetry/record` | The event name must state its owning domain. |
 | `TelemetryOtel`, `TelemetryMode`, plugin `telemetry-otel` | `OpenTelemetrySessionBackend`, `SessionTelemetryMode`, plugin `session-telemetry-otel` | The provider name states both the OpenTelemetry mechanism and session scope. Keep the package names `dsh-session-telemetry` and `dsh-session-telemetry-otel`. |
+| `docs/subsystems/telemetry.md` | `docs/subsystems/session-telemetry.md` | The page documents session telemetry, not repository-wide observability. |
 | `session/user-id/`, `@deepseek-ai/dsh-user-id` | `session/anonymous-user-id/`, `@deepseek-ai/dsh-anonymous-user-id` | The value is a random correlation id, not an authenticated user identity. |
 | `USER_ID_FILE_NAME`, `.userid`, feedback label `User` | `ANONYMOUS_USER_ID_FILE_NAME`, `.anonymous-user-id`, feedback label `Anonymous user` | The file and UI must not imply account identity. Keep the existing `AnonymousUserId` functions and the standard OTel attribute `user.id`. |
 | `util/environment/`, `@deepseek-ai/dsh-environment` | `util/launch-environment/`, `@deepseek-ai/dsh-launch-environment` | The package captures one immutable layered snapshot at launch. It is not a general environment API. |
 | Public `Environment*`, `createEnvironmentSnapshot`, `environmentOf`, `DSH_ENVIRONMENT_KEY` | `LaunchEnvironment*`, `createLaunchEnvironmentSnapshot`, `launchEnvironmentOf`, `DSH_LAUNCH_ENVIRONMENT_KEY` | The names state the snapshot's lifetime and purpose. |
 | `ctx.launcherEnvironment` | `ctx.launchEnvironment` | The value describes the application launch, not only a launcher component. Keep source labels `process`, `project-env`, and `user-env`. |
 
-### Workflow, goals, and compaction
+### Schedule, workflow, goals, and compaction
 
 | Current | Proposed | Reason |
 |---|---|---|
+| `ScheduleOwner` | `ScheduleRuntime` | The per-agent object runs live timers, durable projection, dispatch, idle waits, and disposal. `Owner` does not state that execution role. Coupled private `owner*` names follow `runtime*`. |
 | `WorkflowService`, `ctx.workflows` | `WorkflowEngine`, `ctx.workflowEngine` | One engine parses and executes workflow programs. The plural key wrongly suggests a registry. Keep `@deepseek-ai/dsh-workflow` and workflow events and tools. |
 | `@deepseek-ai/dsh-workflow-workerthread`, `WorkerWorkflowEngine` | `@deepseek-ai/dsh-workflow-worker-thread`, `WorkerThreadWorkflowEngine` | `worker thread` is the precise Node mechanism and the repository spelling uses the full words. |
 | `@deepseek-ai/dsh-goal-session`, `goal/goal-session/` | `@deepseek-ai/dsh-goal-round-driver`, `goal/goal-round-driver/` | The plugin drives same-session Goal Rounds. It neither stores goals nor defines sessions. Keep `GoalService`, goal source, events, and contracts. |
@@ -238,7 +251,7 @@ Keep `@deepseek-ai/dsh-subagent-dsh-sdk`, its provider id `dsh-sdk`, external AC
 |---|---|---|
 | `@deepseek-ai/dsh-hooks-claude`, `ClaudeHookConfig`, `parseClaudeConfig`, dialect `claude` | `@deepseek-ai/dsh-hooks-claude-code`, `ClaudeCodeHookConfig`, `parseClaudeCodeConfig`, dialect `claude-code` | The hook bridge targets Claude Code, not every Anthropic or Claude product. |
 | `@deepseek-ai/dsh-repeat-tool-guard`, plugin/source `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-reminder`, plugin/source `repeat-tool-reminder` | The plugin adds a model reminder. It does not block or enforce a guard decision. |
-| `@deepseek-ai/dsh-timeout-policy` | `@deepseek-ai/dsh-tool-timeout-policy` | The policy applies to tool execution. The qualifier is more accurate than the earlier unsettled `timeout-guard` target. |
+| `@deepseek-ai/dsh-timeout-policy` | `@deepseek-ai/dsh-tool-call-timeout-policy` | The full `tool-call` qualifier names what the policy limits without calling the plugin a model-facing tool. Keep its `guard/timeout-policy/` directory and plugin id `timeout-policy`; the `packages/*/tool-*` catalog convention still applies only to packages that register tools. |
 | `PlanModeService` | `PlanModeController` | The object controls transitions into and out of plan mode. It is not a general execution runtime. |
 | `packages/self-modification/` | `packages/extensions/` | The group contains repository plugin inspection and mounting tools. `extensions` states the stable package role without asserting that the agent modifies itself. Keep the package names `tool-cordis` and repository-plugin names. |
 | `packages/support/` | `packages/test-support/` | The group is test-only infrastructure. Its path must say so. |
@@ -267,13 +280,13 @@ Keep atomic-write, brand, native-command, timeout utility, directory-picker, `ds
 |---|---|---|
 | `SlotsService` | `SlotRegistry` | The object owns named slot declarations and registrations. |
 | `SessionsService` | `SessionRuntime` | The object owns live client session coordination, not a passive session list. |
-| `SessionHistoryService` | `SessionHistoryRegistry` | The object owns registered and loaded history entries. |
 | `WorkspacesService` | `WorkspaceRuntime` | The client object coordinates live workspace selection and operations. Existing `ctx` keys stay where the ledger does not name a key change. |
 | `LocaleService` | `LocaleRuntime` | The object coordinates locale definitions, selection, persistence, and change publication. |
 | `ThemeService` | `ThemeRuntime` | The object coordinates themes, preference resolution, system sensing, and change publication. |
 | `LayoutService` | `LayoutController` | The object controls the current UI layout state. |
 | `@deepseek-ai/dsh-client-ui-model` | `@deepseek-ai/dsh-client-ui-model-selection` | The package controls the model selection for a session. The singular `model` name is too broad. |
-| `ModelService`, `ctx.models` | `ModelDirectoryRegistry`, `ctx.modelDirectories` | The service registers multiple model directories. Each `ModelDirectory` remains the consumer-facing catalog of selectable models. |
+| `ModelService`, `ctx.models` | `ModelDirectoryResolver`, `ctx.modelDirectories` | Its only public operation, `directoryFor(sessionId)`, resolves and retains one directory per live session. It has no registration API, so `Registry` would be false. Each `ModelDirectory` remains the consumer-facing catalog of selectable models. |
+| `SettingsScopeService` | `SettingsScopeBinder` | Its sole operation binds one namespace specification to the caller's transport and lifecycle and returns a `SettingsScopeController`. Keep `ctx.settingsScope`; it names the singular binding capability, not a collection of scopes. |
 | `@deepseek-ai/dsh-client-ui-models` | `@deepseek-ai/dsh-client-ui-settings-models` | This package owns the Models settings panel. Keep `ModelsSettingsStore`; it holds one settings view model with data operations and subscriptions and is a real store. |
 | `@deepseek-ai/dsh-client-ui-plugin-config`, `client/ui-plugin-config/` | `@deepseek-ai/dsh-client-ui-settings-plugins`, `client/ui-settings-plugins/` | This package owns the Plugins settings section, not a general plugin-configuration system. The target joins the `ui-settings-*` family and uses the section's plural product name. |
 | `PluginConfigSection`, `PluginConfigSectionProps`, `PluginConfigSectionInjected`, `settings.pluginConfig` | `PluginsSettingsSection`, `PluginsSettingsSectionProps`, `PluginsSettingsSectionInjected`, `settings.plugins` | These names describe the Plugins settings presentation. Each card still edits one plugin's configuration, but the section itself is a settings UI. |
@@ -335,10 +348,10 @@ The following debated names stay unchanged because the current scope is accurate
 ## Acceptance criteria
 
 - Every mapping in the ledger is applied, or this proposal is amended before implementation to explain a changed decision.
-- Each family has one public vocabulary. No compatibility package, re-export alias, duplicate `ctx` key, dual plugin id, dual event id, old tool alias, or fallback parser remains.
+- Each family has one public vocabulary. No compatibility package, re-export alias, duplicate `ctx` key within one Cordis context, dual plugin id, dual event id, old tool alias, or fallback parser remains.
 - The change is rename-only. Runtime behavior, package boundaries, defaults, policy, durable semantics, and model behavior stay equivalent except where an identifier is itself visible.
 - Package directories, npm names, imports, manifests, TypeScript references and paths, Cordis config, plugin ids, service keys, events, tools, RPC names, persisted names named by the ledger, fixtures, snapshots, examples, generated catalogs, and current prose agree with the new vocabulary.
-- Current implemented Agent Notes are updated with factual name and path changes when the implementation lands. The package-regrouping note records `dsh-sdk-jsonrpc-server` and no longer calls the repository an SDK. Notes whose architectural decision remains current are not rewritten into new decisions.
+- Current implemented Agent Notes are updated with factual name and path changes when the implementation lands. The package-regrouping note records the new group inventory and package targets, the SDK removal note does not call the repository an SDK, and the timeout-policy note records the new package-name rationale. Notes whose architectural decision remains current are not rewritten into new decisions.
 - The paired package-creation guide contains the role-word contract, `packages/AGENTS.md` links to it, the terminology table records the chosen words and `Typert` spelling, and root project prose calls the product DeepSeek Harness rather than DeepSeek Harness SDK.
 - The removed SDK project toolchain stays absent.
 - Focused tests cover each renamed family; source-plane typecheck, build, package hygiene, generated-reference gates, snapshots affected by visible identifiers, translation pairing, `doc-sync`, and lint pass on the complete implementation.
@@ -352,6 +365,6 @@ Concurrent work will conflict with moved paths and renamed symbols. This is temp
 
 Some names will become longer. The extra word is intentional when it prevents a false claim about authority or mechanism. Long names are still a failure when every word does not constrain the role.
 
-The role vocabulary can become cargo cult if reviewers check suffixes without checking behavior. The guide must keep the direct tests in this note: inspect what callers do, what lifetime the object owns, and what failure or policy it controls.
+The role words can be applied mechanically if reviewers check suffixes without checking behavior. The guide must keep the direct tests in this note: inspect what callers do, what lifetime the object owns, and what failure or policy it controls.
 
 Old on-disk names, wire values, tool names, and configuration entries named in the ledger will stop working. This is accepted before release. The implementation must fail clearly on stale configuration where the owning parser can identify it; it must not silently accept both forms.
