@@ -2593,7 +2593,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     expect(err.message).toBe('invalid arguments: missing required property "a"; "b" must be a number')
   })
 
-  it('a schema-invalid call APIs the structured error on the result', async () => {
+  it('a schema-invalid call surfaces the structured error on the result', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({
       name: 'reader',

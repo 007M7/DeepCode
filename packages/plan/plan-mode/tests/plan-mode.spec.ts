@@ -992,7 +992,7 @@ describe('exit_plan_mode', () => {
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
-  it('a throwing provider APIs as the corrective isError and the mode stays plan', async () => {
+  it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
     const { ctx, agent } = await setupWithReview()
     ctx.userInteraction.registerProvider({ ask: () => { throw new Error('review aborted') } })
     const result = await callExit(ctx, agent)
