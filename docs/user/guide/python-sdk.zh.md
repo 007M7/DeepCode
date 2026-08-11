@@ -30,7 +30,7 @@ python -m pip install deepseek-harness-sdk
 从源码构建还需要 Git、Node.js ^22.19 或 >= 24、通过 Corepack 启用的 pnpm 11，以及 `uv`。以下命令为当前受支持的宿主平台构建运行时和两个 wheel 包，并将它们安装进当前虚拟环境：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
+git clone https://github.com/deepseek-ai/deepseek-harness.git deepseek-harness
 cd deepseek-harness
 python -m pip install uv==0.11.23
 corepack enable
