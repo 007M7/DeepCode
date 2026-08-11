@@ -20,8 +20,6 @@ import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import type { DirectoryPicker } from '@deepseek-ai/dsh-host-directory-picker'
 import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse'
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
-import * as BrowseSurface from '@deepseek-ai/dsh-client-ui-directory-picker'
-import * as NativeSurface from '@deepseek-ai/dsh-client-ui-directory-picker-native'
 import * as DirectoryPickerAuto from '../src/index.ts'
 
 const renameControl = vi.hoisted(() => ({
@@ -52,6 +50,21 @@ const NATIVE = '@deepseek-ai/dsh-host-directory-picker-native'
 const BROWSE = '@deepseek-ai/dsh-host-directory-picker-browse'
 const NATIVE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-native'
 const BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker'
+
+/**
+ * Loader-visible stand-in for a client surface package: the surfaces belong to
+ * the Client program and publish browser entry points only, so a Host-face spec
+ * can neither name them in a static import nor resolve them from source. What
+ * the chooser owns is the mounting decision, which every case observes through
+ * the Loader store; the surface's own browser contributions belong to the
+ * assembled web coverage.
+ *
+ * @param name Surface package specifier the chooser mounts.
+ * @returns A function-plugin module the Loader can mount under that specifier.
+ */
+function surfaceModule(name: string): unknown {
+  return { name, apply: () => undefined }
+}
 
 let root: string | undefined
 let fakeBin: string | undefined
@@ -96,8 +109,8 @@ async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx
     [AUTO, DirectoryPickerAuto],
     [NATIVE, NativeDirectoryPicker],
     [BROWSE, BrowseDirectoryPicker],
-    [NATIVE_SURFACE, NativeSurface],
-    [BROWSE_SURFACE, BrowseSurface],
+    [NATIVE_SURFACE, surfaceModule(NATIVE_SURFACE)],
+    [BROWSE_SURFACE, surfaceModule(BROWSE_SURFACE)],
   ])
   context.loader.internal = {
     version: 'v2',
