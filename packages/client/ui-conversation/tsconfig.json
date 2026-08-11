@@ -24,6 +24,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../ui-attachment"
+    },
+    {
       "path": "../ui-primitives"
     },
     {

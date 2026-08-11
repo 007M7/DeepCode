@@ -1,13 +1,30 @@
 import { useEffect, useRef } from 'react'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
 import css from './ImageLightbox.module.css'
 
-/** Document-level original-image preview opened by an explicit double-click. */
-export function ImageLightbox({ src, alt, onClose, t }: {
+/** Lightbox strings the owner resolves from its own locale namespace. */
+export interface ImageLightboxLabels {
+  /** Accessible name of the preview dialog. */
+  dialog: string
+  /** Accessible label of the close control. */
+  close: string
+}
+
+/**
+ * Document-level original-image preview opened by clicking a thumbnail.
+ * Closes on Escape, backdrop press, or the close control, and restores focus
+ * to the opener on unmount.
+ *
+ * @param props.src - the original image URL.
+ * @param props.alt - the image's alt text.
+ * @param props.labels - dialog and close-control strings.
+ * @param props.onClose - dismiss callback owned by the opener.
+ * @returns the modal preview dialog.
+ */
+export function ImageLightbox({ src, alt, labels, onClose }: {
   src: string
   alt: string
+  labels: ImageLightboxLabels
   onClose: () => void
-  t: ChatViewSlotProps['t']
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
@@ -30,11 +47,11 @@ export function ImageLightbox({ src, alt, onClose, t }: {
       className={css.backdrop}
       role="dialog"
       aria-modal="true"
-      aria-label={t('image.preview')}
+      aria-label={labels.dialog}
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
     >
       <img className={css.image} src={src} alt={alt} />
-      <button ref={closeRef} type="button" className={css.close} aria-label={t('image.closePreview')} onClick={onClose}>×</button>
+      <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>×</button>
     </div>
   )
 }

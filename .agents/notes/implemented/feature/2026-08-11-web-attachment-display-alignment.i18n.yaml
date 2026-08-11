@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-11-web-attachment-display-alignment.md
+2026-08-11-web-attachment-display-alignment.md: 84d51aada0a463145115f0cebfaf73e9b2bd9e9b
+2026-08-11-web-attachment-display-alignment.zh.md: 2676fcea333b54017c37cb4ee85f59ad7c76cfac
