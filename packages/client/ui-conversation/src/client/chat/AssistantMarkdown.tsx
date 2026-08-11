@@ -13,8 +13,9 @@ import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
+import { messageImageLabels } from '../image-labels.ts'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -62,7 +63,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
               />
             )
             case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
-            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" t={t} />
+            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" labels={messageImageLabels(t)} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (

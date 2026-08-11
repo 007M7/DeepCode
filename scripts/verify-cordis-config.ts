@@ -79,6 +79,7 @@ errors.push(...validateExampleResolution())
 errors.push(...validateAppResolution())
 errors.push(...validateSourcePlaneResolution())
 errors.push(...validatePresetPlaneSeparation())
+errors.push(...validateClientHalvesDeclared())
 
 if (errors.length > 0) {
   console.error('verify-cordis-config: invalid Loader metadata or plugin package resolution:')
@@ -86,6 +87,35 @@ if (errors.length > 0) {
   process.exitCode = 1
 } else {
   console.log(`verify-cordis-config: ${files.length} config files passed.`)
+}
+
+/**
+ * A browser plugin must declare the browser half it ships.
+ *
+ * The browser roster is discovered by scanning composed packages for a
+ * `dsh.client` block, and the node half of a surface plugin is an empty
+ * `apply`. A `packages/client` package that exports `./client` without that
+ * block therefore composes, activates, and contributes nothing — its bundle is
+ * never served and no error is raised anywhere. The mismatch is invisible in
+ * the composition file, so it is checked against the manifests instead. Only
+ * this group is checked: a Host package's `./client` export is the typed wire
+ * face its browser consumers import, not a plugin the roster serves.
+ * @returns one violation per client package whose `./client` export and
+ * `dsh.client` declaration disagree.
+ */
+function validateClientHalvesDeclared(): string[] {
+  return globSync('packages/client/*/package.json', { cwd: root }).flatMap((manifestPath) => {
+    const manifest = readManifest(manifestPath) as PackageManifest & {
+      exports?: Record<string, unknown>
+      dsh?: { client?: unknown }
+    }
+    const shipsClient = manifest.exports !== undefined && Object.hasOwn(manifest.exports, './client')
+    const declaresClient = manifest.dsh?.client !== undefined
+    if (shipsClient === declaresClient) return []
+    return [shipsClient
+      ? `${manifestPath}: exports "./client" but declares no dsh.client, so its browser half is never served`
+      : `${manifestPath}: declares dsh.client but exports no "./client" entry to serve`]
+  })
 }
 
 /**

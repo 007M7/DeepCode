@@ -18,6 +18,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-slots/`](ui-slots/README.md) | Defines how UI features register and compose extension slots. |
 | [`ui-theme/`](ui-theme/README.md) | Applies the selected color theme. |
 | [`ui-primitives/`](ui-primitives/README.md) | Provides shared React controls, icons, and content renderers. |
+| [`ui-attachment/`](ui-attachment/README.md) | Provides attachment display atoms: draft-image rail, message gallery, and lightbox. |
 | [`ui-layout/`](ui-layout/README.md) | Arranges the main application regions. |
 | [`ui-sidebar/`](ui-sidebar/README.md) | Presents workspace and session navigation. |
 | [`ui-workspace/`](ui-workspace/README.md) | Provides workspace selection and creation surfaces. |
@@ -34,6 +35,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
 | [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
+| [`ui-plugin-config/`](ui-plugin-config/README.md) | The Plugins settings section: host-plane plugin configuration as expandable cards. |
 | [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | Selects a session's agent preset and authors preset compositions. |
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |

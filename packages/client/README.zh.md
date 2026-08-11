@@ -18,6 +18,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-slots/`](ui-slots/README.md) | 定义 UI 功能注册和组合扩展 slot 的方式。 |
 | [`ui-theme/`](ui-theme/README.md) | 应用所选颜色主题。 |
 | [`ui-primitives/`](ui-primitives/README.md) | 提供共享 React 控件、图标和内容渲染器。 |
+| [`ui-attachment/`](ui-attachment/README.md) | 提供附件展示原子组件：草稿图片栏、消息画廊与灯箱。 |
 | [`ui-layout/`](ui-layout/README.md) | 排列应用的主要区域。 |
 | [`ui-sidebar/`](ui-sidebar/README.md) | 展示 Workspace 与会话导航。 |
 | [`ui-workspace/`](ui-workspace/README.md) | 提供 Workspace 选择与创建界面。 |
@@ -34,6 +35,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-model/`](ui-model/README.md) | 在会话界面中提供模型选择。 |
 | [`ui-permission/`](ui-permission/README.md) | 配置默认权限并切换当前会话的访问模式。 |
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |
+| [`ui-plugin-config/`](ui-plugin-config/README.md) | 插件设置分区：把宿主平面的插件配置呈现为可展开卡片。 |
 | [`ui-question/`](ui-question/README.md) | 展示 agent 请求的交互式问题。 |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并创作预设组装。 |
 | [`ui-settings/`](ui-settings/README.md) | 承载设置界面及其扩展区域。 |
