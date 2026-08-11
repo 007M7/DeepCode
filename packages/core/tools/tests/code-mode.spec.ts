@@ -1573,8 +1573,7 @@ describe('the run_code dispatch bridge', () => {
       arguments: { text: 'hello' },
     })
     expect(result.isError).toBe(true)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error is a union type
-    expect((result.error as any).info.code).toBe('UNKNOWN_TOOL')
+    expect(result.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
   })
 
   it('routes a pre-aborted collapsed call through ABORTED_BEFORE_DISPATCH', async () => {
@@ -1591,8 +1590,7 @@ describe('the run_code dispatch bridge', () => {
       arguments: { text: 'hello' },
     })
     expect(result.isError).toBe(true)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- error is a union type
-    expect((result.error as any).info.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+    expect(result.error?.info?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
   })
 
 })

@@ -754,8 +754,7 @@ describe('code-mode native-tool denial through the agent loop', () => {
     const sessionEvents = events(agent)
     const toolResult = sessionEvents.find(e => e.type === 'tool/result')
     expect(toolResult).toBeDefined()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tool/result data uses a loose event payload union
-    expect((toolResult!.data as any).error).toMatchObject({
+    expect(toolResult!.data.error).toMatchObject({
       name: 'ToolNotFoundError',
       code: 'UNKNOWN_TOOL',
     })
