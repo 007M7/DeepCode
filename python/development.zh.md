@@ -55,7 +55,7 @@ with DeepSeekHarness() as harness:
 version="$(node -p "require('./package.json').version")"
 python scripts/build-python-release.py --package sdk --output-dir dist-python
 python scripts/build-python-release.py --package runtime --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
-pip install --find-links dist-python deepseek-harness=="$version"
+pip install --find-links dist-python deepseek-harness-sdk=="$version"
 ```
 
 运行时分发包仅提供 wheel 包。发布流水线会连同纯 SDK wheel 包一起发布三个平台 wheel 包：Linux x64、Linux arm64 和 macOS arm64。只有与仓库版本匹配时，才接受 `python-vX.Y.Z` 标签。

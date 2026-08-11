@@ -1,6 +1,6 @@
 /** Package-owned filesystem event-data invariants. @module @deepseek-ai/dsh-fs/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { FsObservation, FsTarget } from './types.ts'
 

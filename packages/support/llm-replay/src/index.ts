@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compact'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -24,7 +24,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
@@ -51,6 +51,18 @@ export interface ReplayModelConfig {
   description?: string
   /** Optional positive integer context capacity published by the replay adapter. */
   contextWindow?: number
+  /**
+   * Optional per-request output cap the replay route materializes when callers
+   * omit one, so replay reconstructs the request header a live catalog produced.
+   */
+  defaultMaxTokens?: number
+  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  reasoningEfforts?: string[]
+  /**
+   * Optional effort materialized when callers omit one; must appear in
+   * {@link reasoningEfforts} or call resolution rejects the route.
+   */
+  defaultReasoningEffort?: string
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -585,6 +597,19 @@ class ReplayAdapter extends LlmAdapter {
       ...configuredModel?.contextWindow === undefined
         ? {}
         : { context: { contextWindow: configuredModel.contextWindow } },
+      ...configuredModel?.defaultMaxTokens === undefined
+        ? {}
+        : { defaultMaxTokens: configuredModel.defaultMaxTokens },
+      ...configuredModel?.reasoningEfforts === undefined
+        ? {}
+        : {
+          reasoning: {
+            efforts: configuredModel.reasoningEfforts.map(id => ({ id: ReasoningEffortId(id), name: id })),
+            ...configuredModel.defaultReasoningEffort === undefined
+              ? {}
+              : { defaultEffort: ReasoningEffortId(configuredModel.defaultReasoningEffort) },
+          },
+        },
     })
   }
 

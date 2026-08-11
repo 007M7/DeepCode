@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -12,10 +12,10 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
 import type { GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import InvariantService from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentService, {
   SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
@@ -103,9 +103,9 @@ function hasUserText(events: readonly SessionEvent[], text: string): boolean {
     && event.data.content.some(block => block.type === 'text' && block.text === text))
 }
 
-/** Every user-role message text in log order, for FIFO assertions. */
+/** Caller-supplied user message texts in log order (runtime-context snapshots excluded). */
 function userTexts(events: readonly SessionEvent[]): string[] {
-  return events.flatMap(event => event.type === 'user/message'
+  return events.flatMap(event => event.type === 'user/message' && event.data.source.kind !== 'plugin'
     ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
     : [])
 }
@@ -1198,6 +1198,44 @@ describe('continuable review regressions', () => {
     await waitNoActivation(ctx, started.childId)
     await vi.waitFor(() => { expect(ends).toHaveLength(2) })
     expect(ends[1]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'second answer' }])
+  })
+
+  it('keeps the epoch\'s earlier text past a final empty usage-only message', async () => {
+    // A tool-only max-tokens step records an empty assistant/message for
+    // usage. The terminal event retains the previous assistant content,
+    // including its tool call but not the intervening tool result.
+    const { ctx, parent } = await setup([
+      toolCallResponse('t1', 'noop', {}, 'partial one'),
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: CallId('t2'), name: 'noop', argumentsDelta: '{}' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('t2'), name: 'noop', arguments: '{}' } },
+        { type: 'usage', usage: { inputTokens: 20, outputTokens: 5 } },
+        { type: 'finish', reason: { kind: 'max-tokens' } },
+      ],
+    ])
+    ctx.tools.register(defineTool({
+      name: 'noop',
+      description: 'does nothing',
+      parameters: {},
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: {} },
+        render: () => [{ type: 'text', text: 'noop' }],
+      },
+      execute: () => Promise.resolve({}),
+    }))
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
+    expect(ends[0]!.stopReason).toBe('max-tokens')
+    expect(ends[0]!.lastAssistantMessage).toEqual([
+      { type: 'text', text: 'partial one' },
+      { type: 'tool-call', id: 't1', name: 'noop', arguments: '{}' },
+    ])
   })
 
   it('reports a resumed epoch that opened no turn without the previous answer', async () => {

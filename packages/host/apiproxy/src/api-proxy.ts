@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
@@ -33,6 +33,7 @@ import {
   PresetNotWritableError, resolveSessionPreset,
   SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
+import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
@@ -1044,7 +1045,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * common paths — reconnecting, resuming, retrying a create — are unaffected.
    * @param sessionId - the identity being adopted.
    * @param requested - the preset the request named, if any.
-   * @param existing - the preset the session was created under, if any.
+   * @param existing - the preset the session RUNS, if any; both callers resolve
+   * it from the log, which differs from the creation header once a blank
+   * session has switched.
    * @throws when both are present and differ.
    */
   function assertPresetUnchanged(
@@ -1357,17 +1360,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * The registry view scope a transcript's presenters resolve in.
    *
    * A live agent is that scope itself (its chain passes through its preset's
-   * standing layer). A cold session names its preset on the header, and the
+   * standing layer). A cold session resolves its preset from the LOG, and the
    * preset's STANDING key serves without resuming anything — ensuring the
    * mount composes plugins but starts no agent, session, or turn. No roster,
    * no recorded preset, or a preset the roster no longer supplies all fall
    * back to the global layer: the transcript still serves, with the generic
    * cards a viewless entry renders.
+   *
+   * Reading the header alone would render a session that switched while blank
+   * through the composition it was CREATED with. Every tool only the newer
+   * preset registers resolves to no presenter there, and the transcript
+   * silently degrades to generic cards for exactly the calls its history is
+   * made of.
    * @param sessionId - the transcript being read.
-   * @param header - that session's header (attached or inspected).
+   * @param session - that session's header and log (attached or inspected).
    * @returns the scope to pass to presenter lookups, or undefined for global.
    */
-  async function presenterScopeFor(sessionId: SessionId, header: SessionHeader): Promise<ScopeKey | undefined> {
+  async function presenterScopeFor(
+    sessionId: SessionId,
+    session: PresetBearingSession,
+  ): Promise<ScopeKey | undefined> {
     const live = ctx.get('agents')?.get(sessionId)
     if (live !== undefined) return live
     const presets = ctx.get('agentPresets')
@@ -1377,7 +1389,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // through the DEFAULT preset's standing layer: that is the composition
       // an unnamed session composes today, and presenters are pure display,
       // so the worst a mismatch produces is the generic card it had anyway.
-      return await presets.standingKeyFor(header.agentPreset)
+      return await presets.standingKeyFor(resolveSessionPreset(session))
     } catch {
       // Swallows only the unknown/unusable-preset rejection from the roster:
       // a deleted or broken preset must degrade this read, never fail it.
@@ -1470,7 +1482,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     // Beside the cwd check for the same reason, and after the await so it
     // covers every path that yields a live agent — freshly created, adopted
     // live, resumed from disk, or recovered by the concurrent-creation catch.
-    assertPresetUnchanged(sessionId, presetId, agent.session.header.agentPreset)
+    assertPresetUnchanged(sessionId, presetId, resolveSessionPreset(agent.session))
     if (agent.session.header.cwd !== cwd) {
       throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -1986,12 +1998,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        // Echo the RESOLVED composition so a client can label the session it
-        // just created without waiting for the next list refresh — the create
-        // is the commit point that knows it (a caller that named none gets
-        // the default the header recorded).
+        // Echo the composition the session RUNS so a client can label it
+        // without waiting for the next list refresh — the create is the commit
+        // point that knows it (a caller that named none gets the default).
+        // Resolved from the log for the same reason `sessionListFields()` is:
+        // this handler also adopts an already-live session, and one that
+        // switched while blank runs a preset its header no longer names, so
+        // echoing the header would contradict both the adoption this call just
+        // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
-        const createdPreset = created?.session.header.agentPreset
+        const createdPreset = created === undefined ? undefined : resolveSessionPreset(created.session)
         return ok(request, { sessionId, ...createdPreset === undefined ? {} : { agentPreset: createdPreset } })
       },
 
@@ -2010,7 +2026,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state.header))
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state))
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,
@@ -2989,7 +3005,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The scope presenters resolve in — the live agent, else the recorded
         // preset's standing key, else the global layer — so a cold session's
         // '/' popup lists the catalog its composition actually serves.
-        const scope = await presenterScopeFor(sessionId, session.header)
+        const scope = await presenterScopeFor(sessionId, session)
         try {
           const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
           return ok(request, {

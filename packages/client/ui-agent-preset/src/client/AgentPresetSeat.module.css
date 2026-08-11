@@ -9,7 +9,7 @@
   min-height: 28px;
   padding: 0 8px;
   border: none;
-  border-radius: 12px;
+  border-radius: 16px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
@@ -34,6 +34,61 @@
 .seatIcon {
   flex: none;
   color: var(--dsw-alias-label-primary);
+}
+
+/* Introduce cue: the icon eases in on an overshoot-free expo curve (duration
+   matches INTRO_TEXT_DELAY_MS, so the characters start the moment it lands),
+   then the name's characters fade up on a stagger (delays set inline per
+   character). All chars occupy their width from the start, so nothing
+   reflows mid-run. */
+.introIcon {
+  animation: seat-icon-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes seat-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Wraps the staggered characters into one flex item, so the chip's gap
+   applies around the name as a whole rather than between characters. */
+.introText {
+  display: inline-block;
+  white-space: pre;
+}
+
+.introChar {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  animation: seat-char-in 0.4s ease-out forwards;
+}
+
+@keyframes seat-char-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .introIcon,
+  .introChar {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .chevron {

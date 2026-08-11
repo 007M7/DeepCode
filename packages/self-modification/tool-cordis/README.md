@@ -14,7 +14,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 Canonical successes are the inspection string, mount `{ id, pluginName, state, provides, waitingFor }`, and unmount `{ id, pluginName }`. Native rendering says whether the temporary Plugin is running or pending and that it remains available until unmounted or DSH restarts; unmount confirms that it was removed.
 
-Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
+Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement an SDK Plugin or installable profile bundle through the regular development workflow.
 
 ## Trust stance
 

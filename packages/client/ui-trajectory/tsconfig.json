@@ -24,6 +24,15 @@
       "path": "../runtime"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../compact/compact"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

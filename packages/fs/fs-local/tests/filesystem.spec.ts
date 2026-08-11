@@ -7,11 +7,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { constants as bufferConstants } from 'node:buffer'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
@@ -43,12 +44,38 @@ async function versionOf(target: FsTarget): Promise<FsVersion> {
   return info.version
 }
 
+async function remountWithDiffLimit(diffBasisMaxBytes: number): Promise<void> {
+  await fiber.dispose()
+  fiber = await ctx.plugin(LocalFileSystem, { cwd: dir, diffBasisMaxBytes })
+  fs = ctx.fs as LocalFileSystem
+}
+
 describe('registration', () => {
   it('registers LocalFileSystem as ctx.fs with a default cwd', async () => {
     const bare = new Context()
     const bareFiber = await bare.plugin(LocalFileSystem)
     expect((bare.fs as LocalFileSystem).config.cwd).toBe(process.cwd())
+    expect((bare.fs as LocalFileSystem).config.diffBasisMaxBytes).toBe(10 * 1024 * 1024)
     await bareFiber.dispose()
+  })
+
+  it('rejects non-positive, fractional, unsafe, or unallocatable diff-basis limits', async () => {
+    const maxDiffBasisBytes = Math.min(
+      bufferConstants.MAX_LENGTH,
+      bufferConstants.MAX_STRING_LENGTH,
+    )
+    const valid = new Context()
+    const validFiber = await valid.plugin(LocalFileSystem, { diffBasisMaxBytes: maxDiffBasisBytes })
+    expect((valid.fs as LocalFileSystem).config.diffBasisMaxBytes).toBe(maxDiffBasisBytes)
+    await validFiber.dispose()
+
+    for (const diffBasisMaxBytes of [0, -1, 1.5, maxDiffBasisBytes + 1, Number.MAX_SAFE_INTEGER + 1]) {
+      const invalid = new Context()
+      await expect(invalid.plugin(LocalFileSystem, { diffBasisMaxBytes })).rejects.toThrow(
+        `fs-local: diffBasisMaxBytes must be a positive safe integer no greater than ${maxDiffBasisBytes}`,
+      )
+      await invalid.fiber.dispose()
+    }
   })
 })
 
@@ -442,6 +469,54 @@ describe('writeText', () => {
     expect(outcome.operation).toBe('update')
     expect(outcome.before).toBeNull()
     expect(outcome.after).toBe('now valid')
+  })
+
+  it('an overwrite of a prior file AT the whole-file bound reports before:null (undiffable), still succeeds', async () => {
+    // The configured bound keeps the fixture small; 8 bytes at a bound of 8
+    // pins the exclusive edge without coupling this provider to a read tool.
+    await remountWithDiffLimit(8)
+    await writeFile(join(dir, 'big.txt'), '12345678')
+    const target = await fs.resolve('big.txt')
+    const outcome = await fs.writeText(target, 'tiny')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('tiny')
+  })
+
+  it('an overwrite whose NEW content is at the whole-file bound reports before:null (no huge contextual diff)', async () => {
+    // The bound gates BOTH sides of the diff pair: a small prior file rewritten
+    // with at/above-bound content yields no contextual-hunk basis either, since
+    // a small-to-huge rewrite's hunk is as large as the new content — the
+    // consumer must fall back to the whole-file diff card, exactly like a
+    // create of the same size.
+    await remountWithDiffLimit(8)
+    await writeFile(join(dir, 'grow.txt'), 'tiny')
+    const target = await fs.resolve('grow.txt')
+    const outcome = await fs.writeText(target, '12345678')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('12345678')
+  })
+
+  it('gates the NEW content by UTF-8 byte length, not character count', async () => {
+    // Three CJK characters are 9 UTF-8 bytes: below an 8-byte bound by
+    // characters but at/above it by bytes, so the basis must be declined.
+    await remountWithDiffLimit(8)
+    await writeFile(join(dir, 'cjk.txt'), 'tiny')
+    const target = await fs.resolve('cjk.txt')
+    const outcome = await fs.writeText(target, '你好吗')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('你好吗')
+  })
+
+  it('an overwrite with BOTH sides below the whole-file bound keeps its contextual before basis', async () => {
+    await remountWithDiffLimit(8)
+    await writeFile(join(dir, 'small.txt'), '1234567')
+    const target = await fs.resolve('small.txt')
+    const outcome = await fs.writeText(target, 'new')
+    expect(outcome.before).toBe('1234567')
+    expect(outcome.after).toBe('new')
   })
 
   it('releases per-target mutation locks after success and failure', async () => {

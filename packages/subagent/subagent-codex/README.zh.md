@@ -27,7 +27,7 @@
 
 生产环境会从 `PATH` 中解析 `codex`，并使用宿主机原生的 Codex 配置与身份验证。本插件不安装 Codex、不选择模型、不创建 `CODEX_HOME`、不执行登录，也不探测版本。子进程 seam 会移除具有凭证特征的环境变量，因此供子进程使用的 API 密钥必须在 `env` 中显式提供；除非被覆盖，`PATH` 和 `HOME` 等普通环境变量值仍然可用。
 
-请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。正式 CLI 配置默认不会加载此提供方，也不会暴露 `subagent_codex`。
+随附 profile 会在宿主上加载一次该提供方，而且在工具被调用前不会启动 Codex 进程。完整 Agent Preset 携带下列工具行并设置 `disabled: true`；复制一个 preset 后删除该字段，即可只向由该副本组装的 agent 暴露 `subagent_codex`。自定义宿主组装仍可直接使用两条配置行。
 
 ```yaml
 - id: subagent-codex
@@ -38,6 +38,7 @@
 
 - id: tool-subagent-codex
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
   config:
     provider: codex
     toolName: subagent_codex

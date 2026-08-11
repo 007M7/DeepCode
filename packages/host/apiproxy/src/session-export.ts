@@ -15,7 +15,7 @@
  */
 
 import { Zip, ZipDeflate } from 'fflate'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { SessionLineageNode, SessionQueryService } from '@deepseek-ai/dsh-session-query'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'

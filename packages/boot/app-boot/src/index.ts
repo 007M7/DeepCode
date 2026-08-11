@@ -9,19 +9,19 @@
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
-import { Context, type FiberState } from 'cordis'
-import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
-import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
-import Group from '@cordisjs/plugin-group'
+import { Context, type FiberState } from '@deepseek-ai/cordis'
+import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { createEnvironmentSnapshot, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
-import type {} from '@cordisjs/plugin-hmr'
+import type {} from '@deepseek-ai/cordis-plugin-hmr'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Harness-home path resolver available to Loader `!!js` config expressions. */
     dshHomePath?: typeof dshHomePath
@@ -199,7 +199,7 @@ export function loadLayeredEnv(
 const bootstrapIncludes = new WeakMap<Context, Entry>()
 
 // The include's YAML dialect (`!!js` scalars become expression nodes the
-// Loader interpolates against each entry's context at mount time), imported
+// Loader interpolates against each entry's injection-ready context), imported
 // from the include itself so patch parsing and config dumping can never drift
 // from what the include mounts. User patch layers share it so they may
 // reference `process.env`.
@@ -215,7 +215,7 @@ export interface UserPatchWatchOptions {
    * Compose the full patch list for a fresh user-layer generation —
    * the same composition the app booted with, so a reload can interleave the
    * new user patches between app-owned layers (bundle layers below,
-   * overlay/flag patches above). Identity when omitted: the user layer
+   * overlays above). Identity when omitted: the user layer
    * is the whole patch list.
    */
   compose?: (userPatches: PatchOptions[]) => PatchOptions[]
@@ -265,7 +265,7 @@ export async function watchUserPatches(
 
 /**
  * Load an optional patch-list file: a top-level YAML array of loader patch
- * entries (`@cordisjs/plugin-include`'s `PatchOptions`): id-targeted config
+ * entries (`@deepseek-ai/cordis-plugin-include`'s `PatchOptions`): id-targeted config
  * overrides and `insert` lists, with `!!js` expressions allowed. A missing
  * file means "no layer"; an unreadable, unparsable, or non-array file throws —
  * a present patch file that cannot apply is a misconfiguration and must fail
@@ -305,7 +305,7 @@ export function loadOverlayPatches(binName: string, file: string): PatchOptions[
 }
 /**
  * Parse one loader patch list: a top-level YAML array of
- * `@cordisjs/plugin-include` `PatchOptions` (id-targeted config overrides and
+ * `@deepseek-ai/cordis-plugin-include` `PatchOptions` (id-targeted config overrides and
  * `insert` lists, `!!js` expressions allowed). Every invalid field or value throws,
  * because a patch file that cannot be applied at all is a misconfiguration; a
  * single patch whose target row is absent stays a per-entry Loader warning, so
@@ -476,6 +476,8 @@ function groupedDump(
  * @param ctx - context carrying an initialized Loader service.
  * @param absoluteConfigPath - absolute YAML or JSON configuration path.
  * @param patches - initial app and user patches, applied in order.
+ * @param bareModuleBaseUrl - optional installed-host base for bare package
+ * names; relative names continue to resolve beside the configuration file.
  * @returns the created root Include entry, or `undefined` when a surface
  * disposed the whole tree (taking the Loader service with it) while the
  * transactional create was still settling entry lifecycle.
@@ -484,24 +486,38 @@ export async function mountRootInclude(
   ctx: Context,
   absoluteConfigPath: string,
   patches: readonly PatchOptions[] = [],
+  bareModuleBaseUrl?: string,
 ): Promise<Entry | undefined> {
-  ctx.loader.builtins.include = Include
+  ctx.loader.builtins.include = bareModuleBaseUrl === undefined
+    ? Include
+    : class HostResolvedRootInclude extends Include {
+      override import(name: string, getOuterStack?: () => string[]): unknown {
+        const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
+        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
+        const internal = this.ctx.loader.internal
+        /* v8 ignore next -- Node supplies the internal loader; this preserves the
+           original diagnostic for hypothetical embedders without it. */
+        if (internal === undefined) return super.import(specifier, getOuterStack)
+        return internal.import(specifier, bareModuleBaseUrl, {})
+      }
+    }
   // `cordis:group` alongside it: a group row is how a composition gives one
   // `isolate` realm to a provider and its consumers together, and an agent
-  // preset living outside this workspace cannot resolve `@cordisjs/plugin-group`
+  // preset living outside this workspace cannot resolve `@deepseek-ai/cordis-plugin-group`
   // by name. Both builtins load through the ambient module pipeline, so neither
   // depends on the included tree's own specifier resolution.
   ctx.loader.builtins.group = Group
   // Pinned id: the bootstrap include is app glue, not a config row, and its
   // id appears in Loader failure chains — a random id would make startup
   // diagnostics unstable across runs (and snapshot fixtures).
+  const includeConfig: Include.Config = {
+    path: pathToFileURL(absoluteConfigPath).href,
+    ...patches.length > 0 ? { patches: [...patches] } : {},
+  }
   const rootInclude: EntryOptions = {
     id: 'include',
     name: 'cordis:include',
-    config: {
-      path: pathToFileURL(absoluteConfigPath).href,
-      ...patches.length > 0 ? { patches: [...patches] } : {},
-    },
+    config: includeConfig,
   }
   const includeId = await ctx.loader.create(rootInclude)
   const loader = ctx.get('loader')
@@ -709,14 +725,13 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
 
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
- * tree settles. Entry names load through the Loader's internal module loader
- * against `baseUrl` (the config directory), which may live outside
- * `node_modules` reach and, unbuilt, cannot load vendored source; the
- * bootstrap include is therefore statically imported and mounted as the
- * `cordis:include` builtin, loading through the ambient module pipeline
- * (vite/tsx/plain ESM) while the included tree's own specifiers stay
- * config-relative. The package build embeds Include while leaving Loader
- * external, so the built include tree and host share one Loader peer. Loader
+ * tree settles. Relative entry names resolve against the config directory;
+ * bare package names resolve there by default or against an explicit
+ * `bareModuleBaseUrl` for closed packaged runtimes. The bootstrap include
+ * is statically imported and mounted as the `cordis:include` builtin, loading
+ * through the ambient module pipeline (vite/tsx/plain ESM). The package build
+ * embeds Include while leaving Loader external, so the built include tree and
+ * host share one Loader peer. Loader
  * settlement rejects startup failures, which `boot` wraps after disposing the
  * partial context; a missing fiber or never-activating entry is rejected by
  * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
@@ -729,6 +744,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadOptionalPatches}); an empty list mounts none.
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
+ * @param bareModuleBaseUrl - optional installed-host base for bare package
+ * names; use it when the host, rather than the configuration project, owns the
+ * complete plugin set.
  * @returns the root context once every entry has started, or as soon as a
  * surface disposed the tree while startup was still in flight.
  * @throws a labelled error after disposing the partial context — `host
@@ -740,6 +758,7 @@ export async function boot(
   absoluteConfigPath: string,
   patches?: PatchOptions[],
   prepare?: (ctx: Context) => Promise<void> | void,
+  bareModuleBaseUrl?: string,
 ): Promise<Context> {
   const ctx = new Context()
   // Two failure labels: `prepare` runs before any config-tree entry mounts,
@@ -751,7 +770,7 @@ export async function boot(
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
-    await mountRootInclude(ctx, absoluteConfigPath, patches)
+    await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl)
     // A surface can finish and dispose the whole tree while startup is still
     // in flight, before the last entry settles. The Loader service goes with
     // it, and the activation audit describes a live tree — reading `ctx.loader`

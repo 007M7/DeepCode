@@ -1,6 +1,6 @@
 /** Package-owned durable plan-mode invariants. @module @deepseek-ai/dsh-plan-mode/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 

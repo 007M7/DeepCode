@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { unzipSync, strFromU8 } from 'fflate'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'

@@ -111,6 +111,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Compose one agent from a preset: ensure the preset\'s standing mount, then\n * parent the agent\'s scope key to it so the mount\'s registrations and\n * listeners cover this agent.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was composed, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
       {
+        signature: 'composeFrom(agentCtx: Context, parentCtx: Context): string | undefined',
+        jsDoc: '/**\n * Join one agent to the SAME standing composition another already runs on.\n *\n * This is how a child agent inherits its parent\'s capabilities. It is a bind,\n * not a mount: the parent\'s generation is already composed, so the child gets\n * that exact instance — the same plugin objects, the same tool registrations,\n * the same prompt sections. Re-resolving the parent\'s preset by id instead\n * would re-read the roster, and a composition file edited since the parent\n * started would hand the child a DIFFERENT generation than the one its\n * parent\'s history was produced under (and a preset deleted since would fail\n * the child outright while its parent keeps running).\n *\n * Synchronous, and with no composition failure mode of its own — it reads no\n * roster, mounts nothing, and touches no file — which is what lets a child\n * creation window use it: the two in-process subagent drivers compose their\n * children inside a synchronous `setup`. It still rejects a caller error, as\n * the `@throws` below record.\n *\n * A parent that joined no preset — a rosterless deployment — yields no join\n * and no error: there, the model-facing rows sit in the host composition and\n * the child already sees them through the global layer.\n * @param agentCtx - the joining agent\'s scope context.\n * @param parentCtx - the scope context of the agent whose composition to join.\n * @returns the preset id joined, or undefined when the parent joined none.\n * @throws when `agentCtx` carries no scope, or has already joined a preset.\n */',
+      },
+      {
+        signature: 'composedPreset(agentCtx: Context): string | undefined',
+        jsDoc: '/**\n * The preset one live agent runs on.\n *\n * Read from the live scope chain rather than from the session, so it answers\n * for an agent whose session has not recorded a preset yet — a child agent\n * whose durable header is being built from its parent\'s composition.\n * @param agentCtx - the agent\'s scope context.\n * @returns the preset id, or undefined when the agent joined none.\n */',
+      },
+      {
         signature: 'async read(id: string): Promise<string>',
         jsDoc: '/**\n * Read one preset\'s composition text.\n * @param id - the preset id.\n * @returns the composition exactly as stored.\n * @throws when no configured root supplies that id.\n */',
       },
@@ -272,7 +280,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'clientModuleHost',
-    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap.',
     methods: [
       {
         signature: 'graph(): WebBootGraph',
@@ -1110,7 +1118,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
-        jsDoc: '/**\n * Assemble global and scoped providers, detach tool parameters, apply\n * canonical ordering, then run the assembly waterfall. Scoped sections and\n * variables shadow globals; the returned waterfall value is authoritative.\n * @param context - the optional scope and plugin-defined assembly fields.\n * @returns the authoritative post-waterfall assembly.\n */',
+        jsDoc: '/**\n * Assemble global and scoped providers, detach tool parameters, apply\n * canonical ordering, then run the assembly waterfall. Scoped sections and\n * variables shadow globals. The returned waterfall value is authoritative\n * except that an effective complete section is restored afterwards as the\n * sole prompt section.\n * @param context - the optional scope and plugin-defined assembly fields.\n * @returns the post-waterfall assembly with any complete prompt enforced.\n */',
       },
     ],
   },
@@ -1606,7 +1614,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns. A registered complete section is\n * restored after this waterfall, so listeners cannot add to or replace\n * that scope\'s system prompt.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
     summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
@@ -2417,7 +2425,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptSection',
-    declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
+    declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n    readonly complete?: boolean;\n}',
   },
   {
     name: 'ProviderRequestId',
@@ -2629,7 +2637,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEvent',
-    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
+    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
   {
     name: 'SessionEventMap',

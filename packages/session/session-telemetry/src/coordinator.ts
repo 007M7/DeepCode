@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-session-telemetry/coordinator
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TelemetryBackend, TelemetryRecord, TelemetrySeverity } from './index.ts'

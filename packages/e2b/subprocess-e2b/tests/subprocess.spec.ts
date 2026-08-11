@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import {
   CommandExitError,
   FileNotFoundError,

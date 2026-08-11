@@ -14,13 +14,13 @@
 2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。
 3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时。
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
-5. 从完整的自有子运行中读取子 agent 自身最后一条 assistant 消息和最终持久化的轮次原因，并排除任何 fork 初始内容。
+5. 从完整的自有子运行中读取子 agent 自身的输出——最后一条非空 assistant 消息（记录 usage 的空内容消息会被跳过），若没有这类消息则取其累积的 assistant 文本——以及最终持久化的轮次原因，并排除任何 fork 初始内容。
 
 子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
 
 该结果边界成立，是因为提供方拥有从发布到完全停稳的隔离子 agent 生命周期。在该生命周期内提交的 steering（中途引导）属于子运行；提供方不会声称输出只归初始 follow-up 所有。
 
-当组合中挂载了可选的沙箱策略或审批服务时，驱动器会在创建子 agent 前对父级的显式会话覆盖项获取快照，并在未发布的设置阶段追加一条带来源标记的事件，使其位于所有 fork 历史之后、会话发布之前。它绝不复制部署默认值或一次性授权；子 agent 后续的切换仍然优先。参见[策略继承决策](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)。
+驱动器通过共享的子 agent 辅助函数应用该 seam 的[委派策略](../subagent/README.md#delegated-policy)：它会在创建子 agent 前捕获父级的显式沙箱覆盖项与 `'never'` 审批钉定，并在未发布的设置阶段追加带来源标记的事件，使其位于所有 fork 历史之后、会话发布之前。参见[委派策略决策](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)。
 
 ## 取消与所有权
 

@@ -9,7 +9,7 @@ Status: implemented
 ## Problem
 
 需要提供 UI 对接层，除已有 ACP（Agent Client Protocol）/stdio 基线外，还需要 Web（server）、Electron 等其他产品客户端。我们把它们统一称为 Client。希望具备以下能力：
-- 一个 `dsh` 进程同时支持 `dsh web`（启动）和 `dsh run`（headless），一个进程两种模式（设计预留）
+- 一个 `dsh` 进程同时支持 `dsh web`（启动）和 `dsh --profile headless`（headless），一个进程两种模式（设计预留）
 - 在 Electron 中使用与 `dsh web` 相同的 Web 技术启动
 
 那么当前的工程代码需要稳定的分层职责模型，便于以后接入各类 client。
@@ -25,11 +25,11 @@ Status: implemented
     - 统一后端协议（fetch、HTTP、流式接口等）定义和支持，见本篇「消息协议」起各节
 - `packages/client/*`：包只提供 Client 侧能力，每包单边不混。这里住三类包（两条轴归 [client 插件装载笔记](2026-07-23-client-plugin-loading-model.md) 所有）：
     - **纯库**（`ui-slots`、`web-react`、`ui-primitives`，外加内核包 `loader`）：普通根入口包，静态打包进壳；前三者播种进模块表。
-    - **静态到达 entry 包**（`connection`、`runtime`、`ui-theme`、`i18n`、`hmr`）：无 `dshClient` 键、无浏览器 bundle——壳把它们的 `src/client/` 半边打进自己的 bundle 并向 `ctx.modules` 登记；它们与其余单元一样，作为 host 独家撰写的图里的 entry 受治理。
-    - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dshClient` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
+    - **静态到达 entry 包**（`connection`、`runtime`、`ui-theme`、`i18n`、`hmr`）：无 `dsh.client` 键、无浏览器 bundle——壳把它们的 `src/client/` 半边打进自己的 bundle 并向 `ctx.modules` 登记；它们与其余单元一样，作为 host 独家撰写的图里的 entry 受治理。
+    - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dsh.client` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
 - `apps/` 作为对外导出的应用入口，可以由 Client / Host 混合组装。
     - `apps/web`（`dsh-frontend`）是 vite 应用：`dsh-client-web` 导出的壳表面之上的一层薄 `main.ts`。
-    - `apps/cli`（`@deepseek-ai/dsh`）分发命令：`dsh web` = Host + webserver + 构建出的 `dsh-frontend` dist；`dsh run` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
+    - `apps/cli`（`@deepseek-ai/dsh`）分发命令：`dsh web` = Host + webserver + 构建出的 `dsh-frontend` dist；`dsh --profile headless` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
     - 将来的 Electron 应用经由 IPC fetch 载体复用同一套 web client 包。
 
 ```
@@ -38,7 +38,7 @@ apps/*  (applications: apps/web = vite app, apps/cli = bin dispatch)
   ▼
 packages/host/*                      packages/client/*
   apiproxy   front layer: protocol     pure libs: ui-slots / web-react / ui-primitives
-  runtime    assembly / host entity    dshClient plugins ×8 (node half = empty apply,
+  runtime    assembly / host entity    dsh.client plugins ×8 (node half = empty apply,
   webserver  Web HTTP carriage                              client half = src/client/)
   │ ctx.plugin(...)                      ▲ import only apiproxy's /api /client subpaths
   ▼                                      │ (type-only + the client base class)
@@ -61,7 +61,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 | 层 | 包 | 职责 | 关键纪律 |
 |---|---|---|---|
 | 前置层 | `dsh-host-apiproxy` | TS/zod 定义 (api/)+ fetch 抽象 (fetch/：handler + 客户端基类) | 做简单、所有接入方都要；Node/浏览器皆可 import；协议内容见下文「消息协议」起各节；client 不得经 ctx 绕开 api |
-| 装配层 | `dsh-host-runtime` | 插件组合 + ApiProxy 集成 + web UI 插件挂载（覆盖八个 dshClient 包的内存 Loader 树）；host 级配置归属地（defaults/persistenceRoot，将来用户 profile） | 装什么插件、给什么默认值只在这里定；壳不得改装配 |
+| 装配层 | `dsh-host-runtime` | 插件组合 + ApiProxy 集成 + web UI 插件挂载（覆盖八个 dsh.client 包的内存 Loader 树）；host 级配置归属地（defaults/persistenceRoot，将来用户 profile） | 装什么插件、给什么默认值只在这里定；壳不得改装配 |
 | 承载层 | `dsh-host-webserver` | Web HTTP 与 upgrade：静态服务 + `/api/*`→handler 转发 + WebSocket upgrade route + close 语义；插件 bundle 端点 + `__DSH_BOOT__` manifest（元数据清单）注入（由 web 插件注册表供给） | Web（浏览器访问）专用；零 workspace 依赖（注册表经结构注入到达）；Electron 不复用它 |
 | client 库 | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | slot 注册表核心 / ctx↔React 胶合 / 纯 React 原子组件 | 组件零 cordis 运行时依赖；由壳播种进 loader 模块表 |
 | client 插件 | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | 浏览器侧 cordis 插件树（wire 消费者、核心服务、主题、i18n、布局、侧栏、对话、轨迹）——见 Web 客户端架构笔记 | 双入口（node 半边=空 apply；实现在 `src/client/`）；消费面唯一经 ApiProxy |
@@ -77,7 +77,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 2. **在 `apps/` 下写拼装模块**：`startHost()` + 客户端子类 + 该应用私有的信号/打印/退出语义；混合体不建包，拼装写在 app 里。
 3. **需要 HTTP 承载才 import `dsh-host-webserver`**，否则零端口。
 
-现有两个应用保持这一区分：Web 应用挂载 Host、载体与浏览器组合，而 `dsh run` 挂载直接使用核心服务的 runner，不包含 Host、HTTP 或端口。ACP 类协议桥不遵循 client 载体清单：它把 core 暴露给外部生态，直接通过 `ctx.plugin(入口插件)` 挂载，不使用 fetch。
+现有两个应用保持这一区分：Web 应用挂载 Host、载体与浏览器组合，而 `dsh --profile headless` 挂载直接使用核心服务的 runner，不包含 Host、HTTP 或端口。ACP 类协议桥不遵循 client 载体清单：它把 core 暴露给外部生态，直接通过 `ctx.plugin(入口插件)` 挂载，不使用 fetch。
 
 ## 消息协议
 
@@ -213,7 +213,7 @@ export type ResponseValue<K> =
 
 | 子类 | 所在包 | doFetch | 用途 |
 |---|---|---|---|
-| `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧；载体测试与调用方可以在不打开端口的情况下运行这套协议，而产品 `dsh run` 直接驱动 core |
+| `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧；载体测试与调用方可以在不打开端口的情况下运行这套协议，而产品 `dsh --profile headless` 直接驱动 core |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` 上行 + 每逻辑流一条同源 WebSocket 下行 | 浏览器客户端；物理边界见 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | 不用（协议层覆写） | 无 server 的 UI 开发（`?fixture`）：覆写 `callUnary`/`openMux`/`openHost`/`respond` 虚方法，自己就是假 server（帧 rpcId 由它 mint，语义自洽） |
 | IPC 桥子类（假想示例——尚无此形态） | Electron 壳 | IPC 序列化往返 | 只需换 doFetch，约定/基类零改 |

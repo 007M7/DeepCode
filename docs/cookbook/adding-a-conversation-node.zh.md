@@ -120,6 +120,7 @@ function viewData(state: ReviewState): ReviewChatData {
 
 const reviewDefinition: ConversationNodeDefinition<ReviewState> = {
   kind: 'review-job',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'review/start') {
       return { id: String(event.data.reviewId), role: 'start' }
@@ -161,8 +162,8 @@ const reviewDefinition: ConversationNodeDefinition<ReviewState> = {
       value: viewData(context.state),
     }
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined) return null
     return {
       key: context.key,
       kind: 'review-job',
@@ -196,7 +197,7 @@ export function apply(ctx: ClientContext): void {
 
 `buildLocationData(context, scope)` 可以把 Definition 拥有的数据发布到引擎拥有的 Turn 或 Step 上。通过 declaration merging 为每个 key 指定精确 value 类型。同一 Location 内的另一个 Node 可以使用受限 slot hook（例如 `useTurnData(key)`）读取该值，无须取得 Session，也无须扫描 `snapshot.chat.nodes`。
 
-`buildViewNode(context, target)` 物化最终的目标专用 Node。把 `context.key` 保留为 React 侧身份，根据持久排序证据选择 `anchorSeq`，并且只返回 renderer 可以直接使用的数据。某个 target Node 一旦发布，就要继续返回同一个 key；需要暂时离开可见流时使用 `visibility: 'hidden'`，不要改为返回 `null` 撤回它。
+`target` 与 `buildViewNode(context)` 必须同时声明一项由 target 拥有的渲染贡献。把 `context.key` 保留为 React 侧身份，根据持久排序证据选择 `anchorSeq`，并且只返回 renderer 可以直接使用的数据。某个 target Node 一旦发布，就要继续返回同一个 key；需要暂时离开可见流时使用 `visibility: 'hidden'`，不要改为返回 `null` 撤回它。
 
 ## 3. 只在 start 时查询更早的业务 Context
 
