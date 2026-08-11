@@ -6,11 +6,11 @@ Status: implemented
 
 ## Problem
 
-session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry-default-mount.md)），但 OTel Resource 只有 `service.name`/`service.version`，没有任何用户级标识——接收端无法按用户聚合、无法数活跃用户。此前唯一相关口径是一条未实现的「hostname/本机 IP 哈希派生 user.id」裁定；dsh-sdk 工具链另有自用的匿名 id（`$DSH_HOME/telemetry.json`），但那是 launcher 回流的私有事实，与 OTel 回流无关。需要给 OTel 回流一个语义干净的匿名用户身份。
+session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry-default-mount.md)），但 OTel Resource 只有 `service.name`/`service.version`，没有任何用户级标识——接收端无法按用户聚合、无法数活跃用户。此前唯一相关口径是一条未实现的「hostname/本机 IP 哈希派生 user.id」裁定。需要给 OTel 回流一个语义干净的匿名用户身份。
 
 ## Decision
 
-`getOrCreateAnonymousUserId()` 返回 `$DSH_HOME/.userid`（`resolveDshHome` 解析，`$DSH_HOME` > `~/.dsh`）中的裸 UUID 行，首用生成随机 UUID v4 并落盘；后端构造时把它作为 Resource 的 `user.id`（OTel semconv 标准用户属性）随每批导出携带一次。原始实现位于 `session-telemetry-otel`，因为当时不存在第二个真实消费方。`/feedback` 后来成为该消费方，因此[共享 id 决策](../architecture/2026-08-07-shared-feedback-telemetry-user-id.md)将所有权移交给 `@deepseek-ai/dsh-user-id`，但不改变本 Note 记录的存储、匿名、并发与丢失语义。dsh-sdk launcher telemetry 继续使用自己独立的匿名 id 存储（`telemetry.json`），与此身份无关。
+`getOrCreateAnonymousUserId()` 返回 `$DSH_HOME/.userid`（`resolveDshHome` 解析，`$DSH_HOME` > `~/.dsh`）中的裸 UUID 行，首用生成随机 UUID v4 并落盘；后端构造时把它作为 Resource 的 `user.id`（OTel semconv 标准用户属性）随每批导出携带一次。原始实现位于 `session-telemetry-otel`，因为当时不存在第二个真实消费方。`/feedback` 后来成为该消费方，因此[共享 id 决策](../architecture/2026-08-07-shared-feedback-telemetry-user-id.md)将所有权移交给 `@deepseek-ai/dsh-user-id`，但不改变本 Note 记录的存储、匿名、并发与丢失语义。
 
 | 裁定 | 取值 | 理由 |
 |---|---|---|
@@ -32,13 +32,12 @@ session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry
 | hostname/IP 哈希派生 id（此前口径） | 可反查即非匿名；随机 UUID 语义干净，用户裁决取代 |
 | user.id 放每条 record 的 attributes（Claude Code 形态） | 要动 session-telemetry seam 约定或逐条注入，wire 体积涨；Resource 每批一次已满足聚合 |
 | 在 `/feedback` 需要该 id 之前抽取共享包（初版实现） | 当时唯一的真实消费方是 OTel 后端；只有直接反馈需要同一个关联 id 后，抽取才具备依据 |
-| 复用 telemetry.json 不新建文件 | 文件名/JSON 格式把身份挂在 launcher 链路命名下；OTel 回流身份是独立事实 |
 | AppCLIEntry 读好 id 经 config patch 注入 | 每个 surface 入口都要接线；config 里传运行时事实与部署配置混淆 |
 | 挂进 `@deepseek-ai/dsh-paths` | paths 是纯路径计算零 IO；带持久化的身份能力会污染包边界 |
 
 ## Consequences
 
 - 一个 `$DSH_HOME` 在 OTel 回流中是一个稳定用户；不同 home 在构造上就是不同用户，无跨 home 关联机制。
-- OTel 回流与 `/feedback` 共享 `.userid`；launcher 回流仍使用 `telemetry.json`，无法与前两者关联。
+- OTel 回流与 `/feedback` 共享 `.userid`。
 - 删除 `.userid` 即重置身份（下次启动生效）；home 不可写时每进程各自持有一个内存 id 直至恢复可写。
 - [默认挂载 Note](2026-07-31-web-telemetry-default-mount.md) 的身份 follow-up 中「匿名用户 id」项由本决定关闭；hostname/surface 维度与脱敏规则、usage-metrics track 仍是待办。

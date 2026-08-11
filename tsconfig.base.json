@@ -119,7 +119,7 @@
         "./packages/acp/*/src/invariant.ts",
         "./packages/storage/*/src/invariant.ts",
         "./packages/workspace/*/src/invariant.ts",
-        "./packages/scaffold/*/src/invariant.ts",
+        "./packages/sdk/*/src/invariant.ts",
         "./packages/interaction/*/src/invariant.ts",
         "./packages/boot/*/src/invariant.ts",
         "./packages/examples/*/src/invariant.ts",
@@ -190,12 +190,11 @@
       "@deepseek-ai/dsh-client-ui-models": ["./packages/client/ui-models/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
-      // scaffold/ folders are role-named without the sdk- prefix (folder ≠ npm
-      // suffix), so the generic wildcard cannot map these three; the npm-side
-      // renames that restore symmetry are FIXME-tracked in the regrouping note.
-      "@deepseek-ai/dsh-sdk-client": ["./packages/scaffold/client/src"],
-      "@deepseek-ai/dsh-sdk-protocol": ["./packages/scaffold/protocol/src"],
-      "@deepseek-ai/dsh-jsonrpc": ["./packages/scaffold/server/src"],
+      // sdk/ folders are role-named without their npm-side sdk/jsonrpc prefixes,
+      // so the generic wildcard cannot map these three package names.
+      "@deepseek-ai/dsh-sdk-client": ["./packages/sdk/client/src"],
+      "@deepseek-ai/dsh-sdk-protocol": ["./packages/sdk/protocol/src"],
+      "@deepseek-ai/dsh-jsonrpc": ["./packages/sdk/server/src"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
         "./packages/prompt/*/src",
@@ -233,7 +232,7 @@
         "./packages/acp/*/src",
         "./packages/storage/*/src",
         "./packages/workspace/*/src",
-        "./packages/scaffold/*/src",
+        "./packages/sdk/*/src",
         "./packages/interaction/*/src",
         "./packages/boot/*/src",
         "./packages/examples/*/src",

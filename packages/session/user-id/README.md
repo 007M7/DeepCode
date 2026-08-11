@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Shared anonymous identity for session telemetry and direct feedback acknowledgement. `getOrCreateAnonymousUserId()` returns a random UUID v4 scoped to one harness home, persisted as the bare line `$DSH_HOME/.userid` (`~/.dsh/.userid` when `DSH_HOME` is unset). The OpenTelemetry backend reports it as Resource `user.id`; `/feedback` includes the same value in its acknowledgement so an operator can correlate a submitted session and user with exported telemetry.
 
-The identity is never derived from the hostname, network address, git remote, or another identifying source. Deleting `.userid` resets the identity on the next process launch. Separate harness homes have separate identities, and the dsh-sdk launcher telemetry intentionally keeps its own unrelated store.
+The identity is never derived from the hostname, network address, git remote, or another identifying source. Deleting `.userid` resets the identity on the next process launch. Separate harness homes have separate identities.
 
 ## Storage contract
 
@@ -26,4 +26,4 @@ None; this package never contributes to a model request.
 
 - **No recovery after deletion** — loss mints a new anonymous identity by design; recovery would require stable derivation material that weakens anonymity.
 - **Best-effort concurrency** — a reader landing in the narrow interval between a concurrent process's exclusive create and completed write can use a different in-memory UUID for that run; later launches converge on the persisted value.
-- **No cross-home identity** — different `$DSH_HOME` values cannot be correlated, and this package does not unify the separate dsh-sdk launcher telemetry identity.
+- **No cross-home identity** — different `$DSH_HOME` values cannot be correlated.
