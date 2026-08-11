@@ -1385,6 +1385,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
       },
       {
+        signature: 'insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]>',
+        jsDoc: '/**\n * Move one workspace within the durable display order, DOM-insertBefore-like.\n * With an anchor it lands before that workspace; without one it appends.\n * @param id - Workspace to move.\n * @param beforeId - Workspace anchor; omitted appends.\n * @returns the complete committed workspace order.\n */',
+      },
+      {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },

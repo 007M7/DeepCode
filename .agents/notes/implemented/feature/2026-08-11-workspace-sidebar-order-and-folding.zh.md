@@ -1,0 +1,54 @@
+# Agent Note: Workspace 侧边栏顺序与折叠
+
+Status: implemented
+
+[English](2026-08-11-workspace-sidebar-order-and-folding.md) | 中文
+
+## 问题
+
+Session 很多的 Workspace 会占满整个侧边栏，把其他 Workspace 挤出可见范围。紧凑列表需要有界的默认高度，同时仍要提供到达每条 Session 的明确入口。侧边栏还需要面向活动时间的顺序，但 `WorkspaceView.sessionIds` 是持久的手动记账，不能被 Session 活动改写。
+
+Workspace 分组本身没有用户可控的持久顺序。浏览器原生拖拽还会把列表外松手判为拒绝，并把行弹回原位，即使应用仍持有有效插入标记。Workspace 展开后，若只按组头命中，两个分组之间的视觉边界也不再等于任一组头的中点。
+
+## 决策
+
+### Workspace 顺序
+
+Workspace 注册表持有持久 `workspaceIds` 顺序，并提供采用 DOM `insertBefore` 语义的 `insertBefore(id, beforeId?)`。Host RPC `workspace.insertBefore` 返回完整的已提交顺序；单纯顺序变更通过 `host/workspace-order-changed` 推送同一份完整顺序。未知来源或锚点 id 以 `workspace-not-found` 拒绝；以自身为锚点或移动到当前位置不会写入。
+
+客户端对 Workspace 拖拽进行乐观安装。请求代次与帧代次保证只有最新一元回声可以替换本地顺序，且更新的 Host 帧优先于旧响应；最新请求被拒时恢复此前顺序。每次成功的列表基线都会恢复 Host 顺序，因此重连会接纳其他位置提交的持久变更。
+
+### Session 折叠与视图顺序
+
+每个 Workspace 持久化一项浏览器本地打开状态：关闭表示零条 Session 行，打开表示最多五条。存在更多 Session 时，**展开其余**只在当前挂载期间显示剩余项；关闭整个 Workspace 会清除此临时展开，因此重新打开时恢复为五条。只有在用户尚未为该 Workspace 存储明确状态时，当前 Session 所在分组才会自动打开。
+
+组合视图菜单提供**手动排序**和**最近更新**。手动排序遵循 `WorkspaceView.sessionIds` 中的 Host 记账。最近更新为每个 Workspace 维护一份浏览器本地顺序，用户仍可通过拖拽编辑；每当 Session 摘要的 `updatedAt` 增大时，该 Session 会被移到最前。此视图顺序绝不写入 Host Session 记账。平铺列表使用最近更新顺序，因为它没有可承载持久 Session 拖拽的单一 Workspace 记账。
+
+### 拖拽与紧凑界面
+
+Workspace 命中测试使用完整渲染分组区段，包括可见 Session 行。前一分组的下半部与后一分组的上半部共享同一条插入边界，指示器是一条不影响布局的绝对定位横线。Session 拖拽期间，文档级 `dragover` 与 `drop` 处理器会接受原生操作；若在 Workspace 列表外松手，`dragend` 会提交最后一个有效标记。
+
+搜索在折叠时是区头操作，展开后占据标题与尾部操作的空间。点击外部会收起空搜索，但保留非空查询。紧凑的 Workspace 与 Session 行、24px 底部渐隐以及取消每个 Workspace 的 Session 数量共同节省纵向空间，同时保留导航入口。
+
+## 考虑过的替代方案
+
+**把最近更新视图持久化到 `Workspace.sessionIds`。** 活动会覆盖用户明确安排的手动顺序，并让同一 Host 字段重新承担两种相互竞争的含义。
+
+**打开 Workspace 时始终显示全部 Session。** 大型 Workspace 仍会挤占其他分组；只记忆整个分组的打开状态无法限制其高度。
+
+**持久化展开剩余状态。** 很久以后重新打开 Workspace 时，它可能意外占满侧边栏。只有零条或五条状态属于稳定导航偏好；显示剩余项只是一次本地查看。
+
+**使用数字下标或只按组头命中拖拽。** 拖拽期间行发生变化会使下标漂移；Workspace 展开时，组头中点与可见边界不一致。锚点 id 与完整区段几何在两种情况下都保持稳定。
+
+**让浏览器拒绝列表外松手。** 应用会提交最后一个有效标记，而浏览器同时播放拒绝动画，形成相互矛盾的反馈。
+
+## 后果
+
+- Workspace 顺序通过 Host 持久并共享；分组方式、打开状态、最近更新 Session 顺序和查询状态仍是浏览器本地呈现偏好。
+- 最近更新模式会保持手动调整，直到某条 Session 再次活跃；更大的 `updatedAt` 会有意把它移到最前。
+- 未执行明确的**展开其余**手势时，打开 Workspace 最多显示五条 Session；关闭分组只重置这项临时手势。
+- Host Session 记账继续采用[会话列表浏览与 Workspace 手动排序](2026-07-25-session-list-browsing-and-manual-order.md)确立的手动顺序含义。
+
+## 测试
+
+领域与 Host 测试覆盖持久 Workspace 移动、无操作与无效锚点、重启恢复、完整顺序 RPC 响应和顺序帧。运行时测试覆盖乐观顺序、帧／响应优先级、拒绝回滚、重连基线以及 New Session 目标优先级。UI 测试覆盖五行折叠、临时展开重置、最近更新置顶与手动拖拽、当前视图标记、展开区段的 Workspace 命中、列表外 Session 松手、搜索收起规则和紧凑 CSS 尺寸。
