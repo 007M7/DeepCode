@@ -231,7 +231,7 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a background subagent that keeps its conversation: this call returns only its subagent id, and the subagent works on its own from there. You are told when it finishes, so never poll or wait on it; `send_message` sends it more work.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool uses its continuable background route by default and immediately returns a durable subagent id. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` to use a foreground run only when you must receive its result before taking your next action.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -245,7 +245,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run as a background subagent that keeps its conversation and return only its subagent id. This call does not wait for it; you are told when it finishes. Send it more work with send_message."
+            "description": "Whether to use the continuable background route. Defaults to true. Set false to run in the foreground and wait only when your next action depends on its result."
           }
         },
         "required": [
@@ -256,7 +256,7 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
       "parameters": {
         "type": "object",
         "properties": {
