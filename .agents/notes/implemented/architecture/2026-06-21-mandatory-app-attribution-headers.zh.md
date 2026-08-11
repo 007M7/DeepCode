@@ -24,7 +24,7 @@ LLM（大语言模型）提供方请求应当标识发出请求的产品。这�
 
 ## 决策
 
-在 LLM 适配器边界，提供方请求归属是强制的，且仅使用标准 `User-Agent` 头部。规则：每个产品级 LLM 适配器在每个提供方 HTTP 请求上发送一个静态、非机密的应用身份，且每个适配器都有测试证明 `User-Agent` 到达了线路（mock 服务器断言收到的头部；对于基于库的适配器，通过库的头部钩子馈入同一个 mock 服务器断言）。
+在 LLM 适配器边界，提供方无关的应用归属是强制的，且仅使用标准 `User-Agent` 头部。规则：每个产品级 LLM 适配器在每个提供方 HTTP 请求上发送一个静态、非机密的应用身份，且每个适配器都有测试证明 `User-Agent` 到达了线路（mock 服务器断言收到的头部；对于基于库的适配器，通过库的头部钩子馈入同一个 mock 服务器断言）。这条规则约束应用归属，不约束提供方特有的请求身份；[DeepSeek 请求身份决策](../feature/2026-08-11-deepseek-request-user-id-header.md)另行负责其用户与会话头部。
 
 OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`、`X-Title` 和 `X-OpenRouter-Categories` 是 OpenRouter 特有的产品展示头部，不是提供方无关的模型请求归属。它们可以后续由 OpenRouter 适配器或显式 OpenRouter 模式提出，附带自己的隐私/产品决策、测试和文档。在此之前，即使请求指向 OpenRouter，也只发送本决策定义的共享 `User-Agent` 归属。
 
@@ -41,7 +41,7 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 | 目标 | 映射 |
 |---|---|
 | 所有基于 HTTP 的适配器 | `User-Agent: {product}/{version} (+{url})`——括号中的 `+url` 注释符合 RFC 9110 保守的 product/comment 语法。 |
-| 直连 DeepSeek 端点 | `User-Agent`；除非 DeepSeek 文档化了等效约定，否则不发送 OpenRouter 特有头部。 |
+| 直连 DeepSeek 端点 | `User-Agent` 用于应用归属；`x-deepseek-harness-user-id` 与条件性的 `x-deepseek-harness-session-id` 由 DeepSeek 特有决策作为独立请求身份管理。除非 DeepSeek 文档化了等效约定，否则不发送 OpenRouter 特有头部。 |
 | OpenRouter 端点 | 目前仅 `User-Agent`。本决策下不发送 `HTTP-Referer`、`X-OpenRouter-Title`、`X-Title` 或 `X-OpenRouter-Categories`。 |
 | 未来提供方 | 仅 `User-Agent`，除非后续提供方特有的 Agent Note 接受额外头部。不要类比复用 `HTTP-Referer`。 |
 
