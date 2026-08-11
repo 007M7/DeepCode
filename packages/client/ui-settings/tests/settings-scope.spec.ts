@@ -365,7 +365,6 @@ describe('SettingsScopeController', () => {
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 5 })
   })
 })
-
 describe('SettingsScopeService.bind', () => {
   it('subscribes before the initial read and converges to the latest queued invalidation', async () => {
     const initial = deferred<ReturnType<typeof described>>()
