@@ -25,8 +25,12 @@ export const inject = []
 
 /**
  * Provide the settings-namespace scope service.
+ *
+ * `Service` registers itself under its own name from its constructor, so the
+ * class mounts as a plugin; a second `ctx.provide` for the same name would
+ * throw.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.provide('settingsScope', new SettingsScopeService(ctx))
+  ctx.plugin(SettingsScopeService)
 }

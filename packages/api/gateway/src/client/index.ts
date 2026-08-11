@@ -119,6 +119,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
       listeners.push(subscription)
       return () => {
         const at = listeners.indexOf(subscription)
+        /* v8 ignore next -- listener */
         if (at >= 0) listeners.splice(at, 1)
       }
     }, `api-gateway.client.$on(${JSON.stringify(event)})`)
