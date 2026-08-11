@@ -270,4 +270,208 @@ describe('FeedbackController', () => {
     expect(calls).toHaveLength(before)
     expect(listener).not.toHaveBeenCalled()
   })
+
+  it('renders a human explanation for every business failure code', async () => {
+    const codes = [
+      ['session-not-found', 'this session is no longer persisted'],
+      ['target-not-found', 'this message is not a persisted assistant message'],
+      ['note-blank', 'a note must contain a non-whitespace character'],
+      ['note-too-large', 'the note is too long'],
+    ] as const
+    for (const [code, message] of codes) {
+      const { remote } = fakeRemote({
+        list: () => Promise.resolve({ ok: false, error: { code, sessionId: SESSION } } as never),
+      })
+      const controller = new FeedbackController(remote, SESSION)
+      expect(await controller.ensure()).toMatchObject({ ok: false, error: { code } })
+      expect(controller.getSnapshot().error).toBe(message)
+    }
+  })
+
+  it('falls back to the raw code for an unrecognized failure', async () => {
+    const { remote } = fakeRemote({
+      list: () => Promise.resolve({ ok: false, error: { code: 'brand-new-code' } } as never),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.ensure()).toMatchObject({ ok: false, error: { code: 'brand-new-code' } })
+    expect(controller.getSnapshot().error).toBe('brand-new-code')
+  })
+
+  it('publishes nothing when the list settles after disposal', async () => {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { remote } = fakeRemote({
+      list: async () => {
+        await gate
+        return { ok: true, value: { items: [item()] } }
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    const pending = controller.ensure()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.dispose()
+    release()
+
+    expect(await pending).toEqual({ ok: true })
+    expect(controller.getSnapshot().items.has(MSG)).toBe(false)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('swallows a rejected list that settles after disposal', async () => {
+    let reject = (): void => {}
+    const gate = new Promise<void>((_resolve, rejectFn) => { reject = () => { rejectFn(new Error('late')) } })
+    const { remote } = fakeRemote({ list: () => gate as Promise<never> })
+    const controller = new FeedbackController(remote, SESSION)
+    const pending = controller.ensure()
+
+    controller.dispose()
+    reject()
+
+    expect(await pending).toEqual({ ok: true })
+    expect(controller.getSnapshot().status).not.toBe('error')
+  })
+
+  it('describes a non-Error list rejection with a stable message', async () => {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
+    const { remote } = fakeRemote({ list: () => Promise.reject('socket string') })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.ensure()).toEqual({
+      ok: false,
+      error: { code: 'transport', message: 'message feedback list failed' },
+    })
+  })
+
+  it('describes a non-Error mutation rejection with a stable message', async () => {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
+    const { remote } = fakeRemote({ put: () => Promise.reject('nope') })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.rate(MSG, 'positive')).toEqual({
+      ok: false,
+      error: { code: 'transport', message: 'message feedback mutation failed' },
+    })
+  })
+
+  it('propagates a failed load to a queued mutation without calling the wire', async () => {
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: false, error: { code: 'session-not-found', sessionId: SESSION } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.rate(MSG, 'positive')).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found' },
+    })
+    expect(calls.filter(call => call.method === 'put')).toHaveLength(0)
+  })
+
+  it('keeps a later mutation running after an earlier one settles as a failure', async () => {
+    let first = true
+    const { remote } = fakeRemote({
+      put: () => {
+        if (first) {
+          first = false
+          return Promise.reject(new Error('first blew up'))
+        }
+        return Promise.resolve({ ok: true, value: item({ rating: 'negative' }) })
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    const [a, b] = await Promise.all([
+      controller.rate(MSG, 'positive'),
+      controller.rate(MSG, 'negative'),
+    ])
+
+    expect(a).toMatchObject({ ok: false, error: { code: 'transport' } })
+    expect(b).toEqual({ ok: true })
+    expect(controller.getSnapshot().items.get(MSG)?.rating).toBe('negative')
+  })
+
+  it('ignores a conflict reconciliation that lands after disposal', async () => {
+    // The mutate() guard only refuses work admitted after disposal, so this
+    // exercises commit()'s own guard: the call is already in flight when the
+    // fiber unloads, and its authoritative item must not be published.
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { remote } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [item({ version: version('v1') })] } }),
+      put: async () => {
+        await gate
+        return { ok: false, error: { code: 'version-conflict', current: item({ version: version('v2'), rating: 'negative' }) } }
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    await controller.ensure()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+    const pending = controller.rate(MSG, 'negative')
+
+    controller.dispose()
+    release()
+    await pending
+
+    // publish() drops its listener set on dispose, so no subscriber is told.
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('drops a delete conflict reconciliation once disposed mid-flight', async () => {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { remote } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [item()] } }),
+      delete: async () => {
+        await gate
+        return { ok: false, error: { code: 'version-conflict', current: null } }
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    await controller.ensure()
+    const pending = controller.clear(MSG)
+
+    const listener = vi.fn()
+    controller.subscribe(listener)
+    controller.dispose()
+    release()
+    await pending
+
+    // The reconciliation still computes, but no subscriber is notified.
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('leaves the local item untouched when a rating fails for a non-conflict reason', async () => {
+    const existing = item({ version: version('v3'), rating: 'positive' })
+    const { remote } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [existing] } }),
+      put: () => Promise.resolve({ ok: false, error: { code: 'note-too-large', maxBytes: 8, actualBytes: 9 } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    await controller.ensure()
+
+    expect(await controller.rate(MSG, 'negative', 'far too long')).toMatchObject({
+      ok: false,
+      error: { code: 'note-too-large' },
+    })
+    expect(controller.getSnapshot().items.get(MSG)).toEqual(existing)
+  })
+
+  it('leaves the local item untouched when a delete fails for a non-conflict reason', async () => {
+    const existing = item({ version: version('v4') })
+    const { remote } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [existing] } }),
+      delete: () => Promise.resolve({ ok: false, error: { code: 'session-not-found', sessionId: SESSION } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    await controller.ensure()
+
+    expect(await controller.clear(MSG)).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found' },
+    })
+    expect(controller.getSnapshot().items.get(MSG)).toEqual(existing)
+  })
 })

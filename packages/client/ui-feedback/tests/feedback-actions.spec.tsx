@@ -169,4 +169,49 @@ describe('FeedbackActions', () => {
 
     await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
   })
+
+  it('keeps the editor open when the note fails to save', async () => {
+    const ui = mount({
+      current: item({ rating: 'positive' }),
+      rateResult: { ok: false, error: { code: 'note-too-large', message: 'too long' } },
+    })
+
+    fireEvent.click(ui.getByText(zh['note.open']))
+    fireEvent.change(ui.getByLabelText(zh['note.aria']), { target: { value: 'x'.repeat(20) } })
+    fireEvent.click(ui.getByText(zh['note.save']))
+
+    await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
+    // The draft survives so the human can shorten it instead of retyping.
+    expect(ui.getByLabelText(zh['note.aria'])).toBeTruthy()
+  })
+
+  it('publishes no state after the row unmounts mid-flight', async () => {
+    let release = (): void => {}
+    const gate = new Promise<FeedbackActionResult>((resolve) => {
+      release = () => { resolve({ ok: false, error: { code: 'target-not-found', message: 'gone' } }) }
+    })
+    const view: FeedbackView = { status: 'ready', items: new Map(), error: null }
+    const useFeedback = (<T,>(select: (v: FeedbackView) => T): T =>
+      useSyncExternalStore(() => () => {}, () => select(view))) as never
+    const props = {
+      messageId: MSG,
+      ensure: vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true })),
+      rate: vi.fn(() => gate),
+      clear: vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true })),
+      useFeedback,
+      t,
+    } as unknown as Parameters<typeof FeedbackActions>[0]
+    const ui = render(<FeedbackActions {...props} />)
+    const errors: unknown[] = []
+    const onError = (event: ErrorEvent): void => { errors.push(event.error) }
+    window.addEventListener('error', onError)
+
+    fireEvent.click(ui.getByLabelText(zh['action.like']))
+    ui.unmount()
+    release()
+    await gate
+
+    window.removeEventListener('error', onError)
+    expect(errors).toEqual([])
+  })
 })

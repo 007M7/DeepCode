@@ -60,16 +60,17 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
     void rate(messageId, next, item?.note).then(settle)
   }, [clear, item?.note, messageId, rate, rating, settle])
 
-  const onSaveNote = useCallback(() => {
-    if (rating === undefined) return
+  // The rating is a parameter because only the note editor's render site can
+  // prove one is recorded; that removes an unreachable undefined guard here.
+  const onSaveNote = useCallback((current: MessageFeedbackRating) => {
     const trimmed = draft.trim()
     setPending(true)
     setFailure(null)
-    void rate(messageId, rating, trimmed.length === 0 ? undefined : trimmed).then((result) => {
+    void rate(messageId, current, trimmed.length === 0 ? undefined : trimmed).then((result) => {
       settle(result)
       if (result.ok && alive.current) setNoteOpen(false)
     })
-  }, [draft, messageId, rate, rating, settle])
+  }, [draft, messageId, rate, settle])
 
   const openNote = useCallback(() => {
     setDraft(item?.note ?? '')
@@ -116,7 +117,7 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
           {item?.note === undefined ? t('note.open') : item.note}
         </button>
       )}
-      {noteOpen && (
+      {rating !== undefined && noteOpen && (
         <span className={css.noteEditor}>
           <textarea
             className={css.noteInput}
@@ -126,7 +127,12 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
             rows={2}
             onChange={(event) => { setDraft(event.target.value) }}
           />
-          <button type="button" className={css.noteSave} disabled={pending} onClick={onSaveNote}>
+          <button
+            type="button"
+            className={css.noteSave}
+            disabled={pending}
+            onClick={() => { onSaveNote(rating) }}
+          >
             {t('note.save')}
           </button>
           <button type="button" className={css.noteCancel} onClick={() => { setNoteOpen(false) }}>

@@ -238,15 +238,20 @@ export class FeedbackController implements HostObservable<FeedbackView> {
       }
     }
     const result = this.operationTail.then(guarded, guarded)
-    // Every queued operation settles carrier and business failures as a
-    // FeedbackActionResult, so this controlled tail cannot reject.
-    this.operationTail = result.then(() => undefined, () => undefined)
+    // `guarded` settles every carrier and business failure as a
+    // FeedbackActionResult and never rethrows, so this tail cannot reject and
+    // needs no rejection handler.
+    this.operationTail = result.then(() => undefined)
     return result
   }
 
-  /** Replace one message's entry, keeping every other entry's identity. */
+  /**
+   * Replace one message's entry, keeping every other entry's identity. Only a
+   * `mutate` operation reaches this, and `mutate` refuses admission once the
+   * controller is disposed, so no disposal guard belongs here; `publish` is
+   * the single place that stops notifying after listeners are dropped.
+   */
   private commit(messageId: MessageId, item: MessageFeedbackItem | null): void {
-    if (this.disposed) return
     const items = new Map(this.view.items)
     if (item === null) items.delete(messageId)
     else items.set(messageId, item)
