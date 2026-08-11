@@ -85,7 +85,7 @@ export interface SubagentFinishedNotification {
   status: SdkRunStatus
   /** The provider-reported stop reason. */
   stopReason: SubagentStopReason
-  /** The child's final assistant message, when it produced one. */
+  /** The child's selected assistant output; absent when the child produced none. */
   lastAssistantMessage?: ContentBlock[]
 }
 

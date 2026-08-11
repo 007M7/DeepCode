@@ -8,7 +8,7 @@
 
 每个插件实例把一个 `provider` 绑定到一个 `toolName`；模型不会收到提供方选择器。如需公开另一种传输，请加载另一个名称不同的实例。工具只在其提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。工具描述遵循 `provider.inheritsParentContext`：新建子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
 
-前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，不包含局部输出。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项诊断信息。
+前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，其消息在终止原因标题之后附带子代理保留下来的部分文本（即 `SubagentResult.output` 的选取结果）——被截断的回答不会被报告为成功，也绝不会被悄悄丢弃。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项诊断信息。
 
 设置 `run_in_background: true` 后，`backgroundMode` 会选择路由。`one-shot` 会注册一个归父级所有的普通 Task，并返回规范值 `{ kind: 'background', taskId }`，渲染为 `started background subagent task <id>`，即使提供方支持可继续子 agent 也不例外；通用 Task 工具负责其后续状态、收集、取消和通知。`continuable` 要求提供方具备 `prepareContinuable` 能力，调用 `ctx.subagents.startContinuable()`，并返回 `{ kind: 'continuable', subagentId }`，渲染为 `started subagent <childId>`。可继续路由在 inbox 接受时结算：子 agent 自此拥有自己的轮次，因此该调用既不等待也不收集结果，而且子 agent 不会回报——通过该 id 查看其 transcript（文本记录）即是其输出来源，可选的全局 `send_message` 工具则向其发送更多工作。启动可继续工作不要求加载 `send_message`。见 [后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续的 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)和[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
 
@@ -29,7 +29,7 @@
 
 ## 并发
 
-前台调用和后台调用均互斥。子 agent 可能共享父级工作区或外部资源，一元分类器无法证明同级委派的效果彼此不相交。见 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
+前台调用和后台调用均并发安全：同一条 assistant 消息中的同级委派会在循环的滚动池（`maxParallelToolCalls`）下重叠执行，结果仍按模型顺序提交。子 agent 在各自的会话中工作，一次运行绝不变更父会话；一次性后台形态对父级拥有状态的唯一写入是注册一个 Task——这是一次同步、可交换、能容忍并发分发的插入，因此重叠的后台调用按分发竞态顺序获得各自的 task id。协调同级工作区效果由模型负责，正如模型已经对后台和可继续子 agent 所承担的那样。见 [并行 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) 和 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
 ## 模型体验
 

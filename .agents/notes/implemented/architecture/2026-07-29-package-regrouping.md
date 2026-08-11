@@ -58,7 +58,7 @@ The moves landed as pure `git mv` moves, so rename detection carries the history
 
 A group move did not touch: npm names, imports, `cordis.yml` configs, snapshot fixtures, the `pnpm-workspace.yaml`/`tsdown` globs (both `packages/*/*`), or the Python runtime manifest — all reference packages by npm name.
 
-`client/` and `host/` were out of scope and are unchanged. The `experimental/` group proposal (PR #844) is orthogonal — a release-boundary container, not a clustering decision.
+`client/` and `host/` were out of scope and are unchanged.
 
 ## Alternatives considered
 

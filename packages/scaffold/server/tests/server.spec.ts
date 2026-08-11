@@ -736,6 +736,8 @@ describe('HarnessSdkServer', () => {
         stopReason: 'error',
       })
 
+      // A result without output omits lastAssistantMessage from the wire; it
+      // never sends `[]`.
       expect(transport.notifications).toContainEqual({
         method: 'subagent.finished',
         params: {
@@ -745,7 +747,6 @@ describe('HarnessSdkServer', () => {
           childSessionId: 'fallback-child-session',
           status: 'ok',
           stopReason: 'max-tokens',
-          lastAssistantMessage: [],
         },
       })
       expect(transport.notifications).toContainEqual({

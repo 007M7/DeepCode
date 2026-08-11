@@ -433,6 +433,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Stream the whole regular text file as decoded text chunks (same text\n * semantics as {@link readText}, for large files). The backend owns\n * cross-chunk UTF-8 decoding and binary rejection so the policy layer never\n * touches raw bytes.\n * @param target - the resolved target to read.\n * @param signal - aborts the stream, including between chunks.\n * @returns the chunk iterable, decoded and validated like {@link readText}.\n */',
       },
       {
+        signature: 'abstract readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>',
+        jsDoc: '/**\n * Read the whole regular file as raw bytes with no decoding or binary\n * rejection. The bound lives at this seam so a backend can never buffer an\n * unbounded file: a target known or discovered to exceed `maxBytes` fails\n * with `FS_TOO_LARGE` instead of returning a truncated result.\n * @param target - the resolved target to read.\n * @param signal - aborts the read.\n * @param maxBytes - inclusive byte cap on the complete content.\n * @returns the full raw content, at most `maxBytes` long.\n */',
+      },
+      {
         signature: 'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
         jsDoc: '/**\n * List direct children of a directory in stable name order. Returns resolved\n * child targets plus cheap metadata only; never reads file contents.\n * @param target - the resolved directory target.\n * @param signal - aborts the listing.\n * @returns one entry per direct child, in stable name order.\n */',
       },
@@ -579,6 +583,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
         jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Replay state is\n * retained only when the same adapter instance owns its historical provider\n * and the target provider. Final adapter selection remains fixed through\n * asynchronous exact-model resolution and dispatch. Adapter selection,\n * dispatch, and iteration failures become terminal `error` or `aborted`\n * finish chunks; middleware, nested-call, cleanup, and consumer failures\n * remain thrown.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+      },
+    ],
+  },
+  {
+    key: 'messageFeedback',
+    summary: 'Storage-domain sidecar service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: MessageFeedbackListRequest): Promise<MessageFeedbackListResult>',
+        jsDoc: '/**\n * Read feedback belonging to the current persisted Session lifecycle.\n * A stale row from a reused Session id is invisible.\n * @param request - Session identity to inspect and list.\n * @returns current immutable items or `session-not-found`.\n */',
+      },
+      {
+        signature: '@Remote(\'put\') put(request: MessageFeedbackPutRequest): Promise<MessageFeedbackPutResult>',
+        jsDoc: '/**\n * Create or replace feedback for one derived append-origin assistant\n * message. Every request must match the addressed item\'s current version;\n * a matching no-op returns the stored item without changing its revision.\n * @param request - target, desired value, and observed item version.\n * @returns the committed item or an explicit business failure.\n */',
+      },
+      {
+        signature: '@Remote(\'delete\') delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>',
+        jsDoc: '/**\n * Delete one feedback item. Absence is successful regardless of the\n * supplied version; an existing item requires an exact version match.\n * @param request - Session, message, and observed item version.\n * @returns the stable absent postcondition, or an explicit failure.\n */',
       },
     ],
   },
@@ -1149,6 +1171,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract onTaskDone(listener: TaskDoneListener): () => void',
         jsDoc: '/**\n * Register an effect-scoped completion listener. It receives the settlements\n * of the owners its registering context\'s scope covers; each listener is\n * contained; returned promises are observed but not awaited. No listener runs\n * after service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
+      },
+      {
+        signature: 'abstract onTasksChanged(listener: TasksChangedListener): () => void',
+        jsDoc: '/**\n/**\n * Register an effect-scoped observer of visible-set changes. It fires after\n * every commit that changes what {@link list} returns for that owner —\n * registration, every stopping transition (including the one teardown\n * performs before it awaits a slow producer), settlement, owner-disposal\n * removal, and the emptying that service disposal commits — so an observer\n * re-reads rather than accumulating deltas.\n *\n * Delivery is owner-relative on the same terms as {@link onTaskDone}: an\n * observer registered from an unscoped context — a host composition\'s own\n * carrier — sees every owner, while one registered under an agent\n * composition\'s scope sees exactly the agents composed under it.\n *\n * This is not a superset of {@link onTaskDone}: that one delivers the terminal\n * record under first-wins semantics a control surface couples to notice\n * delivery, while this one carries no delivery meaning and marks nothing\n * reported. Listeners are contained and never awaited.\n * @param listener - receives the owner whose visible set changed, or\n *   `undefined` when an unowned task changed and every caller\'s set did.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
         signature: 'abstract attachSurface(name: string): () => void',
@@ -2328,6 +2354,82 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface Message {\n    readonly id: MessageId;\n    readonly role: \'system\' | \'user\' | \'assistant\';\n    readonly content: ContentBlock[];\n    readonly source: MessageSource;\n}',
   },
   {
+    name: 'MessageFeedbackDeleteRequest',
+    declaration: 'export interface MessageFeedbackDeleteRequest {\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n    readonly ifVersion: MessageFeedbackVersion;\n}',
+  },
+  {
+    name: 'MessageFeedbackDeleteResult',
+    declaration: 'export type MessageFeedbackDeleteResult = MessageFeedbackSuccess<MessageFeedbackDeleteValue> | MessageFeedbackRejected<MessageFeedbackSessionNotFound | MessageFeedbackVersionConflict>;',
+  },
+  {
+    name: 'MessageFeedbackDeleteValue',
+    declaration: 'export interface MessageFeedbackDeleteValue {\n    readonly absent: true;\n}',
+  },
+  {
+    name: 'MessageFeedbackFailure',
+    declaration: 'export type MessageFeedbackFailure = MessageFeedbackSessionNotFound | MessageFeedbackTargetNotFound | MessageFeedbackVersionConflict | MessageFeedbackNoteBlank | MessageFeedbackNoteTooLarge;',
+  },
+  {
+    name: 'MessageFeedbackItem',
+    declaration: 'export interface MessageFeedbackItem {\n    readonly messageId: MessageId;\n    readonly rating: MessageFeedbackRating;\n    readonly note?: string;\n    readonly version: MessageFeedbackVersion;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'MessageFeedbackListRequest',
+    declaration: 'export interface MessageFeedbackListRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'MessageFeedbackListResult',
+    declaration: 'export type MessageFeedbackListResult = MessageFeedbackSuccess<MessageFeedbackListValue> | MessageFeedbackRejected<MessageFeedbackSessionNotFound>;',
+  },
+  {
+    name: 'MessageFeedbackListValue',
+    declaration: 'export interface MessageFeedbackListValue {\n    readonly items: readonly MessageFeedbackItem[];\n}',
+  },
+  {
+    name: 'MessageFeedbackNoteBlank',
+    declaration: 'export interface MessageFeedbackNoteBlank {\n    readonly code: \'note-blank\';\n}',
+  },
+  {
+    name: 'MessageFeedbackNoteTooLarge',
+    declaration: 'export interface MessageFeedbackNoteTooLarge {\n    readonly code: \'note-too-large\';\n    readonly maxBytes: number;\n    readonly actualBytes: number;\n}',
+  },
+  {
+    name: 'MessageFeedbackPutRequest',
+    declaration: 'export interface MessageFeedbackPutRequest {\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n    readonly rating: MessageFeedbackRating;\n    readonly note?: string;\n    readonly ifVersion: MessageFeedbackVersion | null;\n}',
+  },
+  {
+    name: 'MessageFeedbackPutResult',
+    declaration: 'export type MessageFeedbackPutResult = MessageFeedbackSuccess<MessageFeedbackItem> | MessageFeedbackRejected<MessageFeedbackSessionNotFound | MessageFeedbackTargetNotFound | MessageFeedbackVersionConflict | MessageFeedbackNoteBlank | MessageFeedbackNoteTooLarge>;',
+  },
+  {
+    name: 'MessageFeedbackRating',
+    declaration: 'export type MessageFeedbackRating = \'positive\' | \'negative\';',
+  },
+  {
+    name: 'MessageFeedbackRejected',
+    declaration: 'export interface MessageFeedbackRejected<E extends MessageFeedbackFailure> {\n    readonly ok: false;\n    readonly error: E;\n}',
+  },
+  {
+    name: 'MessageFeedbackSessionNotFound',
+    declaration: 'export interface MessageFeedbackSessionNotFound {\n    readonly code: \'session-not-found\';\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'MessageFeedbackSuccess',
+    declaration: 'export interface MessageFeedbackSuccess<T> {\n    readonly ok: true;\n    readonly value: T;\n}',
+  },
+  {
+    name: 'MessageFeedbackTargetNotFound',
+    declaration: 'export interface MessageFeedbackTargetNotFound {\n    readonly code: \'target-not-found\';\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n}',
+  },
+  {
+    name: 'MessageFeedbackVersion',
+    declaration: 'export type MessageFeedbackVersion = Branded<\'MessageFeedbackVersion\'>;',
+  },
+  {
+    name: 'MessageFeedbackVersionConflict',
+    declaration: 'export interface MessageFeedbackVersionConflict {\n    readonly code: \'version-conflict\';\n    readonly current: MessageFeedbackItem | null;\n}',
+  },
+  {
     name: 'MessageId',
     declaration: 'export type MessageId = Branded<\'MessageId\'>;',
   },
@@ -2633,7 +2735,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEvent',
-    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
+    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
   {
     name: 'SessionEventMap',
@@ -3114,6 +3216,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TaskRead',
     declaration: 'export interface TaskRead {\n    text: string;\n    snapshot: TaskSnapshot;\n}',
+  },
+  {
+    name: 'TasksChangedListener',
+    declaration: 'export type TasksChangedListener = (owner: Agent | undefined) => void;',
   },
   {
     name: 'TaskSnapshot',

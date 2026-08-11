@@ -44,7 +44,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `childSessionMeta()` 把所加入的 preset id 记在子 agent 的持久化 header 上，理由与顶层会话记录自己的那一个相同：preset 决定了模型所见的工具 schema 与提示段，因此冷读子 agent 的历史时必须重建那份组装，而不是部署默认值。该值从父方**活着的** scope 链读取，而不是从父方 header 读取，因为在空白期切换过 preset 的父方运行在更新的那份组装上，而它的 header 仍写着旧的那个。
 
-可继续创建对应可选的 `SubagentProvider.prepareContinuable?()` 方法：方法是否存在就是能力检查，因此服务会在没有该方法的提供方上拒绝已配置的可继续启动，而具备该方法的提供方仍可服务普通一次性委派。该方法只返回分离的 `ContinuableCreateSpec`（`{ seed? }`）——这是数据，绝非能力：它不携带任何 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作，因为准备之后，继续执行管理器拥有身份预留、组合、Agent 创建、提示词投递、冷恢复、所有权和 dispose。一次性 `SubagentRun` 表示一次可 dispose 的前台委派，只有一个结果，且没有冷恢复操作。
+可继续创建对应可选的 `SubagentProvider.prepareContinuable?()` 方法：方法是否存在就是能力检查，因此服务会在没有该方法的提供方上拒绝已配置的可继续启动，而具备该方法的提供方仍可服务普通一次性委派。该方法只返回分离的 `ContinuableCreateSpec`（`{ seed? }`）——这是数据，绝非能力：它不携带任何 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作，因为准备之后，继续执行管理器拥有身份预留、组合、Agent 创建、提示词投递、冷恢复、所有权和 dispose。一次性 `SubagentRun` 表示一次可 dispose 的前台委派，只有一个结果，且没有冷恢复操作。服务可以针对不同的同级子 agent 并发调用同一提供方：每次启动或准备都拥有各自的可变状态和取消路径，一项操作的失败、结果或清理不得使另一项操作结算或释放。提供方可以在内部按自身容量排队，但不得改变这项独立性约定。
 
 ## 持久化描述符
 
@@ -64,7 +64,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `provider.start(request): Promise<SubagentRun>` 是所有权转移边界；委派工具也会在其由 Task 支撑的一次性后台路径中使用它。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使未发布资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`；剩余提示词和轮次工作属于 `SubagentRun.result`。
 
-`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的 rejection 仍归 `result` 通道；只有独立的资源释放失败会使 `dispose()` 拒绝。
+`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的 rejection 仍归 `result` 通道；只有独立的资源释放失败会使 `dispose()` 拒绝。`output` 与 `subagent/end` 事件的 `lastAssistantMessage` 使用导出的 `AssistantOutputFold`／`finalAssistantOutput` 辅助函数选取子 agent 最后一条非空 assistant 消息；若没有这类消息，则选取其累积的 assistant 文本。子 agent 两种输出均未产生时，`output` 为 `[]`，该事件字段缺省（结果约定归 [`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) 所有）。
 
 本地运行会在 `start()` 兑现前发布普通的子 agent／会话，把该共享会话 id 作为 `SubagentRun.id` 返回，以 `SubagentRun.localAgent` 公开准确的子 agent，把 `request.parent.session.id` 记录到子 agent 的 `parentSession` header，并在其初始轮次内追加已解析的描述符。远程提供方则生成 parent 作用域的生命周期 id，并返回 `localAgent: undefined`；由于没有本地 child 会话，其一次性运行不会进入基于追踪的枚举结果。
 
