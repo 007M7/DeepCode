@@ -346,6 +346,12 @@ const SCENARIOS: Scenario[] = [
   // parent's tool result must retain that assistant output and stop reason.
   { name: 'subagent-max-tokens-partial', hasModelTurn: true, recorded: false },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
+  // Authored keyless replay: one assistant message carries two subagent calls
+  // and the parent log pins call/call/result/result instead of the serial
+  // interleaving. The twin delegations must stay identical: replay binds child
+  // scripts and harvest order nondeterministically across concurrent children
+  // (XXX(concurrent-subagents) in dsh-llm-replay).
+  { name: 'subagent-parallel', hasModelTurn: true, recorded: false },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // Authored continuable-subagent transcript: a background delegation returns
