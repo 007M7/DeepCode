@@ -45,6 +45,7 @@ export const sessionEventSchema = z.object({
   data: z.unknown(),
   sourceEventSeqs: z.array(z.number()).optional(),
   surfaceOp: z.unknown().optional(),
+  ignorable: z.literal(true).optional(),
 }) as unknown as z.ZodType<SessionEvent>
 
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
