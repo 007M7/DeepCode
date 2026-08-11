@@ -141,14 +141,12 @@ interface ToolArgsMap {
     /** Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
-  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive only its subagent id, never its result, and it works on its own. Use this for work whose result you do not need returned by this call; `send_message` sends it more work. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. */
   subagent_fork: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
-    /** Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message. */
-    run_in_background?: boolean;
   } & Record<string, JsonValue>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
   task_kill: {

@@ -359,6 +359,7 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
   // Authored policy-inheritance transcript: the root session is switched to
@@ -371,6 +372,7 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     configPath: SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
@@ -385,13 +387,14 @@ const SCENARIOS: Scenario[] = [
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
   // Authored child-to-parent transcript: the child calls its scope-local
-  // `report`, quiet delivery reaches the idle parent without waking it, and a
-  // later parent turn consumes the logged report.
+  // `report`, the default waking delivery gives the parked parent one ordinary
+  // turn on that report, and a later prompt still reads it back from the log.
   {
     name: 'subagent-report',
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
   },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
@@ -404,6 +407,7 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
   },
   {
     name: 'subagent-depth-two-rejection',

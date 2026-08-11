@@ -2325,14 +2325,15 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
-需要：`subagents` · `tools`
+需要：`subagents` · `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: how accepted reports are scheduled on the parent. */
 export interface Config {
   /**
-   * Parent scheduling (default `quiet`). `quiet` adds context without waking;
-   * `wakeup` creates one ordinary later parent turn.
+   * Parent scheduling (default `wakeup`). `wakeup` creates one ordinary later
+   * parent turn; `quiet` adds context without waking, so a parked parent learns
+   * of the report only when something else wakes it.
    */
   reportDelivery?: SubagentReportDelivery
 }
@@ -2340,7 +2341,7 @@ export interface Config {
 
 依赖：[`SubagentReportDelivery`](subsystems/subagent.md)
 
-来源：[`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
+来源：[`packages/subagent/tool-subagent-report/src/index.ts:27`](../packages/subagent/tool-subagent-report/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-tasks`
 

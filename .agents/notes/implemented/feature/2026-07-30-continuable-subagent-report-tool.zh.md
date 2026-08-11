@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-新增可独立安装的 `@deepseek-ai/dsh-tool-subagent-report` 包。它会向每个可继续进程内 child Activation 贡献一个普通的面向模型 `report` 工具。child 在一个轮次中可调用零次或多次。调用成功既不会结束该轮次或结算 Activation，也不会阻止 parent 之后继续 follow-up；完成轮次也绝不会自动报告。
+新增可独立安装的 `@deepseek-ai/dsh-tool-subagent-report` 包。它会向每个可继续进程内 child Activation 贡献一个普通的面向模型 `report` 工具。机制本身接受一个轮次中调用零次或多次；child 会另行被要求在结束前调用一次（见[报告义务](2026-08-06-continuable-child-report-obligation.md)）。调用成功既不会结束该轮次或结算 Activation，也不会阻止 parent 之后继续 follow-up；完成轮次也绝不会自动报告。
 
 该功能是协作控制，不是承载结果的执行包装层。它不新增 Task、`SubagentRun`、结果 promise、Activation 状态、投递队列或回放路径。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 `messageId` 是 parent 接受的用户角色消息所对应的稳定 `MessageId`。它不是 `InboxItemId`：静默投递不创建 inbox 条目实例，唤醒投递则会为同一条稳定消息创建一个条目实例。它也不是已读回执、parent 日志确认、轮次完成回执或持久化 flush。
 
-工具描述会明确报告操作是显式、可重复、仅限直接 parent 且不会结束轮次的。它还会警告：发送被接受后，后续 `tools/post-execute` 失败可能替换工具结果，因此工具结果失败时内容仍可能已经送达。没有幂等键时，更强的表述会诱导调用方在结果不明确的失败后重复重试。
+工具描述会明确报告操作在结束前必须执行、可重复、仅限直接 parent 且不会结束轮次。它还会警告：发送被接受后，后续 `tools/post-execute` 失败可能替换工具结果，因此工具结果失败时内容仍可能已经送达。没有幂等键时，更强的表述会诱导调用方在结果不明确的失败后重复重试。
 
 该工具使用不带 location 的通用渲染，其确认中包含 `messageId`。作用域局部注册使呈现与执行保持一致：root、one-shot child、远程提供方、同级作用域和无 agent（智能体）执行既不能看到，也不能执行 `report`。它会在 child 的全局 `toolFilter` 之后安装，因此委派 allow-list 不会意外移除这条结构性返回通道；不需要返回通道的部署不安装该包。
 
@@ -36,7 +36,7 @@ root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以
 
 ### 投递策略
 
-该包会校验 `reportDelivery: 'quiet' | 'wakeup'`，默认值为 `quiet`。
+该包会校验 `reportDelivery: 'quiet' | 'wakeup'`，默认值为 `wakeup`（见[默认值反转的理由](2026-08-06-continuable-child-report-obligation.md)）。
 
 静默投递调用 `parent.inject()`。它会添加模型可见上下文，但不启动 parent 模型请求：若 parent 空闲，则在调用返回前追加消息；若 parent 正在准入或运行，则暂存报告，留到下一个安全日志位置。该模式不创建 inbox 条目实例，因此也不会产生虚构的继续执行管理器接受记录。
 
@@ -56,13 +56,13 @@ subagent seam 新增 `registerContinuableSetup(contribution): () => void`，由 
 
 注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在所有 setup 的 await 均结算后、紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与会话发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose（资源释放）与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
 
-该 seam 使继续执行管理器无需知道工具名。report 包只安装 `report`；`@deepseek-ai/dsh-tool-subagent-control` 则独立安装 parent 侧的 `send_message` 和 `list_agents`。部署时可安装任一方向、同时安装两者或两者均不安装。提供方仍只负责数据，持久化描述符不会对 report 可用性或投递模式建立快照，冷恢复则使用部署当前的贡献与策略。
+该 seam 使继续执行管理器无需知道工具名。report 包只安装 `report` 及其 child 作用域指引 section；`@deepseek-ai/dsh-tool-subagent-control` 则独立安装 parent 侧的 `send_message` 和 `list_agents`。部署时可安装任一方向、同时安装两者或两者均不安装。提供方仍只负责数据，持久化描述符不会对 report 可用性或投递模式建立快照，冷恢复则使用部署当前的贡献与策略。
 
 ### 快照覆盖
 
-ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，按与 `session.N.jsonl` 相同的顺序选择第 N 个已收集 child。它会等待一个包含请求 header 的已闭合 child 轮次，以防可继续 child 早期播种描述符的轮次错误满足该边界。这样，整体组装的静默模式场景无需伪造 parent 可见信号，就能等待 child 侧报告。
+ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，按与 `session.N.jsonl` 相同的顺序选择第 N 个已收集 child。它会等待一个包含请求 header 的已闭合 child 轮次，以防可继续 child 早期播种描述符的轮次错误满足该边界。这样，整体组装的场景无需伪造 parent 可见信号，就能等待 child 侧报告。
 
-手写快照会启动一个可继续 child，执行真实的作用域局部 `report` 工具，确认空闲 parent 未被唤醒，然后提交一条后续 parent 提示词，使其消费封装后的报告。它声明 child schema pin `1`，因此本不属于全局的 `report` schema 会与 `tool-schemas.1.expected.json` 比对，root 则继续使用默认 schema pin。生成的工具目录会另外铸造一个 child 作用域，以收录同一个作用域局部 schema。
+手写快照会启动一个可继续 child，执行真实的作用域局部 `report` 工具，观察默认唤醒投递所产生的那一个普通 parent 轮次，然后提交一条后续 parent 提示词，使其消费封装后的报告。它声明 child pin `1`，因此本不属于全局的 `report` schema 与该 child 自身的提示词会分别与 `tool-schemas.1.expected.json` 和 `system-prompt.1.expected.md` 比对，root 则继续使用类别 pin。生成的工具目录会另外铸造一个 child 作用域，以收录同一个作用域局部 schema。
 
 ## 曾考虑的替代方案
 
@@ -72,7 +72,7 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 
 ### 始终唤醒 parent
 
-每次报告都唤醒 parent 会产生未经请求的轮次，还可能沿嵌套 subagent 级联扩散。静默投递更适合作为后台协调的默认值，而需要立即处理的部署可选择 wakeup。
+每次报告都唤醒 parent 会产生未经请求的轮次，还可能沿嵌套 subagent 级联扩散。当初选择静默投递作为默认值，前提是 parent 还有别的理由去读自己的上下文。[报告义务](2026-08-06-continuable-child-report-obligation.md)取代了该选择：已经停驻的后台协调者并没有这样的理由，因此唤醒成为默认值，而本段现在记录的是 `quiet` 为何仍然保留。
 
 ### 允许 child 选择投递模式
 
@@ -103,16 +103,16 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 - 只有安装 report 包贡献时，可继续进程内 child 才会恰好暴露一个作用域局部 `report` schema；无关 Agent 永远不会暴露该 schema。
 - 工具返回 parent 消息的稳定 `MessageId`。静默投递没有 `InboxItemId`；唤醒投递会产生一个单独的 inbox 条目实例。
 - 只有确切的驻留 child 才能报告，且只能报告给根据持久化谱系推导的确切在线直接 parent。服务不接受接收方参数，也不提供离线 fallback。
-- 静默投递是校验后的默认模式，绝不会启动 parent 请求。wakeup 会恰好创建一个后续 FIFO 轮次，绝不 steering 已开始的轮次。
+- 唤醒投递是校验后的默认模式：它会恰好创建一个后续 FIFO 轮次，绝不 steering 已开始的轮次。静默投递则绝不会启动 parent 请求。
 - parent 接受后取消或 dispose child 不会撤回报告。接受前，child dispose、drain、parent 丢失或调用方取消都会拒绝操作。
 - 新建和恢复的 Activation 都会在发布前组合当前设置贡献。新授权等待下一个 Activation 才生效，而已驻留 child 的授权撤销立即生效。
 - 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定的消息与发送方身份、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
-- 无密钥整体组装快照证明真实 child 工具、静默且不唤醒的行为、持久化 parent 封装，以及 parent 后续消费。
+- 无密钥整体组装快照证明真实 child 工具、那一个被唤醒的 parent 轮次、持久化 parent 封装，以及 parent 后续消费。
 
 ### 已接受的风险
 
 该接受边界弱于持久化端到端投递。崩溃可能导致结果不明，重试则可能重复报告。
 
-wakeup 模式可能在嵌套 child 频繁报告时放大模型工作量。由部署所有者控制并默认静默，可以限制该风险，但无法完全消除。
+唤醒投递可能在嵌套 child 频繁报告时放大模型工作量。通过 `reportDelivery` 交由部署所有者控制，可以限制该风险，但无法完全消除。
 
 注册表中的存在性就是 parent 在线信号。宿主拥有的 parent 如果已开始 `AgentHandle.dispose()` 但尚未完成其作用域清理，仍可能接受并追加一条本进程不会再处理的报告。要弥合这个缺口，需要 Agent 层面的 dispose 开始信号，不能由 subagent 层推断。

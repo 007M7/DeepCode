@@ -194,13 +194,13 @@
     },
     {
       "name": "report",
-      "description": "Report selected content to the agent that started you. Call this zero or more times for progress, findings, or a final answer. Reporting does not end your turn or finish your work, and only your direct parent receives it. A failed call may still have arrived, so do not blindly repeat it.",
+      "description": "Report selected content to the agent that started you. Call this once before you finish, with a self-contained final result, and earlier for progress or findings that change what that agent does next. That agent shares your workspace but does not automatically receive your transcript, tool output, or reasoning, so finishing your work is not itself a result. Reporting does not end your turn or finish your work, and only your direct parent receives it. A failed call may still have arrived, so do not blindly repeat it.",
       "parameters": {
         "type": "object",
         "properties": {
           "output": {
             "type": "string",
-            "description": "Self-contained content for your parent; it does not see your private work."
+            "description": "Actionable content for your parent; summarize conclusions and reference relevant shared paths."
           }
         },
         "required": [
@@ -272,7 +272,7 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive only its subagent id, never its result, and it works on its own. Use this for work whose result you do not need returned by this call; `send_message` sends it more work.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -283,10 +283,6 @@
           "prompt": {
             "type": "string",
             "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message."
           }
         },
         "required": [
