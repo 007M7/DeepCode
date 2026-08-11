@@ -10,7 +10,7 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化。
 
-Session Log 默认留在本地。设置 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 可仅在提交反馈时共享 Session Log，设置 `DSH_TELEMETRY_MODE=FULL` 可持续上传。请通过内部企业微信群反馈问题和建议。
+Session Log 默认留在本地。设置 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 可仅在提交反馈时共享 Session Log，设置 `DSH_TELEMETRY_MODE=FULL` 可持续上传；`FULL` 同时会启用 dsh-sdk 命令遥测，上报匿名 ID、命令结果和脱敏后的项目配置。请通过内部企业微信群反馈问题和建议。
 
 ## 安装
 
