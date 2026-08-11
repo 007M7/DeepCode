@@ -32,4 +32,4 @@ Status: implemented
 
 ## 测试
 
-`packages/client/ui-primitives/tests/hover-card.spec.tsx` 与 `tests/atoms.spec.tsx` 固定验证宽限期边界、折返取消、不重启停留计时、所有者关闭时解除待执行关闭，以及列表关闭时不启动关闭。可抵达性手势本身——把指针移到卡片上，以及在打开的列表与其触发按钮之间移动——由 `apps/web/tests/workspace-management.e2e.ts` 在真实浏览器中固定验证，因为它们依赖 jsdom 无法建模的命中测试与布局。
+`packages/client/ui-primitives/tests/hover-card.client.spec.tsx` 与 `tests/atoms.spec.tsx` 固定验证宽限期边界、折返取消、不重启停留计时、所有者关闭时解除待执行关闭，以及列表关闭时不启动关闭。可抵达性手势本身——把指针移到卡片上，以及在打开的列表与其触发按钮之间移动——由 `apps/web/tests/workspace-management.e2e.ts` 在真实浏览器中固定验证，因为它们依赖 jsdom 无法建模的命中测试与布局。

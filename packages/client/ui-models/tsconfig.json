@@ -18,9 +18,6 @@
       "path": "../runtime"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../schema-form"
     },
     {

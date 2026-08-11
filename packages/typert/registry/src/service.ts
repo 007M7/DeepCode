@@ -653,6 +653,9 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
     }
     wires.add(parameter.wire)
     if (parameter.source === 'lookup') {
+      if (parameter.acceptsUndefined !== undefined) {
+        throw new Error(`typert: invocation "${descriptor.id}" lookup parameter "${parameter.name}" cannot accept undefined`)
+      }
       if (parameter.lookup === undefined) {
         throw new Error(`typert: invocation "${descriptor.id}" lookup parameter "${parameter.name}" has no lookup key`)
       }

@@ -87,10 +87,18 @@
     "website/**/*.ts",
     "website/.vitepress/**/*.ts"
   ],
+  // Under packages/client a test file names the face it covers: `*.client.*`
+  // belongs to the Client aggregate, `*.host.spec.ts` to this one. The two
+  // suffixes are mutually exclusive, so each aggregate excludes the other's
+  // and the package test glob above needs no per-file entry.
   "exclude": [
-    "packages/client/**",
-    "packages/host/directory-picker-browse/**",
-    "packages/host/directory-picker-native/**",
+    "packages/client/*/src/**",
+    "packages/client/*/tests/**/*.client.ts",
+    "packages/client/*/tests/**/*.client.tsx",
+    "packages/client/*/tests/**/*.client.spec.ts",
+    "packages/client/*/tests/**/*.client.spec.tsx",
+    "packages/client/tsdown.client.ts",
+    "packages/api/gateway/tests/client.spec.ts",
     "scripts/client-bundle-css.spec.ts",
     "packages/typert/generator/tests/fixtures/**",
     "scripts/client-bundle-purity.spec.ts"
@@ -120,7 +128,7 @@
     { "path": "./packages/core/scope" },
     { "path": "./packages/typert/type-meta" },
     { "path": "./packages/typert/registry" },
-    { "path": "./packages/api/gateway" },
+    { "path": "./packages/api/gateway/tsconfig.host.json" },
     { "path": "./packages/api/remotes/tsconfig.host.json" },
     { "path": "./packages/typert/loader" },
     { "path": "./packages/session/session-persistence" },
@@ -270,11 +278,6 @@
     { "path": "./packages/host/apiproxy" },
     { "path": "./packages/host/directory-picker" },
     { "path": "./packages/host/directory-picker-auto" },
-    // Dual-face backend leaves stay client-registered (their tests and client
-    // halves are excluded above); these references only let the adaptive
-    // chooser's composition test import each backend's NODE entry, whose
-    // declarations carry no client-side Context merge — the mirror of the
-    // client aggregate's webserver reference.
     { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/frontend-static" },

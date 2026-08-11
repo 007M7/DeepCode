@@ -78,6 +78,12 @@ class GoalService extends Service {
   }
 
   @Remote
+  maybe(value: string | null | undefined): string | null | undefined {
+    this.calls.push('maybe')
+    return value
+  }
+
+  @Remote
   fail(request: unknown): never {
     void request
     this.calls.push('fail')
@@ -782,6 +788,19 @@ describe('TypertGatewayService', () => {
     }), 'input-invalid')
   })
 
+  it('admits an omitted SRC field and hands the Host method undefined', async () => {
+    const { ctx, service } = await setup()
+    // A weak descriptor reads parameter names from the JavaScript signature and
+    // cannot see which are optional, so an absent field is admitted; the case
+    // above keeps an explicitly undefined field rejected.
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'passthrough',
+      args: {},
+    })).resolves.toBeUndefined()
+    expect(service.calls).toContain('passthrough')
+  })
+
   it('rejects cyclic SRC input and non-JSON SRC results', async () => {
     const { ctx, service } = await setup()
     const cyclic: { self?: unknown } = {}
@@ -945,7 +964,7 @@ describe('TypertGatewayService', () => {
     expect(connection).toMatchObject({ channel: '/api', authority: 'trusted-host' })
 
     registerAgentLookup(ctx, { id: 'agent-1' })
-    registerStrict(ctx, [createDescriptor()])
+    registerStrict(ctx, [createDescriptor(), maybeDescriptor()])
     expect(connection.matches?.('goals/create')).toBe(true)
     expect(connection.matches?.('goals/passthrough')).toBe(true)
     expect(connection.matches?.('goals')).toBe(false)
@@ -973,6 +992,15 @@ describe('TypertGatewayService', () => {
     if (invalid.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
     expect(invalid.error.message).toMatch(/exactly one plain-object args field/)
 
+    await expect(handler('goals/maybe', { args: {} }, signal)).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    })
+    await expect(handler('goals/maybe', { args: { value: null } }, signal)).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
+
     for (const endpoint of ['goals', '/create', 'goals/', 'goals/create/extra']) {
       const result = await handler(endpoint, { args: {} }, signal)
       expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
@@ -987,9 +1015,31 @@ describe('TypertGatewayService', () => {
     }
 
     service.businessError = 'non-error failure' as unknown as Error
-    await expect(handler('goals/fail', { args: { request: null } }, signal)).resolves.toEqual({
+    await expect(handler(
+      'goals/fail',
+      { args: { request: null } },
+      new AbortController().signal,
+    )).resolves.toEqual({
       ok: false,
       error: { code: 'internal', message: 'non-error failure', details: {} },
+    })
+
+    // A business rejection observed while the carrier signal is already aborted
+    // is the caller's cancellation, not an internal gateway fault.
+    const cancelledCall = new AbortController()
+    cancelledCall.abort(new Error('client disconnected'))
+    service.businessError = new Error('fixture business failure')
+    await expect(handler(
+      'goals/fail',
+      { args: { request: null } },
+      cancelledCall.signal,
+    )).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'cancelled',
+        message: 'Remote invocation "goals/fail" was aborted',
+        details: {},
+      },
     })
 
     await gatewayFiber.dispose()
@@ -1298,6 +1348,28 @@ function strictOnlyDescriptor(): InvocationDescriptor {
     method: 'strictOnly',
     invocation: { kind: 'direct' },
     parameters: [{ name: 'request', wire: 'request', source: 'json', codec: value }],
+    result: value,
+  }
+}
+
+function maybeDescriptor(): InvocationDescriptor {
+  const value = strictCodec(
+    '@fixture/gateway#MaybeValue',
+    z.union([z.string(), z.null(), z.undefined()]),
+  )
+  return {
+    id: '@fixture/gateway#goals/maybe',
+    service: 'goals',
+    namespace: 'goals',
+    method: 'maybe',
+    invocation: { kind: 'direct' },
+    parameters: [{
+      name: 'value',
+      wire: 'value',
+      source: 'json',
+      acceptsUndefined: true,
+      codec: value,
+    }],
     result: value,
   }
 }

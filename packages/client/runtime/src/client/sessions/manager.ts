@@ -5,7 +5,7 @@
 import type {
   IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
   SessionSummary, SubagentAddress, SubagentCatalog, TaskView, WorkspaceId,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -21,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
+import type { SessionRemotes } from './remotes.ts'
 
 /**
  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
@@ -165,6 +166,7 @@ export class SessionManager {
    */
   constructor(
     private readonly api: IApiClient,
+    private readonly remote: SessionRemotes,
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
     private readonly conversation?: ConversationRuntime,
@@ -305,7 +307,7 @@ export class SessionManager {
 
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
-    return new Session(sessionId, this.api, {
+    return new Session(sessionId, this.api, this.remote, {
       ...(address === undefined ? {} : {
         address,
         parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,

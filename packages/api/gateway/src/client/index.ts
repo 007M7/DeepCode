@@ -6,10 +6,11 @@
 
 import { Service } from '@deepseek-ai/cordis'
 import type { Context, Events } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
   TypeRTClientRemote,
+  RemoteResult,
   TypeRTCodec,
   TypeRTDisposer,
   TypeRTRemoteContribution,
@@ -328,7 +329,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     scoped: ScopedMethod | undefined,
     callerCtx: Context,
     values: readonly unknown[],
-  ): Promise<unknown> {
+  ): Promise<RemoteResult<unknown>> {
     if (scoped !== undefined) {
       const binder = this.ownerCtx.typert.contexts.getClient(scoped.projection.context)
       const identity = binder?.identity(callerCtx)
@@ -359,9 +360,9 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     callerCtx: Context,
     values: readonly unknown[],
     boundIdentity?: BoundContextIdentity,
-  ): Promise<unknown> {
+  ): Promise<RemoteResult<unknown>> {
     const endpoint = endpointOf(descriptor)
-    if (!token.active) throw new Error(`client api: Remote method ${endpoint} is no longer mounted`)
+    if (!token.active) return withdrawn(endpoint)
     const expected = descriptor.parameters.length - (projection?.parameterIndex === undefined ? 0 : 1)
     const hasCallerSignal = descriptor.cancellation !== undefined && values.length === expected + 1
     if (values.length !== expected && !hasCallerSignal) {
@@ -391,7 +392,8 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     let valueIndex = 0
     descriptor.parameters.forEach((parameter, parameterIndex) => {
       if (parameterIndex === projection?.parameterIndex) return
-      args[parameter.wire] = parse(parameter.codec, values[valueIndex], endpoint, parameter.wire)
+      const value = parse(parameter.codec, values[valueIndex], endpoint, parameter.wire)
+      if (value !== undefined) args[parameter.wire] = value
       valueIndex += 1
     })
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
@@ -400,10 +402,16 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     const signal = callerSignal === undefined
       ? token.abort.signal
       : AbortSignal.any([token.abort.signal, callerSignal])
-    const result = await connection.rpc.call('/api', endpoint, { args }, signal)
-    if (!mountActive(token)) throw new Error(`client api: Remote method ${endpoint} was withdrawn during invocation`)
-    if (!result.ok) throw remoteFailure(endpoint, result.error)
-    return parse(descriptor.result, result.value, endpoint, 'result')
+    try {
+      const result = await connection.rpc.call('/api', endpoint, { args }, signal)
+      if (!mountActive(token)) return withdrawn(endpoint)
+      if (!result.ok) return { ok: false, error: result.error }
+      return { ok: true, value: parse(descriptor.result, result.value, endpoint, 'result') }
+    } catch (error) {
+      // Carrier throws (offline, abort, a rejected result payload) are outcomes
+      // of the call, not assembly faults, so they join the same error branch.
+      return carrierFailure(endpoint, error)
+    }
   }
 }
 
@@ -412,7 +420,7 @@ type InvokeRemote = (
   scoped: ScopedMethod | undefined,
   callerCtx: Context,
   args: readonly unknown[],
-) => Promise<unknown>
+) => Promise<RemoteResult<unknown>>
 
 class RemoteNamespaceService extends Service {
   private readonly methods = new Map<string, RemoteMethodRecord>()
@@ -467,7 +475,7 @@ class RemoteNamespaceService extends Service {
       Object.defineProperty(this, method, {
         configurable: true,
         enumerable: true,
-        get: function (this: RemoteNamespaceService): (...args: unknown[]) => Promise<unknown> {
+        get: function (this: RemoteNamespaceService): (...args: unknown[]) => Promise<RemoteResult<unknown>> {
           const callerCtx = this.ctx
           const current = this.methods.get(method)
           const direct = current?.direct
@@ -566,6 +574,15 @@ function parse(codec: TypeRTCodec, value: unknown, endpoint: string, field: stri
   }
 }
 
-function remoteFailure(endpoint: string, error: RpcError): Error {
-  return new Error(`client api: ${endpoint} failed: ${error.code}: ${error.message}`, { cause: error })
+/** The namespace retired before or during the call, so no request outcome exists. */
+function withdrawn(endpoint: string): RemoteResult<never> {
+  return internalFailure(`client api: Remote method ${endpoint} is no longer mounted`)
+}
+
+function carrierFailure(endpoint: string, error: unknown): RemoteResult<never> {
+  return internalFailure(`client api: ${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+function internalFailure(message: string): RemoteResult<never> {
+  return { ok: false, error: { code: 'internal', message, details: {} } }
 }

@@ -41,6 +41,8 @@ export type {
   InvocationDescriptor,
   InvocationParameterDescriptor,
   InvocationSourceLocation,
+  RemoteFailure,
+  RemoteResult,
   TypeRTClientRemote,
   TypeRTClientContextBinder,
   TypeRTCodec,

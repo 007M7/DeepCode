@@ -147,19 +147,21 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       } catch {
         invalidRejected = true
       }
+      // Every generated method resolves to the RemoteResult envelope; the
+      // business values below are what the assertions pin.
       const rootResult = await client.remote.goals.create(rootAgent.id, { objective: 'root goal' })
       const rootEdit = await client.remote.goals.edit(
         rootAgent.id,
-        rootResult.ref,
+        rootResult.value.ref,
         { objective: 'edited root goal' },
       )
       const agentContext = client.extend({ builtAgentId: scopedAgent.id })
       const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
       const result = {
         invalidRejected,
-        rootResult,
-        rootEdit,
-        scopedResult,
+        rootResult: rootResult.value,
+        rootEdit: rootEdit.value,
+        scopedResult: scopedResult.value,
         rootGoal: host.goals.get(rootAgent)?.objective,
         scopedGoal: host.goals.get(scopedAgent)?.objective,
         rootEvents: rootAgent.session.events.length,

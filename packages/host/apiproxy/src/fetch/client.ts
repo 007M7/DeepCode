@@ -40,7 +40,6 @@ import {
   workspaceListValueSchema,
   workspaceRenameValueSchema,
 } from '../api/workspace.schema.ts'
-import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
   agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -122,10 +121,6 @@ export interface IApiClient {
     insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
     archiveSession(payload: RequestPayload<'workspace.archiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.archiveSession'>>>
   }
-  commands: {
-    list(payload: RequestPayload<'command.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.list'>>>
-    execute(payload: RequestPayload<'command.execute'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'command.execute'>>>
-  }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
@@ -203,8 +198,6 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.insertBefore': workspaceInsertBeforeValueSchema,
   'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
   'workspace.archiveSession': workspaceArchiveSessionValueSchema,
-  'command.list': commandListValueSchema,
-  'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
   'agentPreset.select': agentPresetSelectValueSchema,
@@ -458,15 +451,6 @@ export abstract class AbstractApiClient implements IApiClient {
     insertBefore: (payload, signal) => this.callUnary('workspace.insertBefore', payload, signal),
     insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
     archiveSession: (payload, signal) => this.callUnary('workspace.archiveSession', payload, signal),
-  }
-
-  readonly commands: IApiClient['commands'] = {
-    list: (payload, signal) => this.callUnary('command.list', payload, signal),
-    // Command handlers are user-driven operations and may legitimately exceed
-    // the transport health deadline. Caller/connection aborts remain.
-    execute: (payload, signal) => this.callUnary(
-      'command.execute', payload, signal, 'caller-signal-only',
-    ),
   }
 
   readonly skills: IApiClient['skills'] = {

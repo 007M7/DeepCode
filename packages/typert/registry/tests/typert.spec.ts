@@ -511,6 +511,17 @@ describe('TypertRegistry', () => {
       [{
         ...invocation(),
         parameters: [{
+          name: 'agent',
+          wire: 'agentId',
+          source: 'lookup',
+          lookup: 'fixture',
+          acceptsUndefined: true,
+          codec: { mode: 'src-json' },
+        }],
+      }, 'cannot accept undefined'],
+      [{
+        ...invocation(),
+        parameters: [{
           name: 'request', wire: 'request', source: 'json', lookup: 'fixture', codec: { mode: 'src-json' },
         }],
       }, 'JSON parameter'],

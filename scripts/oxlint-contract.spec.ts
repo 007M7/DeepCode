@@ -53,7 +53,9 @@ describe('Oxlint executable contract', () => {
       ['host package source', 'packages/fs/fs-policy/src', 'packages/fs/fs-policy/tsconfig.json'],
       ['host package test', 'packages/fs/fs-policy/tests', 'tsconfig.host.json'],
       ['client package source', 'packages/client/ui-primitives/src', 'packages/client/ui-primitives/tsconfig.json'],
-      ['client package test', 'packages/client/ui-trajectory/tests', 'tsconfig.client.json'],
+      // A test under packages/client states its face in the filename, so the
+      // probe carries the Client suffix to reach the Client aggregate.
+      ['client package test', 'packages/client/ui-trajectory/tests', 'tsconfig.client.json', '.client.ts'],
       ['example', 'examples/headless-agent/tests', 'tsconfig.host.json'],
       ['website', 'website', 'tsconfig.host.json'],
     ] as const
@@ -66,8 +68,8 @@ probePromise()
 
     try {
       const paths: Array<readonly [label: string, path: string, tsconfig: string]> = []
-      for (const [label, parent, tsconfig] of probes) {
-        const path = join(repositoryRoot, parent, `oxlint-contract-${suffix}.ts`)
+      for (const [label, parent, tsconfig, extension = '.ts'] of probes) {
+        const path = join(repositoryRoot, parent, `oxlint-contract-${suffix}${extension}`)
         await writeFile(path, source)
         paths.push([label, relative(repositoryRoot, path), tsconfig])
       }
@@ -98,7 +100,8 @@ probePromise()
       expect(output).not.toContain('Unmatched file:')
     } finally {
       await Promise.all([
-        ...probes.map(([, parent]) => rm(join(repositoryRoot, parent, `oxlint-contract-${suffix}.ts`), { force: true })),
+        ...probes.map(([, parent, , extension = '.ts']) =>
+          rm(join(repositoryRoot, parent, `oxlint-contract-${suffix}${extension}`), { force: true })),
         rm(configPath, { force: true }),
       ])
     }
