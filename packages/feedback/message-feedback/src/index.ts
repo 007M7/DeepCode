@@ -158,6 +158,7 @@ export class MessageFeedbackService extends GatewayService {
   private readonly maxNoteBytes: number
   private table?: KvTable<SessionId, MessageFeedbackRow>
   private readonly operationTails = new Map<SessionId, Promise<void>>()
+  private mutationAdmissionOpen = true
 
   /**
    * @param ctx - Host context carrying persistence and the storage-domain form.
@@ -171,7 +172,11 @@ export class MessageFeedbackService extends GatewayService {
   /** Open and own the one message-feedback sidecar domain. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(messageFeedbackDomainSpec)
-    this.ctx.effect(() => () => domain.close(), 'message-feedback.domainClose')
+    this.ctx.effect(() => async () => {
+      this.mutationAdmissionOpen = false
+      await Promise.all(this.operationTails.values())
+      await domain.close()
+    }, 'message-feedback.domainClose')
     this.table = domain.table('sessions')
   }
 
@@ -354,6 +359,9 @@ export class MessageFeedbackService extends GatewayService {
 
   /** Queue a complete read/compare/write mutation behind this Session's prior mutation. */
   private enqueue<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {
+    if (!this.mutationAdmissionOpen) {
+      return Promise.reject(new Error('message-feedback: service is disposing'))
+    }
     const previous = this.operationTails.get(sessionId) ?? Promise.resolve()
     const result = previous.then(operation)
     const tail = result.then(() => undefined, () => undefined)

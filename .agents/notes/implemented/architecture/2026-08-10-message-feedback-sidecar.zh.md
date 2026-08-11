@@ -22,7 +22,7 @@ Status: implemented
 
 每个消息条目都携带自己的 opaque version，以及 Host 分配的 `createdAt` 和 `updatedAt` 时间戳。`put` 只把调用方的 `ifVersion` 与目标条目比较，因此编辑一条消息不会使另一条消息失效。即使目标值已经相同，比较仍然严格执行，从而防止陈旧请求穿过 ABA 值循环；冲突会返回权威当前条目，调用方无需二次读取即可协调。携带匹配 version 的无变化请求会保留 version 与时间戳；实质更新保留 `createdAt`、替换 version，并保证 `updatedAt` 不倒退。删除已经不存在的条目也同样成功。version 是只能做相等比较的 token，不是调用方可以排序或自行合成的计数器。
 
-按 Session 划分的变更队列覆盖生命周期检查、伴随记录读取、冲突判断与整行写入。这使同一个服务实例的变更串行化，并在单个 Host 进程内保持逐消息 compare-and-swap 契约。底层 storage-domain API 不提供跨进程条件写，因此实现不承诺跨进程线性一致性或防止丢失更新。
+按 Session 划分的变更队列覆盖生命周期检查、伴随记录读取、冲突判断与整行写入。这使同一个服务实例的变更串行化，并在单个 Host 进程内保持逐消息 compare-and-swap 契约。Plugin disposal 会关闭接纳、排空已进入队列的工作，然后关闭 storage domain。底层 storage-domain API 不提供跨进程条件写，因此实现不承诺跨进程线性一致性或防止丢失更新。
 
 `maxNoteBytes` 是必填的部署选择，用于限制可选备注的 UTF-8 字节长度；Web Host bundle 将其显式设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 直接发布 Host `messageFeedback.list`、`messageFeedback.put` 与 `messageFeedback.delete` 契约。客户端 Remote 聚合挂载与 UI 由各自边界负责并保持延后；后续适配层只是该 Host 契约的薄消费者。
 

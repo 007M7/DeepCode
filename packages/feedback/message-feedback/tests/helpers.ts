@@ -116,7 +116,7 @@ class TestPersistence extends SessionPersistence {
   inspectFailure: Error | undefined
   inspectCalls = 0
   readFromCalls = 0
-  onReadFrom: (() => void) | undefined
+  onReadFrom: (() => void | Promise<void>) | undefined
   onListSnapshots: (() => void | Promise<void>) | undefined
 
   locate(_meta: SessionHeader): SessionLocation | undefined { return undefined }
@@ -140,16 +140,16 @@ class TestPersistence extends SessionPersistence {
       : Promise.resolve(stored)
   }
 
-  readFrom(
+  async readFrom(
     id: SessionId,
     fromSeq: number,
   ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     this.readFromCalls += 1
-    this.onReadFrom?.()
+    await this.onReadFrom?.()
     const stored = this.durable.get(id)
     return stored === undefined
       ? Promise.reject(new Error(`test persistence: session '${id}' not found`))
-      : Promise.resolve({ meta: stored.meta, events: stored.events.filter(event => event.seq >= fromSeq) })
+      : { meta: stored.meta, events: stored.events.filter(event => event.seq >= fromSeq) }
   }
 
   list(): Promise<SessionHeader[]> {
@@ -177,6 +177,7 @@ export interface TestHarness {
   readonly ctx: Context
   readonly persistence: TestPersistence
   readonly root: string
+  disposeFeedback(): Promise<void>
   dispose(): Promise<void>
 }
 
@@ -184,22 +185,26 @@ export interface TestHarness {
 export async function setupHarness(maxNoteBytes = 64): Promise<TestHarness> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-message-feedback-test-'))
   const ctx = new Context()
+  let disposeFeedback: (() => Promise<void>) | undefined
   try {
     await ctx.plugin(SessionStore)
     await ctx.plugin(TestPersistence)
     await ctx.plugin(Storage)
     await ctx.plugin(StorageJson, { root })
     await ctx.plugin(StorageDomain, { backend: 'json' })
-    await ctx.plugin(MessageFeedbackService, { maxNoteBytes })
+    const feedbackFiber = await ctx.plugin(MessageFeedbackService, { maxNoteBytes })
+    disposeFeedback = feedbackFiber.dispose
   } catch (error) {
     await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })
     throw error
   }
+  if (disposeFeedback === undefined) throw new Error('message feedback test plugin did not load')
   return {
     ctx,
     persistence: ctx.sessionPersistence as unknown as TestPersistence,
     root,
+    disposeFeedback,
     async dispose() {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })

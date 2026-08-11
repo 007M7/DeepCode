@@ -459,6 +459,57 @@ describe('MessageFeedbackService item concurrency', () => {
     }))
     expect(newItem.version).not.toBe(oldItem.version)
   })
+
+  it('drains admitted mutations before domain close and rejects later admission', async () => {
+    const current = await harness()
+    const { ctx, persistence } = current
+    const fixture = messageFixture('dispose-quiescence')
+    persistence.persist(fixture.session)
+    const service = ctx.messageFeedback
+    const lifecycle = service as unknown as { readonly mutationAdmissionOpen: boolean }
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let physicalReads = 0
+    let committed = 0
+    persistence.onReadFrom = async () => {
+      physicalReads += 1
+      if (physicalReads !== 1) return
+      started.resolve(undefined)
+      await release.promise
+    }
+    ctx.on('domain/changed', (change) => {
+      if (change.domain === 'message_feedback') committed += 1
+    })
+
+    const first = service.put({
+      sessionId: fixture.session.id,
+      messageId: fixture.assistantMessageIds[0],
+      rating: 'positive',
+      ifVersion: null,
+    })
+    await started.promise
+    const second = service.put({
+      sessionId: fixture.session.id,
+      messageId: fixture.assistantMessageIds[1],
+      rating: 'negative',
+      ifVersion: null,
+    })
+    const disposal = current.disposeFeedback()
+    await vi.waitFor(() => { expect(lifecycle.mutationAdmissionOpen).toBe(false) })
+
+    await expect(service.delete({
+      sessionId: fixture.session.id,
+      messageId: fixture.assistantMessageIds[0],
+      ifVersion: staleVersion(),
+    })).rejects.toThrow('message-feedback: service is disposing')
+    release.resolve(undefined)
+
+    expectItem(await first)
+    expectItem(await second)
+    await disposal
+    expect(physicalReads).toBe(2)
+    expect(committed).toBe(2)
+  })
 })
 
 describe('MessageFeedbackService durability ordering', () => {

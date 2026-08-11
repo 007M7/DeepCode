@@ -12,7 +12,7 @@ Public request, value, version, and failure types are exported from the package 
 |---|---|
 | `maxNoteBytes` | Required positive safe integer: maximum UTF-8 byte length of one optional note. |
 
-Notes must contain at least one non-whitespace character, but accepted text is stored verbatim rather than trimmed. Omitting `note` means the desired value has no note, so an authorized material `put` clears an existing note.
+Notes must contain at least one non-whitespace character, but accepted text is stored verbatim rather than trimmed. Omitting `note` means the desired value has no note, so a version-matched material `put` clears an existing note. Note validation precedes Session lookup and can therefore return `note-blank` or `note-too-large` for a missing Session without touching persistence.
 
 ```yaml
 - id: message-feedback
@@ -55,6 +55,8 @@ A matching-version no-op returns the already stored item with unchanged version 
 
 A per-Session promise queue encloses inspection, durability validation, sidecar read, comparison, and whole-row write. These semantics serialize concurrent mutations through one service instance; storage-domain itself has no cross-process conditional write.
 
+Plugin disposal closes mutation admission, drains every operation already accepted into the per-Session queues, and only then closes the storage domain. A mutation submitted after disposal begins rejects as a lifecycle failure instead of entering a closing domain.
+
 ## Model Experience
 
 ### Local message-feedback state
@@ -79,3 +81,4 @@ Independent. Listing or mutating message feedback does not touch a model request
 - **Detach/catalog retirement window** — a request in the narrow interval after live detach but before the persistence catalog materializes the header can receive `session-not-found`; callers retry after retirement materialization.
 - **Header identity is not a content fingerprint** — `{createdAt, cwd}` detects reuse only when those fields differ; a cloned log retaining the same header identity is indistinguishable.
 - **Trusted caller boundary** — `list`/`put`/`delete` carry no authenticated actor or audit identity. A deployment must expose the Host gateway only through its trusted or separately authenticated boundary until authorization and attribution are added.
+- **Catalog and row bounds** — a cold request scans the complete Session snapshot catalog because persistence has no lookup-by-id metadata operation. `maxNoteBytes` bounds one note, but the item count and aggregate retained bytes of one Session row are not capped; an indexed metadata read and deployment-owned row bound remain deferred until a concrete consumer defines their policy.

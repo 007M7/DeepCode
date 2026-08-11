@@ -12,7 +12,7 @@
 |---|---|
 | `maxNoteBytes` | 必填正 safe integer：一条可选备注的最大 UTF-8 字节长度。 |
 
-备注必须包含至少一个非空白字符，但通过校验的文本按原样存储，不会 trim。省略 `note` 表示目标值不含备注，因此通过授权的实质 `put` 会清除已有备注。
+备注必须包含至少一个非空白字符，但通过校验的文本按原样存储，不会 trim。省略 `note` 表示目标值不含备注，因此 version 匹配的实质 `put` 会清除已有备注。备注校验早于 Session 查找，因此即使 Session 不存在，也可能在不访问持久化的情况下返回 `note-blank` 或 `note-too-large`。
 
 ```yaml
 - id: message-feedback
@@ -55,6 +55,8 @@ message feedback 不是 Session 日志内容或 Session 投影。它不发出 `f
 
 按 Session 划分的 promise 队列覆盖检查、持久性校验、伴随记录读取、比较与整行写入。这些语义会串行化经由同一服务实例的并发变更；storage-domain 自身没有跨进程条件写。
 
+Plugin disposal 会先关闭变更接纳，排空已进入各个 Session 队列的所有操作，然后才关闭 storage domain。disposal 开始后提交的变更会以生命周期故障拒绝，不会进入正在关闭的 domain。
+
 ## 模型体验
 
 ### 本地消息反馈状态
@@ -79,3 +81,4 @@ message feedback 不是 Session 日志内容或 Session 投影。它不发出 `f
 - **Detach/catalog retirement 窗口**——请求若恰好落在 live detach 之后、persistence catalog 物化 header 之前的极短窗口，可能收到 `session-not-found`；调用方应在 retirement materialization 后重试。
 - **Header 身份不是内容指纹**——只有 `{createdAt, cwd}` 不同时才能识别复用；本契约无法区分保留相同 header 身份的克隆日志。
 - **调用方边界受信任**——`list`/`put`/`delete` 不携带已认证的 actor 或审计身份。在加入授权与归属信息前，部署方必须只通过受信任或另行认证的边界暴露 Host gateway。
+- **目录与行边界**——由于 persistence 没有按 id 读取元数据的操作，cold 请求会扫描完整的 Session snapshot 目录。`maxNoteBytes` 只限制单条备注，单个 Session 行的条目数和聚合保留字节尚无上限；按索引读取元数据和由部署决定的行边界，延后到具体消费方明确策略时处理。

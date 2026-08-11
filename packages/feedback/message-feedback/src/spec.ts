@@ -22,6 +22,8 @@ export const messageFeedbackVersionSchema = z.uuid()
   .transform(value => value as MessageFeedbackVersion)
 
 /** Runtime schema for one current feedback item. */
+// Zod infers transformed branded fields structurally, so it cannot name the
+// public interface even though every branded output is created below.
 export const messageFeedbackItemSchema = z.object({
   messageId: z.string().min(1).transform(value => value as MessageId),
   rating: messageFeedbackRatingSchema,
