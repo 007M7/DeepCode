@@ -13,9 +13,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  bindSettingsScope, type ClientContext, type SettingsScope,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the ctx.settingsScope Context merge and the settings slot types.
+// Cross-plugin collaboration goes through the service, never a value import
+// (client bundle purity gate).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId, type LocaleSettings,
 } from '../locale-settings.ts'
@@ -29,7 +31,6 @@ import { createLanguageRowStore } from './settings-store.ts'
 
 export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageRow.tsx'
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
-export type { SettingsGeneralItemOwnerProps } from './settings-contract.ts'
 export type { CommonKey } from '../locales/index.ts'
 export type { LocaleId, LocaleSettings } from '../locale-settings.ts'
 
@@ -343,7 +344,7 @@ function detectBrowserLocale(): LocaleId | undefined {
 }
 
 /** Required services: slot registration plus the settings transport. */
-export const inject = ['slots', 'connection']
+export const inject = ['slots', 'connection', 'remote', 'settingsScope']
 
 /**
  * Client plugin body: provide the locale service with base dictionaries and
@@ -352,7 +353,7 @@ export const inject = ['slots', 'connection']
  * @param ctx - client cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  const host = bindSettingsScope<LocaleSettings>(ctx, { namespace: LOCALE_SETTINGS_NAMESPACE })
+  const host = ctx.settingsScope.bind<LocaleSettings>({ namespace: LOCALE_SETTINGS_NAMESPACE })
   const locale = new LocaleService(ctx, host)
   locale.register(COMMON_NS, { zh, en })
   locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })

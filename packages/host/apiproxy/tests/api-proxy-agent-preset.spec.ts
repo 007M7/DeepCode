@@ -18,6 +18,7 @@ import type { HostFrame } from '../src/api/events.ts'
 import {
   InvalidPresetIdError, PresetExistsError, resolveSessionPreset, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
@@ -373,7 +374,7 @@ describe('agentPreset.select', () => {
       .toBe('minimal')
   })
 
-  it('frames the committed switch so clients can drop that session\'s catalogs', async () => {
+  it('forwards the owner event so clients can drop that session\'s catalogs', async () => {
     const { api, ctx } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-frame'), agentPreset: 'standard' }))
     // The host-stream opener reads the committed-workspace baseline; this
@@ -385,22 +386,24 @@ describe('agentPreset.select', () => {
     const stream = api.events.host(request({}), abort.signal)
     const consume = (async () => {
       for await (const frame of stream) {
-        if (frame.payload.type === 'host/session-preset-changed') frames.push(frame.payload)
+        if (frame.payload.type === 'host/remote-event'
+          && frame.payload.event === 'agent-preset/selected') frames.push(frame.payload)
       }
     })()
 
-    await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-frame'), agentPreset: 'minimal' }))
-    // The queue push rides the synchronous append, so one turn of the loop is
-    // enough to deliver it; closing the stream bounds the read either way.
+    // AgentPresets owns the committed-log-to-event mapping; this spec owns the
+    // forwarding of that event without recreating the owner's implementation.
+    ctx.emit('agent-preset/selected', SessionId('sel-frame'), 'minimal')
+    // The queue push is synchronous; one turn lets the async iterator consume
+    // it before the stream closes.
     await new Promise(resolve => setTimeout(resolve, 0))
     abort.abort()
     await consume
 
-    // Recomposing registers nothing, so this frame — not the registry-wide
-    // commands one — is what tells a client its cached catalogs are stale.
+    // Recomposing registers nothing, so the owner event — not the
+    // registry-wide commands one — tells clients their cached catalogs are stale.
     expect(frames).toEqual([
-      { type: 'host/session-preset-changed', sessionId: 'sel-frame', agentPreset: 'minimal' },
+      { type: 'host/remote-event', event: 'agent-preset/selected', args: ['sel-frame', 'minimal'] },
     ])
   })
 

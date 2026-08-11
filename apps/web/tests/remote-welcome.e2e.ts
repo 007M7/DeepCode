@@ -5,10 +5,10 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, webSnapshotMode,
+  WELCOME_NOTICE_COPY,
   type WebScaffold,
 } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE } from './support.ts'
-import { WELCOME_NOTICE_COPY } from '@deepseek-ai/dsh-client-ui-settings-general'
 
 const MODE = webSnapshotMode()
 
