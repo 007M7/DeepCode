@@ -9,7 +9,7 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type WorkspaceGroupBy = 'workspace' | 'flat'
-/** Session order: durable Workspace order or an activity-promoted editable order. */
+/** Session order: user-arranged only, or user-arranged plus activity promotion. */
 export type WorkspaceOrderBy = 'manual' | 'updated'
 
 /** Workspace browser viewing state persisted across surface remounts and reloads. */
@@ -18,9 +18,9 @@ type WorkspaceViewState = {
   orderBy: WorkspaceOrderBy
   /** Explicit zero-or-five-session state keyed by Workspace group identity. */
   workspaceExpansion: Record<string, boolean>
-  /** Editable per-Workspace order used by recent-update mode. */
+  /** Shared editable per-Workspace order; recent-update mode may promote rows within it. */
   recentSessionOrder: Record<string, string[]>
-  /** Last observed update timestamps used to detect promotion events. */
+  /** Last observed update timestamps used to detect one-time promotion events. */
   recentSessionUpdatedAt: Record<string, Record<string, number>>
 }
 

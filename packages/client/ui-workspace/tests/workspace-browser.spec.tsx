@@ -105,7 +105,7 @@ describe('WorkspaceBrowser', () => {
     // Sessions hidden while their group is folded.
     expect(screen.queryByText('alpha-s')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
     expect(screen.queryByText('创建时间')).toBeNull()
@@ -118,13 +118,13 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('beta-s')).toBeTruthy()
 
     // Back to workspace grouping through the same menu.
-    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '按工作区' }))
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
     expect(screen.getByText('工作区')).toBeTruthy()
 
     // Escape closes the menu without picking.
-    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
@@ -169,14 +169,14 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
 
-  it('keeps recent-update order editable and promotes a Session when its timestamp advances', async () => {
+  it('shares one editable order across modes and promotes only while Last updated is active', async () => {
     const initial = sessionState([summary('one', 3), summary('two', 2)])
     const b = mount({
       useSessions: hook(initial),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
     })
     fireEvent.click(screen.getByText('alpha'))
-    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
     await waitFor(() => {
       const rows = screen.getAllByRole('treeitem').slice(1)
@@ -192,12 +192,44 @@ describe('WorkspaceBrowser', () => {
     fireDrag(two, 'drop', 180)
     expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
 
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '手动排序' }))
+    expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
+
+    // User activity updates the timestamp baseline in Manual mode without
+    // changing the shared visual order.
     const updated = sessionState([summary('one', 4), summary('two', 2)])
     rerender(b, { useSessions: hook(updated) })
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionUpdatedAt.alpha).toEqual({ one: 4, two: 2 })
+    })
+    expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+    expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
+
+    // Entering Last updated performs one complete recency sort.
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
     await waitFor(() => {
       expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['one', 'two'])
       expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('one')
     })
+
+    // A later user activity timestamp promotes that Session once while the
+    // mode remains active.
+    const promoted = sessionState([summary('one', 4), summary('two', 5)])
+    rerender(b, { useSessions: hook(promoted) })
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+      expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
+    })
+
+    b.view.unmount()
+    const restored = mount({
+      useSessions: hook(promoted),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
+    })
+    expect(restored.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+    expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
   })
 
   it('archives a session from the row menu and hides archived rows in both modes', async () => {
@@ -215,7 +247,7 @@ describe('WorkspaceBrowser', () => {
     // The archive-set echo hides the row in grouped and flat modes.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
     expect(screen.queryByText('gone-s')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     expect(screen.getByText('kept-s')).toBeTruthy()
     expect(screen.queryByText('gone-s')).toBeNull()
@@ -322,9 +354,9 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getAllByText('新会话')).toHaveLength(1)
     // Search excludes blank rows entirely — neither the canonical stored
     // title nor the localized display label participates in matching.
-    fireEvent.change(screen.getByPlaceholderText('搜索名称、关键词…'), { target: { value: 'new session' } })
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'new session' } })
     expect(screen.queryByText('新会话')).toBeNull()
-    fireEvent.change(screen.getByPlaceholderText('搜索名称、关键词…'), { target: { value: '新会话' } })
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: '新会话' } })
     expect(screen.queryByText('新会话')).toBeNull()
   })
 
@@ -340,7 +372,7 @@ describe('WorkspaceBrowser', () => {
         useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
       })
       fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索会话…')
       fireEvent.change(input, { target: { value: 'needle' } })
       const resultTree = screen.getByRole('tree', { name: '搜索结果' })
       expect(screen.getByText('Needle row')).toBeTruthy()
@@ -372,7 +404,7 @@ describe('WorkspaceBrowser', () => {
     expect(search.getAttribute('aria-expanded')).toBe('false')
 
     fireEvent.click(search)
-    const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
+    const input = screen.getByPlaceholderText<HTMLInputElement>('搜索会话…')
     fireEvent.change(input, { target: { value: 'kept' } })
     fireEvent.click(document.body)
     expect(search.getAttribute('aria-expanded')).toBe('true')
@@ -397,7 +429,7 @@ describe('WorkspaceBrowser', () => {
         open,
         searchSessions,
       })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索会话…')
       fireEvent.change(input, { target: { value: 'waterfall token' } })
       expect(screen.getByText('正在搜索会话历史…')).toBeTruthy()
       expect(screen.queryByText('Research notes')).toBeNull()
@@ -422,7 +454,7 @@ describe('WorkspaceBrowser', () => {
     try {
       const searchSessions = vi.fn(async () => ({ items: [], hasMore: false }))
       mount({ searchSessions })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索会话…')
       expect(input.maxLength).toBe(500)
       fireEvent.change(input, { target: { value: 'y'.repeat(501) } })
       expect(input.value).toBe('y'.repeat(500))
@@ -453,7 +485,7 @@ describe('WorkspaceBrowser', () => {
         useWorkspaces: hook(workspaceState([workspace('alpha', ['local-hit'])])),
         searchSessions,
       })
-      fireEvent.change(screen.getByPlaceholderText('搜索名称、关键词…'), {
+      fireEvent.change(screen.getByPlaceholderText('搜索会话…'), {
         target: { value: 'needle' },
       })
       expect(screen.getByText('Needle title')).toBeTruthy()
@@ -490,7 +522,7 @@ describe('WorkspaceBrowser', () => {
         ])),
         searchSessions,
       })
-      const input = screen.getByPlaceholderText('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText('搜索会话…')
       fireEvent.change(input, { target: { value: 'first' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       const firstSignal = searchSessions.mock.calls[0]?.[1] as AbortSignal
@@ -524,7 +556,7 @@ describe('WorkspaceBrowser', () => {
         ? first
         : Promise.resolve({ items: [], hasMore: false }))
       mount({ searchSessions })
-      const input = screen.getByPlaceholderText('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText('搜索会话…')
       fireEvent.change(input, { target: { value: 'first' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
 
@@ -547,7 +579,7 @@ describe('WorkspaceBrowser', () => {
       b.store.actions.setGroupBy('flat')
       rerender(b, {})
       expect(screen.getByText('暂无会话')).toBeTruthy()
-      fireEvent.change(screen.getByPlaceholderText('搜索名称、关键词…'), { target: { value: 'x' } })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'x' } })
       expect(screen.getByText('正在搜索会话历史…')).toBeTruthy()
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       expect(screen.getByText('无匹配会话')).toBeTruthy()
@@ -563,12 +595,12 @@ describe('WorkspaceBrowser', () => {
       const b = mount({ wide: false, expandSidebar })
       // No wide chrome in rail state.
       expect(screen.queryByText('工作区')).toBeNull()
-      expect(screen.queryByPlaceholderText('搜索名称、关键词…')).toBeNull()
+      expect(screen.queryByPlaceholderText('搜索会话…')).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
       expect(expandSidebar).toHaveBeenCalledTimes(1)
       // The wide flip mounts the input and focuses it after the slide.
       rerender(b, { wide: true })
-      const input = screen.getByPlaceholderText('搜索名称、关键词…')
+      const input = screen.getByPlaceholderText('搜索会话…')
       act(() => { vi.advanceTimersByTime(300) })
       expect(document.activeElement).toBe(input)
       // Wide search button is decorative (tabIndex -1, no expand call).
@@ -933,7 +965,7 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessions),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-a'])])),
     })
-    fireEvent.change(screen.getByPlaceholderText('搜索名称、关键词…'), { target: { value: 'needle' } })
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'needle' } })
     const row = screen.getByText('Needle A').closest('[role="treeitem"]') as HTMLElement
     expect(row.hasAttribute('draggable')).toBe(false)
   })

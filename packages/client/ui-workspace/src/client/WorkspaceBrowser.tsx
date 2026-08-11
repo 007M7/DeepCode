@@ -118,11 +118,11 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
       // be cut off at the header's bounds.
       portal
       anchor={(
-        <Tooltip label={t('groupBy.label')} side="bottom" delayMs={500}>
+        <Tooltip label={t('viewOptions.label')} side="bottom" delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.wide)}
-            aria-label={t('groupBy.label')}
+            aria-label={t('viewOptions.label')}
             onClick={() => { setOpen(v => !v) }}
           >
             <IconPersonalizationOutline16 />
@@ -163,13 +163,13 @@ type SessionTreeProps = Pick<
   workspaceExpansion: Readonly<Record<string, boolean>>
   /** Persist one Workspace group's zero-or-five-session state. */
   setWorkspaceExpanded: (key: string, expanded: boolean) => void
-  /** Editable orders used by recent-update mode. */
+  /** Shared editable orders used by both Session order modes. */
   recentSessionOrder: Readonly<Record<string, readonly string[]>>
-  /** Last update timestamps observed by recent-update mode. */
+  /** Last update timestamps observed for one-time recent-update promotions. */
   recentSessionUpdatedAt: Readonly<Record<string, Readonly<Record<string, number>>>>
-  /** Replace one recent-mode order and its observed timestamps. */
+  /** Replace one shared order and its observed timestamps. */
   syncRecentSessions: (workspaceKey: string, order: string[], updatedAt: Record<string, number>) => void
-  /** Apply a manual drag inside one recent-mode order. */
+  /** Apply a drag to one shared order. */
   setRecentSessionOrder: (workspaceKey: string, order: string[]) => void
   /** Registry-global archive set (hidden rows). */
   archivedSessionIds: readonly SessionNode['id'][]
@@ -181,7 +181,7 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
-  /** Session visual order; manual mode drags durable order, updated mode drags its view order. */
+  /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
 }
 
@@ -201,6 +201,7 @@ function SessionTree({
   const sessionDropCommitted = useRef(false)
   const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
   const workspaceDropCommitted = useRef(false)
+  const previousOrderBy = useRef(orderBy)
   const nativeDragActive = drag !== null || workspaceDrag !== null
   useEffect(() => {
     if (!nativeDragActive) return
@@ -232,16 +233,18 @@ function SessionTree({
     [workspaceExpansion],
   )
   useEffect(() => {
-    if (orderBy !== 'updated' || list.phase !== 'ready') return
+    if (list.phase !== 'ready') return
+    const switchedToUpdated = previousOrderBy.current !== 'updated' && orderBy === 'updated'
+    previousOrderBy.current = orderBy
     for (const workspace of workspaces) {
       const key = workspace.workspaceId as string
       const sessionIds = workspace.sessionIds.filter(id => list.byId[id] !== undefined)
       const previousOrder = recentSessionOrder[key]
       const previousUpdatedAt = recentSessionUpdatedAt[key] ?? {}
       let nextOrder = reconciledSessionOrder(sessionIds, previousOrder)
-      if (previousOrder === undefined) {
+      if (orderBy === 'updated' && (previousOrder === undefined || switchedToUpdated)) {
         nextOrder.sort((a, b) => compareSessionRecency(a, b, list.byId))
-      } else {
+      } else if (orderBy === 'updated') {
         const promoted = sessionIds
           .filter((id) => {
             const session = list.byId[id]
@@ -270,14 +273,12 @@ function SessionTree({
     }
   }, [list, orderBy, recentSessionOrder, recentSessionUpdatedAt, syncRecentSessions, workspaces])
   const orderedWorkspaces = useMemo(() => {
-    if (orderBy !== 'updated') return workspaces
     return workspaces.map((workspace) => {
       const stored = recentSessionOrder[workspace.workspaceId as string]
       const sessionIds = reconciledSessionOrder(workspace.sessionIds, stored)
-      if (stored === undefined) sessionIds.sort((a, b) => compareSessionRecency(a, b, list.byId))
       return { ...workspace, sessionIds }
     })
-  }, [list.byId, orderBy, recentSessionOrder, workspaces])
+  }, [recentSessionOrder, workspaces])
   const groups = useMemo(
     () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, { expandedProjects }, 'manual'),
     [list, orderedWorkspaces, archivedSessionIds, expandedProjects],
@@ -846,7 +847,7 @@ export function WorkspaceBrowser({
                 searchInput.current?.focus()
               }}
             >
-              <Tooltip label={t('search')} disabled={searchExpanded}>
+              <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
                 <button
                   type="button"
                   className={css.searchButton}
