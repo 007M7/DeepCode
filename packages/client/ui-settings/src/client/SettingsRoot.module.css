@@ -1,19 +1,20 @@
 /* Settings shell (figma 501:29904 mask context / 501:29947 panel): sidebar
-   foot trigger row + centered 1080x700 modal panel. The trigger reproduces
-   the former sidebar foot geometry (49px wide row / 36px rail circle); the
+   foot trigger row + centered 1080x700 modal panel. The trigger uses the
+   sidebar's 38px wide row / 36px rail circle rhythm; the
    panel is a two-column layout — 188px nav rail + content column with a
    54px header and the 24px-padded options area. */
 
-/* Trigger row (former sidebar foot, figma 133:7668): 49px hover pill. */
+/* Trigger row: match the other wide sidebar controls' compact vertical rhythm. */
 .trigger {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 49px;
-  margin: 8px 0 0;
-  padding: 0 2px 0 6px;
+  height: 38px;
+  margin: 4px 0 0;
+  padding: 8px 2px 8px 6px;
+  box-sizing: border-box;
   border: none;
   border-radius: 12px;
   background: transparent;
@@ -22,6 +23,7 @@
   color: var(--dsw-alias-label-primary);
   font-family: inherit;
   font-size: 14px;
+  line-height: 22px;
 }
 
 .trigger:hover {
@@ -32,7 +34,7 @@
 .trigger.rail {
   width: 36px;
   height: 36px;
-  margin: 18px 0 10px;
+  margin: 8px 0 10px;
   justify-content: center;
   gap: 0;
   padding: 0;

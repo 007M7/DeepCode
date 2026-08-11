@@ -224,7 +224,7 @@
 }
 
 /* Foot seat: a pure layout socket pinned under the region; the ui-settings
-   trigger row inside owns its own geometry (49px wide row / 36px rail
+   trigger row inside owns its own geometry (38px wide row / 36px rail
    circle) and hover chrome. */
 .footArea {
   flex: none;
