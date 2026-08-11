@@ -229,7 +229,8 @@ describe('Python release workflows', () => {
     if (!isRecord(runtimeWheel) || !Array.isArray(runtimeWheel.script)) {
       throw new TypeError('GitLab CI must define the runtime wheel script')
     }
-    const macosCheck = runtimeWheel.script.find(
+    const runtimeScript: unknown[] = runtimeWheel.script
+    const macosCheck = runtimeScript.find(
       step => typeof step === 'string' && step.includes('PLATFORM" = macos-arm64'),
     )
     if (typeof macosCheck !== 'string') {
