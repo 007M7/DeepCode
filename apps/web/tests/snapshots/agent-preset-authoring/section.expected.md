@@ -58,6 +58,7 @@
       - 'button "复制: 创造模式"':
         - img
         - text: 复制
+  - heading "自定义" [level=3]
   - button "用「创造模式」创作自定义预设":
     - img
     - text: 用「创造模式」创作自定义预设

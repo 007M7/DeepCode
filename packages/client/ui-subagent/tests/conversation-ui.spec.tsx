@@ -522,22 +522,23 @@ describe('SubagentCatalogAction', () => {
     expect(staleEmpty.openChild).not.toHaveBeenCalled()
   })
 
-  it('renders empty loading and fallback error states without focusable rows', async () => {
+  it('hides a bare loading catalog and keeps the error fallback without focusable rows', async () => {
+    // Selecting any session schedules a catalog refresh; a loading snapshot
+    // with no other evidence of children must not flash the action in.
     const loading = props(catalog({ entries: [], state: 'loading' }))
     const view = render(<SubagentCatalogAction {...loading} />)
-    const trigger = screen.getByRole('button', { name: /0 个子代理/ })
-    fireEvent.click(trigger)
-    expect(screen.getByText('正在加载子代理…')).toBeTruthy()
-    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
-    await Promise.resolve()
-    expect(screen.getByRole('tree')).toBeTruthy()
-    fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' })
+    expect(screen.queryByRole('button')).toBeNull()
     view.unmount()
 
     const failed = props(catalog({ entries: [], state: 'error', error: null }))
     render(<SubagentCatalogAction {...failed} />)
-    fireEvent.click(screen.getByRole('button', { name: /0 个子代理/ }))
+    const trigger = screen.getByRole('button', { name: /0 个子代理/ })
+    fireEvent.click(trigger)
     expect(screen.getByText('无法加载子代理')).toBeTruthy()
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    await Promise.resolve()
+    expect(screen.getByRole('tree')).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' })
   })
 
   it('navigates from outside the tree and tolerates a deferred focus after unmount', async () => {

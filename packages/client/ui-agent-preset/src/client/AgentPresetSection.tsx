@@ -171,6 +171,30 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
     )
   }
 
+  /* The guided alternative to copying: the self-referential preset can
+     read this very composition and author a new one in conversation.
+     Offered only where that preset is actually on the roster and a
+     session can be landed; without a writable root the draft could
+     never be discovered, so the reason rides the disabled button. */
+  const creatorButton = props.startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis')
+    ? (
+      <button
+        type="button"
+        className={css.creatorButton}
+        disabled={!state.authorable}
+        title={state.authorable ? undefined : t('duplicateUnavailable')}
+        onClick={() => {
+          props.startCreatorDraft?.()
+          props.close()
+        }}
+      >
+        {/* Same glyph as the Models page's add affordances. */}
+        <IconPlusOutline16 size={14} />
+        {t('creatorDraft')}
+      </button>
+    )
+    : null
+
   return (
     <div className={css.section}>
       <h2 className={css.title}>{t('nav')}</h2>
@@ -180,147 +204,130 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
         const group = state.rows
           .filter(row => row.trust === trust)
           .map(row => ({ row, text: presetDisplayText(row, t) }))
-        if (group.length === 0) return null
+        // The custom group is where a preset of one's own will appear, so it
+        // stays on screen even while empty: heading plus the creator entry.
+        const tail = trust === 'user' ? creatorButton : null
+        if (group.length === 0 && tail === null) return null
         return (
           <section key={trust} className={css.group}>
             <h3 className={css.groupHead}>{heading}</h3>
-            <ul className={css.cards}>
-              {group.map(({ row, text }) => (
-                <li
-                  key={row.id}
-                  className={row.broken !== undefined
-                    ? `${css.card} ${css.cardBroken}`
-                    : row.isDefault ? `${css.card} ${css.cardActive}` : css.card}
-                >
-                  {/* The card body IS the control: picking a preset is the
+            {group.length === 0 ? null : (
+              <ul className={css.cards}>
+                {group.map(({ row, text }) => (
+                  <li
+                    key={row.id}
+                    className={row.broken !== undefined
+                      ? `${css.card} ${css.cardBroken}`
+                      : row.isDefault ? `${css.card} ${css.cardActive}` : css.card}
+                  >
+                    {/* The card body IS the control: picking a preset is the
                       common act, so it should not hide behind a small button.
                       The action row sits outside it — nesting buttons is
                       invalid, and these act on the card rather than select it.
                       A broken preset cannot compose a session, so its body is
                       disabled and the card says why instead of offering it. */}
-                  <button
-                    type="button"
-                    className={css.cardMain}
-                    aria-pressed={row.isDefault}
-                    disabled={row.isDefault || row.broken !== undefined}
-                    // Without this the name is the whole card read aloud —
-                    // title, badge, description, id.
-                    aria-label={`${row.broken !== undefined ? t('brokenBadge') : row.isDefault ? t('inUse') : t('setDefault')}: ${text.name}`}
-                    title={row.broken ?? (row.isDefault ? t('inUse') : t('setDefault'))}
-                    onClick={() => { void props.makeDefault(row.id) }}
-                  >
-                    <span className={css.cardHead}>
-                      <span className={css.cardName}>{text.name}</span>
-                      {row.broken !== undefined
-                        ? <span className={css.brokenBadge}>{t('brokenBadge')}</span>
-                        : null}
-                      <span className={css.badge}>
-                        {row.trust === 'user' ? t('userTrust') : t('builtIn')}
+                    <button
+                      type="button"
+                      className={css.cardMain}
+                      aria-pressed={row.isDefault}
+                      disabled={row.isDefault || row.broken !== undefined}
+                      // Without this the name is the whole card read aloud —
+                      // title, badge, description, id.
+                      aria-label={`${row.broken !== undefined ? t('brokenBadge') : row.isDefault ? t('inUse') : t('setDefault')}: ${text.name}`}
+                      title={row.broken ?? (row.isDefault ? t('inUse') : t('setDefault'))}
+                      onClick={() => { void props.makeDefault(row.id) }}
+                    >
+                      <span className={css.cardHead}>
+                        <span className={css.cardName}>{text.name}</span>
+                        {row.broken !== undefined
+                          ? <span className={css.brokenBadge}>{t('brokenBadge')}</span>
+                          : null}
+                        <span className={css.badge}>
+                          {row.trust === 'user' ? t('userTrust') : t('builtIn')}
+                        </span>
+                        {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
                       </span>
-                      {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
-                    </span>
-                    <span className={css.cardDesc}>{text.description ?? t('noDescription')}</span>
-                    {row.broken === undefined
-                      ? null
-                      : <span className={css.cardBrokenReason} role="alert">{row.broken}</span>}
-                    <code className={css.cardId}>{row.id}</code>
-                  </button>
-                  <div className={css.cardFoot}>
-                    {/* Shipped presets are the compositions a copy starts
+                      <span className={css.cardDesc}>{text.description ?? t('noDescription')}</span>
+                      {row.broken === undefined
+                        ? null
+                        : <span className={css.cardBrokenReason} role="alert">{row.broken}</span>}
+                      <code className={css.cardId}>{row.id}</code>
+                    </button>
+                    <div className={css.cardFoot}>
+                      {/* Shipped presets are the compositions a copy starts
                         from, so READING one is the point; a custom preset is
                         edited in its files instead, which the location action
                         leads to. A broken shipped preset has no readable
                         composition to offer, so its viewer is withheld; a
                         broken custom one keeps the location action — the
                         files are where it gets fixed. */}
-                    {row.trust === 'system'
-                      ? row.broken === undefined
-                        ? (
+                      {row.trust === 'system'
+                        ? row.broken === undefined
+                          ? (
+                            <button
+                              type="button"
+                              className={css.iconButton}
+                              data-tip={t('view')}
+                              aria-label={`${t('view')}: ${text.name}`}
+                              onClick={() => { void props.view(row.id) }}
+                            >
+                              <IconBrowseOutline16 />
+                            </button>
+                          )
+                          : null
+                        : (
                           <button
                             type="button"
                             className={css.iconButton}
-                            data-tip={t('view')}
-                            aria-label={`${t('view')}: ${text.name}`}
-                            onClick={() => { void props.view(row.id) }}
+                            data-tip={state.hasDocument ? t('openLocation') : t('showLocation')}
+                            aria-label={`${state.hasDocument ? t('openLocation') : t('showLocation')}: ${text.name}`}
+                            onClick={() => { void props.openLocation(row.id) }}
                           >
-                            <IconBrowseOutline16 />
+                            <IconFolderOpenOutline16 />
+                          </button>
+                        )}
+                      <button
+                        type="button"
+                        className={css.iconButton}
+                        disabled={!state.authorable || row.broken !== undefined}
+                        data-tip={row.broken !== undefined
+                          ? t('brokenNoCopy')
+                          : state.authorable ? t('duplicate') : t('duplicateUnavailable')}
+                        aria-label={`${t('duplicate')}: ${text.name}`}
+                        onClick={() => { props.beginCopy(row.id) }}
+                      >
+                        <IconCopyOutline16 />
+                      </button>
+                      {row.trust === 'user'
+                        ? (
+                          <button
+                            type="button"
+                            className={`${css.iconButton} ${css.iconDanger}`}
+                            data-tip={t('delete')}
+                            aria-label={`${t('delete')}: ${text.name}`}
+                            onClick={() => { props.confirmDelete(row.id) }}
+                          >
+                            <IconTrashOutline16 />
                           </button>
                         )
-                        : null
+                        : null}
+                    </div>
+                    {state.revealedPaths[row.id] === undefined
+                      ? null
                       : (
-                        <button
-                          type="button"
-                          className={css.iconButton}
-                          data-tip={state.hasDocument ? t('openLocation') : t('showLocation')}
-                          aria-label={`${state.hasDocument ? t('openLocation') : t('showLocation')}: ${text.name}`}
-                          onClick={() => { void props.openLocation(row.id) }}
-                        >
-                          <IconFolderOpenOutline16 />
-                        </button>
+                        <p className={css.revealedPath}>
+                          <span className={css.revealedPathLabel}>{t('revealedPathLabel')}</span>
+                          <code>{state.revealedPaths[row.id]}</code>
+                        </p>
                       )}
-                    <button
-                      type="button"
-                      className={css.iconButton}
-                      disabled={!state.authorable || row.broken !== undefined}
-                      data-tip={row.broken !== undefined
-                        ? t('brokenNoCopy')
-                        : state.authorable ? t('duplicate') : t('duplicateUnavailable')}
-                      aria-label={`${t('duplicate')}: ${text.name}`}
-                      onClick={() => { props.beginCopy(row.id) }}
-                    >
-                      <IconCopyOutline16 />
-                    </button>
-                    {row.trust === 'user'
-                      ? (
-                        <button
-                          type="button"
-                          className={`${css.iconButton} ${css.iconDanger}`}
-                          data-tip={t('delete')}
-                          aria-label={`${t('delete')}: ${text.name}`}
-                          onClick={() => { props.confirmDelete(row.id) }}
-                        >
-                          <IconTrashOutline16 />
-                        </button>
-                      )
-                      : null}
-                  </div>
-                  {state.revealedPaths[row.id] === undefined
-                    ? null
-                    : (
-                      <p className={css.revealedPath}>
-                        <span className={css.revealedPathLabel}>{t('revealedPathLabel')}</span>
-                        <code>{state.revealedPaths[row.id]}</code>
-                      </p>
-                    )}
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {tail}
           </section>
         )
       })}
-      {/* The guided alternative to copying: the self-referential preset can
-          read this very composition and author a new one in conversation.
-          Offered only where that preset is actually on the roster and a
-          session can be landed; without a writable root the draft could
-          never be discovered, so the reason rides the disabled button. */}
-      {props.startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis')
-        ? (
-          <button
-            type="button"
-            className={css.creatorButton}
-            disabled={!state.authorable}
-            title={state.authorable ? undefined : t('duplicateUnavailable')}
-            onClick={() => {
-              props.startCreatorDraft?.()
-              props.close()
-            }}
-          >
-            {/* Same glyph as the Models page's add affordances. */}
-            <IconPlusOutline16 size={14} />
-            {t('creatorDraft')}
-          </button>
-        )
-        : null}
       <CopyDialog
         state={state}
         t={t}
