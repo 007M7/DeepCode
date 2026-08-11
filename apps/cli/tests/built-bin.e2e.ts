@@ -227,8 +227,8 @@ function createStartupFixture(): StartupFixture {
     "export const inject = ['cmdlineArgs']",
     'export function apply(ctx) {',
     "  const program = new Command().name('fixture').option('--generation <value>', 'echoed generation')",
-    '  const values = parseCmdline(ctx, program, parsed => ({ generation: parsed.opts().generation }))',
-    '  if (values !== undefined) ctx.provide(\'fixtureStartup\', values)',
+    "  program.action(() => ctx.provide('fixtureStartup', { generation: program.opts().generation }))",
+    '  parseCmdline(ctx, program)',
     '}',
     '',
   ].join('\n'))
