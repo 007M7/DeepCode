@@ -26,6 +26,12 @@ import type { SessionLineageNode, SessionQueryService } from '@deepseek-ai/dsh-s
 import type { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 
+/** Valid fflate DEFLATE levels accepted by session-log export. */
+export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+
+/** Balanced default used when a direct createApiProxy caller omits deployment config. */
+export const DEFAULT_SESSION_LOG_COMPRESSION_LEVEL: SessionLogCompressionLevel = 6
+
 /** The services a session-log export needs (the live-session store is optional). */
 export interface SessionLogExportDeps {
   readonly sessionQuery: SessionQueryService | undefined
@@ -375,6 +381,7 @@ async function pushArtifactChunks(
  * @param root - the already-read root artifact (first zip entry).
  * @param sessionId - the root session id.
  * @param includeDescendants - whether to include every subagent descendant.
+ * @param compressionLevel - validated fflate DEFLATE level for every ZIP entry.
  * @param signal - request cancellation combined with response-consumer cancellation.
  * @returns the zip byte stream.
  */
@@ -383,6 +390,7 @@ export function streamSessionLogZip(
   root: SessionRawArtifact,
   sessionId: SessionId,
   includeDescendants: boolean,
+  compressionLevel: SessionLogCompressionLevel,
   signal: AbortSignal,
 ): ReadableStream<Uint8Array> {
   const consumerAbort = new AbortController()
@@ -415,7 +423,7 @@ export function streamSessionLogZip(
       void (async () => {
         try {
           for await (const entry of sessionLogZipEntries(deps, root, sessionId, includeDescendants, producerSignal)) {
-            const deflate = new ZipDeflate(entry.path, { level: 6 })
+            const deflate = new ZipDeflate(entry.path, { level: compressionLevel })
             archive.add(deflate)
             if ('content' in entry) {
               await pushArtifactChunks(deflate, entry.content, controller, capacity, producerSignal)

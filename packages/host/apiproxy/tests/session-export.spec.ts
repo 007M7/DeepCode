@@ -14,8 +14,7 @@ import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
+import ApiProxyService, { createApiProxy, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
 
@@ -74,6 +73,7 @@ async function buildApi(
       root: { header: SessionHeader; live: boolean; persisted: boolean }
       descendants: readonly SessionLineageNode[]
     }>
+    compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
   } = {},
 ) {
   const ctx = new Context()
@@ -115,12 +115,28 @@ async function buildApi(
   return createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
     cwd: '/tmp',
+    ...services.compressionLevel === undefined
+      ? {}
+      : { sessionExportCompressionLevel: services.compressionLevel },
   })
 }
 
 async function responseBytes(response: Response): Promise<Uint8Array> {
   return new Uint8Array(await response.arrayBuffer())
 }
+
+describe('session export compression config', () => {
+  it('defaults to level 6 and rejects values outside the integer 0-9 range', () => {
+    expect(ApiProxyService.Config({})).toEqual({ sessionExportCompressionLevel: 6 })
+    expect(ApiProxyService.Config({ sessionExportCompressionLevel: 0 }))
+      .toEqual({ sessionExportCompressionLevel: 0 })
+    expect(ApiProxyService.Config({ sessionExportCompressionLevel: 9 }))
+      .toEqual({ sessionExportCompressionLevel: 9 })
+    for (const value of [-1, 10, 1.5]) {
+      expect(() => ApiProxyService.Config({ sessionExportCompressionLevel: value } as never)).toThrow()
+    }
+  })
+})
 
 describe('session.export download endpoint', () => {
   it('streams a ZIP with the root artifact verbatim under its original filename', async () => {
@@ -134,6 +150,24 @@ describe('session.export download endpoint', () => {
     const files = unzipSync(await responseBytes(response))
     expect(Object.keys(files)).toEqual(['session.jsonl'])
     expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(artifact('session-root').content)
+  })
+
+  it('uses the resolved compression level for ZIP entries', async () => {
+    const root = artifact('session-root', undefined, 'compressible\n'.repeat(32 * 1024))
+    const storedApi = await buildApi({ 'session-root': root }, [], { compressionLevel: 0 })
+    const compressedApi = await buildApi({ 'session-root': root }, [], { compressionLevel: 9 })
+    const stored = await storedApi.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      new AbortController().signal,
+    )
+    const compressed = await compressedApi.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      new AbortController().signal,
+    )
+    const storedBytes = await responseBytes(stored)
+    const compressedBytes = await responseBytes(compressed)
+    expect(compressedBytes.byteLength).toBeLessThan(storedBytes.byteLength)
+    expect(strFromU8(unzipSync(compressedBytes)['session.jsonl'] as Uint8Array)).toBe(root.content)
   })
 
   it('includes descendant artifacts under subagents/<id>/ when requested', async () => {
