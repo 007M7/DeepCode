@@ -23,7 +23,9 @@ Two planes, and the choice is not about how "agent-related" something feels — 
 
 **A service with a consumer outside the agent plane cannot move into a preset.** `subagents` is the worked example: the registry answers cross-session queries for the host api-proxy, so a per-session copy both starves that host row — it waits forever for a service nothing provides — and collides on the second session, since a provider name registers once. The preset contributes the delegation *tools*; the registry and its backends stay host-side.
 
-A preset is a directory holding one `agent.cordis.yml`, optionally beside a `preset.yml` carrying display metadata — `name` and `description` (and, for shipped presets, a roster `order`). Write the metadata too: a preset without it shows up in every picker as its bare directory name. Locally authored presets live under `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<id>/`.
+A preset is a directory holding one `agent.cordis.yml`, optionally beside a `preset.yml` carrying display metadata — `name` and `description` (and, for shipped presets, a roster `order`). Write the metadata too: a preset without it shows up in every picker as its bare directory name.
+
+**Do not assume where presets live.** Both roots come from this deployment's configuration, and no call reports them directly: `authorable` says only whether a writable root exists. `copy()` picks that root itself, and every preset's absolute path comes back from `list()` and `resolve()` — read it from there. A default install puts locally authored presets under `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<id>/` and the shipped set beside the deployment's own config, which is what to tell the user when they ask where to look, but never what to hand a file tool.
 
 ## The roster service
 
@@ -31,8 +33,8 @@ A preset is a directory holding one `agent.cordis.yml`, optionally beside a `pre
 
 Read `cordis_inspect what:"api" name:"agentPresets"` for the current signatures before writing the code. The four calls this skill relies on:
 
-- `list()` — every preset with its `id`, `trust`, and absolute `path`. This is how you locate the shipped compositions without knowing the install layout.
-- `read(id)` — one preset's composition text.
+- `list()` — every preset with its `id`, `trust` (`system` for the shipped set, `user` for authored ones), and the absolute `path` of its composition file. This is how you locate any composition without knowing the install layout; the directory is that path's parent.
+- `read(id)` — one preset's composition text, without a file tool or a path.
 - `copy(from, id, name?)` — the only authoring write (see below).
 - `standingKeyFor(id)` — mount-validate one preset (see below).
 
@@ -63,7 +65,7 @@ Unmount the plugin with `cordis_unmount` when you are done; it is a probe, not a
 
 ## Authoring a preset
 
-1. **Start from a copy.** `copy(from, id, name)` copies a whole preset directory into the user root — composition, metadata, skill directories, assets. It validates the id against `[a-z0-9][a-z0-9-]*` (it becomes the directory name, so no leading hyphen), refuses an id any root already supplies, rolls a failed copy back, and rewrites the copy's `preset.yml` to keep the source's description while dropping its name and roster `order`. Prefer it over a shell copy: it needs no sandbox escalation, and the copy is exactly as loadable as its source. `standard` is the full coding agent and the usual source.
+1. **Start from a copy.** `copy(from, id, name)` copies a whole preset directory into the user root — composition, metadata, skill directories, assets. It validates the id against `[a-z0-9][a-z0-9-]*` (it becomes the directory name, so no leading hyphen), refuses an id any root already supplies, rolls a failed copy back, and rewrites the copy's `preset.yml` to keep the source's description while dropping its name and roster `order`. Prefer it over a shell copy: it needs no sandbox escalation, it lands the copy in whichever root this deployment made writable, and the copy is exactly as loadable as its source. `resolve(id)` then names the file it created — that path, not a guessed one, is what the following edits target. `standard` is the full coding agent and the usual source.
 2. **Expect the file sandbox on every edit after the copy.** The user preset root lies outside the session workspace, so under the default `workspace-write` policy the first write there is denied. Only writes are: reading any composition by absolute path needs no escalation. Retry that exact command once with `sandbox_permissions` escalation and a short justification — the user sees and approves it. Batch your writes (one heredoc per file) rather than escalating many small commands. `copy()` itself runs host-side and needs none of this; the edits do.
 3. **Write the copy's `description`** in `preset.yml`, and its `name` if you passed none to `copy()`.
 4. **Edit `agent.cordis.yml`** row by row, keeping the plane rule and the realm rule.

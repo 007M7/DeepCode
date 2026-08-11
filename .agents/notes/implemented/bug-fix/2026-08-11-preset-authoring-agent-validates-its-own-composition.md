@@ -32,6 +32,8 @@ The agent reaches the roster service the way `cordis_mount` documents: a tempora
 
 "Whether a row publishes a service" resolves through `cordis_inspect what:"services"`, which names the owning fiber of every live service.
 
+Neither preset root is a constant the guidance may state as fact. `writableRoot()` takes the first `user` root from configuration, and no call reports either root's path — `authorable` answers only whether a writable one exists, and `list()` cannot reveal a user root that holds nothing yet. The skill and the persona therefore name `${DSH_HOME:-$HOME/.dsh}/.agent-presets/` as the default install's answer for a user asking where to look, and tell the agent to read every path it acts on back from `list()` or `resolve()`.
+
 The prohibition on touching the shipped install is promoted from a paragraph inside the authoring steps to a top `## Off-limits` section, extended to cover editing the host composition as a workaround. The new self-validation calls do not weaken it: `copy()` refuses an id any root supplies, and `remove()` refuses a preset that ships with the deployment.
 
 ## Measured behavior
