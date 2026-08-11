@@ -31,4 +31,4 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **Tasks are process-local** — records die with the harness process; durable or cross-restart execution needs a separate backend implementing the seam.
-- **A silently ineffective cancel can stall teardown** — only an explicit throw can be force-failed safely.
+- **A silently ineffective cancel can stall teardown and hold capacity** — if `cancel` returns without settling `done`, the registry cannot distinguish it from a slow stop; the task keeps one bucket slot for the rest of the service lifetime, and only an explicit throw can be force-failed safely.

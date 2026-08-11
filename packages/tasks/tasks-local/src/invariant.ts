@@ -15,8 +15,10 @@ export const name = 'tasks-local-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the Service Definition companion in `@deepseek-ai/dsh-tasks` already
- * validates every registry snapshot this implementation publishes.
+ * No runtime invariant: the Service Definition companion in `@deepseek-ai/dsh-tasks` validates
+ * every published snapshot. `LocalTaskService.start()` enforces this provider's configured
+ * admission limit synchronously before producer execution; repeating that aggregate check here
+ * would expose provider-private configuration solely to this companion.
  */
 const install: InvariantInstaller = () => {}
 

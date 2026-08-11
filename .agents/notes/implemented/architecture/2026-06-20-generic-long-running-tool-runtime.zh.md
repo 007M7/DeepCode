@@ -25,7 +25,7 @@ Status: implemented
 
 字面类型见[任务子系统页面](../../../../docs/subsystems/tasks.md)。生产方调用 `ctx.tasks.start()`，传入 kind、label、可选的所属 `Agent`、可选的正数 `outputLimitBytes` 与一个 `run()` 函数。运行时会在调用 `run()` 前完成所有可能失败的预检工作，并且只调用一次。`run()` 返回钩子后，注册过程不会再执行可能失败的步骤而直接提交；生产方无法启动没有可收集 task id 的工作。
 
-进程内 Service provider 还拥有有界准入。它的 `maxConcurrentTasksPerOwner` 配置必须是正的安全整数，默认值为 `10`；`start()` 从 `running` 与 `stopping` 记录派生每个确切 `Agent` 对象的活动数量，而全部无 owner 任务共享一个服务级桶。容量拒绝发生在 `run()` 与 id 分配之前，处于 stopping 的任务只有在生产方 `done` 结算时才释放名额。Service provider 不排队或抢占任务，也不保留第二份可变计数。
+进程内 Service provider 还拥有有界准入，其理由记录在[有界后台任务准入决策](../bug-fix/2026-08-11-bounded-background-task-admission.md)中。它的 `maxConcurrentTasksPerOwner` 配置必须是正的安全整数，默认值为 `10`；`start()` 从 `running` 与 `stopping` 记录派生每个确切 `Agent` 对象的活动数量，而全部无 owner 任务共享一个服务级桶。容量拒绝发生在 `run()` 与 id 分配之前，处于 stopping 的任务只有在生产方 `done` 结算时才释放名额。Service provider 不排队或抢占任务，也不保留第二份可变计数。
 
 `outputLimitBytes` 是生产方拥有的呈现策略，而非注册表缓冲区。注册表校验该值，并将其原样投影到 `TaskSnapshot`；通用任务控制器添加自身的状态或通知元数据后，再将该上限应用于完整的面向模型输出。省略该值时保持现有控制器行为，因此运行时不会向无关的生产方类别施加隐式默认值。
 

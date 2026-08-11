@@ -2041,7 +2041,10 @@ export interface Config {
 ```ts config-catalog
 /** Configuration for the process-local task registry. */
 export interface Config {
-  /** Maximum `running` plus `stopping` tasks per exact owner; omission defaults to 10. */
+  /**
+   * Maximum `running` plus `stopping` tasks per exact owner or in the shared unowned bucket;
+   * omission defaults to 10.
+   */
   maxConcurrentTasksPerOwner?: number
 }
 ```

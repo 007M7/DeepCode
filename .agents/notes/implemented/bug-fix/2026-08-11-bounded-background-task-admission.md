@@ -14,6 +14,8 @@ The process-local task registry already owns the exact task owner and the author
 
 `LocalTaskService` owns a `maxConcurrentTasksPerOwner` configuration field. It accepts positive safe integers, defaults to `10`, and is available through the provider's Cordis schema, the typed `agent-spine-demo` bundle, and the ACP app configuration. The bundle transports the value; the process-local provider owns its meaning.
 
+The [generic task runtime decision](../architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the shared Task lifecycle and control API; this note owns the process-local admission policy.
+
 `start()` performs admission after the existing task-controller, task-field, and live-owner checks and before `TaskStart.run()`. It derives the active count from the registry's current records instead of storing another counter:
 
 | Record | Occupies capacity | Release fact |
@@ -48,6 +50,6 @@ The task-provider suite covers the default and explicit limits, producer-before 
 
 ## Consequences
 
-One exact owner cannot keep creating Task-backed live resources indefinitely, and unrelated owners retain independent allowances. A slow stop can temporarily keep a bucket full, which is deliberate: the configured number bounds work that may still own resources, not cancellation requests.
+One exact owner cannot keep creating Task-backed live resources indefinitely, and unrelated owners retain independent allowances. A slow stop keeps a bucket full until `done` settles, which is deliberate: the configured number bounds work that may still own resources, not cancellation requests. A producer whose `cancel` returns but whose `done` never settles holds one slot for the rest of the service lifetime and can stall teardown because the registry cannot safely infer resource release.
 
 Admission scans the process-local registry on each start. The cost grows with retained Task history, accepted in exchange for one state authority and a default limit small enough to bound the common live set. Terminal history remains available to existing reads and listings without consuming capacity.
