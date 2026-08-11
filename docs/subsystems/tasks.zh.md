@@ -97,7 +97,7 @@ interface TaskOutcome {
 
 ## 消费方视图
 
-快照是每次新建的只读投影。`ownerSession` 携带用于授权的共享 `SessionId`；完成监听器则会另行收到用于生命周期清理的确切拥有者对象。另一个接口已经交付终止状态或承诺交付时，`reported` 会抑制完成通知。
+快照是每次新建的只读投影。`ownerSession` 携带用于授权的共享 `SessionId`；完成监听器则会另行收到用于生命周期清理的确切拥有者对象。另一个接口已经交付终止状态或承诺交付时，`reported` 会抑制完成通知；排空 owner 或服务的 teardown 取消同样计入。
 
 ```ts type-equiv
 /**
@@ -128,8 +128,11 @@ interface TaskSnapshot {
   /** Epoch ms when the task settled; absent while `running`/`stopping`. */
   finishedAt?: number
   /**
-   * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion reporters suppress redundant notices when set.
+   * True when a kill, read, wait, or teardown cancel has reported or committed
+   * to report the terminal state. Completion reporters suppress redundant
+   * notices when set. Teardown claims it because the owner or service being
+   * destroyed leaves no reader: a reporter that opens a turn on notice would
+   * otherwise spend a model request per teardown layer.
    */
   reported: boolean
 }
@@ -169,9 +172,9 @@ Abstract background task registry. Subclass, implement the abstract methods, and
 
 Implementations must honor these semantics:
 
-- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record. Teardown cancellation also marks the record reported, because a record its owner is being destroyed for has no reader left.
 - Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
-- Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
+- Settlement is first-wins: one terminal record, released waiters, and one round of contained listener notification, even against a late producer outcome. Completion is announced last, after the record is committed and every other observer of the settlement has seen it, because a reporter may open a model turn synchronously.
 - start refuses work while no attached task controller serves the spec's owner, so a producer cannot start work that owner cannot collect or stop. One registry serves every composition in the process, so this question — and completion-listener delivery — is owner-relative rather than process-wide: registrations made from an unscoped context serve every owner, and registrations made under an agent composition's scope serve exactly the agents composed under it.
 
 ```ts cordis-catalog
@@ -282,5 +285,5 @@ abstract attachController(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:62`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->

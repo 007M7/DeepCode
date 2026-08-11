@@ -18,7 +18,11 @@ When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`
 
 ## Completion notices
 
-An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's next-step inbox. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable pending context for a later pre-step claim, not a wake-up; cancellation or owner disposal may discard it before claim. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice.
+An unreported completion delivers `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` to the exact owner. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice, as does the teardown cancel that drains an owner or the service.
+
+Which lane carries it depends on what the owner is doing. A busy owner is injected: the notice joins the next-step inbox, and the turn cannot close while that inbox holds it, so several tasks settling together cost one step rather than one turn each. An idle owner is instead woken with a follow-up turn, because a pending notice nothing claims is a completion the model never learns about. `completionDelivery: quiet` keeps the injection lane for idle owners too, which is what a deterministic transcript needs.
+
+Waking is bounded. Each owner may open `maxConsecutiveWakes` turns this way before further notices degrade to injection, and claiming any user-authored message restores the budget. The bound exists because the chain is self-exciting: a woken turn may start the background task whose completion wakes it again. Notices this plugin queued never refill the budget they spent.
 
 One host registry may carry several mounts of this plugin — one per agent preset. The registry routes each settlement to the listeners the owner's scope chain reaches, so a mount under one preset never sees another preset's agents and an agent reads exactly one notice per completion however many presets are mounted. The same routing decides which agents this mount's controller serves: an agent whose composition loads no `tool-tasks` cannot start background work at all.
 
@@ -28,6 +32,8 @@ One host registry may carry several mounts of this plugin — one per agent pres
 |---|---|---|
 | `waitTimeoutMs` | `30000` | wait used when `wait: true` omits `timeout_ms` |
 | `maxWaitTimeoutMs` | `600000` | cap for model-supplied waits |
+| `completionDelivery` | `wakeup` | `wakeup` opens a turn on an idle owner; `quiet` leaves the notice pending |
+| `maxConsecutiveWakes` | `3` | turns one owner may open by wake before notices degrade to injection |
 
 A default above the cap fails at load.
 
@@ -75,7 +81,7 @@ Reads return output or `(no new output)` followed by `[status: <status>]` and op
 
 #### Token effect
 
-Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output; a producer-supplied `outputLimitBytes` bounds each complete read or notice.
+Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output; a producer-supplied `outputLimitBytes` bounds each complete read or notice. Under `wakeup`, a notice reaching an idle owner also buys a model request the user did not ask for, capped per owner by `maxConsecutiveWakes`; a notice reaching a busy owner adds a step to the turn it is already paying for.
 
 #### KV Cache effect
 
@@ -83,6 +89,8 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Completion notices do not wake idle agents** — callers needing an immediate result must use `task_output`.
+- **A settlement inside the driver's retirement window still strands its notice** — between the turn loop's last inbox check and the driver committing its idle phase the owner still reads as busy, so the notice is injected and nothing wakes. Steering has the same hole; closing it belongs to `agent-loop`.
+- **A spent wake budget is not restored by time** — only user-authored input refills it, so an unattended agent whose budget ran out collects its remaining notices on the next turn something else opens.
+- **A notice pending on an idle owner does not survive that owner's disposal** — the disposal cancel clears the unclaimed inbox, and the log keeps the insert/cancel pair as the record.
 - **Stream reads are single-consumer** — independent observers need another runtime API.
 - **Unowned tasks have no session fence** — external callers must supply policy or avoid them.

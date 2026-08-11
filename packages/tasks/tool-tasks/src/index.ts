@@ -1,8 +1,9 @@
 /**
  * Model-facing `task_output`, `task_list`, and `task_kill` tools over
  * `ctx.tasks`. Loading the plugin attaches the controller required by
- * producers. It also injects unreported completions as durable context for the
- * owner's next request; notices do not wake idle agents.
+ * producers. It also delivers unreported completions to the owning agent:
+ * injected into a busy owner's next step, or opening a turn on an idle one
+ * under the default `wakeup` delivery, bounded per owner.
  * @module @deepseek-ai/dsh-tool-tasks
  */
 
@@ -15,21 +16,40 @@ import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-a
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 export const name = 'tool-tasks'
 export const inject = ['tools', 'tasks', 'systemPrompt']
 
-/** Configures bounded `task_output` waits. */
+/**
+ * How an unreported completion reaches an owner that is already idle: `wakeup`
+ * opens a turn for it, `quiet` leaves it pending until something else wakes the
+ * owner. A busy owner is injected either way.
+ */
+export type CompletionDelivery = 'quiet' | 'wakeup'
+
+/** Configures bounded `task_output` waits and completion-notice delivery. */
 export interface Config {
   /** Wait duration applied when `task_output` sets `wait` without `timeout_ms` (default 30s). */
   waitTimeoutMs?: number
   /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
   maxWaitTimeoutMs?: number
+  /** Whether a completion opens a turn on an idle owner (default `wakeup`). */
+  completionDelivery?: CompletionDelivery
+  /**
+   * Turns one owner may have opened by completion wakes before the next
+   * notice degrades to injection, reset by any user-authored input (default 3).
+   * Bounds the self-exciting chain where a woken turn starts the task whose
+   * completion wakes it again.
+   */
+  maxConsecutiveWakes?: number
 }
 
 export const Config: z<Config> = z.object({
   waitTimeoutMs: z.number().min(1).default(30_000),
   maxWaitTimeoutMs: z.number().min(1).default(600_000),
+  completionDelivery: z.union(['quiet', 'wakeup'] as const).default('wakeup'),
+  maxConsecutiveWakes: z.number().min(1).default(3),
 })
 
 /** Task state safe for model-authored programs; ownership/bookkeeping fields are omitted. */
@@ -185,8 +205,28 @@ function presentTaskCall(title: string, kind: 'read' | 'execute', rawInput?: str
 export function apply(ctx: Context, config: Config): void {
   const waitDefault = config.waitTimeoutMs ?? 30_000
   const waitCap = config.maxWaitTimeoutMs ?? 600_000
+  const delivery = config.completionDelivery ?? 'wakeup'
+  const wakeBudget = config.maxConsecutiveWakes ?? 3
+
+  // Turns this plugin opened on each owner since that owner last consumed
+  // human input. Keyed by the exact Agent, so a same-session replacement
+  // starts with a full budget.
+  const spentWakes = new WeakMap<Agent, number>()
   if (waitDefault > waitCap) {
     throw new Error(`tool-tasks: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
+  }
+  // A budget is a count of turns. `Infinity` would leave the runaway chain this
+  // field exists to bound unbounded, and a fraction never names a turn at all.
+  if (!Number.isSafeInteger(wakeBudget)) {
+    throw new Error(`tool-tasks: maxConsecutiveWakes (${wakeBudget}) must be a whole number of turns`)
+  }
+  // Nothing spends the budget under quiet delivery, so nothing needs to refill it.
+  if (delivery === 'wakeup') {
+    ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+      // Claiming is the point the human's input actually enters a step; a notice
+      // this plugin itself queued must not refill the budget it just spent.
+      if (message.source.kind === 'user') spentWakes.delete(agent)
+    })
   }
 
   const outputLimits = new WeakMap<ToolExecution, number>()
@@ -227,16 +267,18 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // Use the exact lifecycle owner; reusable ids could resolve to a replacement.
-  // Delivery targets the exact lifecycle owner. The notice waits in its
-  // next-step inbox until another step claims it; disposal before that
-  // boundary discards it with the owner.
+  // A busy owner is injected: the notice waits in its next-step inbox, which
+  // the turn cannot close over, so tasks settling together cost one step. An
+  // idle owner is woken instead, because an unclaimed notice is a completion
+  // the model never learns about. Either way, disposal before the claim
+  // discards it with the owner, and teardown settlements arrive `reported`.
   //
   // The registry routes each settlement to the listeners its owner's scope
   // chain reaches, so a mount under one preset never sees another preset's
   // agents; this listener owns delivery, not the choice of whom to deliver to.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
-    owner.inject(createUserMessage({
+    const message = createUserMessage({
       content: [{
         type: 'text',
         text: fitCompletionNotice(snapshot),
@@ -247,7 +289,14 @@ export function apply(ctx: Context, config: Config): void {
         form: 'notice',
         summary: completionSummary(snapshot),
       },
-    }))
+    })
+    const spent = spentWakes.get(owner) ?? 0
+    if (delivery === 'wakeup' && owner.status === 'idle' && spent < wakeBudget) {
+      spentWakes.set(owner, spent + 1)
+      owner.followup(message)
+      return
+    }
+    owner.inject(message)
   })
 
   ctx.tools.register(defineTool({
