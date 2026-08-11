@@ -141,7 +141,7 @@ SRC 只解决 Host 源码进程的分发问题。Client 不会从运行中的 Ho
 仓库的 `dsh` 脚本会先完成 Host、Client 与 Web 构建，再启动源码 Host。Web 开发需要在两个终端中分别运行该命令和 Client plugin watcher：
 
 ```sh
-pnpm dsh web --dev
+pnpm dsh web
 pnpm run dev:web
 ```
 

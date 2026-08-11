@@ -110,21 +110,33 @@ function entryConfig(ctx: Context, id: string): unknown {
 }
 
 describe('Loader config interpolation', () => {
-  it("resolves Include's own !!js options", async () => {
+  it("keeps Include's config literal — a nested row's !!js belongs to that row's fiber", async () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
-    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    writeFileSync(join(dir, 'reader.mjs'), [
+      'export const name = "reader"',
+      'export function apply(ctx, config) { ctx.provide("observedValue", config.value) }',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '- id: reader\n  name: ./reader.mjs\n')
     const ctx = new Context()
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
-    ctx.provide('includePath', pathToFileURL(join(dir, 'cordis.yml')).href)
+    ctx.provide('answer', 42)
     try {
+      // The include is a tree carrier: its own config (path, patches) stays
+      // literal, and the expression nested inside the patched row's config
+      // resolves against the row's fiber, not the include's.
       await ctx.loader.create({
         name: 'cordis:include',
-        config: { path: { __jsExpr: "ctx.get('includePath')" } },
+        config: {
+          path: pathToFileURL(join(dir, 'cordis.yml')).href,
+          patches: [{ id: 'reader', name: './reader.mjs', config: { value: { __jsExpr: "ctx.get('answer')" } } }],
+        },
       })
       await ctx.loader.await()
-      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'noop')).toBe(true)
+      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
+      expect(reader?.options.config).toEqual({ value: { __jsExpr: "ctx.get('answer')" } })
+      expect(ctx.get('observedValue')).toBe(42)
     } finally {
       await ctx.fiber.dispose()
     }

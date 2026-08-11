@@ -8,7 +8,7 @@ The analyzer can use independent `ts.Program` instances seeded from `tsconfig.ho
 
 ## Analysis Model
 
-Each face contains package exports, Cordis services and events, explicitly tagged objects and schemas, and a type graph for their reachable declarations. The graph preserves declaration identity, generic parameters and applications, explicit inheritance, conditional and mapped types, import attributes, abstract modifiers, and source JSDoc. Service and `@typert object` surfaces expose public instance members only; constructors, static members, and non-public members are excluded.
+Each face contains package exports, Cordis services and events, explicitly tagged objects and schemas, and a type graph for their reachable declarations. The graph preserves declaration identity, generic parameters and applications, explicit inheritance, conditional and mapped types, import attributes, abstract modifiers, and source JSDoc. Service and `@typert object` APIs expose public instance members only; constructors, static members, and non-public members are excluded.
 
 `WorkspaceAnalyzer` defaults to `check` mode and fails on TypeScript syntax or semantic diagnostics, missing reachable public annotations, private cross-package references, and reachable declaration merges that the model cannot retain losslessly. `write` mode inserts checker-derived annotations, rebuilds the program, and returns a clean check-mode model.
 

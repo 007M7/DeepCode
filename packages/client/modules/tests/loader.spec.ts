@@ -70,7 +70,7 @@ describe('lazy CJS arrival', () => {
     expect(b.loader.loadCache.size).toBe(0)
   })
 
-  it('import materializes once and memoizes the export surface', async () => {
+  it('import materializes once and memoizes the exports', async () => {
     const ran: string[] = []
     const b = bench([row('a')], { a: () => { ran.push('a'); return { marker: 'a' } } })
     const first = await b.loader.import('a', '', {})
@@ -83,8 +83,8 @@ describe('lazy CJS arrival', () => {
 
   it('import without prefetch loads, registers, and materializes in one call', async () => {
     const b = bench([row('a')], { a: () => ({ marker: 'direct' }) })
-    const surface = await b.loader.import('a', '', {})
-    expect((surface as { marker: string }).marker).toBe('direct')
+    const exports = await b.loader.import('a', '', {})
+    expect((exports as { marker: string }).marker).toBe('direct')
     expect(b.fetched).toHaveLength(1)
   })
 
@@ -123,8 +123,8 @@ describe('require resolution', () => {
     })
     await b.loader.prefetch('a')
     await b.loader.prefetch('b')
-    const surface = await b.loader.import('a', '', {})
-    expect((surface as { got: string }).got).toBe('from-b')
+    const exports = await b.loader.import('a', '', {})
+    expect((exports as { got: string }).got).toBe('from-b')
     expect(order).toEqual(['a', 'b'])
     expect(b.loader.loadCache.get('a')?.edges.has('b/client')).toBe(true)
     expect(b.loader.loadCache.has('b')).toBe(true)
@@ -135,8 +135,8 @@ describe('require resolution', () => {
     const b = bench([row('a')], {
       a: req => ({ dep: req('react') }),
     }, { seed: { react } })
-    const surface = await b.loader.import('a', '', {})
-    expect((surface as { dep: unknown }).dep).toBe(react)
+    const exports = await b.loader.import('a', '', {})
+    expect((exports as { dep: unknown }).dep).toBe(react)
     expect(await b.loader.import('react', '', {})).toBe(react)
     expect(b.loader.loadCache.has('react')).toBe(false)
   })
@@ -284,8 +284,8 @@ describe('default transport seam', () => {
       })
     })
     const loader: ClientModuleLoader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
-    const surface = await loader.import('dee', '', {})
-    expect((surface as { marker: string }).marker).toBe('via-script')
+    const exports = await loader.import('dee', '', {})
+    expect((exports as { marker: string }).marker).toBe('via-script')
     expect(append).toHaveBeenCalledOnce()
     expect([...document.querySelectorAll('script')]).toEqual([])
   })

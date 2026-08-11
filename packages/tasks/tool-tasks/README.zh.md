@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`ctx.tasks` 的面向模型控制表层：三个与 kind 无关的工具、完成通知和一个后台工作提示词区段。加载该插件会附加 `ctx.tasks.start()` 所要求的表层。
+`ctx.tasks` 的面向模型控制器：三个与 kind 无关的工具、完成通知和一个后台工作提示词区段。加载该插件会附加 `ctx.tasks.start()` 所要求的控制器。
 
 ## 工具
 
@@ -14,13 +14,13 @@
 
 它们的规范值依次为 `{ text, task }`、`PublicTaskSnapshot[]` 和 `{ outcome: 'cancellation-requested' | 'already-finished', task }`。公共快照携带 id、kind、label、status/detail 及开始／结束时间；它有意省略 `ownerSession` 和内部 `reported` 通知位。原生 renderer 保留上述状态与确认文本。
 
-当生产方提供 `outputLimitBytes` 时，`task_output`、针对已终止任务的 `task_kill` 和完成通知会在添加状态或通知文本后，对完整的原生 UTF-8 结果施加上限。只要能够容纳，读取就会保留输出尾部与控制后缀；有界完成通知则先为 `background task <id>` 和 `task_output` 收集指令预留空间，再把剩余字节用于可变的 kind、label、status、detail 与截断标记。一个前置 pre-execute 监听器会在策略运行前捕获调用方可见任务；每个任务控制定义的 final-content 回调会把其生产方上限应用到单文本拒绝、短路、规范化工具或流水线失败、替换和阻止；结构化多块策略结果保持自身形状。已有的生产方截断标记会复用，不会重复添加。省略该字段的生产方保留现有的无界控制表层行为。
+当生产方提供 `outputLimitBytes` 时，`task_output`、针对已终止任务的 `task_kill` 和完成通知会在添加状态或通知文本后，对完整的原生 UTF-8 结果施加上限。只要能够容纳，读取就会保留输出尾部与控制后缀；有界完成通知则先为 `background task <id>` 和 `task_output` 收集指令预留空间，再把剩余字节用于可变的 kind、label、status、detail 与截断标记。一个前置 pre-execute 监听器会在策略运行前捕获调用方可见任务；每个任务控制定义的 final-content 回调会把其生产方上限应用到单文本拒绝、短路、规范化工具或流水线失败、替换和阻止；结构化多块策略结果保持自身形状。已有的生产方截断标记会复用，不会重复添加。省略该字段的生产方保留现有的无界控制器行为。
 
 ## 完成通知
 
 一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 注入到确切所有者的 next-step inbox。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是等待后续 pre-step 领取的持久上下文，并非唤醒；取消或 owner 释放可能在领取前丢弃它。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。
 
-一个宿主注册表可能承载本插件的多份挂载——每个 agent preset 一份。注册表会把每次结算路由给所有者 scope 链所能抵达的监听器，因此某个 preset 下的挂载永远看不到另一个 preset 的 agent，无论挂载了多少 preset，一个 agent 每次完成都只读到一条通知。同一套路由也决定本挂载的控制表层服务哪些 agent：组合中未加载 `tool-tasks` 的 agent 根本无法启动后台工作。
+一个宿主注册表可能承载本插件的多份挂载——每个 agent preset 一份。注册表会把每次结算路由给所有者 scope 链所能抵达的监听器，因此某个 preset 下的挂载永远看不到另一个 preset 的 agent，无论挂载了多少 preset，一个 agent 每次完成都只读到一条通知。同一套路由也决定本挂载的控制器服务哪些 agent：组合中未加载 `tool-tasks` 的 agent 根本无法启动后台工作。
 
 ## 配置
 
@@ -57,7 +57,7 @@ Track every background task id you start. You are notified in-session when a tas
 
 #### 模型看到的内容
 
-该表层可见时，会看到生成的 [`task_output`、`task_list` 和 `task_kill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks)。
+该工具集可见时，会看到生成的 [`task_output`、`task_list` 和 `task_kill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks)。
 
 #### Token 影响
 
@@ -85,4 +85,4 @@ Track every background task id you start. You are notified in-session when a tas
 
 - **完成通知不会唤醒空闲 agent**：需要立即获得结果的调用方必须使用 `task_output`。
 - **流读取只有单一消费方**：独立观察者需要另一套运行时 API。
-- **无 owner 的任务没有会话隔离**：外部表层必须提供调用方策略或避开这些任务。
+- **无 owner 的任务没有会话隔离**：外部调用方必须提供策略或避开这些任务。

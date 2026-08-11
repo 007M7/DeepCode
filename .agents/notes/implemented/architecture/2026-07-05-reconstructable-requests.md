@@ -37,7 +37,7 @@ Like MiniCode, the conversation advances append-only and resets only when model-
 ## Alternatives considered
 
 - **Client as source of truth** (literal MiniCode): a second operative truth beside the log — the two drift and nothing notices; see the section above.
-- **A stateful transmission client mirroring the log** — duplicates conversation state, needs rollback around listeners, leaves an unlogged edit surface, and still cannot reconstruct request headers. Session-owned caches plus logged headers avoid those split truths.
+- **A stateful transmission client mirroring the log** — duplicates conversation state, needs rollback around listeners, leaves an unlogged edit path, and still cannot reconstruct request headers. Session-owned caches plus logged headers avoid those split truths.
 - **Per-call request scalars** (a freely mutable config handed to each `agent/request` dispatch): a listener flips the model per call with zero accounting, silently abandoning the provider cache this design exists to protect. Config is per-conversation logged state; the waterfall proposes, the log records.
 - **Detect-and-report** (compare consecutive requests, warn on divergence): catches violations after the fact; a violating request is still constructible and ships. Rejected for interface-level unrepresentability.
 - **Event-driven assembly** (re-render only on change signals): a missed-signal bug class — a tool registered mid-session emits `tools/change`, not `system-prompt/change`, and a third-party provider may emit nothing. Per-step render + value compare is robust with zero signal discipline.

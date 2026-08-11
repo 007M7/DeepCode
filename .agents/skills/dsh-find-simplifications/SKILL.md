@@ -24,7 +24,7 @@ A strong simplification removes, folds, or demotes something real and has clear 
 - A seam has methods every implementation must support but no consumer uses.
 - A separate package exists only for test/demo/support code and adds publish or dependency overhead.
 - A feature implements speculative product generality: multi-session/session-load, background task rosters, live registry invalidation, mid-turn steering, tool-owned UI rendering, and similar designs with no product owner.
-- An invariant, rollback path, set of expected outputs, or special-case test exists only to protect an unused surface.
+- An invariant, rollback path, set of expected outputs, or special-case test exists only to protect an unused API.
 - Hand-rolled code reimplements what a well-maintained external package or a Node builtin at the engine floor already provides, and the swap would delete the implementation plus its dedicated tests ([dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - The simplified behavior may differ slightly, but the new behavior is still reasonable and easier to explain.
 
@@ -35,8 +35,8 @@ Thin candidates are usually not enough for an Agent Note: deleting one typo, run
 Use parallel subagents when the user asks for breadth or many candidates. Give each agent a domain and require evidence, not guesses. Useful domains:
 
 - Agent loop and session log: turn/step boundaries, steering, abort/cancel, durable events, replay, load/resume.
-- ACP automation and human UI surfaces: prompt settlement and teardown on the protocol side; transcript rendering and interaction state on the UI side.
-- LLM/tools/system prompt: stream/generate surfaces, assemblers, registries, tool schema defaults, presentation hooks.
+- ACP automation and human UI APIs: prompt settlement and teardown on the protocol side; transcript rendering and interaction state on the UI side.
+- LLM/tools/system prompt: stream/generate APIs, assemblers, registries, tool schema defaults, presentation hooks.
 - Bash and tool execution: foreground/background split, task ownership, output spill files, executor methods.
 - Packages/examples/scripts/tests: package splits, static inventories, redundant snapshot expected outputs, support packages.
 
@@ -74,7 +74,7 @@ Use `rg` first. Good searches include the exact symbol, event name, package name
 Reject or downgrade a candidate when:
 
 - A production caller exists and the simplification would be a feature decision rather than a cleanup.
-- The surface is explicitly justified by an implemented Agent Note or a hard-won defensive pattern, and the new evidence does not beat that reason.
+- The API is explicitly justified by an implemented Agent Note or a hard-won defensive pattern, and the new evidence does not beat that reason.
 - The removal would force unrelated churn without actually reducing the public API or required behavior.
 - The idea is correct but tiny. Add a targeted TODO/FIXME/XXX instead, using the urgency semantics in [docs/development.md](../../../docs/development.md).
 
@@ -104,7 +104,7 @@ Prefer this structure, adjusting when the idea needs it:
 
 - `# Agent Note: <action-oriented title>`
 - `Status: proposed`
-- `## Problem`: name the current surface, cite the relevant files, and state the consumer evidence. Separate production callers from tests/docs.
+- `## Problem`: name the current API, cite the relevant files, and state the consumer evidence. Separate production callers from tests/docs.
 - `## Proposal`: say exactly what to remove, fold, demote, or rehome. Include tests, docs, READMEs, JSDoc, event-taxonomy, snapshot, and generated-file cleanup when relevant.
 - `## Why not keep it?` or `## What we give up`: make the strongest counterargument legible.
 - `## Acceptance criteria`: observable end state and gates.

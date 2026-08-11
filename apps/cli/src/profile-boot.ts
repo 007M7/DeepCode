@@ -38,7 +38,6 @@ const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', im
 const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
-import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 const NAME = 'dsh'
@@ -58,9 +57,6 @@ export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.me
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'telemetry-otel'
-
-/** The one-shot runner row: its presence means this composition exits by itself. */
-const HEADLESS_ROW_ID = 'headless-runner'
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
@@ -188,9 +184,20 @@ export interface RunProfileOptions {
   args: readonly string[]
 }
 
-/** Re-throw setup failures unless this invocation's signal already owns shutdown. */
-function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
-  if (!signal.aborted) throw error
+/**
+ * Re-throw a watcher-setup failure unless a shutdown already owns the tree:
+ * a signal aborted this invocation, or an app requested exit (`ctx.appExit`
+ * from a fast one-shot) and the root's disposal rejected the in-flight setup
+ * await. Either way the failure describes a tree that is exiting as asked,
+ * not a broken watch.
+ * @param ctx - the booted root context.
+ * @param signal - this invocation's signal-shutdown fact.
+ * @param error - the setup failure.
+ */
+function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown): void {
+  if (signal.aborted) return
+  if (ctx.fiber.state !== FiberState.ACTIVE || ctx.get('loader') === undefined) return
+  throw error
 }
 
 /**
@@ -201,11 +208,6 @@ function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void 
  */
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const composed = composeProfile(options.profile, options.patchFiles)
-  // A one-shot composition ends by itself, which changes what a signal means
-  // and makes watching the user's patch layer pointless.
-  const headlessRow = composed.rows.get(HEADLESS_ROW_ID)
-  const oneShot = headlessRow !== undefined && headlessRow.disabled !== true
-
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const signalShutdown = new AbortController()
@@ -215,7 +217,10 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   }
   // Signals own teardown throughout the startup window, not only after boot()
   // settles: an inserted provider can publish before sibling rows finish mounting.
-  process.on('SIGTERM', () => { interrupt(oneShot ? 143 : 0) })
+  // SIGTERM is a supervisor's ordinary stop request and exits 0 on every
+  // surface — the launcher does not know whether the app considered its work
+  // complete; SIGINT is a user interrupt and reports 130.
+  process.on('SIGTERM', () => { interrupt(0) })
   process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => {
     await app.current?.fiber.dispose()
@@ -240,9 +245,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,
   ])
-  // One-shot runs exit through the runner; watching would only hold the
-  // process open after its exit request.
-  const watchProfilePatch = !oneShot
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
@@ -256,22 +258,16 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       args: options.args,
       exit: code => void shutdown.shutdown(code),
     })
-    if (oneShot) {
-      const io: HeadlessIo = {
-        stdout: process.stdout,
-        stderr: process.stderr,
-        exit: (code) => { void shutdown.shutdown(code) },
-      }
-      hostCtx.provide('headlessIo', io)
-    }
   })
   app.current = ctx
   // A surface can dispose the whole tree while boot or this post-boot watcher
-  // setup is still in flight. Loader presence and fiber state own
-  // liveness; the local signal fact distinguishes that expected exit race
-  // from a real HMR error.
-  if (watchProfilePatch
-    && !signalShutdown.signal.aborted
+  // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
+  // presence and fiber state own liveness; the initial check skips a tree
+  // that already exited, and the catch below re-checks for an exit that
+  // landed mid-setup. Watching is unconditional: a one-shot surface exits
+  // through its bounded shutdown, which disposes the watchers before the
+  // loop drains.
+  if (!signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
     try {
@@ -299,7 +295,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         compose: composeLive,
       })
     } catch (error) {
-      suppressSignalShutdownError(signalShutdown.signal, error)
+      suppressShutdownError(ctx, signalShutdown.signal, error)
     }
   }
   return { ctx, shutdown }

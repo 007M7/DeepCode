@@ -15,7 +15,7 @@ export const name = 'client-ui-primitives-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: pure props-in React atoms with zero cordis surface —
+ * No runtime invariant: pure props-in React atoms with no Cordis API —
  * no events, no services, no mutable cross-plugin state; rendering contracts
  * are asserted directly by this package's component specs.
  */
