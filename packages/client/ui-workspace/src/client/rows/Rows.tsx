@@ -9,7 +9,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpenOutline16, IconPlusOutline16,
+  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -120,6 +120,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+  const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
@@ -141,8 +142,8 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder)}>
-        {row.expanded ? <IconFolderOpenOutline16 /> : <IconFolderClose16 />}
+      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
+        {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
