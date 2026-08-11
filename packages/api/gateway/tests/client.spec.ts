@@ -667,11 +667,7 @@ describe('Client TypeRT API', () => {
     const seen: string[] = []
     // The declared return is void, so nobody awaits an async listener: the
     // rejection has to be contained here or it escapes as an unhandled one.
-    /* oxlint-disable-next-line typescript/no-misused-promises --
-     * Deliberately the shape the contract does not invite: `$on` declares a void
-     * listener, and this pins what the service does when a caller hands it an
-     * async one anyway. */
-    ctx.remote.$on('fixture/changed', () => Promise.reject(new Error('fixture async failure')))
+    ctx.remote.$on('fixture/changed', () => Promise.reject(new Error('fixture async failure'))) // oxlint-disable-line typescript/no-misused-promises
     ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
     try {
       ctx.remote.$dispatch('fixture/changed', ['credentials'])

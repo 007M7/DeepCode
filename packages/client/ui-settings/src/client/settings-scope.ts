@@ -31,8 +31,6 @@ import type {} from '@deepseek-ai/dsh-api-remotes/types'
 // never — the owning package's client-safe, type-only subpath supplies the
 // cordis `Events` entry (and with it the branded `SettingsNamespace`).
 import type {} from '@deepseek-ai/dsh-settings/types'
-import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
-
 type SettingsFace = Pick<IApiClient, 'settings'>
 
 /**
@@ -240,7 +238,7 @@ export class SettingsScopeService extends Service {
         void controller.load()
       }
       const disposers = [
-        (ctx.get('remote') as TypeRTClientRemote).$on('settings/document-updated', refresh),
+        (ctx.get('remote') as Context['remote']).$on('settings/document-updated', refresh),
         ctx.on('connection/reset', () => { refresh() }),
       ]
       void controller.load()
