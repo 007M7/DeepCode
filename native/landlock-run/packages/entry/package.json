@@ -32,7 +32,7 @@
   },
   "license": "BSD-3-Clause",
   "publishConfig": {
-    "access": "public"
+    "access": "restricted"
   },
   "optionalDependencies": {
     "@deepseek-ai/node-addon-landlock-run-linux-arm64": "workspace:*",

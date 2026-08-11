@@ -132,7 +132,6 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   models: 'client-side interface-typed browser service — packages/client/ui-model/README.md owns the surface',
   modules: 'client-side interface-typed browser service — packages/client/modules/README.md owns the surface',
   remote: 'client-side interface-typed gateway accessor (ClientRemote) — packages/api/gateway/README.md owns the surface',
-  sessionHistory: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
   slash: 'client-side interface-typed browser service — packages/client/ui-slash/README.md owns the surface',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the surface',
