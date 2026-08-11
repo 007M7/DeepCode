@@ -29,9 +29,8 @@
  * This browser half also owns the `skill` keyed toolview: a replay-stable
  * accent row derived only from each logged call/result slice.
  */
-import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
-// Type-only: pulls the forwarded Host-event face and ctx.remote merge.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
+import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).

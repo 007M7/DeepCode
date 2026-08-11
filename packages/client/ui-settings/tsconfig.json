@@ -18,13 +18,10 @@
       "path": "../runtime"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../schema-form"
     },
     {
-      "path": "../../api/gateway"
+      "path": "../../api/remotes/tsconfig.client.json"
     },
     {
       "path": "../../settings/settings"
