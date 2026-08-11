@@ -87,13 +87,16 @@ describe('connection client apply', () => {
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const descriptions: Array<boolean | undefined> = []
+    const stopThrowing = handle.hostDescription.subscribe(() => { throw new Error('subscriber bug') })
     const stopDescription = handle.hostDescription.subscribe(() => {
       descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
     })
     expect(handle.hostDescription.getSnapshot()).toBeUndefined()
     // config omitted: the `config ?? {}` default arm is part of the surface.
-    const loop = handle.start({})
+    let connected = 0
+    const loop = handle.start({ onConnected: () => { connected++ } })
     expect(() => handle.start({})).toThrow(/already owned by another consumer/)
     await vi.waitFor(() => {
       expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
@@ -101,31 +104,11 @@ describe('connection client apply', () => {
     loop.stop() // teardown must not throw; the fixture streams abort quietly
     expect(handle.hostDescription.getSnapshot()).toBeUndefined()
     expect(descriptions).toEqual([true, undefined])
+    expect(connected).toBe(1)
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    stopThrowing()
     stopDescription()
-  })
-
-  it('isolates description subscribers so later listeners and the consumer sink still run', async () => {
-    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
-    const handle = await mount()
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const seen: boolean[] = []
-    const stopThrowing = handle.hostDescription.subscribe(() => { throw new Error('subscriber bug') })
-    const stopRecording = handle.hostDescription.subscribe(() => {
-      const value = handle.hostDescription.getSnapshot()?.canOpenPath
-      if (value !== undefined) seen.push(value)
-    })
-    let connected = 0
-    const loop = handle.start({ onConnected: () => { connected++ } })
-    try {
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(seen).toEqual([true])
-      expect(errorSpy).toHaveBeenCalledOnce()
-    } finally {
-      stopThrowing()
-      stopRecording()
-      loop.stop()
-      errorSpy.mockRestore()
-    }
+    errorSpy.mockRestore()
   })
 
   it('does not announce a generation synchronously stopped by a description subscriber', async () => {
@@ -246,14 +229,14 @@ describe('connection client apply', () => {
     sockets[1]!.receive(JSON.stringify({
       type: 'server-request',
       rpcId: 'host-browser',
-      method: 'host/commands-changed',
-      payload: { type: 'host/commands-changed' },
+      method: 'host/remote-event',
+      payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
     }))
     expect(await muxFrame).toMatchObject({
       value: { rpcId: 'mux-browser', payload: { type: 'session/subscribed', lastSeq: 8 } },
     })
     expect(await hostFrame).toMatchObject({
-      value: { rpcId: 'host-browser', payload: { type: 'host/commands-changed' } },
+      value: { rpcId: 'host-browser', payload: { type: 'host/remote-event', event: 'commands/change' } },
     })
     expect(errors).toHaveBeenCalledTimes(2)
     await vi.waitFor(() => { expect(envelopes.flat()).toHaveLength(2) })

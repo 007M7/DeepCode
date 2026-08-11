@@ -10,6 +10,8 @@ Host 报告的 `ModelSelection` 是唯一的选择事实，其中包含提供方
 
 目录按会话惰性解析（`ctx.models.directoryFor(sessionId)`），随会话作用域一并释放。已寻址 subagent 会话不公开任一入口，其目录会拒绝加载、选择与重新连接刷新，因为绑定到 agent（智能体）的普通模型 RPC 会在直接 parent 继续执行路径之外激活持久化 child 历史。
 
+每一份常驻目录都会直接在转发的 owner 事件 `llm/adapters-updated` 与 `settings/document-updated` 上重拉。因此提供方拓扑、提供方目录与默认选择都能收敛，Host 与 client runtime 无需再派生一个单独的模型变更别名。
+
 `/client` 导出面为插件本体（`apply`/`inject`）、`ModelService`、`ModelDirectory` 及其状态形状、slot 注入面类型。
 
 ## 模型体验

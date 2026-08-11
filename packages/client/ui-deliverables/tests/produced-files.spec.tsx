@@ -6,7 +6,6 @@
  * (HMR safety) against the real SlotsService.
  */
 import { Context } from '@deepseek-ai/cordis'
-import type { ComponentType } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -17,10 +16,12 @@ import type {
   ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
   ConversationViewNode, ToolResultNode, TurnLocation,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { fitProducedFiles, ProducedFiles, type ProducedFilesSeatProps } from '../src/client/ProducedFiles.tsx'
+import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  fitProducedFiles, ProducedFiles, type ProducedFilesProps,
+} from '../src/client/ProducedFiles.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
   type DeliverablesTurnData,
@@ -280,6 +281,18 @@ describe('produced-file Turn data', () => {
 
 describe('ProducedFiles row', () => {
   const t = makeTranslate(zh)
+  const capability = (
+    canOpenPath: boolean | undefined,
+    isLoopback = true,
+  ): Pick<ProducedFilesProps, 'isLoopback' | 'useHostDescription'> => {
+    const description = canOpenPath === undefined
+      ? undefined
+      : { version: 'test', cwd: '/workspace', attachedSessions: 1, canOpenPath }
+    return {
+      isLoopback,
+      useHostDescription: selector => selector(description),
+    }
+  }
 
   it('selects the largest prefix using the exact remainder width', () => {
     expect(fitProducedFiles(230, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(2)
@@ -325,7 +338,7 @@ describe('ProducedFiles row', () => {
       })
 
     const view = render(
-      <ProducedFiles matched={paths} openFile={openFile} canOpenPath t={t} />,
+      <ProducedFiles matched={paths} openFile={openFile} {...capability(true)} t={t} />,
     )
     expect(view.getByText('产物')).toBeTruthy()
     const row = view.container.querySelector('[data-produced-files-row]')
@@ -359,7 +372,7 @@ describe('ProducedFiles row', () => {
     // shrinks; the replacement observer must skip those stale slots.
     observeNode.mockClear()
     view.rerender(
-      <ProducedFiles matched={paths.slice(0, 1)} openFile={openFile} canOpenPath t={t} />,
+      <ProducedFiles matched={paths.slice(0, 1)} openFile={openFile} {...capability(true)} t={t} />,
     )
     expect(within(row).getAllByRole('button')).toHaveLength(1)
     expect(observeNode).toHaveBeenCalledTimes(3)
@@ -371,20 +384,15 @@ describe('ProducedFiles row', () => {
 
   it('keeps the folder action absent without overflow or a local native opener', () => {
     const openFile = vi.fn<(path: string) => void>()
-    const noOverflow = render(
-      <ProducedFiles matched={['a.md']} openFile={openFile} canOpenPath t={t} />,
+    const view = render(
+      <ProducedFiles matched={['a.md']} openFile={openFile} {...capability(true)} t={t} />,
     )
-    expect(noOverflow.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
-    noOverflow.unmount()
-    const headless = render(
-      <ProducedFiles
-        matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
-        openFile={openFile}
-        canOpenPath={false}
-        t={t}
-      />,
-    )
-    expect(headless.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    const overflowing = ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']
+    expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    for (const unavailable of [capability(false), capability(true, false), capability(undefined)]) {
+      view.rerender(<ProducedFiles matched={overflowing} openFile={openFile} {...unavailable} t={t} />)
+      expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    }
   })
 
   it('uses singular English copy when exactly one file is hidden', () => {
@@ -392,7 +400,7 @@ describe('ProducedFiles row', () => {
       <ProducedFiles
         matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
         openFile={() => {}}
-        canOpenPath={false}
+        {...capability(false)}
         t={makeTranslate(en)}
       />,
     )
@@ -455,55 +463,22 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
-    const hostDescription = (canOpenPath: boolean) => ({
-      version: 'test', cwd: '/workspace', attachedSessions: 1, canOpenPath,
-    })
-    let description: ReturnType<typeof hostDescription> | undefined = hostDescription(true)
-    const descriptionListeners = new Set<() => void>()
-    const connection = {
+    const hostDescription = { getSnapshot: () => undefined, subscribe: () => () => {} }
+    ctx.provide('connection', {
       api: { settings: {} },
       isLoopback: false,
-      hostDescription: {
-        getSnapshot: () => description,
-        subscribe: (listener: () => void) => {
-          descriptionListeners.add(listener)
-          return () => { descriptionListeners.delete(listener) }
-        },
-      },
-    }
-    ctx.provide('connection', connection as never)
-    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+      hostDescription,
+    } as never)
+    // ui-theme's Appearance row binds a durable scope through these two.
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+    await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(1)
-
-    // The native action needs both independent facts. A Host capability does
-    // not authorize a remote page; loopback without a capable Host does not
-    // render a dead action; reconnect/disconnect retracts the capability.
-    const Entry = ctx.slots.entries('conversation.chat.turnTail')[0]!.component as ComponentType<ProducedFilesSeatProps>
-    const entryProps: ProducedFilesSeatProps = {
-      matched: ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md'],
-      openFile: () => {},
-      t: makeTranslate(zh),
-    }
-    const surface = render(<Entry {...entryProps} />)
-    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
-    connection.isLoopback = true
-    description = hostDescription(false)
-    surface.rerender(<Entry {...entryProps} />)
-    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
-    act(() => {
-      description = hostDescription(true)
-      for (const listener of descriptionListeners) listener()
-    })
-    expect(surface.getByRole('button', { name: '在文件夹中显示' })).toBeTruthy()
-    act(() => {
-      description = undefined
-      for (const listener of descriptionListeners) listener()
-    })
-    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
-    surface.unmount()
+    const [entry] = ctx.slots.entries('conversation.chat.turnTail')
+    expect(entry).toBeDefined()
+    expect(entry?.inject?.()).toEqual({ isLoopback: false, hooks: { hostDescription } })
 
     // The prose face is live while the plugin is: a produced turn yields a
     // resolver whose matches open through the owner-supplied opener.

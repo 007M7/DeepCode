@@ -1,5 +1,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
-import { describe, expect, it, vi } from 'vitest'
+import type { Fiber } from '@deepseek-ai/cordis'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
@@ -10,9 +11,32 @@ import type {
   TypeRTRemoteNamespace,
 } from '@deepseek-ai/dsh-type-meta'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import type { ClientRemote } from '../src/client/index.ts'
 import { apply, inject } from '../src/client/index.ts'
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Test-only forwarded Host event.
+     * @param namespace - marker payload recorded by listeners.
+     */
+    'fixture/changed'(namespace: string): void
+    /**
+     * Test-only forwarded Host event nobody subscribes to.
+     * @param count - marker payload never observed.
+     */
+    'fixture/idle'(count: number): void
+    /**
+     * Test-only event the Host assembly does not forward.
+     * @param flag - marker payload never delivered.
+     */
+    'fixture/unselected'(flag: boolean): void
+  }
+}
+
 declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTRemoteEventSelection extends Record<'fixture/changed' | 'fixture/idle', true> {}
+
   interface TypeRTContextMap {
     fixture: TypeRTContext<string>
   }
@@ -42,6 +66,19 @@ declare module '@deepseek-ai/dsh-type-meta' {
 type FixtureContext = Omit<Context, 'remote'> & {
   readonly remote: TypeRTClientRemote & TypeRTRemoteScopeApi<'fixture'>
 }
+
+// Compile-time contract of `$on`: the key face is the forwarding selection and
+// the listener signature is the owning package's own Cordis declaration.
+function remoteEventContracts(remote: ClientRemote): void {
+  remote.$on('fixture/changed', (namespace) => { void namespace })
+  // @ts-expect-error -- declared in Events but outside the forwarding selection.
+  remote.$on('fixture/unselected', () => {})
+  // @ts-expect-error -- not declared in Events at all.
+  remote.$on('fixture/absent', () => {})
+  // @ts-expect-error -- the listener signature comes from the event declaration.
+  remote.$on('fixture/changed', (count: number) => { void count })
+}
+void remoteEventContracts
 
 const idSchema = z.string().min(1)
 const requestSchema = z.object({ objective: z.string().min(1) })
@@ -96,11 +133,19 @@ function contextDescriptor(): InvocationDescriptor {
 }
 
 async function bench(call: ConnectionHandle['rpc']['call']): Promise<Context> {
+  const { ctx } = await benchFiber(call)
+  return ctx
+}
+
+async function benchFiber(
+  call: ConnectionHandle['rpc']['call'],
+): Promise<{ readonly ctx: Context; readonly client: Fiber }> {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
   ctx.provide('connection', { rpc: { call } } as unknown as ConnectionHandle)
-  await ctx.plugin({ inject, apply })
-  return ctx
+  const client = ctx.plugin({ inject, apply })
+  await client
+  return { ctx, client }
 }
 
 describe('Client TypeRT API', () => {
@@ -569,5 +614,114 @@ describe('Client TypeRT API', () => {
     if (!(failure instanceof Error)) throw new Error('expected Client API invocation to fail')
     expect(failure.message).toContain('internal: host failed')
     expect(failure.cause).toBe(rpcError)
+  })
+
+  it('owns each $on subscription in the calling fiber', async () => {
+    const { ctx, client } = await benchFiber(vi.fn<ConnectionHandle['rpc']['call']>())
+    const seen: string[] = []
+    const subscriber = ctx.plugin(Object.assign(
+      (scope: Context) => { scope.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) }) },
+      { inject: ['remote'] },
+    ))
+    await subscriber
+
+    ctx.remote.$dispatch('fixture/changed', ['settings'])
+    expect(seen).toEqual(['settings'])
+
+    await subscriber.dispose()
+    ctx.remote.$dispatch('fixture/changed', ['after fiber disposal'])
+    expect(seen).toEqual(['settings'])
+
+    await client.dispose()
+    expect(ctx.get('remote')).toBeUndefined()
+  })
+
+  it('isolates a throwing listener from the rest of the same event', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const seen: string[] = []
+    const disposeFirst = ctx.remote.$on('fixture/changed', () => {
+      throw new Error('fixture listener failure')
+    })
+    ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
+    try {
+      ctx.remote.$dispatch('fixture/changed', ['credentials'])
+
+      expect(seen).toEqual(['credentials'])
+      expect(consoleError).toHaveBeenCalledWith(
+        'client api: Remote event "fixture/changed" listener threw:',
+        expect.any(Error),
+      )
+      disposeFirst()
+      ctx.remote.$dispatch('fixture/changed', ['commands'])
+      expect(seen).toEqual(['credentials', 'commands'])
+      expect(consoleError).toHaveBeenCalledTimes(1)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('contains an async listener whose promise rejects', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const seen: string[] = []
+    // The declared return is void, so nobody awaits an async listener: the
+    // rejection has to be contained here or it escapes as an unhandled one.
+    ctx.remote.$on('fixture/changed', () => Promise.reject(new Error('fixture async failure'))) // oxlint-disable-line typescript/no-misused-promises
+    ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
+    try {
+      ctx.remote.$dispatch('fixture/changed', ['credentials'])
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(seen).toEqual(['credentials'])
+      expect(consoleError).toHaveBeenCalledWith(
+        'client api: Remote event "fixture/changed" listener threw:',
+        expect.any(Error),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('retires only its own registration when one listener subscribes twice', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const seen: string[] = []
+    // One function object, two registrations. A table keyed by listener identity
+    // stores it once, so the first frame would reach it once instead of twice
+    // and either disposer would silence both.
+    const listener = (namespace: string): void => { seen.push(namespace) }
+    const disposeFirst = ctx.remote.$on('fixture/changed', listener)
+    ctx.remote.$on('fixture/changed', listener)
+
+    ctx.remote.$dispatch('fixture/changed', ['both'])
+    expect(seen).toEqual(['both', 'both'])
+
+    // The surviving registration keeps receiving after its twin retires.
+    disposeFirst()
+    ctx.remote.$dispatch('fixture/changed', ['survivor'])
+    expect(seen).toEqual(['both', 'both', 'survivor'])
+
+    // Disposing twice is inert: the record is already gone, so the second call
+    // must not splice the surviving twin out from under its own owner.
+    disposeFirst()
+    ctx.remote.$dispatch('fixture/changed', ['still here'])
+    expect(seen).toEqual(['both', 'both', 'survivor', 'still here'])
+  })
+
+  it('separates the consumer verb from the carrier handoff', () => {
+    expectTypeOf<ClientRemote>().toHaveProperty('$on')
+    // The carrier owning the frame sink calls this; a consumer subscribes instead.
+    expectTypeOf<ClientRemote>().toHaveProperty('$dispatch')
+  })
+
+  it('drops a forwarded event nobody subscribes to', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const seen: string[] = []
+    ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
+
+    ctx.remote.$dispatch('fixture/idle', [1])
+
+    expect(seen).toEqual([])
   })
 })

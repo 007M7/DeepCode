@@ -3,8 +3,6 @@
 // assembled lane keeps a precise +N and a capability-gated folder handoff.
 // The folder request is intercepted so one real browser click can exercise
 // the full client carrier without launching a native application in CI.
-import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -15,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import {
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('./produced-files.overlay.yml', import.meta.url))
@@ -113,7 +111,6 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY })
-    await Promise.all(PRODUCED.map(path => writeFile(join(scaffold.workspaceCwd, path), path)))
     await seedSession(scaffold, producedFixture(), SEED_ID)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -122,14 +119,6 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
     await page.setViewportSize({ width: 1280, height: 900 })
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
-    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    // Register the seeded cwd through the same first-run workspace flow a user
-    // sees; once adopted, the cold session becomes addressable in the tree.
-    await connectFreshWorkspace(page, scaffold.workspaceCwd, '.')
-    const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
-    if (workspace === undefined) throw new Error('produced-files workspace was not registered')
-    await workspace.attachSession(SessionId(SEED_ID))
-    await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 
@@ -143,8 +132,6 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
     const groupRow = page.locator('[role="treeitem"]').first()
     await groupRow.waitFor({ timeout: 15_000 })
     if (await groupRow.getAttribute('aria-expanded') !== 'true') await groupRow.click()
-    // The attached cold seed is first; the workspace flow's fresh blank
-    // session follows it. Session title projection may use the cwd fallback.
     const sessionRow = page.locator('[role="treeitem"]').nth(1)
     await sessionRow.waitFor({ timeout: 10_000 })
     await sessionRow.click()

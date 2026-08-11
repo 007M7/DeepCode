@@ -5,7 +5,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { SettingsScopeService } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
@@ -53,6 +54,9 @@ async function bench(isLoopback = true) {
     })
   })
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
+  // The settings transport and the forwarded-event port the plugin injects.
+  new TestRemote(ctx)
+  await ctx.plugin(SettingsScopeService).await()
   return {
     ctx, slots: ctx.get('slots') as SlotsService, locale, describe, mutate,
     setHostPreference: (next: string) => { preference = next },
@@ -79,7 +83,7 @@ function faceOf(slots: SlotsService) {
 
 describe('ui-theme apply', () => {
   it('declares the slot and locale services', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'settingsScope'])
   })
 
   it('provides the service, registers localized copy, and registers the row (declaration before or after apply)', async () => {
@@ -128,10 +132,10 @@ describe('ui-theme apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeService
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
-    b.ctx.emit('settings/changed', 'unrelated')
+    b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
     expect(b.describe).toHaveBeenCalledOnce()
     b.setHostPreference('light')
-    b.ctx.emit('settings/changed', THEME_SETTINGS_NAMESPACE)
+    b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('light') })
     b.setHostPreference('dark')
     b.ctx.emit('connection/reset')

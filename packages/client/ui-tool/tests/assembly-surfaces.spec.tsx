@@ -5,7 +5,7 @@ import { cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '../src/client/apply.ts'
 import { toolChatSnapshot } from './tool-details-render.tsx'
@@ -69,6 +69,9 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // ui-theme's Appearance row binds a durable scope through these two.
+  runtime.provide('remote', { $on: () => () => {} })
+  runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
   const locale = new LocaleService(runtime.ctx)
   runtime.provide('locale', locale)

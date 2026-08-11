@@ -5,7 +5,8 @@
 // Host machine.
 
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
+import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
@@ -45,15 +46,20 @@ export function fitProducedFiles(
   return largestFit
 }
 
-/** Matched paths plus the opener and locale seats needed to present them. */
+/** Registration-side Host capability facts. */
+export interface ProducedFilesInjected {
+  /** Whether the browser itself is connected over loopback. */
+  isLoopback: boolean
+  hooks: {
+    /** Current generation's Host description, bound by the slot renderer. */
+    hostDescription: HostDescriptionSource
+  }
+}
+
+/** Matched paths plus the opener, locale, and injected Host capability. */
 export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile'> & {
   matched: readonly string[]
-  /** True only when this loopback deployment exposes a user-visible native opener. */
-  canOpenPath: boolean
-} & PropsLocale<typeof NS>
-
-/** Slot-owned props before the connection capability is injected. */
-export type ProducedFilesSeatProps = Omit<ProducedFilesProps, 'canOpenPath'>
+} & PropsLocale<typeof NS> & InjectFace<ProducedFilesInjected>
 
 function moreLabel(t: ProducedFilesProps['t'], count: number): string {
   return count === 1 ? t('produced.moreOne') : t('produced.more', { count: String(count) })
@@ -64,34 +70,40 @@ function moreLabel(t: ProducedFilesProps['t'], count: number): string {
  * @param props - selector-matched paths, the chat view's file opener, and the locale seat.
  * @returns The produced-files row.
  */
-export function ProducedFiles({ matched: paths, openFile, canOpenPath, t }: ProducedFilesProps) {
+export function ProducedFiles({
+  matched: paths, openFile, isLoopback, useHostDescription, t,
+}: ProducedFilesProps) {
+  const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
+  const canOpenPath = isLoopback && hostCanOpenPath
   const limit = Math.min(paths.length, SHOWN_LIMIT)
   const [shownCount, setShownCount] = useState(limit)
   const rowRef = useRef<HTMLDivElement>(null)
   const chipProbes = useRef<Array<HTMLButtonElement | null>>([])
-  const moreProbes = useRef<Array<HTMLSpanElement | null>>([])
+  const moreProbe = useRef<HTMLSpanElement>(null)
 
   useLayoutEffect(() => {
     const row = rowRef.current
-    /* v8 ignore next -- the row ref is attached before the layout effect runs. */
-    if (row === null) return
+    const remainderProbe = moreProbe.current
+    /* v8 ignore next -- React attaches both refs before the layout effect runs. */
+    if (row === null || remainderProbe === null) return
     const measure = (): void => {
       const styles = getComputedStyle(row)
       const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0
       // React attaches every still-mounted callback ref before layout effects run.
       const activeChipProbes = chipProbes.current.slice(0, limit) as HTMLButtonElement[]
       const chips = activeChipProbes.map(probe => probe.getBoundingClientRect().width)
-      const more = Array.from({ length: limit + 1 }, (_, candidate) =>
-        paths.length === candidate
-          ? undefined
-          : moreProbes.current[candidate]?.getBoundingClientRect().width)
+      const more = Array.from({ length: limit + 1 }, (_, candidate) => {
+        if (paths.length === candidate) return undefined
+        remainderProbe.textContent = moreLabel(t, paths.length - candidate)
+        return remainderProbe.getBoundingClientRect().width
+      })
       setShownCount(fitProducedFiles(row.clientWidth, gap, chips, more))
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(row)
-    for (const probe of [...chipProbes.current, ...moreProbes.current]) {
+    for (const probe of [...chipProbes.current, moreProbe.current]) {
       if (probe !== null) observer.observe(probe)
     }
     return () => { observer.disconnect() }
@@ -137,19 +149,7 @@ export function ProducedFiles({ matched: paths, openFile, canOpenPath, t }: Prod
             {basename(path)}
           </button>
         ))}
-        {Array.from({ length: limit + 1 }, (_, candidate) => {
-          const remaining = paths.length - candidate
-          if (remaining === 0) return null
-          return (
-            <span
-              key={candidate}
-              ref={(node) => { moreProbes.current[candidate] = node }}
-              className={`${css.more} ${css.probe}`}
-            >
-              {moreLabel(t, remaining)}
-            </span>
-          )
-        })}
+        <span ref={moreProbe} className={`${css.more} ${css.probe}`} />
       </div>
     </div>
   )
