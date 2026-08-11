@@ -8,6 +8,14 @@
 
 `TelemetryBackend` 有三个成员：`emit(record)` 必须入队且不能阻塞，因为它会在 `session/event` 或显式权威日志回放期间同步执行；可选的 `flush()` 是轮次结束后的提示，调用方不等待结果，多数后端省略它并使用 SDK 的常规批处理计划；`shutdown()` 排空已入队记录，并在 SDK 停止后结束，dispose（资源释放）会等待它。提供 `flush()` 的实现必须安排并发 flush 与 `shutdown()` 最终排空的先后顺序。`Telemetry` 将此 API 注册在 `telemetry` 上下文键下：每个上下文只允许一个实现，重复加载会抛出异常。后端以 `live` 或 `on-demand` 捕获构造 `TelemetryCoordinator`，并在自己选择的触发器中调用 `captureSession(session, throughSeq?)`。
 
+该服务还携带必需的 [`TelemetrySharingStatus`](#the-sharing-disclosure) `sharing` 成员：每个后端都必须向面向用户的确认 surface（`/feedback` 命令的确认文本）披露的部署级共享策略。消费方只有在未挂载任何遥测服务时才渲染「未配置」。seam 拥有该词汇（`full` | `feedback-only` | `disabled`），因此任何后端都可以披露策略，而无需依赖 OTel 包。
+
+<a id="the-sharing-disclosure"></a>
+
+## 共享披露
+
+一条已记录的反馈条目的确认文本会报告该会话是否以及如何被共享，读取自已挂载后端的 `sharing`。后端根据其部署配置设置该属性：`full`（每个事件在发生时立即交接）、`feedback-only`（在 `feedback/record` 事件释放其之前的未释放前缀之前，不交接任何内容）或 `disabled`（完全不交接任何内容）。消费方把状态映射为面向用户的文案；披露从不声称投递——交接是非阻塞入队，批处理、重试与丢失策略仍归后端 SDK。
+
 ## 捕获点
 
 在 `live` 模式中，协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏，再交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘捕获该会话的 `shutdown` 运维记录，然后将其退役）、`agent/error`（唯一的实时总线转发；会话事件词汇有意不包含运维错误记录）、一个 dispose effect（捕获每个仍存活会话的 shutdown，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。在 `on-demand` 模式中，协调器只注册 dispose effect：`captureSession()` 读取权威日志，直至可选的序列号边界（含边界）；flush 提示与运维事件留在本地。
