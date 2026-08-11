@@ -691,7 +691,7 @@ export function WorkspaceBrowser({
           </span>
         )}
         {wide && (
-          <div className={css.searchSlot}>
+          <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
             <div
               ref={searchRoot}
               className={clsx(css.search, searchExpanded && css.searchExpanded)}
@@ -712,7 +712,7 @@ export function WorkspaceBrowser({
                     setSearchExpanded(true)
                   }}
                 >
-                  <IconSearchOutline16 size={11} />
+                  <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
                 </button>
               </Tooltip>
               <input

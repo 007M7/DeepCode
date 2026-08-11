@@ -70,11 +70,21 @@
 
 .searchSlot {
   flex: 1;
+  max-width: 28px;
   min-width: 0;
   display: flex;
   align-items: center;
-  padding-left: 4px;
+  margin-left: auto;
+  padding-left: 0;
   box-sizing: border-box;
+  transition:
+    max-width 180ms var(--ds-ease-in-out),
+    padding-left 180ms var(--ds-ease-in-out);
+}
+
+.searchSlotExpanded {
+  max-width: 100%;
+  padding-left: 4px;
 }
 
 .headerActions {
@@ -110,15 +120,15 @@
   align-items: center;
   gap: 0;
   width: 100%;
-  height: 26px;
+  height: 28px;
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 10px;
+  border: none;
+  border-radius: 50%;
   background: transparent;
   cursor: text;
-  color: var(--dsw-alias-label-caption);
+  color: var(--dsw-alias-label-secondary);
   overflow: hidden;
   transition:
     width 180ms var(--ds-ease-in-out),
@@ -128,9 +138,12 @@
 }
 
 .searchExpanded {
+  height: 26px;
   padding: 0 4px 0 0;
-  border-color: var(--dsw-alias-border-l2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
   background: transparent;
+  color: var(--dsw-alias-label-caption);
 }
 
 .searchButton {
@@ -138,14 +151,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: 50%;
   padding: 0;
   background: transparent;
   cursor: pointer;
   color: inherit;
+}
+
+.searchExpanded .searchButton {
+  width: 26px;
+  height: 26px;
 }
 
 .searchButton:hover {
@@ -420,6 +438,7 @@
   }
 
   .search,
+  .searchSlot,
   .searchInput,
   .headerActions {
     transition: none;
