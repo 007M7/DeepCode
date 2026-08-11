@@ -43,6 +43,20 @@ import { renderToolsSdkPy } from './py-types.ts'
  * with its zh pair, plus this package's own README pair and the
  * {@link Config.mode} JSDoc.
  */
+/**
+ * Prompt order of the `code` collapse statement: after the persona and before
+ * the 100-199 per-tool guidance band, so the model reads which tools it may
+ * call before it reads what each one is for.
+ */
+const COLLAPSE_SECTION_ORDER = 99
+
+/**
+ * The model-facing statement of the `code` collapse. Names the consequence
+ * (the call fails) and the route (inside the program), because a rule the
+ * model can only discover by being denied is one it corrects too late.
+ */
+const CODE_ONLY_INSTRUCTION = `\`${RUN_CODE_NAME}\` is the only tool you can call directly — a tool call naming any other tool fails. Reach every tool the SDK declares below from inside the program.`
+
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,
   python: renderToolsSdkPy,
@@ -313,6 +327,10 @@ export interface ToolExecutionInput {
    * Opaque token of the enclosing transport execution, when one exists. Code
    * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
    * the outer `run_code` outcome without receiving its live mutable execution.
+   * The token also marks the call as a transport sub-dispatch rather than a
+   * model-direct call: under `mode: 'code'`, only calls WITH a parent may
+   * execute a native tool name — a model-direct call (no parent) is denied as
+   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRegistry.execute}.
    */
   readonly parent?: ToolExecutionToken
   /** Required caller-owned cancellation for this invocation. */
@@ -474,8 +492,19 @@ export interface ToolFailure {
  * distinguish it from a tool body's own error.
  */
 export class ToolNotFoundError extends HarnessError {
-  constructor(toolName: string) {
-    super(`unknown tool "${toolName}"`, 'UNKNOWN_TOOL')
+  /**
+   * @param toolName - the name the caller asked for.
+   * @param reachableFrom - how the model reaches this tool instead, when the
+   *   name IS visible and only the presentation denies calling it directly.
+   *   Omitted for a name that is registered nowhere.
+   */
+  constructor(toolName: string, reachableFrom?: string) {
+    super(
+      reachableFrom === undefined
+        ? `unknown tool "${toolName}"`
+        : `unknown tool "${toolName}": ${reachableFrom}`,
+      'UNKNOWN_TOOL',
+    )
     this.name = 'ToolNotFoundError'
   }
 }
@@ -624,16 +653,14 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation for agents that declare none of their own. `native`
-   * (default) sends every visible schema; `code` sends only `run_code` plus a
-   * generated SDK prompt; `both` sends both forms. Code modes require a
-   * `ctx.codeRuntime` whose `language` has a registered SDK renderer
-   * (TypeScript or Python) and fail prompt assembly when it is absent or has
-   * no renderer. Under `code`, native names in `toolOrder` are invalid.
-   *
-   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
-   * which is how an agent preset composes a Code Mode agent beside native
-   * ones in the same process.
+   * Model presentation. `native` (default) sends every visible schema; `code`
+   * sends only `run_code` plus a generated SDK prompt and collapses the
+   * executor to the same surface (a model-direct call may only name
+   * `run_code`; `run_code` SDK sub-dispatches keep every visible tool); `both`
+   * sends both forms. Code modes require a `ctx.codeRuntime` whose `language`
+   * has a registered SDK renderer (TypeScript or Python) and fail prompt
+   * assembly when it is absent or has no renderer. Under `code`, native names
+   * in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
   /**
@@ -647,14 +674,13 @@ export interface Config {
 }
 
 /**
- * Per-scope filter over the tools a scope INHERITS — the global layer and
- * every ancestor layer on its chain. Restrictions intersect, and do not affect
- * the scope's own registrations or the reserved Code Mode transport.
+ * Per-scope filter over global tools. Restrictions intersect and do not affect
+ * scoped registrations or the reserved Code Mode transport.
  */
 export interface ToolRestriction {
-  /** Inherited tool names that stay visible; every other inherited one is removed. */
+  /** Global tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Inherited tool names removed from visibility. */
+  /** Global tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 
@@ -670,7 +696,7 @@ interface ToolView {
   readonly visible: ReadonlyMap<string, ToolDefinition>
   /** Pre-restriction capability names used by prompt-order validation. */
   readonly knownNames: ReadonlySet<string>
-  /** Current inherited names a scoped restriction may name; its own are exempt. */
+  /** Current global names that a scoped restriction may name. */
   readonly restrictableNames: ReadonlySet<string>
 }
 
@@ -708,7 +734,7 @@ class ToolLayer implements ScopeLayer {
       && this.mode === undefined
   }
 
-  /** Whether every compiled restriction in this layer admits an inherited tool name. */
+  /** Whether every compiled restriction in this layer admits a global tool name. */
   admits(name: string): boolean {
     for (const filter of this.restrictions.values()) {
       if ((filter.allow !== undefined && !filter.allow.has(name))
@@ -805,7 +831,34 @@ export class ToolRegistry extends Service {
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.defaultMode !== 'native') {
+      ctx.systemPrompt.section(this.collapseSection())
       ctx.systemPrompt.section(this.sdkSection())
+    }
+  }
+
+  /**
+   * The prompt statement of the `code` executor collapse, registered wherever
+   * {@link sdkSection} is and rendering empty outside an effective `code`.
+   *
+   * Every tool contributes its own guidance section naming its tool, none of
+   * them qualify how that tool is reached, and they all render before the SDK
+   * (orders 100-199 against {@link SDK_SECTION_ORDER}). Without this the model
+   * reads a catalog of tools it is told to use and no statement that only
+   * `run_code` may be called, so it emits a native call, receives
+   * `UNKNOWN_TOOL` for a tool the prompt just declared, and concludes the
+   * deployment is inconsistent. {@link COLLAPSE_SECTION_ORDER} places the rule
+   * before that guidance rather than after it.
+   *
+   * `both` renders empty: native calls do execute there, so the rule is false.
+   * @returns the section registration.
+   */
+  private collapseSection(): { name: string; order: number; text: (context: { scope?: ScopeKey }) => string } {
+    return {
+      name: 'tools:code-only',
+      order: COLLAPSE_SECTION_ORDER,
+      // The SAME predicate the executor denies by, so the prompt cannot state
+      // a rule the registry does not enforce (see `collapses`).
+      text: context => this.modeFor(context.scope) === 'code' ? CODE_ONLY_INSTRUCTION : '',
     }
   }
 
@@ -907,11 +960,14 @@ export class ToolRegistry extends Service {
         },
         { label: 'tools.presentAs()' },
       )
-      // The SDK section is per scope for the same reason the mode is. Under a
-      // deployment that already defaults to a code mode this shadows the
-      // global registration with an identical body, which costs nothing and
-      // keeps one rule instead of a case analysis.
-      if (mode !== 'native') yield ctx.systemPrompt.section(this.sdkSection())
+      // The SDK and collapse sections are per scope for the same reason the
+      // mode is. Under a deployment that already defaults to a code mode this
+      // shadows the global registration with an identical body, which costs
+      // nothing and keeps one rule instead of a case analysis.
+      if (mode !== 'native') {
+        yield ctx.systemPrompt.section(this.collapseSection())
+        yield ctx.systemPrompt.section(this.sdkSection())
+      }
     }.bind(this), 'tools.presentAs()')
     // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
     return dispose
@@ -1032,7 +1088,7 @@ export class ToolRegistry extends Service {
     const known = this.view(scope).restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown inherited tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; a restriction filters what this scope inherits, never what it registers itself. Restrictable tools: ${[...known].sort().join(', ') || '(none)'}`)
+      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
     return this.layers.effect(
       this.ctx,
@@ -1150,6 +1206,26 @@ export class ToolRegistry extends Service {
   }
 
   /**
+   * Resolve the definition that MAY EXECUTE for a call, applying the mode
+   * collapse at the operation boundary that owns it. The registry view
+   * (`get`) is presentation-agnostic; here a MODEL-DIRECT call under `code`
+   * may only name the reserved `run_code` transport, while a nested
+   * sub-dispatch (a `parent` token set — the `run_code` SDK calling a tool
+   * it bound) may call any visible tool. Denial surfaces as `UNKNOWN_TOOL`
+   * through the executor, matching an absent definition.
+   * @param name - the tool name as registered.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @param nested - whether the call is a transport sub-dispatch, not a model-direct call.
+   * @returns the definition that may run, or undefined when the call must be rejected.
+   */
+  private resolveExecution(name: string, scope: ScopeKey | undefined, nested: boolean): ToolDefinition | undefined {
+    const tool = this.get(name, scope)
+    if (tool === undefined) return undefined
+    if (this.collapses(name, scope, nested)) return undefined
+    return tool
+  }
+
+  /**
    * Project visible definitions onto the allowlisted model-facing schema fields,
    * excluding execution and presentation callbacks.
    * @param scope - the viewing scope (the agent); omitted = the global view.
@@ -1198,7 +1274,7 @@ export class ToolRegistry extends Service {
    * @returns the fail-closed scheduling mode.
    */
   executionMode(exec: ToolExecutionInput): ToolExecutionMode {
-    const tool = this.get(exec.name, exec.agent)
+    const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
     if (!tool?.isConcurrencySafe) return { kind: 'exclusive' }
     try {
       const concurrencySafe: unknown = tool.isConcurrencySafe(exec.arguments)
@@ -1227,6 +1303,26 @@ export class ToolRegistry extends Service {
       this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the original settled content`)
       return dispatch.content
     }
+  }
+
+  /**
+   * Whether the `code` mode collapse denies a model-direct call: only the
+   * reserved `run_code` transport may be named. Nested sub-dispatches (a
+   * `parent` token set) bypass the collapse. One home for the
+   * security-relevant predicate, shared by {@link resolveExecution} and
+   * {@link createExecution} so the two can never drift apart.
+   *
+   * Resolved through {@link modeFor}, NOT `defaultMode`: an agent given `code`
+   * by an agent preset under a native deployment is the composition
+   * `dsh-agent-tool-mode` exists for, and reading the deployment default would
+   * leave exactly that agent uncollapsed — announcing one surface while
+   * executing another, which is the bypass this collapse closes.
+   * @param name - the tool name as registered.
+   * @param scope - the viewing scope whose effective presentation mode applies.
+   * @param nested - whether the call is a transport sub-dispatch, not a model-direct call.
+   */
+  private collapses(name: string, scope: ScopeKey | undefined, nested: boolean): boolean {
+    return !nested && this.modeFor(scope) === 'code' && name !== RUN_CODE_NAME
   }
 
   /**
@@ -1274,8 +1370,15 @@ export class ToolRegistry extends Service {
     const agent = exec.agent
     const parent = exec.parent
     const signal = exec.signal
-    const definition = this.get(name, agent)
-    const finalizeContent = definition?.finalizeContent?.bind(definition)
+    // Distinguish a mode-collapsed call (visible in the scope, denied only by
+    // the `code` collapse) from a genuinely unknown tool. A collapsed call is
+    // deterministically denied, so it terminates BEFORE the extensible policy
+    // pipeline: pre-execute listeners, approval `ask`, and guards must never
+    // observe — or worse, approve — a call that can only fail. An unknown tool
+    // keeps the historical dispatch-stage `UNKNOWN_TOOL` path so policy
+    // listeners still see every name that reaches the registry.
+    const visible = this.get(name, agent)
+    const collapsed = visible !== undefined && this.collapses(name, agent, parent !== undefined)
     const concludingExecutions = this.concludingExecutions
     const base = {
       token,
@@ -1292,6 +1395,19 @@ export class ToolRegistry extends Service {
         concludingExecutions.add(this as unknown as ToolExecution)
       },
     }
+    // Capture the finalizer BEFORE argument materialization: the
+    // `finalizeContent` contract snapshots the callback when the call starts,
+    // and an arguments getter can replace or clear the registered callback
+    // during `snapshotJsonValue`. The collapse only decides whether the
+    // CAPTURED callback is retained: the pre-dispatch abort path keeps it
+    // (the cancellation contract routes aborted results through it — a getter
+    // that aborts mid-materialization before an invalid-args failure lands in
+    // the same retained path), while the `UNKNOWN_TOOL` denial and the
+    // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
+    // could never execute).
+    const capturedFinalizer = visible?.finalizeContent?.bind(visible)
+    const finalizerFor = (): ToolDefinition['finalizeContent'] | undefined =>
+      collapsed && !signal.aborted ? undefined : capturedFinalizer
     try {
       const detached = snapshotJsonValue(exec.arguments)
       if (detached === undefined) {
@@ -1299,15 +1415,37 @@ export class ToolRegistry extends Service {
       }
       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
-      this.contentFinalizers.set(execution, finalizeContent)
+      this.contentFinalizers.set(execution, finalizerFor())
       this.cancellationStates.set(execution, {
         callerSignal: signal,
         bodyInvoked: false,
       })
+      if (collapsed) {
+        // The collapse denies the call before the policy pipeline, but a
+        // pre-dispatch abort still keeps the established cancellation
+        // contract: `prepare`'s caller-cancellation check is skipped for
+        // final-results, so honor the abort here instead of surfacing
+        // `UNKNOWN_TOOL` on an already-cancelled call.
+        if (signal.aborted) {
+          return { kind: 'final-result', exec: execution, result: toolAbortedBeforeDispatchResult() }
+        }
+        // The name IS visible here, so the denial carries the route the model
+        // must take instead. Without it the model reads a bare `unknown tool`
+        // for a tool the prompt just declared and concludes the deployment is
+        // broken rather than correcting itself.
+        return {
+          kind: 'final-result',
+          exec: execution,
+          result: toolErrorResult(new ToolNotFoundError(
+            name,
+            `only \`${RUN_CODE_NAME}\` is callable directly — call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+          )),
+        }
+      }
       return { kind: 'ready', exec: execution }
     } catch (error: unknown) {
       const execution: MutableToolRunContext = { ...base, arguments: undefined }
-      this.contentFinalizers.set(execution, finalizeContent)
+      this.contentFinalizers.set(execution, finalizerFor())
       return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
     }
   }
@@ -1405,7 +1543,7 @@ export class ToolRegistry extends Service {
     }
     exec.signal = signal
     try {
-      const tool = this.get(exec.name, exec.agent)
+      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
       if (!tool) throw new ToolNotFoundError(exec.name)
       state.bodyInvoked = true
       const returned = await tool.execute(exec.arguments, exec)
@@ -1627,7 +1765,7 @@ export class ToolRegistry extends Service {
       if (result.isError) {
         throw new TypeError('tools/post-execute cannot replace the value of a failed result')
       }
-      const tool = this.get(exec.name, exec.agent)
+      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
       if (tool === undefined) throw new ToolNotFoundError(exec.name)
       const replaced = this.createSuccessResult(exec, tool, decision.value)
       return this.markCanonical(exec, {
@@ -1696,7 +1834,7 @@ export class ToolRegistry extends Service {
         ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
       })
     }
-    const tool = this.get(exec.name, exec.agent)
+    const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
     if (tool === undefined) throw new ToolNotFoundError(exec.name)
     const normalized = this.createSuccessResult(exec, tool, result.value)
     return this.markCanonical(exec, {

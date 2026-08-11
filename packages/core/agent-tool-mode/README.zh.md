@@ -20,7 +20,7 @@ preset 能拥有的是这份注册表的**呈现方式**。`ctx.tools.presentAs(
 
 ## Model Experience
 
-Indirectly, through the projection it selects in `dsh-tools`: `code` presents `run_code` plus a generated SDK section, `native` presents every tool schema.
+间接生效，取决于它在 `dsh-tools` 中选择的投影：`code` 呈现 `run_code`、一份生成的 SDK 段，以及「只有 `run_code` 可被直接调用」这条规则，`native` 呈现每个工具的 schema。该选择同时决定了**什么可以执行**：在 `code` 下，注册表会把模型直呼其他任何工具名解析为 `UNKNOWN_TOOL`，因此这一行正是让「通告面」与「可调用面」对每个被它覆盖的 agent 保持一致的东西（[执行器塌缩 note](../../../.agents/notes/implemented/bug-fix/2026-08-07-code-mode-executor-collapse.md)）。
 
 #### KV Cache effect
 
