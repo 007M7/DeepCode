@@ -14,11 +14,13 @@ The `Release (Python)` GitHub workflow exposes credential-free validation to pul
 
 A run with `publish=true` must use the `python-v<repository-version>` tag in the private automation repository, match that repository's `github.repository` to its repository-scoped `PYPI_PUBLISHER_REPOSITORY` variable, find `PUBLIC_PYPI_RELEASE_ENABLED=true`, and receive approval from the `pypi-runtime` and `pypi` GitHub environments for runtime and SDK publication, respectively. The read-only public mirror supplies the package metadata URLs but does not run release Actions. Only the two publication jobs receive `id-token: write`; PyPI Trusted Publishing exchanges the private repository identity for short-lived project credentials, so the repository stores no PyPI token.
 
-Publication consumes the aggregate artifact produced and checked in the same workflow run. A runtime job uploads all three platform wheels before a dependent job uploads the SDK wheel because PyPI uploads are not atomic and the SDK pins the runtime distribution at the exact same version. Neither job checks out source or rebuilds a wheel. Separating them lets GitHub's failed-job retry resume an SDK failure without attempting to replace immutable runtime files.
+Publication consumes the aggregate artifact produced and checked in the same workflow run. Each publication job verifies the retained `SHA256SUMS` before selecting its upload set. A runtime job uploads all three platform wheels before a dependent job uploads the SDK wheel because PyPI uploads are not atomic and the SDK pins the runtime distribution at the exact same version. Neither job checks out source or rebuilds a wheel. Separating them lets GitHub's failed-job retry resume an SDK failure without attempting to replace immutable runtime files.
 
 Both publication actions disable public attestations. The action still uses Trusted Publishing for authentication, while omitting provenance that would disclose the private publisher repository instead of the public source mirror.
 
 Repository versions may be stable or use the supported prerelease spellings. Tags retain the repository spelling, while wheel filenames, metadata, dependency pins, and artifact lookup use the normalized PEP 440 spelling.
+
+The runtime package's `platforms.json` is the source of truth for native wheel tags and executable names. The repository release builder and the isolated Hatch build hook validate and load that file independently. GitHub Actions and GitLab CI call one repository-owned macOS deployment-target check for both the runtime executable and its required spawn helper, so every Mach-O file in the wheel must fit the declared platform tag.
 
 Both Python build-system requirements pin Hatchling 1.30.1. The next available Hatchling release emits Core Metadata 2.5, which the pinned Twine 6.2.0 validator rejects; keeping the builder exact makes local, GitHub, and GitLab output agree until the validation toolchain supports that metadata version.
 
@@ -42,7 +44,7 @@ The complete release candidate and the public release both run from the private 
 
 The private automation repository owner and name, workflow filename, and each job's environment (`pypi-runtime` for runtime and `pypi` for SDK) are part of the Trusted Publisher identity. A source-repository transfer, workflow rename, or environment rename requires updating the affected PyPI publishers and the publisher-repository variable when the repository identity changes. Changing the read-only public mirror changes package metadata URLs instead, not the publishing identity.
 
-PyPI publication remains non-atomic across the two distribution projects. Runtime-first ordering narrows the visible failure mode, while separate publication jobs and retained hashes let a failed SDK upload resume with the exact checked bytes; an uploaded filename is never replaced.
+PyPI publication remains non-atomic across the two distribution projects. Runtime-first ordering narrows the visible failure mode, while separate publication jobs and checksum verification let a failed SDK upload resume with the exact checked bytes; an uploaded filename is never replaced.
 
 Disabling public attestations gives up public cryptographic provenance for the upload identity. Trusted Publishing still authenticates each upload, and the retained aggregate artifact keeps the checked wheel hashes inside the private release workflow.
 

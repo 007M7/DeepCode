@@ -159,9 +159,18 @@ describe('Python release workflows', () => {
     expect(pythonCompat.strategy).toMatchObject({ matrix: { python: ['3.10', '3.14'] } })
     expect(JSON.stringify(pythonCompat.steps)).toContain('deepseek-harness-sdk==${{ steps.compatibility-version.outputs.version }}')
     const validateSteps = JSON.stringify(validate.steps)
+    const authorize = validate.steps.filter(isRecord).find(step => step.name === 'Authorize publication request')
+    if (!isRecord(authorize) || typeof authorize.run !== 'string') {
+      throw new TypeError('Python release validation must authorize publication requests')
+    }
     expect(validateSteps).toContain('PUBLIC_PYPI_RELEASE_ENABLED')
-    expect(validateSteps).toContain('PYPI_PUBLISHER_REPOSITORY')
-    expect(validateSteps).not.toContain('REPOSITORY_PRIVATE')
+    expect(authorize).toMatchObject({
+      env: {
+        PYPI_PUBLISHER_REPOSITORY: '${{ vars.PYPI_PUBLISHER_REPOSITORY }}',
+        REPOSITORY: '${{ github.repository }}',
+      },
+    })
+    expect(authorize.run).toContain('[ "$REPOSITORY" = "$PYPI_PUBLISHER_REPOSITORY" ]')
     expect(validateSteps).toContain('100000000')
     expect(publishRuntime).toMatchObject({
       if: "github.event_name == 'workflow_dispatch' && inputs.publish",
@@ -179,6 +188,8 @@ describe('Python release workflows', () => {
     const sdkSteps = publishSdk.steps.filter(isRecord)
     const runtimePublish = runtimeSteps.find(step => step.name === 'Publish runtime wheels')
     const sdkPublish = sdkSteps.find(step => step.name === 'Publish SDK wheel')
+    const runtimeHashes = runtimeSteps.find(step => step.name === 'Verify release artifact hashes')
+    const sdkHashes = sdkSteps.find(step => step.name === 'Verify release artifact hashes')
     expect([...runtimeSteps, ...sdkSteps].some(
       step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'),
     )).toBe(false)
@@ -191,6 +202,8 @@ describe('Python release workflows', () => {
     expect(sdkPublish).toMatchObject({
       with: { 'packages-dir': 'dist/sdk/', attestations: false },
     })
+    expect(runtimeHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
+    expect(sdkHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
   })
 
   it('exposes the native wheel builder to the release caller with normalized versions', () => {
@@ -218,12 +231,13 @@ describe('Python release workflows', () => {
     expect(JSON.stringify(manylinuxAddon)).toContain('node-pty-glibc-versions.txt')
     expect(JSON.stringify(manylinuxAddon)).toContain('le 2.28')
     expect(macosCheck).toMatchObject({ if: "runner.os == 'macOS'" })
-    expect(JSON.stringify(macosCheck)).not.toContain('sort -V')
+    expect(JSON.stringify(macosCheck)).toContain('scripts/check-macos-deployment-target.py')
+    expect(JSON.stringify(macosCheck)).toContain('$EXE-spawn-helper')
     expect(manylinuxSmoke).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxSmoke)).toContain('-e DSH_TELEMETRY_DISABLED')
   })
 
-  it('decodes the GitLab macOS deployment check with a column-zero heredoc', () => {
+  it('uses the shared macOS deployment-target check in GitLab', () => {
     const workflow = loadWorkflow('.gitlab-ci.yml')
     const runtimeWheel = workflow['.runtime-wheel']
     if (!isRecord(runtimeWheel) || !Array.isArray(runtimeWheel.script)) {
@@ -237,12 +251,8 @@ describe('Python release workflows', () => {
       throw new TypeError('GitLab CI must check the macOS deployment target')
     }
 
-    const lines = macosCheck.split('\n')
-    const opener = lines.indexOf('  python3 - "$minos" <<\'PY\'')
-    const terminator = lines.indexOf('PY', opener + 1)
-    expect(lines[opener + 1]).toBe('import sys')
-    expect(terminator).toBeGreaterThan(opener)
-    expect(lines[terminator + 1]).toBe('fi')
+    expect(macosCheck).toContain('scripts/check-macos-deployment-target.py')
+    expect(macosCheck).toContain('"$EXE" "$EXE-spawn-helper"')
   })
 })
 

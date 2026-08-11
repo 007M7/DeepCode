@@ -282,23 +282,9 @@ jobs:
         if: runner.os == 'macOS'
         env:
           EXE: ${{ steps.runtime.outputs.exe }}
-        run: |
-          set -euo pipefail
-          minos="$(otool -l "$EXE" | awk '/LC_BUILD_VERSION/{seen=1; next} seen && /minos/{print $2; exit}')"
-          [ -n "$minos" ] || { echo "::error::No macOS deployment target found in $EXE"; exit 1; }
-          python3 - "$minos" <<'PY'
-          import sys
-
-          actual = tuple(int(part) for part in sys.argv[1].split("."))
-          claimed = (14, 0)
-          width = max(len(actual), len(claimed))
-          actual += (0,) * (width - len(actual))
-          claimed += (0,) * (width - len(claimed))
-          if actual > claimed:
-              raise SystemExit(
-                  f"::error::Executable requires macOS {sys.argv[1]} but the wheel claims macosx_14_0"
-              )
-          PY
+        run: >-
+          python3 scripts/check-macos-deployment-target.py
+          "$EXE" "$EXE-spawn-helper"
 
       - name: Run wheel in a manylinux 2.28 container
         if: runner.os == 'Linux'

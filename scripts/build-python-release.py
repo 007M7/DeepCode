@@ -19,11 +19,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SDK_DISTRIBUTION = "deepseek-harness-sdk"
 RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
-PLATFORMS = {
-    "linux-x64": ("manylinux_2_28_x86_64", "dsh-jsonrpc-agent-pkg-linux-x64"),
-    "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
-    "macos-arm64": ("macosx_14_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
-}
+PLATFORM_MANIFEST = ROOT / "python" / "sdk-runtime" / "platforms.json"
+
+
+def load_platforms(path: Path = PLATFORM_MANIFEST) -> dict[str, tuple[str, str]]:
+    """Load the release platform tag and executable pairs from the build manifest."""
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"could not read runtime platform manifest from {path}") from error
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError(f"{path} must contain a non-empty platform object")
+    platforms: dict[str, tuple[str, str]] = {}
+    for name, raw in payload.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(raw, dict)
+            or set(raw) != {"tag", "executable"}
+            or not isinstance(raw["tag"], str)
+            or not isinstance(raw["executable"], str)
+        ):
+            raise ValueError(f"{path} platform entries must contain string tag and executable fields")
+        platforms[name] = (raw["tag"], raw["executable"])
+    return platforms
+
+
+PLATFORMS = load_platforms()
 
 
 def runtime_suffixes(executable_name: str) -> tuple[str, ...]:

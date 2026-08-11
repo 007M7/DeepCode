@@ -28,7 +28,7 @@ The pairing gate checks heading depths, fenced code blocks, table row and column
 - tables (same columns, same row order; header cells translated per terminology),
 - fenced code blocks — **byte-identical, including comments**; the pairing signature compares their info strings and contents, and ` ```ts ` blocks compile under `doc-typecheck`,
 - inline code spans (commands, flags, config keys, file paths, event names, API names, version numbers) — verbatim, never translated or reformatted,
-- links and anchors: every relative link MUST point at the same target in both files — by convention the `.md` path, not the `.zh.md` sibling — so links never dangle when one pair lands before its neighbors. The ONLY zh-specific link is the language switcher. Link TEXT is translated; the target is not.
+- links and anchors: every relative link MUST point at the same target in both files — by convention the `.md` path, not the `.zh.md` sibling — so links never dangle when one pair lands before its neighbors. The ONLY zh-specific link is the language switcher. A README rendered outside GitHub MAY use the canonical public repository URL to its exact counterpart as documented in [README.md](README.md). Link TEXT is translated; the target is not.
 
 The repo's Markdown conventions apply to `.zh.md` files unchanged: one physical line per paragraph (`verify-md-wrap`), resolving relative links (`verify-md-links`), exactly one trailing newline.
 

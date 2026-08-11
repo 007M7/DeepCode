@@ -61,6 +61,14 @@ def test_macos_wheel_tag_does_not_claim_unsupported_node_platforms() -> None:
     assert build_python_release.PLATFORMS["macos-arm64"][0] == "macosx_14_0_arm64"
 
 
+def test_platform_manifest_rejects_incomplete_entries(tmp_path: Path) -> None:
+    manifest = tmp_path / "platforms.json"
+    manifest.write_text('{"macos-arm64":{"tag":"macosx_14_0_arm64"}}\n')
+
+    with pytest.raises(ValueError, match="tag and executable fields"):
+        build_python_release.load_platforms(manifest)
+
+
 def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path) -> None:
     destination = tmp_path / "staging"
 
@@ -96,6 +104,9 @@ def test_stage_runtime_copies_platform_payload(
     assert {path.name: path.read_bytes() for path in runtime_dir.glob("dsh-jsonrpc-agent-pkg-*")} == expected
     pyproject = (destination / "pyproject.toml").read_text()
     assert 'license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]' in pyproject
+    assert (destination / "platforms.json").read_bytes() == (
+        ROOT / "python" / "sdk-runtime" / "platforms.json"
+    ).read_bytes()
     assert (destination / "LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes()
     assert (destination / "THIRD_PARTY_NOTICES.md").read_bytes() == (
         ROOT / "THIRD_PARTY_NOTICES.md"

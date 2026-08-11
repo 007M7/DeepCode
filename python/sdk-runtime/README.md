@@ -1,6 +1,6 @@
 # DeepSeek Harness Runtime Wheel
 
-English | [中文](README.zh.md)
+English | [中文](https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk-runtime/README.zh.md)
 
 Runtime carrier package for the Python SDK (dist `deepseek-harness-runtime-bin`, module `deepseek_harness_runtime`): it locates the bundled runtime binaries the `deepseek-harness-sdk` client spawns, and ships the default configuration behind zero-config runs.
 
@@ -15,7 +15,7 @@ Both carriers hold the same content, defined once: the [package.json](https://gi
 
 A missing exe raises `FileNotFoundError` naming both acquisition routes: build via `scripts/build-exe-for-python-sdk.ts` in a deepseek-harness checkout, or install the matching platform runtime wheel produced by the `build-exe-for-python-sdk` CI workflow. A missing dev-only node carrier names its sole route, the build script. The workflow retains wheels rather than standalone executable archives. Acquisition strategy is deliberately separate from the lookup interface, so an on-demand download can replace it later without touching callers.
 
-Each wheel contains exactly one runtime executable. The macOS wheel also contains its matching native spawn helper; a missing sidecar makes that installation incomplete and is a hard startup error, even for a selected Cordis composition that does not use PTY tools. Linux wheels contain no spawn helper because `node-pty` uses the staged `pty.node` addon directly. The fixed tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_14_0_arm64`; the macOS tag conservatively matches the bundled Node 24 executable's macOS 13.5 deployment target. The build hook rejects `py3-none-any`, absent or multiple runtime files, non-executable files, and unsupported platform tags. The repository root `package.json` supplies the shared version for this package and the SDK, and a `python-v<repository-version>` release tag must match it.
+Each wheel contains exactly one runtime executable. The macOS wheel also contains its matching native spawn helper; a missing sidecar makes that installation incomplete and is a hard startup error, even for a selected Cordis composition that does not use PTY tools. Linux wheels contain no spawn helper because `node-pty` uses the staged `pty.node` addon directly. The fixed tags are `py3-none-manylinux_2_28_x86_64`, `py3-none-manylinux_2_28_aarch64`, and `py3-none-macosx_14_0_arm64`; the macOS tag conservatively matches the bundled Node 24 executable's macOS 13.5 deployment target. This package's `platforms.json` owns the fixed tag and executable-name pairs used by both the repository release builder and the isolated build hook. The build hook rejects `py3-none-any`, absent or multiple runtime files, non-executable files, and unsupported platform tags. The repository root `package.json` supplies the shared version for this package and the SDK, and a `python-v<repository-version>` release tag must match it.
 
 ## Resolution API
 

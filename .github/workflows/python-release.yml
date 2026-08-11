@@ -194,6 +194,9 @@ jobs:
           name: python-release-${{ needs.validate.outputs.version }}
           path: dist
 
+      - name: Verify release artifact hashes
+        run: cd dist && sha256sum -c SHA256SUMS
+
       - name: Select runtime wheels
         run: |
           mkdir -p dist/runtime
@@ -225,6 +228,9 @@ jobs:
         with:
           name: python-release-${{ needs.validate.outputs.version }}
           path: dist
+
+      - name: Verify release artifact hashes
+        run: cd dist && sha256sum -c SHA256SUMS
 
       - name: Select SDK wheel
         run: |
