@@ -42,6 +42,7 @@
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
+| `ctx.messageFeedback` | [`feedback/`](../packages/feedback/README.md) | 绑定生命周期的单条 assistant 消息可编辑反馈及其 Host Remote 契约 |
 | `ctx.sessionPersistence` | [`session/`](../packages/session/README.md) | 会话日志的持久化存储 |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 基于 SQLite 全文搜索的实时优先精确检索／过滤／追踪、经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session/session-title`](../packages/session/README.md) | 基于日志的回退标题和单个可选异步提供方 |
