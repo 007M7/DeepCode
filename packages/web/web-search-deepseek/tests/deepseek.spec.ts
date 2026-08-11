@@ -205,6 +205,34 @@ describe('DeepSeekSearchProvider request mapping', () => {
   })
 })
 
+describe('DeepSeekSearchProvider settings changes mid-search', () => {
+  it('serves one search from one section even when settings land during credential resolution', async () => {
+    // The section the search starts on, and the one a user commits while the
+    // credential is still resolving.
+    const before = { ...options, apiKey: '', baseURL: 'https://before.test/v1', model: 'model-before', maxUses: 2 }
+    const after = { ...options, apiKey: '', baseURL: 'https://after.test/v1', model: 'model-after', maxUses: 9 }
+    let current = before
+    let commitSettings = () => {}
+    const resolveApiKey = () => new Promise<string>((resolve) => {
+      commitSettings = () => { current = after; resolve('key-from-before') }
+    })
+    const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const provider = new DeepSeekSearchProvider(() => ({ ...current, resolveApiKey }))
+    const search = provider.search({ query: 'q' })
+    await vi.waitFor(() => { expect(typeof commitSettings).toBe('function') })
+    commitSettings()
+    await search
+
+    const [endpoint, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    // The key resolved from `before` must never reach `after`'s origin.
+    expect(endpoint).toBe('https://before.test/v1/messages')
+    expect((init.headers as Record<string, string>)['x-api-key']).toBe('key-from-before')
+    expect(JSON.parse(String(init.body))).toMatchObject({ model: 'model-before' })
+  })
+})
+
 describe('DeepSeekSearchProvider error handling', () => {
   it('does not start credential resolution or dispatch for a pre-aborted call', async () => {
     const resolveApiKey = vi.fn(async () => 'late-key')

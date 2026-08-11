@@ -28,14 +28,13 @@ import { en, zh } from './locales.ts'
 export type { PluginConfigSectionInjected, PluginConfigSectionProps } from './PluginConfigSection.tsx'
 export type { PluginCardProps } from './PluginCard.tsx'
 export type { SettingsPluginItemOwnerProps } from './slot-contract.ts'
-export { SecretField, ValueField, type FieldProps } from './fields.tsx'
-export {
-  CardForm, numberField, textField,
-  type CardActions, type CardFieldSpec, type CardFieldState, type CardSecretSpec, type CardShell,
+export type { FieldProps } from './fields.tsx'
+export type {
+  CardActions, CardFieldSpec, CardFieldState, CardSecretSpec, CardShell,
 } from './card-store.ts'
-export { AGENT_LOOP_NS, AgentLoopCardController, type AgentLoopCardState } from './agent-loop-store.ts'
-export { BASH_NS, BashCardController, type BashCardState } from './bash-store.ts'
-export { WEB_SEARCH_NS, WebSearchCardController, type WebSearchCardState } from './web-search-store.ts'
+export type { AgentLoopCardFace, AgentLoopCardState } from './agent-loop-store.ts'
+export type { BashCardFace, BashCardState } from './bash-store.ts'
+export type { WebSearchCardFace, WebSearchCardState } from './web-search-store.ts'
 
 /** Dictionary namespace owned by this plugin. */
 const NS = 'settings.pluginConfig'
@@ -56,9 +55,13 @@ export function apply(ctx: ClientContext): void {
   const agentLoop = new AgentLoopCardController(bindSettingsScope(ctx, { namespace: AGENT_LOOP_NS }))
   const webSearch = new WebSearchCardController(bindSettingsScope(ctx, { namespace: WEB_SEARCH_NS }), api)
 
-  // The section renders the empty line rather than an empty list when no card
-  // is registered; the ledger is read at render time so a card arriving later
-  // (or leaving with its plugin) is reflected without the section subscribing.
+  // The section renders the empty line rather than an empty list when no plugin
+  // contributed a card. The count is read once: the renderer caches a root
+  // entry's inject face per registration, so this reports what was registered
+  // when the section mounted, not what is visible now. Both gaps are bounded by
+  // this deployment always registering the three cards below — a card that
+  // arrives later would not raise the count, and a namespace this deployment
+  // does not expose leaves its card rendering nothing inside a non-empty list.
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'plugins',

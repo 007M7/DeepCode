@@ -38,6 +38,16 @@ export interface WebSearchSettings {
   maxUses?: number
 }
 
+/** What the credentials domain last reported, and for which reference. */
+interface CredentialState {
+  /** Reference this answer describes; a stale response for another one is dropped. */
+  ref: string
+  /** Whether any layer supplies a value for it. */
+  configured: boolean
+  /** Whether `credentials.set` can affect it; false disables the control. */
+  writable: boolean
+}
+
 /** What the web-search card renders. */
 export interface WebSearchCardState extends CardShell {
   /** Provider endpoint. */
@@ -48,6 +58,8 @@ export interface WebSearchCardState extends CardShell {
   apiKey: CardFieldState
   /** Whether the Host reports a credential configured for the referenced key. */
   apiKeyConfigured: boolean
+  /** Whether the credentials domain accepts a write for it; false disables the control. */
+  apiKeyWritable: boolean
 }
 
 /** The registration-side face the web-search card's slot entry injects. */
@@ -62,7 +74,7 @@ export interface WebSearchCardFace extends CardActions {
 export class WebSearchCardController {
   private readonly form: CardForm<WebSearchSettings>
   private readonly store: SnapshotStore<WebSearchCardState>
-  private configured = false
+  private credential: CredentialState = { ref: '', configured: false, writable: true }
 
   /**
    * @param scope - the bound settings scope for the `web-search-deepseek` namespace.
@@ -88,13 +100,27 @@ export class WebSearchCardController {
       baseURL: this.form.field('baseURL'),
       maxUses: this.form.field('maxUses'),
       apiKey: this.form.field(API_KEY_FIELD),
-      apiKeyConfigured: this.configured,
+      apiKeyConfigured: this.credential.configured,
+      apiKeyWritable: this.credential.writable,
     }
   }
 
-  /** Ask the credentials domain whether the referenced key exists. */
+  /**
+   * Ask the credentials domain about the reference the section currently names.
+   *
+   * The answer is stored with the reference it describes: `apiKeyEnv` can
+   * change between the request and its response, and two reads can settle out
+   * of order, so a response is published only while it still answers for the
+   * reference in force.
+   */
   private async readCredential(): Promise<void> {
     const ref = refOf(this.scope.getSnapshot())
+    if (ref !== this.credential.ref) {
+      // A new reference knows nothing yet; keeping the old answer would claim
+      // the key is configured under a name nobody has checked.
+      this.credential = { ref, configured: false, writable: true }
+      this.store.set(this.projection())
+    }
     let response: Awaited<ReturnType<IApiClient['credentials']['describe']>>
     try {
       response = await this.api.credentials.describe({ refs: [ref] })
@@ -103,10 +129,17 @@ export class WebSearchCardController {
       // last state it knew, and a write still reaches the Host.
       return
     }
-    if (!response.result.ok) return
-    const next = response.result.value.credentials[ref]?.configured ?? false
-    if (next === this.configured) return
-    this.configured = next
+    if (!response.result.ok || ref !== refOf(this.scope.getSnapshot())) return
+    const view = response.result.value.credentials[ref]
+    const next: CredentialState = {
+      ref,
+      configured: view?.configured ?? false,
+      // An unknown reference is treated as writable: the control stays usable
+      // and the Host is what refuses, rather than the card guessing a refusal.
+      writable: view?.writable ?? true,
+    }
+    if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
+    this.credential = next
     this.store.set(this.projection())
   }
 
@@ -131,7 +164,7 @@ export class WebSearchCardController {
       // authority on whether the key now exists.
     }
     await this.readCredential()
-    return this.configured
+    return this.credential.configured
   }
 }
 

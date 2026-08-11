@@ -4,27 +4,17 @@
  * the settings section, so the literal never rides a response.
  */
 
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { SecretField, ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
-import type { CardActions } from './card-store.ts'
-import type { WebSearchCardState } from './web-search-store.ts'
+import type { WebSearchCardFace } from './web-search-store.ts'
 import type {} from './slot-contract.ts'
-
-/** Registration-side business face for the web-search card. */
-export interface WebSearchCardInjected extends CardActions {
-  hooks: {
-    /** Card snapshot bound by the renderer as useWebSearchCard. */
-    webSearchCard: SnapshotStore<WebSearchCardState>
-  }
-}
 
 /** Props the renderer binds for the web-search card. */
 export type WebSearchCardProps =
   PropsRuntime<'settings.plugin.item'>
   & PropsLocale<'settings.pluginConfig'>
-  & InjectFace<WebSearchCardInjected>
+  & InjectFace<WebSearchCardFace>
 
 /**
  * Render the web-search card.
@@ -50,7 +40,9 @@ export function WebSearchCard(props: WebSearchCardProps) {
         hint={t('webSearchApiKeyHint')}
         // The credentials domain accepts a key even when the settings document
         // itself is read-only; they are separate stores with separate refusals.
-        disabled={false}
+        // Its own writability is what disables this control — a key sourced
+        // from the process environment cannot be written from here.
+        disabled={!state.apiKeyWritable}
         text={state.apiKey.text}
         configured={state.apiKeyConfigured}
         stateLabel={state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset')}

@@ -263,6 +263,7 @@ describe('WebSearchCard', () => {
       maxUses: field('5'),
       apiKey: field(''),
       apiKeyConfigured: false,
+      apiKeyWritable: true,
       ...state,
     })
     const actions = cardActions()
@@ -290,6 +291,16 @@ describe('WebSearchCard', () => {
     fireEvent.change(key, { target: { value: 'ds-secret' } })
 
     expect(actions.edit).toHaveBeenCalledWith('apiKey', 'ds-secret')
+  })
+
+  it('disables the key control when the reference itself is not writable', () => {
+    // A key coming from the process environment: the settings document is
+    // writable, the credential is not.
+    renderWebSearch({ apiKeyConfigured: true, apiKeyWritable: false })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en.webSearchApiKey)).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText(en.webSearchBaseUrl)).toHaveProperty('disabled', false)
   })
 
   it('stages the endpoint, the search budget, and their resets', () => {

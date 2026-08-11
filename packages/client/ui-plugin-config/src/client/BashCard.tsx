@@ -1,26 +1,16 @@
 /** The shell plugin's card: the limits every command the agent runs is bound by. */
 
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
-import type { CardActions } from './card-store.ts'
-import type { BashCardState } from './bash-store.ts'
+import type { BashCardFace } from './bash-store.ts'
 import type {} from './slot-contract.ts'
-
-/** Registration-side business face for the shell card. */
-export interface BashCardInjected extends CardActions {
-  hooks: {
-    /** Card snapshot bound by the renderer as useBashCard. */
-    bashCard: SnapshotStore<BashCardState>
-  }
-}
 
 /** Props the renderer binds for the shell card. */
 export type BashCardProps =
   PropsRuntime<'settings.plugin.item'>
   & PropsLocale<'settings.pluginConfig'>
-  & InjectFace<BashCardInjected>
+  & InjectFace<BashCardFace>
 
 /**
  * Render the shell card.
