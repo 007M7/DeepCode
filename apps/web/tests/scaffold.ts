@@ -416,7 +416,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // (apps/web IS @deepseek-ai/dsh-frontend); only the URL line is silenced.
     // Preserve the composed surface-context choice because a patch replaces
     // the row's complete config.
-    { id: 'web-runtime', config: { mode: 'production', printUrl: false, surfaceContext } },
+    { id: 'web-runtime', config: { printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
       : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],

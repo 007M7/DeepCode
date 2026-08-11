@@ -377,16 +377,16 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     expect(scanned.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
   })
 
-  it('readRaw is undefined for a zstd artifact that carries no frame', async () => {
+  it('readRaw rejects a present zstd artifact that carries no frame', async () => {
     const root = await freshRoot()
     const ctx = await mount(root)
     const header = meta('raw-zero-frame', '/work')
     await ctx.sessionPersistence.create(header)
     await ctx.sessionPersistence.append(header.id, oneTurnLog())
-    // Overwrite the physical artifact with a short buffer: frame scanning
-    // answers zero frames before any magic check, so readRaw reports no artifact.
+    // The path still exists, so zero frames is corruption rather than absence.
     await writeFile(logPath(root, '/work', header.id, 'zstd'), Buffer.alloc(0))
-    expect(await ctx.sessionPersistence.readRaw(header.id)).toBeUndefined()
+    await expect(ctx.sessionPersistence.readRaw(header.id))
+      .rejects.toThrow('empty or header-less Zstandard session log')
   })
 
   it('resolves the default when a programmatic wrapper bypasses Loader schema normalization', async () => {
