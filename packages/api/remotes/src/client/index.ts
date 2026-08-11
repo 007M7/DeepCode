@@ -33,7 +33,7 @@ export type {
   RpcRequest, RpcResponse, RpcResult, SessionId, SessionModels, SessionSearchItem,
   SessionSummary, SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,
   SubagentAddress, SubagentCatalog, TaskView, ToolCallView, ToolEventView, ToolResultView,
-  WorkspaceId, WorkspaceView
+  WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 
 declare module '@deepseek-ai/cordis' {

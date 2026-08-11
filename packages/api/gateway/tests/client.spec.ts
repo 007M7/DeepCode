@@ -226,9 +226,6 @@ describe('Client TypeRT API', () => {
       descriptors: [maybeDescriptor()],
     })
 
-    // The analyzers disagree on the key-remapped namespace projection: tsc
-    // resolves this method, oxlint reads it as an error type.
-    // oxlint-disable-next-line typescript/no-unsafe-call
     await expect(ctx.remote.probe.maybe(undefined)).resolves.toBeUndefined()
     expect(call).toHaveBeenNthCalledWith(
       1,
@@ -237,7 +234,6 @@ describe('Client TypeRT API', () => {
       { args: {} },
       expect.any(AbortSignal),
     )
-    // oxlint-disable-next-line typescript/no-unsafe-call
     await expect(ctx.remote.probe.maybe(null)).resolves.toBeNull()
     expect(call).toHaveBeenNthCalledWith(
       2,
