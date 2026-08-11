@@ -240,7 +240,7 @@ Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:56`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:95`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -258,7 +258,7 @@ Source: [`packages/interaction/commands/src/types.ts:56`](../packages/interactio
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:49`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:88`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 

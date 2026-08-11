@@ -43,4 +43,4 @@ AFTER  compact:  ring=4%  header=~4227/100000   rows=[system 18, tools 0, messag
 
 ## 测试
 
-`packages/llm/token-meter/tests/token-usage-projection.spec.ts` 覆盖了投影值在表层增长与一次压缩期间的延续更新（样本保持不动而投影值缩小），以及启发式误差会把数字压到负数时的零钳制。`packages/client/ui-conversation/tests/context-meter.spec.tsx` 钉住圆环读取投影值这一点，`chat-stats.spec.tsx` 钉住 `contextOccupancy` 的优先级与回退。上面那组端到端数字来自在挂载了投影注册表的真实 `AgentLoop` 上驱动 `BasicCompactService.compactNow`。
+`packages/llm/token-meter/tests/token-usage-projection.spec.ts` 覆盖了投影值在表层增长与一次压缩期间的延续更新（样本保持不动而投影值缩小），以及启发式误差会把数字压到负数时的零钳制。`packages/client/ui-conversation/tests/context-meter.client.spec.tsx` 钉住圆环读取投影值这一点，`chat-stats.spec.tsx` 钉住 `contextOccupancy` 的优先级与回退。上面那组端到端数字来自在挂载了投影注册表的真实 `AgentLoop` 上驱动 `BasicCompactService.compactNow`。

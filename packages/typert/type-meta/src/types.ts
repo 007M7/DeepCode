@@ -39,6 +39,28 @@ export interface TypeRTContextMap {}
 /** Merge-extensible direct Remote method signatures generated for consumers. */
 export interface TypeRTRemoteMap {}
 
+/**
+ * One Remote call's failure as the carrier reported it. `code` stays open here:
+ * the closed RPC code union belongs to the carrier package, which already
+ * depends on this one, so naming it would invert that edge.
+ */
+export interface RemoteFailure {
+  readonly code: string
+  readonly message: string
+  readonly details: object
+}
+
+/**
+ * What every generated Remote method resolves to. The Remote face itself folds
+ * carrier failures into the error branch, so no consumer wraps a call to
+ * recover one; only assembly faults (arity, an unmounted method, a missing
+ * Context binder) still reject.
+ * @template T - the Host method's business result.
+ */
+export type RemoteResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: RemoteFailure }
+
 /** Merge-extensible scoped Remote method signatures generated for consumers. */
 export interface TypeRTRemoteScopeMap {}
 
@@ -136,6 +158,8 @@ export interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypeRTCodec
+  /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
+  readonly acceptsUndefined?: true
 }
 
 /** Source position retained for diagnostics from generated definitions. */

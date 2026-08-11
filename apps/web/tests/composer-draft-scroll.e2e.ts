@@ -24,7 +24,7 @@
 //
 // Only a real engine can show any of this. Scrolling is layout: jsdom reports
 // `scrollHeight === clientHeight` for every element and never scrolls one, so
-// the unit spec in packages/client/ui-conversation/tests/input-bar.spec.tsx can
+// the unit spec in packages/client/ui-conversation/tests/input-bar.client.spec.tsx can
 // only assert that one scrollport contains both layers.
 //
 // Zero model calls: a fresh workspace's blank session already carries a live

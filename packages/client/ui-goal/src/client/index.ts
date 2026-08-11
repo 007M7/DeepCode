@@ -40,31 +40,6 @@ const NS = 'goal'
 /** Required services for the Goal dock, command-input projection, Remote mutations, and copy. */
 export const inject = ['slots', 'sessions', 'remote', 'remote.goals', 'locale', 'conversationEvents']
 
-/** Map one generated Remote call, including synchronous namespace lookup failures, to the fields rendered by the goal strip. */
-async function settle(invoke: () => Promise<unknown>): Promise<GoalActionResult> {
-  try {
-    await invoke()
-    return { ok: true }
-  } catch (error) {
-    const cause = error instanceof Error ? error.cause : undefined
-    if (isRemoteError(cause)) return { ok: false, error: { code: cause.code, message: cause.message } }
-    return {
-      ok: false,
-      error: {
-        code: 'internal',
-        message: error instanceof Error ? error.message : 'goal mutation failed',
-      },
-    }
-  }
-}
-
-function isRemoteError(value: unknown): value is { readonly code: string; readonly message: string } {
-  return value !== null
-    && typeof value === 'object'
-    && typeof (value as { code?: unknown }).code === 'string'
-    && typeof (value as { message?: unknown }).message === 'string'
-}
-
 /**
  * Client plugin body: the GoalBar dock entry with its mutation verbs.
  * @param ctx - client root context.
@@ -91,7 +66,7 @@ export function apply(ctx: ClientContext): void {
 
   const noCurrentGoal: GoalActionResult = {
     ok: false,
-    error: { code: 'no-current-goal', message: 'no current goal to mutate' },
+    error: { code: 'no-current-goal', message: 'no current goal to mutate', details: {} },
   }
 
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
@@ -103,22 +78,22 @@ export function apply(ctx: ClientContext): void {
       onEdit: async (objective) => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(() => ctx.remote.goals.edit(sessionId, ref, { objective }))
+        return await ctx.remote.goals.edit(sessionId, ref, { objective })
       },
       onPause: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(() => ctx.remote.goals.pause(sessionId, ref))
+        return await ctx.remote.goals.pause(sessionId, ref)
       },
       onResume: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(() => ctx.remote.goals.resume(sessionId, ref))
+        return await ctx.remote.goals.resume(sessionId, ref)
       },
       onClear: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(() => ctx.remote.goals.clear(sessionId, ref))
+        return await ctx.remote.goals.clear(sessionId, ref)
       },
     }),
   }, GoalDock))

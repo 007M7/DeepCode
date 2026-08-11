@@ -242,7 +242,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/interaction/commands/src/types.ts:41`](../packages/interaction/commands/src/types.ts)
+来源：[`packages/interaction/commands/src/types.ts:95`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -260,7 +260,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-来源：[`packages/interaction/commands/src/types.ts:34`](../packages/interaction/commands/src/types.ts)
+来源：[`packages/interaction/commands/src/types.ts:88`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 
