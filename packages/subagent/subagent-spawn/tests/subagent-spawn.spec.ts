@@ -1,7 +1,7 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context, symbols, type EffectMeta } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context, symbols, type EffectMeta } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -436,7 +436,7 @@ describe('dsh-subagent-spawn', () => {
         prompt: [{ type: 'text', text: 'do X' }],
         parent,
         toolFilter: { deny: ['no_such_tool'] },
-      })).rejects.toThrow(/unknown global tool "no_such_tool"/)
+      })).rejects.toThrow(/unknown inherited tool "no_such_tool"/)
       expect(ctx.agents.list().length).toBe(before)
     })
   })

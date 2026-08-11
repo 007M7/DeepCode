@@ -39,7 +39,6 @@ const EXPECTED_TOOLS = [
   'read_image',
   'send_message',
   'skill',
-  'str_replace_editor',
   'subagent',
   'subagent_fork',
   'task_kill',

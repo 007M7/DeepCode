@@ -88,7 +88,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
 - **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
 - **拖拽会话重排**：`workspace.insertSessionBefore` 尚无浏览器场景；它需要在同一个工作区里物化两个会话，并合成 HTML5 拖拽事件。当该表面变更或回归时再补充。无行为的会话 Rename/Fork/Delete 和工作区 Delete 菜单行待获得行为后再补充场景。
-- **长历史 Chat 到 Trajectory 的 Inspect**：独立的检查数据源会在视图打开后穷尽历史，而所选记录由一个派生的表格索引定位；随着较早页面前插，该索引可能移动。短历史 Inspect 仍有覆盖；在选中项具有稳定的语义身份之前，长历史交互约定不包含这项交接。
+- **长历史 Chat 到 Trajectory 的 Inspect**：两个视图共用 Session 分页，而所选 Trajectory 记录由一个派生的表格索引定位；随着较早页面前插，该索引可能移动。短历史 Inspect 仍有覆盖；在选中项具有稳定的语义身份之前，长历史交互约定不包含这项交接。
 
 ## 后果
 

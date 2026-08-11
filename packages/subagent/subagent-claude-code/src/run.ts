@@ -44,6 +44,8 @@ export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 export interface ClaudeCodeRunSpec {
   /** Parent Session workspace supplied to the SDK and real CLI. */
   readonly cwd: string
+  /** Exact native Claude Code executable resolved from the host PATH. */
+  readonly executable: string
   /** Explicit deployment/test environment layered after shared scrubbing. */
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared process-tree owner. */
@@ -180,6 +182,7 @@ export function claudeQueryOptions(
   return {
     abortController: controller,
     cwd: spec.cwd,
+    pathToClaudeCodeExecutable: spec.executable,
     env: { ...scrubbedParentEnv(), ...spec.env },
     persistSession: false,
     disallowedTools: ['AskUserQuestion'],

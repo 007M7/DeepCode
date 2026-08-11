@@ -88,7 +88,7 @@ Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot 
 - **Follow-up-prompt-after-resume scenario**: the history/live stitch path over the real wire; add as its own scenario when that code changes or regresses.
 - **Composer steering gesture**: the input locks while running (stop-or-wait), so the steering scenario steers over the wire from the page; `TODO(web-steer-composer)` upgrades the drive step to a real composer gesture when the product grows one.
 - **Drag session reorder**: `workspace.insertSessionBefore` has no browser scenario; it needs two sessions materialized in one workspace plus synthesized HTML5 drag events. Add it when that surface changes or regresses. The inert session Rename/Fork/Delete and workspace Delete menu rows get scenarios when they gain behavior.
-- **Long-history Chat-to-Trajectory Inspect**: the independent inspection source exhausts history after the view opens, while the selected record is addressed by a derived table index that can move as older pages prepend. Short-history Inspect remains covered; the long-history interaction contract excludes this handoff until selection has a stable semantic identity.
+- **Long-history Chat-to-Trajectory Inspect**: both views share Session paging, while the selected Trajectory record is addressed by a derived table index that can move as older pages prepend. Short-history Inspect remains covered; the long-history interaction contract excludes this handoff until selection has a stable semantic identity.
 
 ## Consequences
 

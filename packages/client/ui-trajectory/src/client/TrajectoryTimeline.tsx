@@ -687,7 +687,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                 return (
                   <Tooltip
                     key={span.index}
-                    label={timelineTooltipLabel(span.kind, detail)}
+                    label={() => timelineTooltipLabel(span.kind, detail)}
                     side="bottom"
                     delayMs={TIMELINE_TOOLTIP_DELAY_MS}
                   >

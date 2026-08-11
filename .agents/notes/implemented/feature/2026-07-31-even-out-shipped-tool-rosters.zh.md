@@ -12,11 +12,11 @@ Status: implemented
 
 ## 决策
 
-那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../packages/bundle/base/cordis.patch.yml)，另有三行加入：`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单：每台宿主上都有二十二个工具——二十个共享行加上 `glob` 和 `grep`，它们成为固定成员，因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。`tool-session-query` 加入后又退出了——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)让面向模型的消费方保持需显式启用——而这份清单的其余部分保持不变。
+那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../packages/bundle/base/cordis.patch.yml)，另有三行加入：`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单，其中 `glob` 和 `grep` 是固定成员，因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。之后有两项决策收窄这份清单：[session-search 决策](2026-08-02-session-search-not-shipped-default.md)让 `tool-session-query` 保持需显式启用，[单一编辑器决策](../simplification/2026-08-10-default-presets-single-editor.md)让通用 preset 不提供 `tool-str-replace-editor`，但在 `minimal` 中保留它。
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI，因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI，因为它以 launcher 的进程本地路径驱动共享的 session-query 索引，而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
-**本次工具清单决策当时只做加法。** 落地时两个 surface 均未移除任何工具行，目录对比只发现了新增，别无其他。这些新增中的一项 `tool-session-query` 随后被[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)移除。共享执行器、沙箱组合与访问默认值独立归属[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)。
+**本次工具清单决策当时只做加法。** 落地时两个 surface 均未移除任何工具行，目录对比只发现了新增，别无其他。后续的 session-search 与单一编辑器决策分别负责对应的默认清单例外。共享执行器、沙箱组合与访问默认值独立归属[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)。
 
 ### 什么保持不挂，以及为什么
 

@@ -35,7 +35,7 @@ For single-decision events, short-circuiting is the design. A policy listener ca
 
 ## Loader Configuration
 
-`@cordisjs/plugin-include` parses `!!js` into expression nodes, but the Loader interpolates only an entry's `config` before mounting the plugin. Entry metadata (`id`, `name`, `group`, `disabled`, `inject`, `intercept`, and `isolate`) remains literal; `disabled: !!js ...` is therefore a truthy object that always disables the entry. Use explicit config overlays when environment selection changes which plugins are mounted.
+`@deepseek-ai/cordis-plugin-include` parses `!!js` into expression nodes. Loader interpolates only an entry's `config`, after declared injections activate, against that plugin context (`ctx.serviceName`); Include preserves nested row expressions until target activation. Entry metadata (`id`, `name`, `group`, `disabled`, `inject`, `intercept`, `isolate`) stays literal, so `disabled: !!js ...` always disables the entry. Use overlays when the environment selects plugins.
 
 ## Practical Rules
 

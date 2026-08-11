@@ -83,7 +83,7 @@ export class LocalPluginBlueprint {
   documents(projectName: string, releaseVersion: string): TextProjectFile[] {
     const name = this.packageName(projectName)
     const toolName = this.name.replaceAll('-', '_')
-    const cordisSpec = resolveNpmDependency('cordis', 'devDependencies', releaseVersion).spec
+    const cordisSpec = resolveNpmDependency('@deepseek-ai/cordis', 'devDependencies', releaseVersion).spec
     const manifest = {
       name,
       version: '0.0.0',
@@ -94,10 +94,10 @@ export class LocalPluginBlueprint {
       exports: { '.': { types: './lib/index.d.ts', default: './lib/index.js' } },
       peerDependencies: {
         ...this.kind === 'tool' ? { '@deepseek-ai/dsh-tools': `^${releaseVersion}` } : {},
-        cordis: cordisSpec,
+        '@deepseek-ai/cordis': cordisSpec,
       },
       devDependencies: {
-        cordis: cordisSpec,
+        '@deepseek-ai/cordis': cordisSpec,
       },
     }
     const tsconfig = {

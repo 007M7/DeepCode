@@ -16,9 +16,9 @@
 
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context, type Fiber } from 'cordis'
-import { Include } from '@cordisjs/plugin-include'
-import type { EntryTree } from '@cordisjs/plugin-loader'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import { Include } from '@deepseek-ai/cordis-plugin-include'
+import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './types.ts'
 
@@ -202,6 +202,33 @@ export function leakedServices(ctx: Context, mount: Fiber): string[] {
   return leaked.sort((left, right) => left.localeCompare(right))
 }
 
+/** A live standing mount located through one agent already joined to it. */
+export type JoinedPresetMount = PresetMount & {
+  /** The standing key, definite because it is what the lookup matched on. */
+  readonly key: ScopeKey
+}
+
+/**
+ * The standing composition one agent is joined to.
+ *
+ * The agent's own key is parented to its preset's standing key, so the mount
+ * is found by matching that parent rather than by walking up from the agent —
+ * the mount is not under the agent's fiber. An agent that joined no preset —
+ * a deployment composing no roster, or a child agent before its join — has no
+ * parent link and resolves to undefined.
+ * @param agentCtx - the agent's scope context.
+ * @returns the mount the agent joined, or undefined when it joined none.
+ */
+export function standingMountFor(agentCtx: Context): JoinedPresetMount | undefined {
+  const agentKey = scopeOf(agentCtx)
+  if (agentKey === undefined) return undefined
+  const standingKey = scopeParentOf(agentKey)
+  if (standingKey === undefined) return undefined
+  return livePresetMounts().find(
+    (candidate): candidate is JoinedPresetMount => candidate.key === standingKey,
+  )
+}
+
 /**
  * One agent's instance of a service its preset mounted.
  *
@@ -231,14 +258,7 @@ export function serviceForAgent<K extends string & keyof Context>(
   agent: { ctx: Context },
   name: K,
 ): Context[K] | undefined {
-  // The agent's own key is parented to its preset's standing key; the mount
-  // is no longer under the agent's fiber, so the search roots at the standing
-  // mount instead of walking up from the agent.
-  const agentKey = scopeOf(agent.ctx)
-  if (agentKey === undefined) return undefined
-  const standingKey = scopeParentOf(agentKey)
-  if (standingKey === undefined) return undefined
-  const mount = livePresetMounts().find(candidate => candidate.key === standingKey)
+  const mount = standingMountFor(agent.ctx)
   if (mount === undefined) return undefined
   const store = ctx.reflect.store
   for (const key of Object.getOwnPropertySymbols(store)) {

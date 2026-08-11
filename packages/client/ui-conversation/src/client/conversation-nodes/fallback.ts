@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationNodeDefinition, UnknownSurfaceNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -15,6 +15,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 /** Unclaimed append-surface fallback Definition. */
 export const unknownFallbackDefinition: ConversationNodeDefinition<UnknownSurfaceNode> = {
   kind: 'unknown-surface',
+  target: 'chat',
   match: event => isAppendSurfaceEvent(event)
     ? { id: String(event.seq), role: 'start' }
     : null,
@@ -26,7 +27,7 @@ export const unknownFallbackDefinition: ConversationNodeDefinition<UnknownSurfac
     data: match.event.data,
   }),
   update: context => context.state,
-  buildViewNode: (context, target) => target !== 'chat' || context.state === undefined
+  buildViewNode: context => context.state === undefined
     ? null
     : chatNode(context, 'unknown', context.state.seq, context.state),
 }
