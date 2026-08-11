@@ -209,9 +209,13 @@ describe('Client TypeRT API', () => {
     await expect(ctx.remote.probe.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
 
     call.mockResolvedValueOnce({ ok: true, value: { ref: 1 } })
-    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toEqual({
       ok: false,
-      error: { code: 'internal', message: expect.stringContaining('rejected "result"') },
+      error: {
+        code: 'internal',
+        message: 'client api: probe/create failed: client api: probe/create rejected "result"',
+        details: {},
+      },
     })
 
     await assembly.dispose()
@@ -219,9 +223,13 @@ describe('Client TypeRT API', () => {
     expect(ctx.get('remote.probe')).toBeUndefined()
     expect(ctx.get('probe')).toBe(businessProbe)
     expect(ctx.typert.remotes.list()).toEqual([])
-    await expect(retained?.('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+    await expect(retained?.('agent-1', { objective: 'ship' })).resolves.toEqual({
       ok: false,
-      error: { code: 'internal', message: expect.stringContaining('no longer mounted') },
+      error: {
+        code: 'internal',
+        message: 'client api: Remote method probe/create is no longer mounted',
+        details: {},
+      },
     })
     disposeBusinessProbe()
   })
@@ -536,9 +544,13 @@ describe('Client TypeRT API', () => {
     await dispose()
     resolveCall({ ok: true, value: { ref: 'goal-1' } })
 
-    await expect(invocation).resolves.toMatchObject({
+    await expect(invocation).resolves.toEqual({
       ok: false,
-      error: { code: 'internal', message: expect.stringContaining('no longer mounted') },
+      error: {
+        code: 'internal',
+        message: 'client api: Remote method probe/create is no longer mounted',
+        details: {},
+      },
     })
     expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
   })
@@ -681,9 +693,13 @@ describe('Client TypeRT API', () => {
       .mockRejectedValue(new Error('carrier offline')))
     await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
 
-    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toEqual({
       ok: false,
-      error: { code: 'internal', message: expect.stringContaining('carrier offline') },
+      error: {
+        code: 'internal',
+        message: 'client api: probe/create failed: carrier offline',
+        details: {},
+      },
     })
   })
 
