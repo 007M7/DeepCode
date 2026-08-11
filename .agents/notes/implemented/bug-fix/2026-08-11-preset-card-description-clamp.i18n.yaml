@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-11-preset-card-description-clamp.md
-2026-08-11-preset-card-description-clamp.md: cd16080f10d5e4b0286babb9476c926993ee3ffa
-2026-08-11-preset-card-description-clamp.zh.md: cb251f6b0c5b1268e210d01c44738de5a61ff2b1
+2026-08-11-preset-card-description-clamp.md: 16ebf371d5af7c9e54fcc37819696b380856d5cb
+2026-08-11-preset-card-description-clamp.zh.md: 5b7a18f41e4b3e8acd681a001f6826b19ca7026d

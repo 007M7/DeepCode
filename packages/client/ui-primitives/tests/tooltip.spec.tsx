@@ -173,19 +173,88 @@ describe('Tooltip', () => {
     }
   })
 
+  /** Anchor and bubble rects, so a placement test measures real room rather than jsdom's all-zero boxes. */
+  const placed = (anchorTop: number, anchorBottom: number, bubbleHeight: number) =>
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const [top, bottom] = this.getAttribute('role') === 'tooltip'
+        ? [0, bubbleHeight]
+        : [anchorTop, anchorBottom]
+      return {
+        left: 100, right: 200, top, bottom, width: 100, height: bottom - top, x: 100, y: top, toJSON: () => ({}),
+      }
+    })
+
   it('supports top placement for anchors at the viewport bottom', () => {
-    render(
-      <Tooltip label="Above" side="top">
-        <button type="button">anchor</button>
-      </Tooltip>,
-    )
-    fireEvent.mouseEnter(screen.getByText('anchor'))
-    const bubble = screen.getByRole('tooltip')
-    expect(bubble.getAttribute('data-side')).toBe('top')
-    // jsdom rects are all-zero: top placement lands at the -8 gutter and the
-    // zero-width measured rect clamps left to the 12px edge margin.
-    expect(bubble.style.left).toBe('12px')
-    expect(bubble.style.top).toBe('-8px')
+    const spy = placed(700, 720, 20)
+    try {
+      render(
+        <Tooltip label="Above" side="top">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      const bubble = screen.getByRole('tooltip')
+      // There is room above, so the requested side stands: the bubble's own
+      // top sits at the anchor's top less the 8px gutter.
+      expect(bubble.getAttribute('data-side')).toBe('top')
+      expect(bubble.style.top).toBe('692px')
+      expect(bubble.style.left).toBe('150px')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('flips a bottom bubble above an anchor with no room below', () => {
+    // jsdom's viewport is 768 tall: a 300px bubble under an anchor ending at
+    // 700 would run off, and there is room for it above.
+    const spy = placed(600, 700, 300)
+    try {
+      render(
+        <Tooltip label="Tall" side="bottom">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      const bubble = screen.getByRole('tooltip')
+      expect(bubble.getAttribute('data-side')).toBe('top')
+      expect(bubble.style.top).toBe('592px')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('flips a top bubble below an anchor with no room above', () => {
+    const spy = placed(10, 40, 100)
+    try {
+      render(
+        <Tooltip label="Tall" side="top">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      const bubble = screen.getByRole('tooltip')
+      expect(bubble.getAttribute('data-side')).toBe('bottom')
+      expect(bubble.style.top).toBe('48px')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('keeps the requested side when neither side fits', () => {
+    // A bubble taller than the viewport has no home; oscillating between the
+    // two would be worse than honouring the request.
+    const spy = placed(300, 400, 900)
+    try {
+      render(
+        <Tooltip label="Huge" side="bottom">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      expect(screen.getByRole('tooltip').getAttribute('data-side')).toBe('bottom')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('chains the anchor\'s own handlers ahead of the tooltip\'s', () => {
