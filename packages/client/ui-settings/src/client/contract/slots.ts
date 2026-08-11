@@ -117,4 +117,3 @@ export interface SettingsOnboardingOwnerProps {
   /** Open the settings panel directly on one registered section. */
   openSection: (id: string) => void
 }
-
