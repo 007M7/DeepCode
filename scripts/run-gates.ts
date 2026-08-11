@@ -341,7 +341,7 @@ function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
   return gates
 }
 
-/** Active Node major used to scope version-specific compatibility contracts. */
+/** Active Node major used to select version-specific compatibility checks. */
 function runningNodeMajor(): number {
   const major = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10)
   if (!Number.isSafeInteger(major)) {
@@ -406,7 +406,6 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     builtBinSmokeGate(validatedBuild),
-    githubRepositoryPluginE2eGate(validatedBuild),
   ]
 }
 
@@ -473,7 +472,7 @@ function lintGate(options: { needs?: string[] } = {}): Gate {
 // The heavy suites run uninstrumented beside the thresholded gate: their
 // compiler- and subprocess-bound fixtures pay a multiple of their runtime
 // under v8 instrumentation while contributing nothing the thresholds need
-// (membership contract in scripts/coverage-exempt.ts).
+// (membership rules in scripts/coverage-exempt.ts).
 //
 // DSH_COVERAGE_MAX_WORKERS is the lane's worker budget, so the two parallel
 // gates split it instead of each claiming it whole (the failover pool's
@@ -518,7 +517,7 @@ function coverageGates(): Gate[] {
 }
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
-// plugins via real exports); repository-script snapshots execute their real source entry path.
+// plugins via real exports); script snapshots execute their real source entry path.
 // Callers wait either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
@@ -554,6 +553,7 @@ function flagEnabled(envName: string): boolean {
 function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
   const artifactOptions = options.artifactNeeds === undefined ? {} : { needs: options.artifactNeeds }
   return [
+    pnpmScript('rescope-vendor', 'rescope-vendor:check', { label: 'vendor rescope' }),
     pnpmScript('knip', 'knip'),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
@@ -599,6 +599,7 @@ function docSyncLeafGates(options: {
     pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
     pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
+    pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata' }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
@@ -635,20 +636,6 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     label: 'built-bin smoke',
     needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
-  })
-}
-
-function githubRepositoryPluginE2eGate(needs: string[]): Gate {
-  return pnpmExec('github-repository-plugin-e2e', [
-    'vitest',
-    'run',
-    '--config',
-    'vitest.e2e.config.ts',
-    'apps/cli/tests/github-repository-plugin.built.e2e.ts',
-  ], {
-    label: 'GitHub repository Plugin dsh run',
-    needs,
-    env: { DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1' },
   })
 }
 

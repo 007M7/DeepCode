@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-client-schema-form/model
  */
 
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 
 /** Live schemastery node; the renderer reads only its structural relations. */
 export type SchemaNode = Schema

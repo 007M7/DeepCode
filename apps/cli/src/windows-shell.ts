@@ -11,7 +11,7 @@
  */
 
 import { join } from 'node:path'
-import type { PatchOptions } from '@cordisjs/plugin-include'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { loadOverlayPatches, type ProfileLayer } from '@deepseek-ai/dsh-app-boot'
 
 /** The base bundle whose package carries the Windows shell patch. */

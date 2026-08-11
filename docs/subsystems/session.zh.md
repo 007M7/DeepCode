@@ -177,7 +177,7 @@ interface EpochHeader {
 
 ### 路由容量事件：`request/context`
 
-请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建约定：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
+请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是 `headerEquals` 逐字段比较的重建约定。容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
 
 ```ts type-equiv
 /** Registration-bound metadata for one resolved model route. */
@@ -217,6 +217,17 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event a reader may safely skip when it does not recognize
+     * `type`. Absent means required: a reader meeting an unrecognized type
+     * without this marker MUST refuse to reconstruct the session instead of
+     * silently dropping the event, because an unrecognized required event may
+     * change how the rest of the log is interpreted. A writer sets `true` only
+     * on purely informational records whose loss cannot affect reconstruction;
+     * defaulting to required means a forgotten marker over-refuses (an
+     * inconvenience) rather than silently resuming a gutted session.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
      * Seq numbers of earlier events that this event cites as sources
@@ -347,7 +358,7 @@ interface SurfaceFoldResult {
 
 ## `Session` 公共 API
 
-去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
+去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、append 方法和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
 
 ```ts public-api
 /**
@@ -406,8 +417,8 @@ declare class Session {
   static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
-   * Storage shape, event envelopes, sequence continuity, surface transitions,
-   * and header fields are validated before the graphs are frozen in place.
+   * The storage format, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the restored objects are frozen.
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.
@@ -737,7 +748,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:810`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:813`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 
@@ -766,7 +777,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:75`](../../packages/core/session/src/index.ts)
 
 <a id="sessiondisposed--emit"></a>
 
@@ -789,7 +800,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:85`](../../packages/core/session/src/index.ts)
 
 <a id="sessionevent--emit"></a>
 
@@ -814,7 +825,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:97`](../../packages/core/session/src/index.ts)
 
 <a id="sessionflush--parallel"></a>
 
@@ -836,5 +847,5 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:106`](../../packages/core/session/src/index.ts)
 <!-- END GENERATED cordis-surface -->

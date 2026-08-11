@@ -27,8 +27,8 @@ import {
   existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { EntryOptions } from '@cordisjs/plugin-loader'
-import { applyEntryPatches, type PatchOptions } from '@cordisjs/plugin-include'
+import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { loadOverlayPatches } from './index.ts'
 
@@ -51,14 +51,13 @@ export interface DshProfileManifest {
 }
 
 /**
- * The `dsh`-owned manifest section of a package.json. The nested key names
- * the manifest kind: a bundle package declares `bundle`, a profile directory
- * declares `profile`; nothing declares both.
+ * The profile-launcher slice of the `dsh`-owned package.json section. A
+ * manifest may declare both roles; other consumers own additional keys.
  */
 export interface DshManifestSection {
-  /** Present on bundle packages only. */
+  /** Bundle metadata consumed by the profile launcher. */
   bundle?: DshBundleManifest
-  /** Present on profile manifests only. */
+  /** Profile metadata consumed by the profile launcher. */
   profile?: DshProfileManifest
 }
 
@@ -267,7 +266,7 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
   } catch (error) {
     throw new Error(`${binName}: failed to read profile manifest ${path}: ${String(error)}`)
   }
-  // File boundary: the shape check below validates what the parse type asserts.
+  // The field checks below validate the file data before trusting the parse type.
   const parsed = JSON.parse(raw) as ProfileManifest | null
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`${binName}: profile manifest ${path} must hold a JSON object`)

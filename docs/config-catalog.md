@@ -261,6 +261,26 @@ Depends on: [`ToolPresentationMode`](subsystems/tools.md)
 
 Source: [`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
 
+## `@deepseek-ai/dsh-attachment-local`
+
+```ts config-catalog
+/** Local attachment backend configuration. */
+export interface Config {
+  /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
+  dshHome?: string
+  /** Maximum encoded bytes accepted for one image. */
+  maxImageBytes?: number
+  /** Maximum image count accepted in one submitted message. */
+  maxImagesPerMessage?: number
+  /** Maximum aggregate encoded image bytes accepted in one submitted message. */
+  maxMessageImageBytes?: number
+  /** Maximum intrinsic width multiplied by height accepted for one image. */
+  maxImagePixels?: number
+}
+```
+
+Source: [`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-bash-env`
 
 ```ts config-catalog
@@ -332,10 +352,12 @@ export interface ConnectionConfig {
    * that is not a bare, canonical authority fails the plugin load.
    */
   trustedHosts?: string[]
+  /** Maximum buffered JSON body for every `/api` request. */
+  maxRequestBodyBytes?: number
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:32`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:52`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 
@@ -503,10 +525,15 @@ Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/front
 export interface Config {
   /** Base directory for relative paths. Defaults to `process.cwd()`. */
   cwd?: string
+  /**
+   * Exclusive UTF-8 byte limit on each overwrite-diff side, capped by the
+   * runtime's safe allocation/decode maximum. Defaults to 10 MiB.
+   */
+  diffBasisMaxBytes?: number
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:39`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:40`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -514,10 +541,10 @@ Requires: `sandboxPolicy`
 
 ```ts config-catalog
 /**
- * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
- * base for relative paths). The sandbox default (mode + `workspace-write`
- * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
- * session for every enforcing capability.
+ * Plugin config: the local backend's knobs verbatim (`cwd` resolution default
+ * and `diffBasisMaxBytes` overwrite-presentation bound). The sandbox default
+ * (mode + `workspace-write` fallback root) is NOT here — `ctx.sandboxPolicy`
+ * resolves each calling session for every enforcing capability.
  */
 export type Config = LocalConfig
 ```
@@ -545,7 +572,7 @@ Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.
 Requires: `agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
-/** Plugin config: the task, patched in by the launcher. */
+/** Plugin config: the task resolved from this app's injected provider service. */
 export interface Config {
   /** The prompt text for the single run. */
   task: string
@@ -617,13 +644,11 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-Requires: `agentDefaultModel` · `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
+Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: the Host-only Workspace creation root. */
+/** Gateway plugin config for native Host integration. */
 export interface Config {
-  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
-  workspaceRoot?: string
   /**
    * Whether this deployment can hand paths to a native desktop opener —
    * the `hasDocument` capability the agent-preset roster reports. Absent,
@@ -635,7 +660,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:38`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:37`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 
@@ -878,12 +903,12 @@ export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
  * default) or per model (winning over the route). Only the switches pi-ai's
  * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
  * keeps its baseURL-derived auto-detection. pi-ai types both fields only on
- * `OpenAICompletionsCompat` — the other wire protocols carry their reasoning
- * shape in the protocol itself — so resolution rejects a model-level switch
+ * `OpenAICompletionsCompat` — the other wire protocols define their reasoning
+ * fields in the protocol itself — so resolution rejects a model-level switch
  * anywhere else, while a route-level default skips past models it cannot fit.
  */
 export interface PiAiCompatProfile {
-  /** Reasoning parameter shape the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
+  /** Reasoning parameter format the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean
@@ -961,12 +986,24 @@ export interface ReplayModelConfig {
   description?: string
   /** Optional positive integer context capacity published by the replay adapter. */
   contextWindow?: number
+  /**
+   * Optional per-request output cap the replay route materializes when callers
+   * omit one, so replay reconstructs the request header a live catalog produced.
+   */
+  defaultMaxTokens?: number
+  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  reasoningEfforts?: string[]
+  /**
+   * Optional effort materialized when callers omit one; must appear in
+   * {@link reasoningEfforts} or call resolution rejects the route.
+   */
+  defaultReasoningEffort?: string
 }
 ```
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/support/llm-replay/src/index.ts:744`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:769`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1072,7 +1109,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:100`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:94`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -1124,6 +1161,8 @@ export interface Config {
    * variables. Empty text drops the section at render, matching the registry.
    */
   text: string
+  /** Make this persona the complete system prompt, suppressing every other section. */
+  complete?: boolean
 }
 ```
 
@@ -1141,7 +1180,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:70`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-pty-local`
 
@@ -1269,29 +1308,13 @@ export interface Config {
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
 
-## `@deepseek-ai/dsh-repository-plugin`
-
-Requires: `loader`
-
-```ts config-catalog
-/** Repository Plugin runtime and source-list configuration. */
-export interface Config {
-  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
-  repositories?: string[]
-  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
-  cacheDir?: string
-}
-```
-
-Source: [`packages/self-modification/repository-plugin/src/index.ts:44`](../packages/self-modification/repository-plugin/src/index.ts)
-
 ## `@deepseek-ai/dsh-sandbox-local`
 
 ```ts config-catalog
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * Override the runner argv; bwrap-compatible profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
@@ -1418,7 +1441,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session/session-persistence-sqlite/src/index.ts:67`](../packages/session/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session/session-persistence-sqlite/src/index.ts:70`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-projection-cache`
 
@@ -1503,7 +1526,7 @@ Requires: `sessions`
 
 ```ts config-catalog
 /**
- * Plugin configuration: one sharing policy, two verbatim SDK option shapes,
+ * Plugin configuration: one sharing policy, two verbatim SDK option objects,
  * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
  * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
@@ -1539,7 +1562,7 @@ export enum TelemetryMode {
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/session/session-telemetry-otel/src/index.ts:80`](../packages/session/session-telemetry-otel/src/index.ts)
+Source: [`packages/session/session-telemetry-otel/src/index.ts:91`](../packages/session/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
@@ -1787,7 +1810,7 @@ export interface Config {
   /**
    * How to auto-answer the child's `session/request_permission` prompts:
    * `reject` (default — decline every prompt) or `allow` (approve via the first
-   * allow-shaped option). No prompt is surfaced to a human.
+   * `allow_once` or `allow_always` option). No prompt is surfaced to a human.
    */
   permission: PermissionPolicy
   /**
@@ -1959,14 +1982,14 @@ export interface Config {
   persona?: string
   /**
    * Model-facing tool names in order, with {@link TOOL_ORDER_REST} exactly once.
-   * Shape errors fail at load and unknown names fail at assembly; known names
+   * Invalid fields fail at load and unknown names fail at assembly; known names
    * hidden in one scope may be absent there. Omitted means lexicographic order.
    */
   toolOrder?: string[]
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:177`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:186`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
@@ -2428,7 +2451,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:624`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:625`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
@@ -2497,33 +2520,28 @@ Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 Requires: `httpServer`
 
 ```ts config-catalog
-/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+/** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
-  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
    * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * layer turns it off: its user is not interacting through the GUI, so the
+   * non-interactive layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
-  /**
-   * LAN IPv4 addresses sampled once by the launcher when the effective bind
-   * is all-interfaces — the exact snapshot the /api trust fence was
-   * configured with, so the printed LAN URL can never name an address the
-   * fence rejects. Empty on a loopback bind.
-   */
-  lanAddresses: string[]
+  /** Explicit `--trusted-host` authorities from this invocation. */
+  trustedHosts: string[]
 }
 
 /** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
 export type WebMode = 'production' | 'development'
 ```
 
-Source: [`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
+Source: [`packages/bundle/web-app/src/index.ts:43`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -2737,6 +2755,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)).
 
+- `@deepseek-ai/dsh-attachment` — abstract `AttachmentStore` ([`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts))
 - `@deepseek-ai/dsh-bash` — abstract `BashExecutor` ([`packages/bash/bash/src/index.ts`](../packages/bash/bash/src/index.ts))
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
@@ -2769,6 +2788,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
+- `@deepseek-ai/dsh-cmdline` ([`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts))
 - `@deepseek-ai/dsh-environment` ([`packages/util/environment/src/index.ts`](../packages/util/environment/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/scaffold/helper/src/index.ts`](../packages/scaffold/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
@@ -2791,3 +2811,4 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-type-meta` ([`packages/typert/type-meta/src/index.ts`](../packages/typert/type-meta/src/index.ts))
 - `@deepseek-ai/dsh-typert-generator` ([`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
+- `@deepseek-ai/dsh-user-id` ([`packages/session/user-id/src/index.ts`](../packages/session/user-id/src/index.ts))

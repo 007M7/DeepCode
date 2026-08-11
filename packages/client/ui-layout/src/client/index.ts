@@ -23,7 +23,7 @@ import { ThemePresenter } from './theme-presenter.ts'
 export { LayoutService } from './service.ts'
 export type { ILayout } from './service.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     layout: import('./service.ts').ILayout

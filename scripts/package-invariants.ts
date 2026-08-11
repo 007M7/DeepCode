@@ -19,7 +19,7 @@ interface PackageManifest {
   devDependencies?: Record<string, string>
 }
 
-/** One package and the files participating in its invariant publication contract. */
+/** One package and the files participating in its invariant publication rules. */
 export interface PackageInvariantOwner {
   readonly dir: string
   readonly manifestPath: string
@@ -53,7 +53,7 @@ export function packageInvariantOwners(root: string): PackageInvariantOwner[] {
     })
 }
 
-/** Return all violations of the package-invariant companion contract. */
+/** Return all violations of the package-invariant companion rules. */
 export function collectPackageInvariantViolations(root: string): PackageInvariantViolation[] {
   const violations: PackageInvariantViolation[] = []
   for (const owner of packageInvariantOwners(root)) {
@@ -96,11 +96,11 @@ function checkManifest(
     addViolation(violations, owner.manifestPath, 'files must publish lib/invariant.js')
   }
   if (owner.packageName === '@deepseek-ai/dsh-invariants') return
-  if (manifest.peerDependencies?.['@deepseek-ai/dsh-invariants'] !== '^0.0.1') {
+  if (manifest.peerDependencies?.['@deepseek-ai/dsh-invariants'] !== 'workspace:^') {
     addViolation(
       violations,
       owner.manifestPath,
-      '@deepseek-ai/dsh-invariants must be a ^0.0.1 peerDependency',
+      '@deepseek-ai/dsh-invariants must be a workspace:^ peerDependency',
     )
   }
   if (manifest.devDependencies?.['@deepseek-ai/dsh-invariants'] !== 'workspace:^') {

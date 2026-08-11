@@ -1,6 +1,6 @@
 /** Package-owned durable clock-context invariants. @module @deepseek-ai/dsh-time-context/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
@@ -32,13 +32,13 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
       case 'assistant/message':
       case 'tool/call':
       case 'tool/result':
-        fail('time-context reading must be appended at a prompt boundary')
+        fail('time-context reading must be appended during prompt assembly')
         break
       default:
         break
     }
   }
-  fail('time-context reading must be appended at a prompt boundary')
+  fail('time-context reading must be appended during prompt assembly')
 }
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */

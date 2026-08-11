@@ -49,14 +49,14 @@ dsh plugin --profile tui add <package>  # install a plugin into a custom profile
 dsh --profile tui                       # boot it
 ```
 
-The [CLI contract](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
+The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
 
 ### Headless
 
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh run "summarize this workspace"
+dsh --profile headless "summarize this workspace"
 ```
 
 ### Automation and SDKs

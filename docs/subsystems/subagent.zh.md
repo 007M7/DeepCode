@@ -2,7 +2,7 @@
 
 [English](subagent.md) | 中文
 
-subagent seam：一个 agent（智能体）将工作委派给子 agent。与 [bash](bash.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。但它在一个维度上与其他所有 seam 不同：**同一上下文中可共存多个提供方实现**，按名称注册（`ctx.subagents`），而 bash 只允许一个执行器。注册表的形状参照 [LLM（大语言模型）适配器注册表](llm-streaming.md)，而非单服务的 bash 执行器。
+subagent seam 让一个 agent（智能体）将工作委派给子 agent。与 [bash](bash.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环），因此其类型定义在此而非 [core.md](core.md) 中。它不同于其他能力 seam，因为**同一上下文中可共存多个提供方实现**，并按名称注册（`ctx.subagents`），而 bash 只允许一个执行器。该注册表遵循 [LLM（大语言模型）适配器注册表](llm-streaming.md)，而非单服务的 bash 执行器。
 
 Service Definition：[dsh-subagent](../../packages/subagent/subagent)（`ctx.subagents` + 下文词汇）。Service provider 是六个兄弟包：`dsh-subagent-spawn`、`-fork`、`-acp`、`-codex`、`-claude-code`、`-dsh-sdk`；面向模型的 Consumer 包括 [dsh-tool-subagent](../../packages/subagent/tool-subagent)（按提供方委派）、[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control)（可选的全局 `send_message`、`interrupt_agent` 与 `list_agents` 控制工具）和 [dsh-tool-subagent-report](../../packages/subagent/tool-subagent-report)（可选的 child 作用域 `report` 返回通道）。同一个 `ctx.subagents` 服务通过内部激活管理器负责可继续子 agent 编排，并直接基于会话存储和可选的会话持久化提供只读的 child 与后代发现。产品提供方设计理由见 [Codex 与 Claude Code Agent Note](../../.agents/notes/implemented/feature/2026-08-04-claude-code-and-codex-subagent-backends.md)；通用 seam 的设计理由见 [subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)、[可继续 subagent Agent Note](../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)、[report 工具 Agent Note](../../.agents/notes/implemented/feature/2026-07-30-continuable-subagent-report-tool.md)、[持久化目录 Agent Note](../../.agents/notes/implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)、[列表身份投影 Agent Note](../../.agents/notes/implemented/architecture/2026-08-06-subagent-list-identity-projection.md)和[服务合并 Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
 
@@ -113,7 +113,7 @@ interface ResolvedSubagentStartRequest extends SubagentStartRequest {
 
 ## 可继续子 agent 与激活
 
-**可继续后台 subagent** 是一份持久化子 agent 会话（Session），至多关联一个进程内的 **Activation（激活）**——即被重建的子 Agent 的一段驻留纪元（residency epoch）。Activation 不是请求、结果、取消或 Task 边界：它可以执行多个 FIFO 轮次，并在其创建的后代仍在运行期间保持驻留。继续执行管理器负责 activation 准入、直接父级鉴权、实时所有权图、冷恢复（cold resume）与子级优先释放；agent loop 负责一切轮次排序与执行。任何可继续路径都不会创建 Task，也不会创建承载中间结果的包装层。
+**可继续后台 subagent** 是一份持久化子 agent 会话（Session），至多关联一个进程内的 **Activation（激活）**，即被重建的子 Agent 处于驻留状态的时段。Activation 不是请求、结果、取消或 Task：它可以执行多个 FIFO 轮次，并在其创建的后代仍在运行期间保持驻留。继续执行管理器负责 activation 准入、直接父级鉴权、实时所有权图、冷恢复（cold resume）与子级优先释放；agent loop 负责一切轮次排序与执行。任何可继续路径都不会创建 Task，也不会创建承载中间结果的包装层。
 
 ```text
 persisted Session
@@ -293,14 +293,20 @@ type SubagentDescendantListEntry = SubagentListEntry & {
  * The terminal outcome of a subagent run, resolved by {@link SubagentRun.result}.
  */
 interface SubagentResult {
-  /** The child's final assistant output (the last assistant message's content). */
+  /**
+   * The child's final assistant output is the content of its last non-empty
+   * assistant message. Empty-content messages, including usage-only messages,
+   * are skipped. Without a non-empty message, the output is its accumulated
+   * assistant text stream, or `[]` when the child produced neither.
+   */
   readonly output: ContentBlock[]
   /**
    * The structured result after a requested `outputSchema` was successfully
    * satisfied. Requesting a schema does not guarantee presence: a provider can
    * end with `stopReason: 'error'` when the child fails or finishes without a
-   * valid capture. Shape is validated against the request schema by the
-   * provider; `unknown` here because the seam is schema-agnostic.
+   * valid capture. The structured value is validated against the requested
+   * output schema by the provider; `unknown` here because the seam is
+   * schema-agnostic.
    */
   readonly structured?: unknown
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
@@ -615,7 +621,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [MessageId](llm-streaming.md) · [SessionId](core.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:170`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagent-events"></a>
 
@@ -641,7 +647,7 @@ A published child settled. Scope-filtered dispatch uses the same delegating pare
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:162`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-added--emit"></a>
 
@@ -658,7 +664,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:136`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:139`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-removed--emit"></a>
 
@@ -675,7 +681,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:145`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentstart--emit"></a>
 
@@ -699,5 +705,5 @@ A provider established a published child. For in-process providers, `ctx.agents.
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:156`](../../packages/subagent/subagent/src/index.ts)
 <!-- END GENERATED cordis-surface -->

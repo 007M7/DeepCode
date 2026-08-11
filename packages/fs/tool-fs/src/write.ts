@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
@@ -43,7 +43,7 @@ ${verb} file
 }
 
 /**
- * The `write` tool's validated argument shape: the base parameters plus the
+ * The `write` tool's validated arguments: the base parameters plus the
  * two escalation fields, advertised only under a confining `ctx.fs` (absent
  * from the schema otherwise, so the validator rejects them before `execute`).
  */

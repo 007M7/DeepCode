@@ -24,7 +24,7 @@
   "exclude": [
     "tests/scaffold.ts",
     "tests/scaffold-hermetic.e2e.ts",
-    "tests/core-web-profile.snapshot.ts",
+    "tests/minimal-preset.snapshot.ts",
     "tests/live-interactions.e2e.ts",
     "tests/question-composer.e2e.ts",
     "tests/approval-composer.e2e.ts",
@@ -64,6 +64,7 @@
     "tests/agent-preset-selection.e2e.ts",
     "tests/agent-preset-authoring.e2e.ts",
     "tests/shipped-composition.e2e.ts",
+    "tests/feedback-command.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/produced-files.e2e.ts",
     "tests/produced-file-mentions.e2e.ts",

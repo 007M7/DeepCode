@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-agent
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { AgentCancelCause, Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
@@ -143,7 +143,7 @@ export interface Agent {
   inject(message: UserMessage): void
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Events {
     // ---- lifecycle (emit) ----
     /**

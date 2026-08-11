@@ -2,7 +2,7 @@
 
 [English](tools.md) | 中文
 
-[dsh-tools](../../packages/core/tools) 的工具流水线。[core.md](core.md) 介绍了 `ToolDefinition`（唯一被提升到主干的流水线编写类型）；面向模型的 [`ToolSchema`](llm-streaming.md#the-model-request-and-result) 协议格式（wire format）形状与模型请求一起声明。本页拥有完整的 `ToolDefinition`、用于构建它的类型化 schema DSL、受保护的执行形状，以及 UI 展示词汇。
+[dsh-tools](../../packages/core/tools) 的工具处理流程。[core.md](core.md) 介绍了核心包共用的流程编写类型 `ToolDefinition`；面向模型的 [`ToolSchema`](llm-streaming.md#the-model-request-and-result) 协议类型与模型请求一起声明。本页记录 `ToolDefinition` 的每个字段、用于构建它的类型化 schema DSL、带守卫的执行类型和 UI 展示类型。
 
 源码：[`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
@@ -148,21 +148,22 @@ type InferArgs<S> = InferProperties<S, []>
 
 `defineTool({ name, description, parameters, output, execute, … })` 将参数推导与 `parameterSchemaSpecToJsonSchema()` 和 `validateArgs()` 绑定，并将 `execute`/`render`/`presentationMeta` 与 `InferValue<OutputSchema>` 绑定。Schema 记录只包含自有且可枚举的字符串键，schema 数组是稠密的内建数组，因此推导、编译与校验观察到的是同一份声明。精确推导保持到 16 层容器，之后放宽为 `JsonValue`；运行时校验仍会继续遍历完整 schema。`valueSchemaSpecToJsonSchema()` 通过同一套已强制执行的原始子集编译输出声明。参数不匹配时抛出 `ToolArgsError`（`INVALID_ARGS`）；函数体或后置策略产生的值无效时抛出 `ToolOutputError`（`INVALID_TOOL_OUTPUT`）。两者都经由常规工具错误路径处理。原始 JSON Schema 默认保持开放；不支持的关键字会被拒绝，而不会在未强制执行的情况下获准进入。
 
-注册是一个受信任的同进程约定。注册表以 readonly 输入借用类型化定义，要求它声明 `output`，校验其原始 schema，并检查 `timeoutMs` 必须为正有限值等语义要求；`schemas()` 在模型边界处物化显式的面向模型投影，使执行和展示共享同一份已解析定义，而不会将回调泄漏到协议上。
+注册是一项受信任的同进程约定。注册表以 readonly 输入借用已类型化定义，要求它声明 `output`，校验其原始 schema，并检查 `timeoutMs` 必须为正有限值等语义要求；`schemas()` 在构建请求时生成面向模型的投影，使执行和展示共享同一份已解析定义，而不会将回调泄漏到协议上。
 
-## `ToolRestriction` — 单个作用域的实时全局过滤器
+## `ToolRestriction` — 单个作用域对其继承内容的实时过滤器
 
-`ToolRestriction` 仅作用于实时的部署全局工具层。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加作用域本地工具。仅 deny 的过滤器允许后续未列出的全局工具通过，而 allow 列表则排除它们。
+`ToolRestriction` 作用于该作用域继承来的工具：部署全局层，加上其链上的每个祖先作用域。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加该作用域**自身**的注册——后者不受约束，因此被委派的子 agent 会保留其回报所依赖的工具。仅 deny 的过滤器允许后续未列出的继承工具通过，而 allow 列表则排除它们。
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 ```
@@ -248,7 +249,7 @@ type ToolExecutionMode =
   | { kind: 'exclusive' }
 ```
 
-Code Mode 的桥接层还会把每个已结算的子分派暴露给 `tools/code-dispatch-log` waterfall，该 waterfall 可以改写持久事件所存的内容副本（程序取得的值与模型约定均不受影响）：
+Code Mode 的桥接层还会把每个已结算的子分派暴露给 `tools/code-dispatch-log` waterfall，该 waterfall 可以更改持久事件所存的内容副本（程序取得的值和模型可见结果均不受影响）：
 
 ```ts type-equiv
 /**
@@ -306,7 +307,7 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
 
 `ToolExecutionToken` 是不透明的运行时 `Symbol`，仅用于身份比较。策略执行前，`execute()` 会物化并冻结参数、拒绝非 JSON 输入并分配 token。身份字段、调用方必需的 signal 和可选的 parent token 均保持 readonly。`ToolDispatchExecution` 包装层可以替换 signal 但不能移除；注册表会在调用工具函数体前重新融合调用方的 signal。最终观察者接收冻结的执行身份。
 
-`ToolGuard` 是感知作用域的最终预分派策略。其形状有意不包含 allow 结果：`undefined` 保留 waterfall 的决策，而返回的 reason 只能缩减权限，因此后续监听器无法撤销它。
+`ToolGuard` 是感知作用域的最终预分派策略。其返回类型有意不包含 allow 结果：`undefined` 保留 waterfall 的决策，而返回的 reason 只能缩减权限，因此后续监听器无法撤销它。
 
 ```ts type-equiv
 /**
@@ -416,7 +417,7 @@ type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'bo
 ```ts type-equiv
 /**
  * One raw JSON Schema node in the enforced subset. The optional fields express
- * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * the external wire schema; {@link assertSupportedJsonSchema} rejects invalid
  * combinations before a caller treats the node as trusted.
  */
 interface JsonSchemaNode {
@@ -565,7 +566,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:759`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:761`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 
@@ -590,23 +591,24 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:192`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:193`](../../packages/core/tools/src/index.ts)
 
 <a id="toolscode-dispatch-log--waterfall"></a>
 
 #### `tools/code-dispatch-log` — waterfall
 
-Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the unshaped content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
 
 ```ts cordis-catalog
 /**
- * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
- * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+ * Allow a listener to replace content in the DURABLE LOG COPY of one
+ * `run_code` sub-dispatch outcome before the bridge appends its
+ * `tool/code-dispatch` event. `next()` keeps the
  * content unchanged; a listener may return replacement blocks (e.g. the
  * spill policy's preview + locator for an oversized text result). Only the
  * logged copy is affected — the program already received the complete
  * value, and the model sees neither. A throwing listener is contained:
- * the bridge falls back to logging the unshaped content.
+ * the bridge falls back to logging the original settled content.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
  * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
  * @mode waterfall
@@ -616,7 +618,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:174`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:175`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsexecute--waterfall"></a>
 
@@ -709,5 +711,5 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:182`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:183`](../../packages/core/tools/src/index.ts)
 <!-- END GENERATED cordis-surface -->

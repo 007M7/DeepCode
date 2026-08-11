@@ -173,7 +173,7 @@ Conversion preserves logical request order without adding text, while the select
 
 #### What the model sees
 
-pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. Parsed tool arguments cross the harness boundary as raw JSON strings.
+pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings.
 
 #### Token effect
 

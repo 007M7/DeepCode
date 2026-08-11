@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type {
@@ -125,7 +125,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       proc = this.startArgv(spec, confined.argv)
     } catch (error) {
       // LocalSubprocessService reports ENOENT/EACCES with the failed executable path through async
-      // `done` rejection; this covers alternatives that throw that shape synchronously.
+      // `done` rejection; this covers alternatives that throw the same error synchronously.
       if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
         throw new SandboxUnavailableError(mode, String(error))
       }

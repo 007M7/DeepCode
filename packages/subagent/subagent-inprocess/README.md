@@ -14,13 +14,13 @@ The driver follows this sequence:
 2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
 3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
 4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
-5. Read the child's own last assistant message and final durable turn reason from the complete owned child run, excluding any fork seed.
+5. Read the child's own output — its last non-empty assistant message (an empty-content message that records usage is skipped), or its accumulated assistant text when no such message exists — and the final durable turn reason from the complete owned child run, excluding any fork seed.
 
 The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
 This result boundary is valid because the provider owns an isolated child lifecycle from publication through quiescence. Steering submitted during that lifecycle belongs to the child run; the provider does not pretend the initial follow-up alone owns its output.
 
-When the optional sandbox-policy or approval service is composed, the driver snapshots the parent's explicit session override before child creation and appends a source-tagged event during unpublished setup, after any fork history and before session publication. It never copies deployment defaults or one-shot grants; later child switches still win. See the [policy-inheritance decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
+The driver applies the seam's [delegated policy](../subagent/README.md#delegated-policy) through the shared child-agent helpers: it captures the parent's explicit sandbox override and the `'never'` approval pin before child creation and appends the source-tagged events during unpublished setup, after any fork history and before session publication. See the [delegation-policy decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
 
 ## Cancellation and ownership
 

@@ -1,5 +1,6 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
   SlotHookFactory, SnapshotSelectorHook,
@@ -12,11 +13,21 @@ import type {
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
-import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type {
+  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+} from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
+
+/** Browser-owned image that has not crossed the durable host boundary. */
+export interface ComposerAttachment {
+  kind: 'image'
+  id: DraftAttachmentId
+  file: File
+  previewUrl: string
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -27,7 +38,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.session': { kind: 'single'; scope: 'session' }
     /** Strict-session header above the resident conversation scrollport. */
     'conversation.session.header': { kind: 'single'; scope: 'session' }
-    /** Session-header actions contributed by feature plugins. */
+    /**
+     * Session-header actions contributed by feature plugins. Entries render
+     * by ascending `order`; negative values are reserved for static session
+     * context that precedes interactive actions.
+     */
     'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
@@ -213,7 +228,7 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Prose file-mention provider (ui-deliverables); reach via ctx.get — optional. */
     chatFileMentions: ChatFileMentions
@@ -258,6 +273,8 @@ export interface ChatNodeOwnerProps {
   openFile: (path: string) => void
   inspectCall: (callId: CallId) => void
   forkAt: (seq: number) => void
+  /** Resolve a session-authorized historical image for inline display. */
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
@@ -327,6 +344,8 @@ export interface ConversationSessionInjected {
     subscribe: (fn: () => void) => () => void
     version: () => number
   }
+  /** Release historical image URLs when this rendered session scope unmounts. */
+  releaseSessionImages: (sessionId: SessionId) => void
   /** Bind the input machine's draft persistence mirror to the session store. */
   bindDraftMirror: (write: (text: string) => void) => () => void
 }
@@ -383,6 +402,12 @@ export interface ComposerBarOwnerProps {
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
+  /** Create previews and append image ids to the session input. */
+  addImages: ((files: readonly File[]) => string | null) | undefined
+  /** Release one preview and remove its id from session input. */
+  removeImage: ((id: DraftAttachmentId) => void) | undefined
+  /** Resolve ordered input ids to browser-owned draft images. */
+  draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
   resolveSubmitMode: (
     running: boolean,
@@ -565,6 +590,8 @@ export interface ChatViewInjected {
    */
   openFile: (path: string) => void
   loadOlder: () => void
+  /** Resolve a session-authorized historical image for inline display. */
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
   inspectCall: (callId: CallId) => void
   /**

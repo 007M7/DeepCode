@@ -35,4 +35,4 @@ Seatbelt profile 默认允许，但带 `(deny file-write*)` 和写入 allow-list
 - **Landlock 可能只实现部分强制执行**：较旧且受支持的内核 ABI 只能限制自身公开的访问类别，因此报告 `enforcement: 'partial'`，不会夸大为完整强制执行。
 - **Seatbelt 依赖已弃用的 `sandbox-exec`**：macOS 仍会提供它，但若 Apple 移除该私有策略引擎，该提供方无法替换或探测。
 - **runner 选择在提供方生命周期内缓存**：安装、移除或修复 runner 后，必须重载插件才能改变选择。
-- **`runnerCommand` 是操作方断言**：配置的自定义 runner 会跳过功能探测，并假定它诚实实现 bwrap 形式的 profile；如果它本身是 Bash 脚本，其解释器启动发生在该脚本施加约束之前。
+- **`runnerCommand` 是操作方断言**：配置的自定义 runner 会跳过功能探测，并假定它诚实实现与 bwrap 兼容的 profile；如果它本身是 Bash 脚本，其解释器启动发生在该脚本施加约束之前。

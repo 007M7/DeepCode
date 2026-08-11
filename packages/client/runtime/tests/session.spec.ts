@@ -123,12 +123,13 @@ function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNo
 
 const TEST_EVENT_DEFINITION: ConversationNodeDefinition<TestEventState> = {
   kind: 'runtime-test-event',
+  target: 'chat',
   match: event => ({ id: String(event.seq), role: 'start' }),
   start: (_context, match) => ({ event: match.event, view: match.view }),
   update: context => context.state,
   publication: match => match.event.type === 'assistant/chunk' ? 'animation-frame' : 'immediate',
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined || context.start === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined || context.start === undefined) return null
     return {
       key: context.key,
       kind: 'runtime-test-event',
@@ -530,6 +531,21 @@ describe('prompt and cancel errors', () => {
     const result = await session.cancel()
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'internal' } })
+  })
+
+  it('reads session-authorized attachment bytes and keeps the opaque id on the wire', async () => {
+    const { api, session } = makeSession()
+    const result = await session.readAttachment('attachment-1' as never)
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        data: Uint8Array.of(0),
+      },
+    })
+    expect(api.callsOf('session.attachment')).toEqual([{
+      sessionId: SID, attachmentId: 'attachment-1',
+    }])
   })
 })
 

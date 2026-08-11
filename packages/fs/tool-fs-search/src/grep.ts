@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-tool-fs-search/grep
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
@@ -118,7 +118,7 @@ export function buildGrepCommand(input: GrepInput): string[] {
 
 /**
  * The uniform malformed-output failure: raw `rg --json` is an internal
- * transport, so a shape surprise is a search failure, not a partial result.
+ * transport, so missing or invalid response fields cause a search failure, not a partial result.
  */
 function malformedRecord(detail: string, cause?: unknown): SearchError {
   return new SearchError(`grep received malformed ripgrep --json output (${detail})`, 'SEARCH_FAILED', cause !== undefined ? { cause } : undefined)

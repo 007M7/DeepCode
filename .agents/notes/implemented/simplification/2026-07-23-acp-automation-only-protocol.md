@@ -46,7 +46,7 @@ Protocol and lifecycle tests pin stop-reason and prompt codecs, version negotiat
 
 ## Consequences
 
-ACP has a narrow contract suitable for agents and automation, while TUI and Web own human interaction and presentation. The package has fewer injected services, dependencies, protocol branches, and lifecycle states, and it no longer claims compatibility as a general editor front door.
+ACP has a narrow contract suitable for agents and automation, while TUI and Web own human interaction and presentation. The package has fewer injected services, dependencies, protocol branches, and lifecycle states, and it no longer claims compatibility as a general editor entry point.
 
 Automation clients receive complete committed text rather than token deltas or structured tool UI. They inspect durable logs or another API when they need reasoning, tool traces, titles, or richer state. Fresh-session-only operation also means callers that need durable browsing or resume use a host API rather than ACP.
 

@@ -12,7 +12,7 @@ Status: implemented
 
 `tasks/` 如今是一个 bash 三件套形态的三包能力家族：
 
-- **`@deepseek-ai/dsh-tasks`（Service Definition）**——抽象的 `TaskService extends Service`，拥有 `ctx.tasks`、八个方法的约定（`start`、`list`、`get`、`read`、`kill`、`wait`、`onTaskDone`、`attachSurface`）、全部词汇类型（`TaskId`、`TaskKindMap`、`TaskStart`、`TaskHooks`、`TaskOutcome`、`TaskSnapshot`、`TaskRead`、`TaskDoneListener`），以及快照不变式配套插件。类级 JSDoc 陈述了每个 Service provider 都必须兑现的语义：注册的存续期长于生产方与控制接口的 fiber，有所有者的访问以会话为界，结算遵循首次结果优先且监听器错误被隔离，并且在没有附加任何控制接口时 `start` 拒绝启动工作。
+- **`@deepseek-ai/dsh-tasks`（Service Definition）**——抽象的 `TaskService extends Service`，拥有 `ctx.tasks`、八个方法的约定（`start`、`list`、`get`、`read`、`kill`、`wait`、`onTaskDone`、`attachSurface`）、全部词汇类型（`TaskId`、`TaskKindMap`、`TaskStart`、`TaskHooks`、`TaskOutcome`、`TaskSnapshot`、`TaskRead`、`TaskDoneListener`），以及快照不变式配套插件。类级 JSDoc 陈述了每个 Service provider 都必须兑现的语义：注册的存续期长于生产方与控制接口的 fiber，有所有者的访问以会话为界，结算遵循首次结果优先且监听器错误被隔离，并且当没有任何已附加的控制接口服务于 spec 的所有者时 `start` 拒绝启动工作（控制接口与监听器按 scope 分层，因此一个进程级注册表能逐所有者地回答这两个问题）。
 - **`@deepseek-ai/dsh-tasks-local`（Service provider）**——`LocalTaskService`，即原样迁移的进程内注册表：内存存储、按 kind 划分的计数器、等待方簿记、`TASK_WAIT_TIMEOUT` deadline 代码、所有者清理 effect，以及强制失败的拆除。`dsh-timeout` 依赖随之迁入此包；Service Definition 包不含任何提供方依赖。
 - **`@deepseek-ai/dsh-tool-tasks`（Consumer）**——保持不变；它注入 `'tasks'`，从不导入提供方类型。
 

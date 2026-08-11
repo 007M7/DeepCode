@@ -4,11 +4,11 @@
  * removal — HMR safety), the inert node entry, and the invariant companion's
  * ownership reservation.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import * as TaskInvariant from '../src/invariant.ts'
@@ -32,7 +32,9 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     },
   } as never, () => null)
   ctx.provide('sessions', {})
-  await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+  // The locale plugin binds a settings scope, which reads the connection handle.
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber }

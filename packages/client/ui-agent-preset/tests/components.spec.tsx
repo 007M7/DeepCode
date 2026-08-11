@@ -41,6 +41,7 @@ const SEAT_READY: AgentPresetSeatState = {
   ],
   busy: false,
   error: null,
+  introduce: false,
 }
 
 function renderRow(state: Partial<AgentPresetSettingsState> = {}) {
@@ -56,7 +57,11 @@ function renderRow(state: Partial<AgentPresetSettingsState> = {}) {
 
 function renderSeat(state: Partial<AgentPresetSeatState> = {}) {
   const store = createSnapshotStore<AgentPresetSeatState>({ ...SEAT_READY, ...state })
-  const actions = { load: vi.fn(() => Promise.resolve()), select: vi.fn(() => Promise.resolve()) }
+  const actions = {
+    load: vi.fn(() => Promise.resolve()),
+    select: vi.fn(() => Promise.resolve()),
+    introduced: vi.fn(),
+  }
   render(<AgentPresetSeat {...({
     ...actions,
     useAgentPresetSeat: bindSnapshotSelector(store),
@@ -90,7 +95,7 @@ describe('the General-settings row', () => {
     const actions = renderRow()
 
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
-    expect(screen.getByRole('button').textContent).toContain('标准模式')
+    expect(screen.getByRole('button').textContent).toContain(en.presetStandardName)
   })
 
   it('marks a locally authored option as local', () => {
@@ -102,7 +107,7 @@ describe('the General-settings row', () => {
     // list says which rows are local rather than presenting all as vetted.
     expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
     // The shipped one carries no marker; only local rows are called out.
-    expect(screen.getAllByText('标准模式')).toHaveLength(2)
+    expect(screen.getAllByText(en.presetStandardName)).toHaveLength(2)
   })
 
   it('falls back to the id for a preset that published no name', () => {
@@ -126,6 +131,12 @@ describe('the General-settings row', () => {
     expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
     // A shipped preset with no metadata is listed by id and carries no mark.
     expect(screen.getByText('bare')).toBeTruthy()
+  })
+
+  it('shows the selected id until a stale roster contains it', () => {
+    renderRow({ currentValue: 'arriving', options: [] })
+
+    expect(screen.getByRole('button').textContent).toContain('arriving')
   })
 
   it('writes the picked preset and closes the menu', () => {
@@ -194,7 +205,7 @@ describe('the new-session chip', () => {
     const actions = renderSeat()
 
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
-    expect(screen.getByRole('button').textContent).toContain('标准模式')
+    expect(screen.getByRole('button').textContent).toContain(en.presetStandardName)
     expect(screen.getByRole('button').getAttribute('title')).toBe(en.seatHint)
   })
 
@@ -205,7 +216,7 @@ describe('the new-session chip', () => {
 
     // The id alone never said what a preset does; the description is the
     // whole reason a preset can publish metadata at all.
-    expect(screen.getByText('完整的编码 agent。')).toBeTruthy()
+    expect(screen.getByText(en.presetStandardDescription)).toBeTruthy()
     // A preset that published none still reads as a row, with its id standing
     // in for the name.
     expect(screen.getByText(en.noDescription)).toBeTruthy()
@@ -216,6 +227,12 @@ describe('the new-session chip', () => {
     renderSeat({ current: 'mine' })
 
     expect(screen.getByRole('button').textContent).toContain('mine')
+  })
+
+  it('shows the staged id until a stale roster contains it', () => {
+    renderSeat({ current: 'arriving' })
+
+    expect(screen.getByRole('button').textContent).toContain('arriving')
   })
 
   it('stages the picked preset and closes the menu', () => {
@@ -260,6 +277,94 @@ describe('the new-session chip', () => {
   })
 })
 
+describe('the chip introduce cue', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  /** Character spans carry inline animation delays; nothing else does. */
+  function delayedChars(): HTMLElement[] {
+    return Array.from(screen.getByRole('button').querySelectorAll<HTMLElement>('[style]'))
+  }
+
+  it('reveals a long Latin name inside the shared window, then acknowledges', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    vi.useFakeTimers()
+    const actions = renderSeat({
+      current: 'creator',
+      options: [{ id: 'creator', trust: 'user', name: 'CreatorMode' }],
+      introduce: true,
+    })
+
+    // Eleven characters split the 200ms window into 20ms steps, where the
+    // fixed 40ms tick would have doubled the run for a Latin name.
+    const chars = delayedChars()
+    expect(chars.map(span => span.textContent).join('')).toBe('CreatorMode')
+    expect(chars[0]!.style.animationDelay).toBe('150ms')
+    expect(chars[1]!.style.animationDelay).toBe('170ms')
+    expect(chars[10]!.style.animationDelay).toBe('350ms')
+
+    // 150 delay + 200 window + 400 fade: acknowledged only once the last
+    // character has settled, and the label is plain text again after.
+    act(() => { vi.advanceTimersByTime(749) })
+    expect(actions.introduced).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(actions.introduced).toHaveBeenCalledTimes(1)
+    expect(delayedChars()).toHaveLength(0)
+  })
+
+  it('keeps the per-tick cap for a short CJK name', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    vi.useFakeTimers()
+    renderSeat({
+      current: 'creator',
+      options: [{ id: 'creator', trust: 'user', name: '创造模式' }],
+      introduce: true,
+    })
+
+    // Four characters fit under the window, so the 40ms tick applies as-is.
+    const chars = delayedChars()
+    expect(chars).toHaveLength(4)
+    expect(chars[1]!.style.animationDelay).toBe('190ms')
+    expect(chars[3]!.style.animationDelay).toBe('270ms')
+  })
+
+  it('starts a one-character name with no stagger at all', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    vi.useFakeTimers()
+    const actions = renderSeat({
+      current: 'creator',
+      options: [{ id: 'creator', trust: 'user', name: 'C' }],
+      introduce: true,
+    })
+
+    expect(delayedChars()[0]!.style.animationDelay).toBe('150ms')
+    act(() => { vi.advanceTimersByTime(550) })
+    expect(actions.introduced).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips the run under reduced motion and acknowledges at once', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    const actions = renderSeat({ introduce: true })
+
+    expect(actions.introduced).toHaveBeenCalledTimes(1)
+    expect(delayedChars()).toHaveLength(0)
+  })
+
+  it('acknowledges an empty staged name without arming a run', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    const actions = renderSeat({
+      current: 'creator',
+      options: [{ id: 'creator', trust: 'user', name: '' }],
+      introduce: true,
+    })
+
+    expect(actions.introduced).toHaveBeenCalledTimes(1)
+    expect(delayedChars()).toHaveLength(0)
+  })
+})
+
 describe('the session-header label', () => {
   it('names the preset the session runs, and never offers a switch', async () => {
     const { load } = renderLabel({ blank: false, agentPreset: 'standard' })
@@ -267,7 +372,7 @@ describe('the session-header label', () => {
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
     // A control here would promise a switch the host refuses outright.
     expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByTitle('完整的编码 agent。').textContent).toBe('标准模式')
+    expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {

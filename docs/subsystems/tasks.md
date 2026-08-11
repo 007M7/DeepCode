@@ -2,7 +2,7 @@
 
 English | [中文](tasks.zh.md)
 
-Types shared by long-running producers, `ctx.tasks`, and task control surfaces. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the literal shapes from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
+Types shared by long-running producers, `ctx.tasks`, and task controls. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the exact fields and variants from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
 
 ## Ids and status
 
@@ -57,7 +57,7 @@ interface TaskStart {
 }
 ```
 
-`TaskHooks.done` is the quiescence boundary. Optional `readOutput` distinguishes consuming stream tasks from final-output-only tasks.
+`TaskHooks.done` resolves after the producer releases its resources, not merely when work finishes. Optional `readOutput` distinguishes consuming stream tasks from final-output-only tasks.
 
 ```ts type-equiv
 /** Hooks through which the runtime controls and observes producer work. */
@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## Service behavior
 
-The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` and `onTasksChanged` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local provider. The two listener kinds are not nested: `onTaskDone` delivers one terminal record under first-wins semantics a control surface couples to notice delivery, while `onTasksChanged` observes every visible-set change — registration, the stopping transition, settlement, and owner-disposal removal — carrying only the owner whose set moved, or `undefined` when an unowned task changed and every caller's set moved with it. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` listeners, and when `attachSurface` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -172,7 +172,7 @@ Implementations must honor these semantics:
 - Registrations outlive producer and control-surface fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
 - Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
 - Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
-- start refuses work while no control surface is attached, so a producer cannot start work that callers cannot collect or stop.
+- start refuses work while no attached control surface serves the spec's owner, so a producer cannot start work that owner cannot collect or stop. One registry serves every composition in the process, so this question — and completion-listener delivery — is owner-relative rather than process-wide: registrations made from an unscoped context serve every owner, and registrations made under an agent composition's scope serve exactly the agents composed under it.
 
 ```ts cordis-catalog
 /**
@@ -237,14 +237,16 @@ abstract kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'alrea
 abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 
 /**
- * Register an effect-scoped completion listener. Each listener is contained;
- * returned promises are observed but not awaited. No listener runs after
- * service disposal.
+ * Register an effect-scoped completion listener. It receives the settlements
+ * of the owners its registering context's scope covers; each listener is
+ * contained; returned promises are observed but not awaited. No listener runs
+ * after service disposal.
  * @param listener - receives each terminal snapshot and its exact owner.
  * @returns disposer that unregisters the listener.
  */
 abstract onTaskDone(listener: TaskDoneListener): () => void
 
+/**
 /**
  * Register an effect-scoped observer of visible-set changes. It fires after
  * every commit that changes what {@link list} returns for that owner —
@@ -253,9 +255,10 @@ abstract onTaskDone(listener: TaskDoneListener): () => void
  * removal, and the emptying that service disposal commits — so an observer
  * re-reads rather than accumulating deltas.
  *
- * The registration binds to the CALLING fiber, so an observer mounted outside
- * this service still receives the disposal emptying; that is what stops a
- * consumer from retaining rows after the registry unloads.
+ * Delivery is owner-relative on the same terms as {@link onTaskDone}: an
+ * observer registered from an unscoped context — a host composition's own
+ * carrier — sees every owner, while one registered under an agent
+ * composition's scope sees exactly the agents composed under it.
  *
  * This is not a superset of {@link onTaskDone}: that one delivers the terminal
  * record under first-wins semantics a control surface couples to notice
@@ -268,8 +271,9 @@ abstract onTaskDone(listener: TaskDoneListener): () => void
 abstract onTasksChanged(listener: TasksChangedListener): () => void
 
 /**
- * Attach an effect-scoped surface that can read and stop tasks. {@link start}
- * refuses work while none is attached.
+ * Attach an effect-scoped surface that can read and stop tasks. It serves the
+ * owners its registering context's scope covers, and {@link start} refuses an
+ * owner no attached surface serves.
  * @param name - diagnostic label; duplicate names remain independent.
  * @returns disposer that detaches this surface.
  */
@@ -278,5 +282,5 @@ abstract attachSurface(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:53`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->

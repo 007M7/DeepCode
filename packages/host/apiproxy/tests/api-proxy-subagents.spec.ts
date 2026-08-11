@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import { RpcId } from '../src/api/rpc.ts'
@@ -95,7 +95,7 @@ function bench(options: {
   ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
   ctx.provide('userInteraction', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {
-    defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp',
+    defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
   })
   return { api, getAgent, listChildren, inspect, snapshot, restore, followup, interrupt, parent }
 }

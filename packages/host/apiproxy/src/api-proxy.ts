@@ -5,14 +5,16 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import type { Context } from 'cordis'
+import { dirname } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
-import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -31,11 +33,12 @@ import {
   PresetNotWritableError, resolveSessionPreset,
   SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
+import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, TaskView, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
@@ -94,7 +97,7 @@ import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-
 const DEFAULT_MAX_MESSAGES = 50
 
 /** Non-model settings namespaces intentionally served to the Web client. */
-const WEB_SETTINGS_NAMESPACES = ['permission'] as const
+const WEB_SETTINGS_NAMESPACES = ['locale', 'permission', 'ui-conversation', 'ui-theme'] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -104,6 +107,113 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
+
+/** Decode the browser payload while rejecting non-canonical base64 forms. */
+function decodeBase64(data: string): Uint8Array {
+  const decoded = Buffer.from(data, 'base64')
+  if (data.length === 0 || decoded.toString('base64') !== data) {
+    throw new AttachmentError('Image upload is not canonical base64.', 'INVALID_IMAGE_BASE64')
+  }
+  return new Uint8Array(decoded)
+}
+
+/** Validate one prompt as a batch before publishing any durable image object. */
+async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
+  if (content.every(part => part.type === 'text')) {
+    return content.map(part => ({ type: 'text', text: part.text }))
+  }
+  const limits = ctx.attachments.imageLimits
+  if (content.filter(part => part.type === 'image').length > limits.maxImagesPerMessage) {
+    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
+  }
+  const prepared = content.map(part => part.type === 'text'
+    ? part
+    : { part, data: decodeBase64(part.data) })
+  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
+  const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
+  if (totalBytes > limits.maxMessageImageBytes) {
+    throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
+  }
+  for (const image of images) {
+    await ctx.attachments.validateImage({
+      data: image.data,
+      mediaType: image.part.mediaType,
+      ...image.part.name === undefined ? {} : { name: image.part.name },
+    })
+  }
+  const blocks: ContentBlock[] = []
+  for (const item of prepared) {
+    if (!('data' in item)) {
+      blocks.push({ type: 'text', text: item.text })
+      continue
+    }
+    const attachment = await ctx.attachments.saveImage({
+      data: item.data,
+      mediaType: item.part.mediaType,
+      ...item.part.name === undefined ? {} : { name: item.part.name },
+    })
+    blocks.push({ type: 'image', attachment })
+  }
+  return blocks
+}
+
+/** Search durable content for an image reference, including nested tool results. */
+function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const value of content) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
+    if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as ImageAttachmentRef
+      if (match(ref)) return ref
+    }
+    if (block.type === 'tool-result') {
+      const nested = imageBlockIn(block.content, match)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+
+/** Search every durable event carrier that can own model-visible content. */
+function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
+  const data = event.data as {
+    content?: unknown
+    message?: { content?: unknown }
+    inserted?: Array<{ content?: unknown }>
+    chunk?: { type?: unknown; block?: unknown }
+  }
+  const direct = imageBlockIn(data.content, match)
+  if (direct !== undefined) return direct
+  if (data.message !== undefined) {
+    const wrapped = imageBlockIn(data.message.content, match)
+    if (wrapped !== undefined) return wrapped
+  }
+  if (data.inserted !== undefined) {
+    for (const message of data.inserted) {
+      const inserted = imageBlockIn(message.content, match)
+      if (inserted !== undefined) return inserted
+    }
+  }
+  if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
+    return imageBlockIn([data.chunk.block], match)
+  }
+  return undefined
+}
+
+/** True when the current model-visible surface contains an image. */
+function messagesHaveImage(messages: readonly { content: readonly ContentBlock[] }[]): boolean {
+  return messages.some(message => contentHasImage(message.content))
+}
+
+/** Resolve the first reference matching one opaque id. */
+function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
+  for (const event of events) {
+    const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
 
 /**
  * Product settings intentionally exposed beside model-provider namespaces.
@@ -422,8 +532,6 @@ export interface ApiProxyDefaults {
   saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
-  /** Parent directory for name-created workspaces. */
-  workspaceRoot: string
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native text-editor handoff; injectable for settings-document tests. */
@@ -814,9 +922,6 @@ class SessionCwdConflict extends Error {
   }
 }
 
-/** Host failed before the registry could adopt a name-created directory. */
-class WorkspaceDirectoryCreationError extends Error {}
-
 /** An explicit Host naming operation would duplicate another Workspace title. */
 class WorkspaceNameConflictError extends Error {
   constructor(readonly workspaceName: string) {
@@ -888,6 +993,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+  const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+
+  /** Serialize image admission with model selection for one agent. */
+  function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
+    const result = (imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
+    imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
+    return result
+  }
 
   /**
    * Install or return the session-local model selection that prompt assembly snapshots.
@@ -944,7 +1057,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * common paths — reconnecting, resuming, retrying a create — are unaffected.
    * @param sessionId - the identity being adopted.
    * @param requested - the preset the request named, if any.
-   * @param existing - the preset the session was created under, if any.
+   * @param existing - the preset the session RUNS, if any; both callers resolve
+   * it from the log, which differs from the creation header once a blank
+   * session has switched.
    * @throws when both are present and differ.
    */
   function assertPresetUnchanged(
@@ -1257,17 +1372,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * The registry view scope a transcript's presenters resolve in.
    *
    * A live agent is that scope itself (its chain passes through its preset's
-   * standing layer). A cold session names its preset on the header, and the
+   * standing layer). A cold session resolves its preset from the LOG, and the
    * preset's STANDING key serves without resuming anything — ensuring the
    * mount composes plugins but starts no agent, session, or turn. No roster,
    * no recorded preset, or a preset the roster no longer supplies all fall
    * back to the global layer: the transcript still serves, with the generic
    * cards a viewless entry renders.
+   *
+   * Reading the header alone would render a session that switched while blank
+   * through the composition it was CREATED with. Every tool only the newer
+   * preset registers resolves to no presenter there, and the transcript
+   * silently degrades to generic cards for exactly the calls its history is
+   * made of.
    * @param sessionId - the transcript being read.
-   * @param header - that session's header (attached or inspected).
+   * @param session - that session's header and log (attached or inspected).
    * @returns the scope to pass to presenter lookups, or undefined for global.
    */
-  async function presenterScopeFor(sessionId: SessionId, header: SessionHeader): Promise<ScopeKey | undefined> {
+  async function presenterScopeFor(
+    sessionId: SessionId,
+    session: PresetBearingSession,
+  ): Promise<ScopeKey | undefined> {
     const live = ctx.get('agents')?.get(sessionId)
     if (live !== undefined) return live
     const presets = ctx.get('agentPresets')
@@ -1277,7 +1401,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // through the DEFAULT preset's standing layer: that is the composition
       // an unnamed session composes today, and presenters are pure display,
       // so the worst a mismatch produces is the generic card it had anyway.
-      return await presets.standingKeyFor(header.agentPreset)
+      return await presets.standingKeyFor(resolveSessionPreset(session))
     } catch {
       // Swallows only the unknown/unusable-preset rejection from the roster:
       // a deleted or broken preset must degrade this read, never fail it.
@@ -1370,7 +1494,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     // Beside the cwd check for the same reason, and after the await so it
     // covers every path that yields a live agent — freshly created, adopted
     // live, resumed from disk, or recovered by the concurrent-creation catch.
-    assertPresetUnchanged(sessionId, presetId, agent.session.header.agentPreset)
+    assertPresetUnchanged(sessionId, presetId, resolveSessionPreset(agent.session))
     if (agent.session.header.cwd !== cwd) {
       throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -1378,29 +1502,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /** Resolve or create one path while holding the Host's workspace-create chain. */
-  function ensureWorkspace(
-    path: string,
-    title: string | undefined,
-    rejectExistingName = false,
-    createDirectory = false,
-  ): Promise<{ workspace: Workspace; created: boolean }> {
+  function ensureWorkspace(path: string): Promise<{ workspace: Workspace; created: boolean }> {
     const operation = workspaceCreationChain.then(async () => {
-      if (rejectExistingName && title !== undefined
-        && ctx.workspace.list().some(workspace => workspace.title === title)) {
-        throw new WorkspaceNameConflictError(title)
-      }
-      if (createDirectory) {
-        try {
-          await mkdir(path, { recursive: true })
-        } catch (error: unknown) {
-          throw new WorkspaceDirectoryCreationError(
-            `failed to create workspace directory "${path}": ${String(error)}`,
-          )
-        }
-      }
       const existing = await ctx.workspace.resolveByPath(path)
       if (existing !== undefined) return { workspace: existing, created: false }
-      return { workspace: await ctx.workspace.create(path, title), created: true }
+      return { workspace: await ctx.workspace.create(path), created: true }
     })
     workspaceCreationChain = operation.then(() => undefined, () => undefined)
     return operation
@@ -1904,12 +2010,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        // Echo the RESOLVED composition so a client can label the session it
-        // just created without waiting for the next list refresh — the create
-        // is the commit point that knows it (a caller that named none gets
-        // the default the header recorded).
+        // Echo the composition the session RUNS so a client can label it
+        // without waiting for the next list refresh — the create is the commit
+        // point that knows it (a caller that named none gets the default).
+        // Resolved from the log for the same reason `sessionListFields()` is:
+        // this handler also adopts an already-live session, and one that
+        // switched while blank runs a preset its header no longer names, so
+        // echoing the header would contradict both the adoption this call just
+        // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
-        const createdPreset = created?.session.header.agentPreset
+        const createdPreset = created === undefined ? undefined : resolveSessionPreset(created.session)
         return ok(request, { sessionId, ...createdPreset === undefined ? {} : { agentPreset: createdPreset } })
       },
 
@@ -1928,7 +2038,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state.header))
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state))
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,
@@ -1950,41 +2060,51 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        try {
-          const resolved = await ctx.llm.resolveCallConfig({
-            provider,
-            model,
-            ...reasoningEffort === undefined
-              ? {}
-              : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
-          })
-          const selected: ModelSelection = {
-            provider: resolved.provider,
-            model: resolved.model,
-            ...resolved.reasoningEffort === undefined
-              ? {}
-              : { reasoningEffort: resolved.reasoningEffort },
-          }
-          selectionFor(found.agent).current = selected
-          // A switch is also how this deployment's default is chosen: the next
-          // session created without one of its own starts here. Sessions that
-          // have already logged a selection are unaffected — they derive from
-          // their own log (see selectionFor).
+        return serializeImageAdmission(found.agent, async () => {
           try {
-            await defaults.saveDefaultModelSelection?.(selected)
+            const resolved = await ctx.llm.resolveCallConfig({
+              provider,
+              model,
+              ...reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
+            })
+            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
+              .some(message => contentHasImage(message.content))
+            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
+              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
+              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
+                return err(request, {
+                  code: 'model-unavailable',
+                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
+                  details: { provider, model },
+                })
+              }
+            }
+            const selected: ModelSelection = {
+              provider: resolved.provider,
+              model: resolved.model,
+              ...resolved.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: resolved.reasoningEffort },
+            }
+            selectionFor(found.agent).current = selected
+            try {
+              await defaults.saveDefaultModelSelection?.(selected)
+            } catch (error: unknown) {
+              ctx.logger.warn(
+                `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
+              )
+            }
+            return ok(request, { selected: { ...selected } })
           } catch (error: unknown) {
-            ctx.logger.warn(
-              `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
-            )
+            return err(request, {
+              code: 'model-unavailable',
+              message: error instanceof Error ? error.message : String(error),
+              details: { provider, model },
+            })
           }
-          return ok(request, { selected: { ...selected } })
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'model-unavailable',
-            message: error instanceof Error ? error.message : String(error),
-            details: { provider, model },
-          })
-        }
+        })
       },
 
       async rename(request) {
@@ -2122,19 +2242,101 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const agent = resolved.agent
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
-        try {
-          const message: UserMessage = createUserMessage({ content, source })
-          if (mode === 'steer') agent.steer(message)
-          else agent.followup(message)
-        } catch (error: unknown) {
-          // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
-          return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
+        const hasImage = content.some(part => part.type === 'image')
+        const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
+          try {
+            if (hasImage) {
+              const current = selectionFor(agent).current
+              const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
+              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
+                return err(request, {
+                  code: 'attachment-error',
+                  message: `Model "${current.model}" does not support image input.`,
+                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+                })
+              }
+            }
+            const durable = await durablePromptContent(ctx, content)
+            const message: UserMessage = createUserMessage({ content: durable, source })
+            if (mode === 'steer') agent.steer(message)
+            else agent.followup(message)
+          } catch (error: unknown) {
+            if (error instanceof AttachmentError) {
+              return err(request, {
+                code: 'attachment-error',
+                message: error.message,
+                details: { reason: error.code },
+              })
+            }
+            return err(request, {
+              code: 'agent-busy',
+              message: 'prompt rejected',
+              details: { reason: String(error) },
+            })
+          }
+          return ok(request, { accepted: true as const })
         }
-        return ok(request, { accepted: true as const })
+        return hasImage ? serializeImageAdmission(agent, admit) : admit()
+      },
+
+      async attachment(request) {
+        const { sessionId, attachmentId } = request.payload
+        let state: SessionReadState
+        try {
+          state = await readSessionState(sessionId)
+        } catch (error: unknown) {
+          if (error instanceof SessionNotFound) {
+            return err(request, {
+              code: 'session-not-found',
+              message: error.message,
+              details: { sessionId },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `attachment authorization unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        const ref = referencedImage(state.events, String(attachmentId))
+        if (ref === undefined) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'Image is not referenced by this session.',
+            details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+          })
+        }
+        try {
+          const stored = await ctx.attachments.readImage(ref)
+          return ok(request, {
+            attachment: stored.ref,
+            data: Buffer.from(stored.data).toString('base64'),
+          })
+        } catch (error: unknown) {
+          if (error instanceof AttachmentError) {
+            return err(request, {
+              code: 'attachment-error',
+              message: error.message,
+              details: { reason: error.code },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: 'Unable to read image attachment.',
+            details: {},
+          })
+        }
       },
 
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
+        if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
+          return Promise.resolve(err(request, {
+            code: 'attachment-error',
+            message: 'queue edits accept text content only',
+            details: { reason: 'QUEUE_EDIT_NON_TEXT' },
+          }))
+        }
         const agent = ctx.agents.get(sessionId)
         if (agent !== undefined && hasSubagentOwner(agent.session, agent)) {
           return Promise.resolve(err(request, subagentOwnershipError(sessionId)))
@@ -2354,54 +2556,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }))
       },
 
-      // Exactly one of path/name arrives (schema refine). Existing-folder
-      // adoption reuses its canonical path; create-by-name rejects a name
-      // already present in the registry.
-      // TODO: the create-by-name branch lost its last product consumer when
-      // the Web picker collapsed onto the directory flow
-      // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
-      // Delete it with the wire schema's `name` member, this
-      // `defaults.workspaceRoot`, the client contract that carried the name
-      // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
-      // `intentName`'s name branch, the manager's "name under workspaceRoot"
-      // contract), and the `dsh web --workspace-root` flag plus its apps/cli
-      // README lines, which exist only to feed it.
       async create(request) {
-        const { payload } = request
-        let path: string
-        if (payload.name !== undefined) {
-          const name = payload.name.trim()
-          if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
-            return err(request, {
-              code: 'workspace-invalid-path',
-              message: `workspace name must be one non-empty path segment, got "${payload.name}"`,
-              details: { path: payload.name },
-            })
-          }
-          path = join(defaults.workspaceRoot, name)
-        } else {
-          path = payload.path as string
-        }
+        const { path } = request.payload
         try {
-          const name = payload.name?.trim()
-          const { workspace, created } = await ensureWorkspace(
-            path,
-            name,
-            name !== undefined,
-            name !== undefined,
-          )
+          const { workspace, created } = await ensureWorkspace(path)
           return ok(request, { workspace: workspaceView(workspace), created })
         } catch (error: unknown) {
-          if (error instanceof WorkspaceNameConflictError) {
-            return err(request, {
-              code: 'workspace-name-conflict',
-              message: error.message,
-              details: { name: error.workspaceName },
-            })
-          }
-          if (error instanceof WorkspaceDirectoryCreationError) {
-            return err(request, { code: 'internal', message: error.message, details: {} })
-          }
           // The registry rejects a path that does not resolve to an existing
           // directory (realpath ENOENT / not-a-directory) — the business
           // error of the typed-path flow, surfaced as a validation failure.
@@ -2857,7 +3017,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The scope presenters resolve in — the live agent, else the recorded
         // preset's standing key, else the global layer — so a cold session's
         // '/' popup lists the catalog its composition actually serves.
-        const scope = await presenterScopeFor(sessionId, session.header)
+        const scope = await presenterScopeFor(sessionId, session)
         try {
           const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
           return ok(request, {
@@ -3221,6 +3381,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
+          }),
+          // The recompose itself registers nothing (it re-parents the agent's
+          // scope onto a standing mount that may already exist), so the
+          // logged selection is the only commit point a client can follow.
+          ctx.on('session/event', (session: Session, event: SessionEvent) => {
+            if (event.type !== 'agent-preset/selected') return
+            queue.push(frame({
+              type: 'host/session-preset-changed',
+              sessionId: session.id,
+              agentPreset: event.data.agentPreset,
+            }))
           }),
           ctx.on('settings/document-updated', (ns) => {
             // The RAW-section event, not the resolved one: a field going from

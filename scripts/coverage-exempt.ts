@@ -1,6 +1,6 @@
 /**
  * Heavy suites the coverage aggregate runs uninstrumented in a parallel gate.
- * Membership contract: a suite qualifies only when every coverage-measured
+ * Membership rule: a suite qualifies only when every coverage-measured
  * file it executes in-process (`coverage.include` spans package src trees;
  * typert generator src is threshold-excluded in vitest.config.ts) is already
  * fully covered by other suites, so removing it from the instrumented run

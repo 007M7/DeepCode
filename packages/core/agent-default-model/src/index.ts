@@ -4,13 +4,13 @@
  * @module @deepseek-ai/dsh-agent-default-model
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Default model selection for Agents created without an explicit model. */
     agentDefaultModel: AgentDefaultModelService
@@ -92,7 +92,7 @@ export class AgentDefaultModelService extends Service {
   /**
    * Save the complete default model selection. A deployment without a settings
    * provider keeps its composition entry.
-   * @param next - resolved selection accepted by a front door.
+   * @param next - resolved selection accepted by an entry point.
    * @returns fulfillment after the optional settings write settles.
    */
   async saveSelection(next: ModelSelection): Promise<void> {

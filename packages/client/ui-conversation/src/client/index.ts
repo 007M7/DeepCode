@@ -16,6 +16,7 @@ export type {} from './conversation-nodes/turn-tail.ts'
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
 export type { IConversation } from './service.ts'
+export type { DraftAttachmentId } from './input/contract.ts'
 
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,
@@ -28,14 +29,14 @@ export type {
 export type {
   ChatFileMentions, ChatNodeOwnerProps, ChatNodeViewProps,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
-  ComposerChainProps, ConversationInjected,
+  ComposerAttachment, ComposerChainProps, ConversationInjected,
   ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps,
   ConvViewProps, DetailsInjected, DetailsSlotProps, DetailsToolOwnerProps, EmptyWorkspaceOwnerProps,
   TurnTailOwnerProps, UseChatNodeTurnData,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     conversation: import('./service.ts').IConversation

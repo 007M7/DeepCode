@@ -49,14 +49,14 @@ dsh plugin --profile tui add <package>  # install a plugin into a custom profile
 dsh --profile tui                       # boot it
 ```
 
-profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）约定](apps/cli/README.md#profiles)。
+profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）参考](apps/cli/README.md#profiles)。
 
 ### Headless
 
 运行一项任务，打印最终答案后退出：
 
 ```sh
-dsh run "summarize this workspace"
+dsh --profile headless "summarize this workspace"
 ```
 
 ### 自动化与 SDK

@@ -140,7 +140,7 @@ function assertBudget(value: number, name: string): void {
  *
  * Grouping, sorting, path mapping, per-unit preview truncation, and any
  * `incomplete` state stay OUTSIDE the retainer: it counts and keeps, nothing
- * more. The caller pushes already-shaped units and, after {@link finish},
+ * more. The caller pushes prepared logical units and, after {@link finish},
  * groups/sorts the retained subset itself.
  */
 export class ItemRetainer<T> {
@@ -160,7 +160,7 @@ export class ItemRetainer<T> {
    * and counted as omitted. Callers keep pushing all observed units, so the final
    * {@link Omitted} count is exact.
    *
-   * @param item The already-shaped logical unit (path, flat match, source).
+   * @param item The prepared logical unit (path, flat match, source).
    * @returns The per-push {@link PushDecision}.
    */
   push(item: T): PushDecision {
@@ -253,7 +253,7 @@ export class TextRetainer {
   private suffixHeld = 0
   private total = 0
 
-  /** @param strategy One of the {@link TextRetentionStrategy} shapes; byte budgets must be non-negative integers. */
+  /** @param strategy One {@link TextRetentionStrategy} variant; byte budgets must be non-negative integers. */
   constructor(strategy: TextRetentionStrategy) {
     switch (strategy.kind) {
       case 'head':

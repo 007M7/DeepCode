@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, { createUserMessage, CallId, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'

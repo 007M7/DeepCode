@@ -14,7 +14,7 @@
  * tears its scope down immediately unless it is the staged one, whose scope
  * survives frozen (read-only view) until the stage moves on.
  */
-import type { Context, Fiber } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type {
   IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, TaskView, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'

@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-tools
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -120,7 +120,7 @@ export type {
   WebSource,
 } from './presentation.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     tools: ToolRegistry
   }
@@ -160,13 +160,14 @@ declare module 'cordis' {
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
-     * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+     * Allow a listener to replace content in the DURABLE LOG COPY of one
+     * `run_code` sub-dispatch outcome before the bridge appends its
+     * `tool/code-dispatch` event. `next()` keeps the
      * content unchanged; a listener may return replacement blocks (e.g. the
      * spill policy's preview + locator for an oversized text result). Only the
      * logged copy is affected — the program already received the complete
      * value, and the model sees neither. A throwing listener is contained:
-     * the bridge falls back to logging the unshaped content.
+     * the bridge falls back to logging the original settled content.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
      * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
      * @mode waterfall
@@ -646,13 +647,14 @@ export interface Config {
 }
 
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 export interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 
@@ -668,7 +670,7 @@ interface ToolView {
   readonly visible: ReadonlyMap<string, ToolDefinition>
   /** Pre-restriction capability names used by prompt-order validation. */
   readonly knownNames: ReadonlySet<string>
-  /** Current global names that a scoped restriction may name. */
+  /** Current inherited names a scoped restriction may name; its own are exempt. */
   readonly restrictableNames: ReadonlySet<string>
 }
 
@@ -706,7 +708,7 @@ class ToolLayer implements ScopeLayer {
       && this.mode === undefined
   }
 
-  /** Whether every compiled restriction in this layer admits a global tool name. */
+  /** Whether every compiled restriction in this layer admits an inherited tool name. */
   admits(name: string): boolean {
     for (const filter of this.restrictions.values()) {
       if ((filter.allow !== undefined && !filter.allow.has(name))
@@ -1028,7 +1030,7 @@ export class ToolRegistry extends Service {
     const known = this.view(scope).restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
+      throw new Error(`tools.restrict() names unknown inherited tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; a restriction filters what this scope inherits, never what it registers itself. Restrictable tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
     return this.layers.effect(
       this.ctx,
@@ -1069,30 +1071,54 @@ export class ToolRegistry extends Service {
 
   /**
    * Resolve every registry fact one scope needs in one layer traversal. The
-   * visible map applies global restrictions, scoped shadowing, and the reserved
-   * presentation transport; the other sets retain the pre-restriction facts
-   * needed by restriction and prompt-order validation.
+   * visible map applies restrictions to the INHERITED surface, then the
+   * scope's own registrations and the reserved presentation transport; the
+   * other sets retain the pre-restriction facts needed by restriction and
+   * prompt-order validation.
+   *
+   * A restriction filters what a scope inherits — the global layer and every
+   * ancestor layer on its chain — and never what its OWN layer registers.
+   * That exemption is what a per-child capability filter has to keep intact:
+   * the delegation runtime registers a child's reporting and structured-output
+   * tools into the child's own layer, and a filter naming the capabilities the
+   * child may use must not strip the machinery it answers through.
+   *
+   * Reading the exempt set as "the global layer" instead of "not mine" held
+   * only while every model-facing tool sat in the host composition. Once
+   * presets moved them onto the agent plane they became an ANCESTOR
+   * contribution, so a child's filter silently stopped constraining anything
+   * it was given.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
     // Scope-chain layers, farthest ancestor first, the exact scope last.
     const layers = this.layers.chainLayers(scope)
+    // Chain-blind on purpose: this is the ONE layer whose registrations the
+    // scope owns rather than inherits, and it is absent until the scope
+    // contributes something.
+    const own = this.layers.peek(scope)
+    // Inherited surface, nearest ancestor last: a nearer scope's same-name
+    // entry shadows a farther one, and the global layer is the farthest.
+    const inherited = new Map<string, ToolDefinition>(this.layers.global.tools.entries())
+    for (const layer of layers) {
+      if (layer === own) continue
+      for (const [name, definition] of layer.tools.entries()) inherited.set(name, definition)
+    }
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    for (const [name, definition] of this.layers.global.tools.entries()) {
+    for (const [name, definition] of inherited) {
       knownNames.add(name)
       restrictableNames.add(name)
       // Restrictions intersect across the whole chain: any scope on it may
-      // mask a global-surface name for everything nested inside it.
+      // mask an inherited name for everything nested inside it.
       if (layers.every(layer => layer.admits(name))) visible.set(name, definition)
     }
-    // Chain layers second, nearest last: same-name entries REPLACE (shadow)
-    // the global and farther-scope ones, and scope-local registrations are
-    // never part of the global filter above.
-    for (const layer of layers) {
-      for (const [name, definition] of layer.tools.entries()) {
+    // The scope's own registrations last, shadowing an inherited name and
+    // outside the filter above.
+    if (own !== undefined) {
+      for (const [name, definition] of own.tools.entries()) {
         knownNames.add(name)
         visible.set(name, definition)
       }
@@ -1183,8 +1209,8 @@ export class ToolRegistry extends Service {
   /**
    * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
    * and return the content the bridge should log on `tool/code-dispatch`.
-   * Contained: a throwing listener falls back to the unshaped content — log
-   * shaping must never fail the dispatch or lose the settle event. Private:
+   * Contained: when a listener throws, the method logs the original settled
+   * content; that failure must not fail the dispatch or omit the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
    * receives it as a capability parameter (the `requireRuntime` idiom) — the
    * waterfall, not this invoker, is the public extension point.
@@ -1196,7 +1222,7 @@ export class ToolRegistry extends Service {
         () => Promise.resolve(dispatch.content),
       )
     } catch (error: unknown) {
-      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the original settled content`)
       return dispatch.content
     }
   }

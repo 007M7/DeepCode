@@ -7,8 +7,8 @@
  * addresses the session's agent by sessionId — sessions are always
  * agent-backed.
  */
-import { Service } from 'cordis'
-import type { Context } from 'cordis'
+import { Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -124,6 +124,11 @@ export class CommandService extends Service implements CommandServiceContract {
       warm: (session) => { this.directory.warm(session.sessionId) },
     }), 'command: slash source')
     ctx.on('commands/changed', () => { this.directory.invalidateAll() })
+    // A preset switch changes which commands one session's agent resolves and
+    // registers nothing globally, so the registry-wide signal above never
+    // fires for it: repull that key alone, soft, so the old snapshot serves
+    // the menu until the new one lands.
+    ctx.on('session/preset-changed', (sessionId) => { void this.directory.refresh(sessionId) })
     ctx.on('connection/reset', () => { this.directory.resetConnected() })
   }
 

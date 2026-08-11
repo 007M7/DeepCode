@@ -30,8 +30,8 @@ import {
   launcherPath as landlockLauncherPath,
   probe as defaultProbeLandlock,
 } from '@deepseek-ai/node-addon-landlock-run'
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -42,7 +42,7 @@ import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './pr
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the runner argv; bwrap-shaped profile arguments are appended. A
+   * Override the runner argv; bwrap-compatible profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after

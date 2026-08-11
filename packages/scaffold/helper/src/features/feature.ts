@@ -112,7 +112,7 @@ export abstract class Feature {
   readonly requires: readonly FeatureId[] = []
   /** Features recommended during creation. */
   readonly suggests: readonly FeatureId[] = []
-  /** Front doors under which this feature is meaningful. */
+  /** Run interfaces under which this feature is meaningful. */
   readonly supportedInterfaces: readonly RunInterface[] = ['acp', 'embed']
 
   /**
@@ -141,7 +141,7 @@ export abstract class Feature {
   }
 
   /**
-   * Whether the feature may be selected for this project front door.
+   * Whether the feature may be selected for this project run interface.
    * @param profile - project context to check.
    * @returns whether the feature applies.
    */
@@ -236,7 +236,7 @@ export abstract class Feature {
   }
 
   /**
-   * Inspect current files and reject any partial or ambiguous owned shape.
+   * Inspect current files and reject any partial or ambiguous owned file set.
    * @param project - project snapshot to inspect.
    * @returns installation state, selection, and diagnostics.
    */

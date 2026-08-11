@@ -114,7 +114,7 @@ function configDiagnostics(
   if (!expected || Object.keys(expected).length === 0) return undefined
   return config => Object.entries(expected).flatMap(([key, value]) => sameShape(value, config[key])
     ? []
-    : [`${key} has an incompatible value shape`])
+    : [`${key} has fields or value types that do not match the expected config`])
 }
 
 function resourcesFromSpec(spec: FeatureResourceSpec): ProjectResource[] {

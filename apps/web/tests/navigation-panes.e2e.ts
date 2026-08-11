@@ -78,8 +78,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace;
-    // the read targets must live in that session cwd (pre-creation is safe:
-    // create-by-name adopts an existing directory).
+    // the read targets must live in that session cwd (pre-creation is safe
+    // because the picker adopts an existing directory by path).
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'nav-a.md'), '# alpha nav\n')
@@ -164,8 +164,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       sessionId = await settled
     }
     await recordFixture(scaffold, sessionId!, SEED)
-    // Fixture honesty: the recording must carry the shape the replay
-    // scenarios assert on — three calls in turn 1 and two closed turns.
+    // Fixture honesty: the recording must contain the events the replay
+    // scenarios assert on: three calls in turn 1 and two closed turns.
     const recorded = parseSessionLog(await readFile(SEED, 'utf8'))
     expect(recorded.filter(e => e.type === 'turn/end')).toHaveLength(2)
     const calls = recorded.filter((e): e is SessionEvent & { data: { name: string } } => e.type === 'tool/call')

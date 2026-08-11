@@ -187,12 +187,12 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.cordis.entry('scope-invariant')?.name).toBe('@deepseek-ai/dsh-scope/invariant')
     expect(project.cordis.entry('agent-loop-invariant')?.name).toBe('@deepseek-ai/dsh-agent-loop/invariant')
     expect(project.cordis.entry('system-prompt')?.config?.persona).toContain('{{cwd}}')
-    expect(project.packageManifest().dependencies?.['@cordisjs/plugin-timer']).toBe('^1.1.2')
-    expect(project.packageManifest().dependencies?.['@cordisjs/plugin-hmr']).toBe('^1.0.15')
+    expect(project.packageManifest().dependencies?.['@deepseek-ai/cordis-plugin-timer']).toBe('^1.1.2')
+    expect(project.packageManifest().dependencies?.['@deepseek-ai/cordis-plugin-hmr']).toBe('^1.0.15')
     expect(project.packageManifest().dependencies?.['@deepseek-ai/dsh-scope']).toBe('^0.0.1')
     expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-scope/invariant')
     expect(project.packageManifest().dependencies).not.toHaveProperty('node-addon-require-builtin')
-    expect(project.cordis.entry('hmr')).toMatchObject({ name: '@cordisjs/plugin-hmr' })
+    expect(project.cordis.entry('hmr')).toMatchObject({ name: '@deepseek-ai/cordis-plugin-hmr' })
     expect(project.cordis.entry('llm-deepseek')).not.toHaveProperty('config.apiKey')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('baseURL')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('models')
@@ -209,7 +209,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-tasks')
   })
 
-  it('round-trips embed app projects without a front-door Cordis config entry', async () => {
+  it('round-trips embed app projects without an ACP Cordis config entry', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-embed-app-'))
     temporary.push(root)
     const creation = request([], [], 'embed')
@@ -502,7 +502,7 @@ describe('SdkProject and ProjectEditSession', () => {
     internals.applyResource(transient, undefined)
     internals.removeResource(transient)
     internals.replaceContribution(
-      new ProjectContribution([{ kind: 'npm-dependency', key: resourceKey('shared'), name: 'cordis', section: 'dependencies' }]),
+      new ProjectContribution([{ kind: 'npm-dependency', key: resourceKey('shared'), name: '@deepseek-ai/cordis', section: 'dependencies' }]),
       new ProjectContribution([{
         kind: 'cordis-config-entry', key: resourceKey('shared'), entry: { id: 'new', name: 'new' }, ownedConfigKeys: [],
       }]),
@@ -698,14 +698,24 @@ describe('SdkProject and ProjectEditSession', () => {
   it('does not mistake a linked NPM dependency closure for an installed feature', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-link-closure-inspection-'))
     temporary.push(root)
-    const base = request([selection('hooks', ['claude'])])
+    const base = request([selection('hooks', ['claude'])], [new LocalPluginBlueprint('probe', 'plugin')])
     const creation: ProjectCreationRequest = { ...base, linkWorkspaceRoot: repoRoot }
     const project = SdkProject.create(root, creation)
     const registry = createBuiltinRegistry(project.profile)
     const edit = project.edit(registry)
     for (const item of creation.features) edit.installFeature(registry.get(item.id), item)
+    for (const blueprint of creation.localPlugins) edit.addPlugin(blueprint)
     const committed = (await edit.commit()).project
     expect(committed.packageManifest().dependencies?.['@deepseek-ai/dsh-subagent']).toMatch(/^file:/)
+    // A generated workspace member resolves its own dependencies, so its manifest links too.
+    const plugin = JSON.parse(await readFile(join(root, 'plugins/probe/package.json'), 'utf8')) as {
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+    }
+    // Asserted by shape, not by the framework's name: what matters is that the
+    // resolved section links into this repository while the peer keeps its range.
+    expect(Object.values(plugin.devDependencies ?? {}).every(spec => spec.startsWith('file:'))).toBe(true)
+    expect(Object.values(plugin.peerDependencies ?? {}).some(spec => spec.startsWith('^'))).toBe(true)
     expect(createBuiltinRegistry(committed.profile).get(featureId('subagent')).inspect(committed).state).toBe('absent')
   })
 

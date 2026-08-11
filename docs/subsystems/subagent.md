@@ -2,7 +2,7 @@
 
 English | [中文](subagent.zh.md)
 
-The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
+The subagent seam lets an agent delegate work to a child agent. Like [bash](bash.md), it is **one optional capability**, not part of the agent loop, so its types live here rather than in [core.md](core.md). It differs from the other capability seams because **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), while bash allows only one executor. Its registry follows the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
 Service Definition: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Service providers are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`, `-codex`, `-claude-code`, `-dsh-sdk`); the model-facing Consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation), [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the optional global `send_message`, `interrupt_agent`, and `list_agents` controls), and [dsh-tool-subagent-report](../../packages/subagent/tool-subagent-report) (the optional child-scoped `report` return channel). The same `ctx.subagents` service owns continuable-child orchestration through an internal activation manager and read-only child and descendant discovery straight from the session store and optional session persistence. Product-provider rationale lives in [the Codex and Claude Code Agent Note](../../.agents/notes/implemented/feature/2026-08-04-claude-code-and-codex-subagent-backends.md); common-seam rationale lives in [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [the continuable subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md), [the report-tool Agent Note](../../.agents/notes/implemented/feature/2026-07-30-continuable-subagent-report-tool.md), [the durable catalog Agent Note](../../.agents/notes/implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md), [the list-identity-projection Agent Note](../../.agents/notes/implemented/architecture/2026-08-06-subagent-list-identity-projection.md), and [the merged-service Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
 
@@ -113,7 +113,7 @@ interface ResolvedSubagentStartRequest extends SubagentStartRequest {
 
 ## Continuable children and activations
 
-A **continuable background subagent** is one durable child Session with at most one process-local **Activation** — a residency epoch for a reconstructed child Agent. An Activation is not a request, result, cancellation, or Task boundary: it may execute many FIFO turns and stays resident while descendants it created are still running. The continuation manager owns activation admission, direct-parent authorization, the live ownership graph, cold resume, and child-first disposal; the Agent loop owns all turn ordering and execution. No continuable path creates a Task or an intermediate result-bearing wrapper.
+A **continuable background subagent** is one durable child Session with at most one process-local **Activation**, the period when a reconstructed child Agent is resident. An Activation is not a request, result, cancellation, or Task: it may execute many FIFO turns and stays resident while descendants it created are still running. The continuation manager owns activation admission, direct-parent authorization, the live ownership graph, cold resume, and child-first disposal; the Agent loop owns all turn ordering and execution. No continuable path creates a Task or an intermediate result-bearing wrapper.
 
 ```text
 persisted Session
@@ -293,14 +293,20 @@ The outcome of a one-shot run, resolved by `SubagentRun.result`. `structured` is
  * The terminal outcome of a subagent run, resolved by {@link SubagentRun.result}.
  */
 interface SubagentResult {
-  /** The child's final assistant output (the last assistant message's content). */
+  /**
+   * The child's final assistant output is the content of its last non-empty
+   * assistant message. Empty-content messages, including usage-only messages,
+   * are skipped. Without a non-empty message, the output is its accumulated
+   * assistant text stream, or `[]` when the child produced neither.
+   */
   readonly output: ContentBlock[]
   /**
    * The structured result after a requested `outputSchema` was successfully
    * satisfied. Requesting a schema does not guarantee presence: a provider can
    * end with `stopReason: 'error'` when the child fails or finishes without a
-   * valid capture. Shape is validated against the request schema by the
-   * provider; `unknown` here because the seam is schema-agnostic.
+   * valid capture. The structured value is validated against the requested
+   * output schema by the provider; `unknown` here because the seam is
+   * schema-agnostic.
    */
   readonly structured?: unknown
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
@@ -613,7 +619,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [MessageId](llm-streaming.md) · [SessionId](core.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:170`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagent-events"></a>
 
@@ -639,7 +645,7 @@ A published child settled. Scope-filtered dispatch uses the same delegating pare
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:162`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-added--emit"></a>
 
@@ -656,7 +662,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:136`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:139`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-removed--emit"></a>
 
@@ -673,7 +679,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:145`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentstart--emit"></a>
 
@@ -697,5 +703,5 @@ A provider established a published child. For in-process providers, `ctx.agents.
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:156`](../../packages/subagent/subagent/src/index.ts)
 <!-- END GENERATED cordis-surface -->

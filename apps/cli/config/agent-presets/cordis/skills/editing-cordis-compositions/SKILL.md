@@ -26,6 +26,34 @@ A preset is a directory holding one `agent.cordis.yml`, optionally beside a `pre
 3. **Rewrite `preset.yml`**: give the copy its own `name` and `description`, and drop any `order` the source declared — that field sorts the shipped roster.
 4. **Edit `agent.cordis.yml`** row by row, keeping the plane rule and realm rule above.
 
+### Native product subagents
+
+Codex and Claude Code providers already live in the host composition. A preset chooses either product by contributing the same ordinary delegation-tool row used for spawn and fork; never move a product provider into the preset and never add a product-specific settings field.
+
+Copy these disabled templates from a shipped full preset and remove `disabled` only for the products the user requested:
+
+```yaml
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: provider-managed
+
+- id: tool-subagent-claude-code
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: claude-code
+    toolName: subagent_claude_code
+    enableRunInBackground: false
+    maxDepth: provider-managed
+```
+
+The two rows are independent. Leaving both disabled preserves the copied preset, enabling one exposes only that product tool, and enabling both exposes both. The host must provide `codex` or `claude` on `PATH`; the preset does not install, authenticate, select a model for, or probe either product.
+
 The shipped preset directories are off-limits: never edit or delete them, and never escalate the sandbox to reach them, even when a change there looks quicker — an upgrade overwrites the install, and corrupting the `cordis` preset disables preset authoring itself. Locally authored presets under the user root are yours to create, edit, and delete.
 
 ## The rule that catches people
@@ -53,13 +81,13 @@ When a preset genuinely owns a service, wrap the provider **and every consumer t
 
 A consumer left outside the group resolves the host's registry, which the preset did not populate, and then contributes nothing. That is the quietest failure here: the mount succeeds and a tool is simply missing.
 
-Registry-shaped host capabilities need no realm at all: the host `tools` and `skills` registries are layered per scope, so rows like `skill-local` and `tool-skill` sit loose in the preset and their registrations file into this preset's layer automatically — the agent's catalog merges them with whatever the deployment registered globally.
+Host capabilities exposed through registries need no realm: the host `tools` and `skills` registries are layered per scope, so rows like `skill-local` and `tool-skill` sit loose in the preset and their registrations file into this preset's layer automatically — the agent's catalog merges them with whatever the deployment registered globally.
 
 ## Verifying a change
 
 Read the live runtime with `cordis_inspect` — it reports the services, the plugin fibers, and the registered tools as they actually are, which is the only reliable check that a row did what its name suggests. Note it shows THIS session's composition: a preset you just wrote is not mounted anywhere until a session starts on it.
 
-To check a preset you authored, re-read the files you wrote and walk the shape: a top-level YAML list, every row a map with a `name`, every group carrying its own list, service-publishing rows behind an `isolate` realm. The settings page's preset roster runs the same shape check and marks an unloadable preset broken in red — point the user there, and ask them to start a session on the new preset to confirm the tool list; you cannot start one yourself.
+To check a preset you authored, re-read the files and validate these fields: the top level is a YAML list, every row is a map with a `name`, every group carries its own list, and service-publishing rows sit behind an `isolate` realm. The settings page's preset roster validates the same fields and marks an unloadable preset broken in red — point the user there, and ask them to start a session on the new preset to confirm the tool list; you cannot start one yourself.
 
 `cordis_mount` evaluates JavaScript against the live runtime and disappears on restart. It is for probing, not for shipping a capability: a capability belongs in a composition file.
 

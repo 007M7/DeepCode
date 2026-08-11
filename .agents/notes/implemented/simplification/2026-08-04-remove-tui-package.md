@@ -8,7 +8,7 @@ English | [中文](2026-08-04-remove-tui-package.zh.md)
 
 Removing the implicit `dsh` terminal application left `@deepseek-ai/dsh-tui` without a shipped composition. The package still carried a terminal renderer, interactive command and question adapters, extension overlays, snapshot fixtures, a patched `pi-tui` dependency, and SDK scaffolding that advertised TUI as a supported application interface. Keeping that surface required maintaining a product-sized frontend whose only remaining consumer was the project generator itself.
 
-The package also made the repository's supported application inventory misleading. Current runnable products use Web, ACP, JSON-RPC, or one-shot CLI front doors, while the SDK continued to offer a terminal choice that no example or product command exercised.
+The package also made the repository's supported application inventory misleading. Current runnable products use Web, ACP, JSON-RPC, or one-shot CLI entry points, while the SDK continued to offer a terminal choice that no example or product command exercised.
 
 ## Decision
 
@@ -34,6 +34,6 @@ Repository searches and generated catalogs contain no TUI package, dependency pa
 
 ## Consequences
 
-DeepSeek Harness has no terminal UI package or generated TUI application. Existing imports, `cordis.yml` rows, SDK `--interface=tui` requests, and projects that depend on the package fail instead of being translated. Web remains the shipped interactive surface; ACP, JSON-RPC, and one-shot CLI remain the non-Web front doors.
+DeepSeek Harness has no terminal UI package or generated TUI application. Existing imports, `cordis.yml` rows, SDK `--interface=tui` requests, and projects that depend on the package fail instead of being translated. Web remains the shipped interactive surface; ACP, JSON-RPC, and one-shot CLI remain the non-Web entry points.
 
 The provider-neutral command, user-interaction, approval, tool-presentation, PTY, and session-projection capabilities remain available to other hosts. Reintroducing a terminal frontend requires a named product or deployment, an explicit package boundary, a concrete interaction provider, and assembled lifecycle and transcript acceptance for that frontend.

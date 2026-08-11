@@ -5,7 +5,9 @@ description: Use when writing, reviewing, restoring, trimming, or auditing prose
 
 # DeepSeek Harness Prose Standard
 
-Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates, and [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md) for hunting and fixing reasoning-transcript leakage. It is guidance, not a script.
+Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. A contract is an obligation, invariant, precondition, postcondition, or compatibility promise that a caller, callee, implementer, producer, or consumer relies on. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates, and [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md) for hunting and fixing reasoning-transcript leakage. It is guidance, not a script.
+
+Treat `contract`, `boundary`, `shape`, `surface`, `seam`, `gate`, and `vocabulary` as terms to check before use, not banned words. First ask whether the exact rule, API, field set, type, validation, timing point, component split, or failure states the fact better. Keep a term when it names the exact technical subject, including caller/callee contracts and security/process boundaries.
 
 Comments describe non-obvious contracts or rationale that code cannot express; they do not restate what code already implies.
 
@@ -21,7 +23,7 @@ Always exclude `vendor/` from discovery, review, and edits, even when the reques
 
 Also exclude `.agents/notes/archived/` from prose review and edits. Archived Agent Notes are frozen snapshots; inspect an exact target only to understand a historical inbound citation, never to modernize its prose or outbound links.
 
-Treat generated catalogs, snapshots, and fixtures as derivative. Edit the owning source or scenario first, then regenerate the artifact. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Bilingual pairs have no permanent owner: either language may be the authored side for an update. Update the counterpart minimally and re-record the pair.
+Treat generated catalogs, snapshots, and fixtures as derivative. Edit the owning source or scenario first, then regenerate the artifact. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Bilingual pairs have no permanent owner: either language may be the authored side for an update. Follow the [lightweight routine path](../../../docs/AGENTS.md#writing-rules), update the counterpart minimally, and re-record the pair.
 
 ## Preserve the complete proposition
 
@@ -45,14 +47,14 @@ This is not a one-way shortening pass. Add or restore prose when code, types, an
 
 - **Public JSDoc:** document caller-visible return distinctions, throws or rejections, side effects, ownership, timing, cancellation, and durability.
 - **Internal comments:** orient non-local structure and obviously complicated local structure, including invariants, race ordering, ownership, security boundaries, and surprising failure behavior. Delete control-flow narration and code restatement.
-- **Module comments:** state the module's role, boundaries, and non-obvious architecture choices; link architecture choices to their owning explanation.
+- **Module comments:** state the module's role, dependencies, responsibilities, and non-obvious architecture choices; link architecture choices to their owning explanation.
 - **Tests:** explain only non-obvious test design—why a fixture, assertion, platform accommodation, real entry path, or indirect observation is necessary. Delete walkthroughs and inventories.
 - **Cookbooks:** include prerequisites, required actions, the real entry path, observable verification, and concise warnings.
-- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package; link generated catalogs and cross-package owners. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow the [package README contract](../../../docs/cookbook/adding-a-package.md#4-write-the-package-readme).
-- **Agent Notes:** retain unique rationale, mechanisms, alternatives, consequences, shipped verification contracts, and named coverage gaps. Implemented Agent Notes state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
+- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package; link generated catalogs and cross-package owners. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow the [package README requirements](../../../docs/cookbook/adding-a-package.md#4-write-the-package-readme).
+- **Agent Notes:** retain unique rationale, mechanisms, alternatives, consequences, shipped verification evidence, and named coverage gaps. Implemented Agent Notes state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
 - **Postmortems:** retain the incident sequence, evidence, causal chain, impact, and prevention. Remove repeated persuasion or implementation detail that does not establish causality.
 - **Skills and agent instructions:** state behavioral guardrails and explicit scope limitations such as “guidance, not a script/checklist.” Keep the workflow concise and link its source of truth.
-- **Examples and configuration comments:** explain boundaries, non-obvious wiring or load order, security stance, replay behavior, exceptions, and likely misuse. Do not narrate entries that the configuration already shows.
+- **Examples and configuration comments:** explain access limits, non-obvious wiring or load order, security stance, replay behavior, exceptions, and likely misuse. Do not narrate entries that the configuration already shows.
 - **Prompts and visible strings:** treat wording as behavior. Inspect generated output and run behavior validation or state why no snapshot applies.
 - **Diagnostics:** name the failing subject or path, violated rule, and correction when it is non-obvious. Remove internal execution narration.
 
@@ -70,7 +72,7 @@ Preserve searchable mechanism names and meaningful modal, temporal, or negative 
 
 ## Borderline decisions
 
-A case is borderline only when at least two versions satisfy the complete-proposition rule but trade accepted principles, and this skill does not already resolve the tradeoff. A new prose shape with one contract-preserving answer is not borderline.
+A case is borderline only when at least two versions satisfy the complete-proposition rule but trade accepted principles, and this skill does not already resolve the tradeoff. A rewrite with one proposition-preserving answer is not borderline.
 
 In automatic mode, apply clear edits when authorized and report genuine borderline cases without asking questions. Do not weaken a proposition to make progress.
 

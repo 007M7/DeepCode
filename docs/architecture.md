@@ -17,7 +17,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
-| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent front doors |
+| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent entry points |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -122,7 +122,7 @@ Pruning precedes summaries; overflow retries require durable progress. `agent/re
 
 Adapter selection, dispatch, and iteration failures become terminal error or aborted `finish` chunks. `agent/request-error` receives request coordinates, normalized `LlmFailure`, available retry policy, and signal; middleware and consumer errors remain outside recovery. Failed chunks commit neither messages nor tool calls.
 
-Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. Waking input that lands after the abort fires but before convergence runs at the driver's convergence boundary, while a `disposed` cancel leaves it parked ([cancel-convergence wake latch](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)). Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. The driver processes waking input received after abort starts but before convergence; a `disposed` cancel leaves it parked ([cancel-convergence wake latch](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)). Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. A turn opens before the initial claim and pre-step, so rejection, empty input, cancellation, or failure closes a durable turn without any step events. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](subsystems/session.md#why-a-turn-ended-turnendreasonmap).
 
@@ -142,7 +142,7 @@ The session log is authoritative. `deriveMessages()` projects model history; raw
 
 **Model-visible ⟺ logged**: messages entering at `step/start` plus the folded `request/header` reconstruct every request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `request/context` separately records registration-bound provider, model, and capacity metadata when the route changes; it does not participate in request reconstruction or header equality. `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Backends copy synchronous `session/event` notifications into fixed-window durable batches; `session/flush` bypasses the wait before requests and top-level tool dispatch, and after `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard and SQLite shares the contract ([checkpoint decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md), [batching decision](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
+Durability is a plugin concern. Backends copy synchronous `session/event` notifications into fixed-window durable batches; `session/flush` bypasses the wait before requests and top-level tool dispatch, and after `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard, and SQLite uses the same checkpoint and batching rules ([checkpoint decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md), [batching decision](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
 
 Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` relies on bounded background persistence and lifecycle drains; manual compaction flushes its bracket before the operation completes. Title work never delays responses; the latest title event wins, and it records the source message seqs and whether the user, fallback, or provider supplied it. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
@@ -164,7 +164,7 @@ Exceptions combine LLM Service Definition/Consumer roles, filesystem policy, web
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC entry points ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Agent Presets
 
@@ -185,7 +185,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen to `fs/*` policy events |
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
-| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the stop boundary |
+| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the event that stops a turn |
 | Add model-facing context | call `agent.inject()` to queue sourced context for the next admitted request |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |

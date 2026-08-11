@@ -14,10 +14,11 @@
  * @module @deepseek-ai/dsh-agent-presets/mount
  */
 
+import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context, type Fiber } from 'cordis'
-import { Include } from '@cordisjs/plugin-include'
-import type { EntryTree } from '@cordisjs/plugin-loader'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import { Include } from '@deepseek-ai/cordis-plugin-include'
+import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './types.ts'
 
@@ -69,21 +70,25 @@ class PresetTree extends Include {
    * where Node's upward `node_modules` walk never reaches the harness's own
    * dependencies, so every `@deepseek-ai/dsh-*` row would fail to import. The
    * mount records the host composition's base instead, which is inside the
-   * installed harness, and bare names resolve from there.
+   * installed harness, and bare names resolve from there. An absolute
+   * filesystem path names neither base and becomes a file URL before Node's
+   * ESM loader receives it, which is required for drive-letter paths on
+   * Windows.
    * @param name - the module specifier from the row.
    * @param getOuterStack - the loader's stack composer for import diagnostics.
    * @returns the imported module, or the `cordis:` builtin.
    */
   override import(name: string, getOuterStack?: () => string[]): unknown {
+    const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
     const base = harnessBase.get(this.config)
     /* v8 ignore next -- every PresetTree is constructed by `mountPreset`, which records the base first */
-    if (base === undefined) return super.import(name, getOuterStack)
+    if (base === undefined) return super.import(specifier, getOuterStack)
     if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(name, getOuterStack)
     const internal = this.ctx.loader.internal
     /* v8 ignore next -- Node always supplies the internal module loader; the branch keeps a
        hypothetical embedder from losing the row's name in a resolution error. */
-    if (internal === undefined) return super.import(name, getOuterStack)
-    return internal.import(name, base, {})
+    if (internal === undefined) return super.import(specifier, getOuterStack)
+    return internal.import(specifier, base, {})
   }
 
   /**
@@ -197,6 +202,33 @@ export function leakedServices(ctx: Context, mount: Fiber): string[] {
   return leaked.sort((left, right) => left.localeCompare(right))
 }
 
+/** A live standing mount located through one agent already joined to it. */
+export type JoinedPresetMount = PresetMount & {
+  /** The standing key, definite because it is what the lookup matched on. */
+  readonly key: ScopeKey
+}
+
+/**
+ * The standing composition one agent is joined to.
+ *
+ * The agent's own key is parented to its preset's standing key, so the mount
+ * is found by matching that parent rather than by walking up from the agent —
+ * the mount is not under the agent's fiber. An agent that joined no preset —
+ * a deployment composing no roster, or a child agent before its join — has no
+ * parent link and resolves to undefined.
+ * @param agentCtx - the agent's scope context.
+ * @returns the mount the agent joined, or undefined when it joined none.
+ */
+export function standingMountFor(agentCtx: Context): JoinedPresetMount | undefined {
+  const agentKey = scopeOf(agentCtx)
+  if (agentKey === undefined) return undefined
+  const standingKey = scopeParentOf(agentKey)
+  if (standingKey === undefined) return undefined
+  return livePresetMounts().find(
+    (candidate): candidate is JoinedPresetMount => candidate.key === standingKey,
+  )
+}
+
 /**
  * One agent's instance of a service its preset mounted.
  *
@@ -226,14 +258,7 @@ export function serviceForAgent<K extends string & keyof Context>(
   agent: { ctx: Context },
   name: K,
 ): Context[K] | undefined {
-  // The agent's own key is parented to its preset's standing key; the mount
-  // is no longer under the agent's fiber, so the search roots at the standing
-  // mount instead of walking up from the agent.
-  const agentKey = scopeOf(agent.ctx)
-  if (agentKey === undefined) return undefined
-  const standingKey = scopeParentOf(agentKey)
-  if (standingKey === undefined) return undefined
-  const mount = livePresetMounts().find(candidate => candidate.key === standingKey)
+  const mount = standingMountFor(agent.ctx)
   if (mount === undefined) return undefined
   const store = ctx.reflect.store
   for (const key of Object.getOwnPropertySymbols(store)) {

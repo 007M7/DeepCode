@@ -17,11 +17,11 @@
  * @module @deepseek-ai/dsh-session-projection
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { ZodType } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionProjections: SessionProjectionRegistry
   }
@@ -65,7 +65,7 @@ export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    */
   view(state: S): SessionProjectionMap[K]
   /**
-   * Persisted-cache invalidation anchor: bump whenever the state shape or the
+   * Persisted-cache invalidation version: bump whenever the serialized state fields or the
    * fold semantics change, so persisted `(sessionId, key, ver, seq, val)`
    * rows from an older unit are discarded instead of being forward-applied
    * into garbage. Non-negative integer.
@@ -188,7 +188,7 @@ export class SessionProjectionRegistry extends Service {
    * context's fiber: disposing the fiber (or calling the returned disposer)
    * removes the key — and the unit's cached cells — from subsequent drives
    * and snapshots.
-   * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+   * @param definition - key, state schema, pure unit functions, and stateVersion.
    * @returns the exact disposer that unregisters this unit.
    */
   register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void {

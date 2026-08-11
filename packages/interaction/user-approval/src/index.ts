@@ -5,8 +5,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -14,7 +14,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     approval: ApprovalService
   }

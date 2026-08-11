@@ -1,12 +1,12 @@
 # Recall batteries
 
-Probes for [the taxonomy](../SKILL.md#taxonomy), tuned during the 2026-08 purge. Every hit needs semantic judgment — the batteries over-match by design, and they under-match by nature: each review round of the purge found shapes no battery caught, so pair them with an unpatterned read of the densest prose in scope.
+Probes for [the taxonomy](../SKILL.md#taxonomy), tuned during the 2026-08 purge. Every hit needs semantic judgment — the batteries over-match by design, and they under-match by nature: each review round of the purge found cases no battery caught, so pair them with an unpatterned read of the densest prose in scope.
 
 ## Invocation rules
 
 - Add `--hidden --glob '!.git/**'` so `.agents/` is searched; ripgrep skips dot-directories by default and the purge's biggest miss risk was Agent Notes.
-- Exclusions go last so a later include cannot re-admit them: `--glob '!vendor/**' --glob '!node_modules/**' --glob '!.agents/notes/archived/**' --glob '!.agents/skills/dsh-trim-cot-leakage/**'` (the skill's own files quote leaked shapes as calibration), plus recorded fixture and snapshot directories in scope. The [owning note](../../../notes/implemented/process/2026-08-09-committed-artifact-citations.md) also self-hits through its quoted evidence; judge it as evidence, not usage.
-- Natural-language lines carry `-i` so sentence-initial capitals hit ("This PR adds…", "Probably fine…"); the code-shaped first line stays case-sensitive — `-i` would turn `\bT\d\b` and `\bP-I\b` into noise.
+- Exclusions go last so a later include cannot re-admit them: `--glob '!vendor/**' --glob '!node_modules/**' --glob '!.agents/notes/archived/**' --glob '!.agents/skills/dsh-trim-cot-leakage/**'` (the skill's own files quote leaked wording as calibration), plus recorded fixture and snapshot directories in scope. The [owning note](../../../notes/implemented/process/2026-08-09-committed-artifact-citations.md) also self-hits through its quoted evidence; judge it as evidence, not usage.
+- Natural-language lines carry `-i` so sentence-initial capitals hit ("This PR adds…", "Probably fine…"); the first line, which matches code patterns, stays case-sensitive — `-i` would turn `\bT\d\b` and `\bP-I\b` into noise.
 - A zero-hit pattern proves nothing until you have seen it match: test it against a known-positive string before trusting the negative.
 
 ## English battery

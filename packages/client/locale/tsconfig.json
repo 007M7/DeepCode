@@ -21,6 +21,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

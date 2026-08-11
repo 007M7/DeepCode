@@ -1,6 +1,6 @@
 /** Package-owned invariant companion for the bash seam. @module @deepseek-ai/dsh-bash/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-bash'

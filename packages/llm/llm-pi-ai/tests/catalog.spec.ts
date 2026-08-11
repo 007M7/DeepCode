@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import SettingsLocal from '@deepseek-ai/dsh-settings-local'
@@ -100,7 +100,7 @@ describe('hand-declared providers', () => {
     const ctx = await harness(gateway(`${server.url}/v1`))
 
     expect(await ctx.llm.listModels('acme-gateway')).toEqual([
-      { provider: 'acme-gateway', id: 'acme-large', name: 'Acme Large' },
+      { provider: 'acme-gateway', id: 'acme-large', name: 'Acme Large', inputModalities: ['text'] },
     ])
     const info = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
     expect(info).toMatchObject({

@@ -8,7 +8,7 @@ Lazy CJS model (web2): executing a plugin bundle only REGISTERS its factory (`wi
 
 Resolution branch order (`import(specifier)`): platform seed word → shell instance; memoized record → surface; shell-own static registry (`registerStatic`, app-shell) → module; registered factory → materialize; graph row (`window.__DSH_BOOT__`) → load its external classic script + materialize; anything else throws — the runtime mirror of the build-time bundle purity gate. The synchronous `require` handed to factories walks the same order minus the asynchronous load branch and records observed edges into the module record. `prefetch` is the stage-one arrival hook (script load and factory registration only; concurrent calls share one in-flight task); `invalidate` drops the factory and materialized record so the next prefetch/import reloads the script (the HMR hook).
 
-The Node half scans enabled Loader entries for web `dshClient` packages, resolves each `exports["./client"]`, hashes the built bundle into the boot graph, and serves it with its source map under `/plugins`. Source launch maps host imports to TypeScript source but still consumes this built client export; missing files share one build instruction followed by a package/path list, while unrelated filesystem errors remain separate failures.
+The Node half scans enabled Loader entries for web `dsh.client` packages, resolves each `exports["./client"]`, hashes the built bundle into the boot graph, and serves it with its source map under `/plugins`. Source launch maps host imports to TypeScript source but still consumes this built client export; missing files share one build instruction followed by a package/path list, while unrelated filesystem errors remain separate failures.
 
 ## Model Experience
 
@@ -20,5 +20,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Flat module graph by design** — every bundle is one module node whose edges point only at table leaves; the interface (loadCache/edges/invalidate) is shaped for a general module graph so the externalization granularity can change without an interface change.
+- **Flat module graph by design** — every bundle is one module node whose edges point only at table leaves; the interface (`loadCache`/`edges`/`invalidate`) already supports a general module graph, so the externalization granularity can change without an interface change.
 - **No unload bookkeeping of its own** — style removal and fiber teardown ordering live with the HMR driver (`@deepseek-ai/dsh-client-hmr`); the loader only inventories owned style tag ids per record.

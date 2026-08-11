@@ -9,7 +9,7 @@
 在 `tmp/cordis-tutorial` 目录中（参见[环境设置](index.md#setup)）创建 `hello.ts`：
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 export const name = 'hello'
 
@@ -52,10 +52,10 @@ hello from my first plugin
 
 ## 其他两种插件形态
 
-函数是最常见的形态，但 Cordis 接受三种形态：
+函数是最常见的形式，但 Cordis 接受三种形式：
 
 ```ts
-import { Service, type Context } from 'cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 
 // 1. Function plugin (what you just wrote).
 export function apply(ctx: Context) {}

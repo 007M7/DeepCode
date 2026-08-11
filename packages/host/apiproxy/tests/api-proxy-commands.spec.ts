@@ -10,7 +10,7 @@ import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -25,7 +25,7 @@ import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }
 
 function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`req-${String(nextRpc++)}`), payload }

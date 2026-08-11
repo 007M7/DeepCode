@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
@@ -536,7 +536,7 @@ describe('background execution through the task runtime', () => {
 
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface is attached')
+    expect(text(result)).toContain('no control surface serves this agent')
     // Declare-then-execute: the failed preflight means no process ever ran.
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })

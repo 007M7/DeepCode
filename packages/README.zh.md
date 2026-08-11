@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-所有包都使用 `@deepseek-ai/dsh-*` scope。Cordis `Service` 子类和函数插件的贡献通过 `ctx.effect()`、`ctx.on()` 或 `ctx.waterfall()` 注册。编写规则见[包](AGENTS.md)与[根规则](../AGENTS.md#conventions)。
+npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通过 `ctx.effect()`、`ctx.on()` 或 `ctx.waterfall()` 注册。规则见[包](AGENTS.md)与[根规则](../AGENTS.md#conventions)。
 
 ## 层级结构
 
@@ -31,13 +31,14 @@
 | [`tasks/`](tasks/README.md) | 通用后台任务运行时和面向模型的 `task_*` 控制工具 | 产品：稳定接口 |
 | [`workflow/`](workflow/README.md) | 工作流 seam、worker 线程引擎和面向模型的 `workflow`/`ralph` 工具 | 产品：稳定接口 |
 | [`web/`](web/README.md) | Web 能力系列：seam、搜索／获取提供方实现和面向模型的 Web 工具 | 产品：稳定接口 |
+| [`attachment/`](attachment/README.md) | 持久附件标识、校验、本地内容寻址存储 | 产品：稳定接口 |
 | [`spill/`](spill/README.md) | spill 能力系列：存储 seam、本地实现、工具结果 spill 策略 | 产品：稳定接口 |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定接口 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定接口 |
 | [`preset/`](preset/README.md) | 由 preset `cordis.yml` 按会话组装 agent | 产品：稳定接口 |
 | [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 | 产品：稳定接口 |
 | [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定接口 |
-| [`self-modification/`](self-modification/README.md) | agent 修改自身运行时：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)），以及受限仓库插件加载 | 产品：稳定接口 |
+| [`self-modification/`](self-modification/README.md) | agent 运行时自修改：实时插件／服务检查和模型所写插件挂载／卸载（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定接口 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定接口 |
 | [`session/`](session/README.md) | 持久会话数据平面：持久化 seam + JSONL/SQLite 后端、投影 seam、日志支持的标题、会话上报 | 产品：稳定接口 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定接口 |
@@ -51,7 +52,6 @@
 | [`boot/`](boot/README.md) | 共享的 app bin 启动粘合层 | 产品：稳定接口 |
 | [`host/`](host/README.md) | web GUI 宿主半侧：API 网关 + HTTP 路由服务器 | 产品：稳定接口 |
 | [`client/`](client/README.md) | web GUI 浏览器半侧：shell、协议层、对象服务、slot、`ui-*` 插件 | 产品：稳定接口 |
-| [`experimental/`](experimental/README.md) | 原型和内部插件 | 未发布 |
 | [`examples/`](examples/README.md) | 演示组合包（agent-spine + CLI/ACP/JSON-RPC bin），由叶节点加载 | 支持：示例基础设施 |
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |

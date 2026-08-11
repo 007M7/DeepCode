@@ -11,9 +11,9 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include from '@cordisjs/plugin-include'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, {
   COMPOSITION_FILE, copyComposition, METADATA_FILE,
@@ -65,20 +65,23 @@ describe('copying a preset', () => {
     expect(listed.find(preset => preset.id === 'mine')?.trust).toBe('user')
   })
 
-  it('copies the whole directory, execute bits kept and group/other stripped', async () => {
+  it('copies the whole directory and tightens POSIX modes', async () => {
     await seedPreset(userRoot, 'source', {
       extras: { 'skills/demo/SKILL.md': '# demo\n', 'skills/demo/run.sh': '#!/bin/sh\n' },
     })
-    await chmod(join(userRoot, 'source', 'skills', 'demo', 'run.sh'), 0o755)
+    if (process.platform !== 'win32') {
+      await chmod(join(userRoot, 'source', 'skills', 'demo', 'run.sh'), 0o755)
+    }
 
     await ctx.agentPresets.copy('source', 'mine')
 
     expect(await readFile(join(userRoot, 'mine', 'skills', 'demo', 'SKILL.md'), 'utf8')).toBe('# demo\n')
-    // A preset may ship runnable helpers; the copy keeps them runnable for the
-    // owner while withdrawing the world-readability of the install.
-    expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'run.sh'))).mode & 0o777).toBe(0o700)
-    expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'SKILL.md'))).mode & 0o777).toBe(0o600)
-    expect((await stat(join(userRoot, 'mine'))).mode & 0o777).toBe(0o700)
+    // Windows mode bits are synthetic and cannot represent the inherited DACL.
+    if (process.platform !== 'win32') {
+      expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'run.sh'))).mode & 0o777).toBe(0o700)
+      expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'SKILL.md'))).mode & 0o777).toBe(0o600)
+      expect((await stat(join(userRoot, 'mine'))).mode & 0o777).toBe(0o700)
+    }
   })
 
   it('keeps the source description but never its name or order', async () => {

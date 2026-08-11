@@ -9,7 +9,7 @@ This chapter registers a model-callable tool with the harness's `tools` service,
 Create `greet-tool.ts` in `tmp/cordis-tutorial`:
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
@@ -53,7 +53,7 @@ Every pattern here is from the earlier chapters: `inject: ['tools']` ([chapter 3
 Create `tool-logger.ts` — a separate plugin that watches every tool call in the app through the harness's `tools/result` event:
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
 
 export const name = 'tool-logger'
@@ -95,7 +95,7 @@ The logger fired first: `tools/result` is emitted as part of result materializat
 
 ## From here to a full agent
 
-A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, a front end. Compare [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml) — you can read every entry in it now. Add your `greet-tool.ts` to a copy of that file.
+A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, an entry point. Compare [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml) — you can read every entry in it now. Add your `greet-tool.ts` to a copy of that file.
 
 Where to go next:
 

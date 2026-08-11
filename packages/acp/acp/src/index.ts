@@ -9,11 +9,11 @@
  * @module @deepseek-ai/dsh-acp
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
@@ -164,6 +164,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
               update: {
                 sessionUpdate: 'agent_message_chunk',
                 content: { type: 'text', text: block.text },
+              },
+            })
+          } else if (block.type === 'image') {
+            notify({
+              sessionId: record.agent.session.id,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: {
+                  type: 'text',
+                  text: `[image attachment ${block.attachment.attachmentId}]`,
+                },
               },
             })
           }

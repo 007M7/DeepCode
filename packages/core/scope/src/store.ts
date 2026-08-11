@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-scope
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { scopeChainOf, scopeOf } from './index.ts'
 import type { ScopeKey } from './index.ts'
 

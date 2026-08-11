@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-compact-basic/summarizer
  */
 
-import type { Context } from 'cordis'
-import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
+import type { Context } from '@deepseek-ai/cordis'
+import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -166,7 +166,7 @@ export async function summarizeWithLlm(
   if (error !== undefined) throw error
 
   const rawOutput = assembler.blocks()
-  const summary = textOnly(rawOutput)
+  const summary = summaryText(rawOutput)
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
@@ -213,9 +213,12 @@ function finishError(finish: FinishReason): Error | undefined {
   }
 }
 
-/** Keep only text blocks before synthesizing a user message. */
-function textOnly(
+/** Reject visual output and keep only text before synthesizing a user message. */
+function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
+  if (contentHasImage(blocks)) {
+    throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
+  }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
 }

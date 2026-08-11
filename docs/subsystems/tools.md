@@ -2,7 +2,7 @@
 
 English | [中文](tools.zh.md)
 
-The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine; the model-facing [`ToolSchema`](llm-streaming.md#the-model-request-and-result) wire shape is declared with the model request. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the guarded execution shapes, and the UI-presentation vocabulary.
+The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the pipeline-authoring type shared by the core packages; the model-facing [`ToolSchema`](llm-streaming.md#the-model-request-and-result) wire type is declared with the model request. This page documents every `ToolDefinition` field, the typed schema DSL that builds it, the guarded execution types, and the UI-presentation types.
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
@@ -148,21 +148,22 @@ type InferArgs<S> = InferProperties<S, []>
 
 `defineTool({ name, description, parameters, output, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`, and ties `execute`/`render`/`presentationMeta` to `InferValue<OutputSchema>`. Schema records contain only own enumerable string keys, and schema arrays are dense intrinsic arrays, so inference, compilation, and validation observe the same declaration. Inference stays exact through 16 container levels and then widens to `JsonValue`; runtime validation keeps walking the complete schema. `valueSchemaSpecToJsonSchema()` compiles output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`); an invalid body or post-policy value throws `ToolOutputError` (`INVALID_TOOL_OUTPUT`). Both use the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
 
-Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input, requires `output`, validates its raw schema, and checks semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
+Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input, requires `output`, validates its raw schema, and checks semantic requirements such as a positive finite `timeoutMs`; `schemas()` constructs the model-facing projection when building a request, so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
-## `ToolRestriction` — one scope's live global filter
+## `ToolRestriction` — one scope's live filter over what it inherits
 
-`ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
+`ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays the scope's OWN registrations, which stay exempt so a delegated child keeps the tools it answers through. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them.
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 ```
@@ -248,7 +249,7 @@ type ToolExecutionMode =
   | { kind: 'exclusive' }
 ```
 
-Code Mode's bridge additionally exposes each settled sub-dispatch to the `tools/code-dispatch-log` waterfall, which may reshape the durable event's copy of the content (the program's value and the model contract are untouched):
+Code Mode's bridge additionally exposes each settled sub-dispatch to the `tools/code-dispatch-log` waterfall, which may change the durable event's copy of the content (the program's value and model-visible result remain untouched):
 
 ```ts type-equiv
 /**
@@ -306,7 +307,7 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
 
 `ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields, the required caller signal, and the optional parent token remain readonly. A `ToolDispatchExecution` wrapper may replace but not remove the signal; the registry re-fuses the caller signal before invoking the body. Final observers receive the frozen execution identity.
 
-A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
+A `ToolGuard` is scope-aware final pre-dispatch policy. Its return type deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
 
 ```ts type-equiv
 /**
@@ -416,7 +417,7 @@ type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'bo
 ```ts type-equiv
 /**
  * One raw JSON Schema node in the enforced subset. The optional fields express
- * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * the external wire schema; {@link assertSupportedJsonSchema} rejects invalid
  * combinations before a caller treats the node as trusted.
  */
 interface JsonSchemaNode {
@@ -565,7 +566,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:759`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:761`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 
@@ -590,23 +591,24 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:192`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:193`](../../packages/core/tools/src/index.ts)
 
 <a id="toolscode-dispatch-log--waterfall"></a>
 
 #### `tools/code-dispatch-log` — waterfall
 
-Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the unshaped content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event. `next()` keeps the content unchanged; a listener may return replacement blocks (e.g. the spill policy's preview + locator for an oversized text result). Only the logged copy is affected — the program already received the complete value, and the model sees neither. A throwing listener is contained: the bridge falls back to logging the original settled content. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
 
 ```ts cordis-catalog
 /**
- * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
- * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+ * Allow a listener to replace content in the DURABLE LOG COPY of one
+ * `run_code` sub-dispatch outcome before the bridge appends its
+ * `tool/code-dispatch` event. `next()` keeps the
  * content unchanged; a listener may return replacement blocks (e.g. the
  * spill policy's preview + locator for an oversized text result). Only the
  * logged copy is affected — the program already received the complete
  * value, and the model sees neither. A throwing listener is contained:
- * the bridge falls back to logging the unshaped content.
+ * the bridge falls back to logging the original settled content.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
  * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
  * @mode waterfall
@@ -616,7 +618,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:174`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:175`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsexecute--waterfall"></a>
 
@@ -709,5 +711,5 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:182`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:183`](../../packages/core/tools/src/index.ts)
 <!-- END GENERATED cordis-surface -->

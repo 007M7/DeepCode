@@ -8,7 +8,7 @@
  * determinism
  * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
  * leading `/name` naming a user-invocable skill and injects the rendered
- * body for every front end, including `disable-model-invocation` skills the
+ * body for every entry point, including `disable-model-invocation` skills the
  * model-side catalog never lists (issue #1470). The RPC rides the plugin's
  * root-context connection captured at registration — the source never reads
  * services off a per-call argument. Draft chip visuals derive from
@@ -17,7 +17,9 @@
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
  * snapshot locally, so one session costs one RPC. The scope-birth warm hook
- * prewarms the session's key; connection/reset clears everything — the host
+ * prewarms the session's key; a preset switch drops that one key (the
+ * catalog is the preset's, and a blank session may switch after the warm);
+ * connection/reset clears everything — the host
  * catalog may differ across generations. A shared in-flight fetch
  * deliberately outlives any single menu interaction: closing the menu must
  * not kill the prewarm other consumers will hit, so it carries its own
@@ -167,13 +169,16 @@ export function apply(ctx: ClientContext): void {
       // lands plain text and the prompt ships the same
       // literal. Determinism lives host-side — the host's
       // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
-      // injects the rendered body for every front end. A name shared with a
+      // injects the rendered body for every entry point. A name shared with a
       // host command still resolves to the command: adjudication claims the
       // line client-side before it ever becomes a prompt.
       return { text: `/${candidate.name} ` }
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract
+  // A preset decides which skill providers an agent reads, so a switched
+  // session's cached catalog belongs to the composition it no longer runs.
+  ctx.on('session/preset-changed', invalidate)
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = slash.registerSource(source)
