@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-11-loader-entry-disabled-interpolation.md
-2026-08-11-loader-entry-disabled-interpolation.md: c916c6b667fc85f68e79e33edf5a1a63921b2d71
-2026-08-11-loader-entry-disabled-interpolation.zh.md: b5f5a527dcdfe2a906001e31aa4a32884e67f3ab
+2026-08-11-loader-entry-disabled-interpolation.md: 63be14ac5b25a3189f97e0283c36c29bfbcb5cec
+2026-08-11-loader-entry-disabled-interpolation.zh.md: 74f14443221bbae5b3d602c3819d611783b59670

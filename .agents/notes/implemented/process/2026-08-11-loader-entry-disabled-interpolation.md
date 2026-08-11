@@ -6,7 +6,7 @@ English | [中文](2026-08-11-loader-entry-disabled-interpolation.zh.md)
 
 ## Problem
 
-The Windows platform layer (then a separate `packages/bundle/base/windows.cordis.patch.yml`, since folded into the base patch — see Decision) disabled `tool-bash` on win32, but the shipped presets each mount a `tool-bash` row. Preset rows compose last, so the same-id row re-enabled the tool on Windows — the session had both `tool-bash` (PowerShell-backed) and `tool-pwsh`, silently, because no spec pinned the composed preset layer. Entry metadata had no conditional mechanism: `!!js` interpolates only under plugin `config`, and [postmortem 0002](../../../../docs/postmortem/0002-js-expression-disabled-filesystem-tools.md) documents that `disabled: !!js ...` stays a truthy expression object, disabling the row everywhere.
+The Windows platform layer (then a separate `windows.cordis.patch.yml` beside the base patch, since folded into the base rows — see Decision) disabled `tool-bash` on win32, but the shipped presets each mount a `tool-bash` row. Preset rows compose last, so the same-id row re-enabled the tool on Windows — the session had both `tool-bash` (PowerShell-backed) and `tool-pwsh`, silently, because no spec pinned the composed preset layer. Entry metadata had no conditional mechanism: `!!js` interpolates only under plugin `config`, and [postmortem 0002](../../../../docs/postmortem/0002-js-expression-disabled-filesystem-tools.md) documents that `disabled: !!js ...` stays a truthy expression object, disabling the row everywhere.
 
 ## Decision
 

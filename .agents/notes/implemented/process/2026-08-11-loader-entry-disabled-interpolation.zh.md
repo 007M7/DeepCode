@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Windows 平台层（当时是独立的 `packages/bundle/base/windows.cordis.patch.yml`，现已折入 base patch——见「决策」）在 win32 上禁用 `tool-bash`，但 shipped 预设各自挂载了一行 `tool-bash`。预设行最后组合，同名行在 Windows 上重新启用了该工具——会话同时拥有 `tool-bash`（PowerShell 后端）与 `tool-pwsh`，且是静默的，因为没有 spec pin 组合后的预设层。条目元数据没有条件机制：`!!js` 只在插件 `config` 下插值，[postmortem 0002](../../../../docs/postmortem/0002-js-expression-disabled-filesystem-tools.md) 记录了 `disabled: !!js ...` 保持真值表达式对象、在所有平台上禁用该行的事故。
+Windows 平台层（当时是 base patch 旁独立的 `windows.cordis.patch.yml`，现已折入 base 行——见「决策」）在 win32 上禁用 `tool-bash`，但 shipped 预设各自挂载了一行 `tool-bash`。预设行最后组合，同名行在 Windows 上重新启用了该工具——会话同时拥有 `tool-bash`（PowerShell 后端）与 `tool-pwsh`，且是静默的，因为没有 spec pin 组合后的预设层。条目元数据没有条件机制：`!!js` 只在插件 `config` 下插值，[postmortem 0002](../../../../docs/postmortem/0002-js-expression-disabled-filesystem-tools.md) 记录了 `disabled: !!js ...` 保持真值表达式对象、在所有平台上禁用该行的事故。
 
 ## 决策
 
