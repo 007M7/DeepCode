@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
+import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
 import { RpcId } from '../api/rpc.ts'
@@ -249,11 +250,22 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       const url = new URL(req.url)
       const path = url.pathname
 
+      // No-envelope GET channel surface (SSE streams + host-only download):
+      // physical routes that answer directly, without a wire envelope.
       if (path === '/api/events.mux' && req.method === 'GET') {
         return sseResponse(api.events.mux({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
       }
       if (path === '/api/events.host' && req.method === 'GET') {
         return sseResponse(api.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
+      }
+      if (path === '/api/session.export' && req.method === 'GET') {
+        // Query params are a different boundary from the POST envelope, but
+        // the request still casts its brands only through the domain schema.
+        const parsed = sessionLogQuerySchema.safeParse(Object.fromEntries(url.searchParams))
+        if (!parsed.success) {
+          return new Response('missing or invalid sessionId query parameter', { status: 400 })
+        }
+        return api.downloads.sessionLog(parsed.data, req.signal)
       }
 
       if (req.method !== 'POST' || !path.startsWith('/api/')) {
