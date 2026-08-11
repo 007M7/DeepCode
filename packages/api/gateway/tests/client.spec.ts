@@ -687,6 +687,21 @@ describe('Client TypeRT API', () => {
     })
   })
 
+  it('folds a carrier throw that is not an Error into the error branch', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockRejectedValue('carrier exploded'))
+    await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
+
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'internal',
+        message: 'client api: probe/create failed: carrier exploded',
+        details: {},
+      },
+    })
+  })
+
   it('owns each $on subscription in the calling fiber', async () => {
     const { ctx, client } = await benchFiber(vi.fn<ConnectionHandle['rpc']['call']>())
     const seen: string[] = []
