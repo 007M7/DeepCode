@@ -13,7 +13,6 @@
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
-- text: Running
 - button "Think The user wants me to ask them a checkpoint question first, then continue with whatever they interject. Let me do exactly that.":
   - img
   - img
