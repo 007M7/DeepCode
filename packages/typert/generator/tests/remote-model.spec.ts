@@ -114,15 +114,15 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
 
     expect(artifact?.js).toContain('invocations: [')
     expect(artifact?.remote?.dts).toContain(
-      "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
+      "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
     expect(artifact?.remote?.dts).toContain('interface TypeRTRemoteNamespace$676f616c73 {\n    create:')
     expect(artifact?.remote?.dts).toContain("'goals': TypeRTRemoteNamespace$676f616c73")
     expect(artifact?.remote?.dts).toContain(
-      "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
+      "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
     expect(artifact?.remote?.dts).toContain(
-      "'agent:goals/rename': (request: RenameGoalRequest) => Promise<RenameGoalResult>",
+      "'agent:goals/rename': (request: RenameGoalRequest) => Promise<RemoteResult<RenameGoalResult>>",
     )
 
     const remoteJs = artifact?.remote?.js
@@ -172,13 +172,13 @@ export type {`,
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toContain(
-      "'goals/maybe': (value: string | undefined) => Promise<string | undefined>",
+      "'goals/maybe': (value: string | undefined) => Promise<RemoteResult<string | undefined>>",
     )
-    expect(artifact?.remote?.dts).toContain("'goals/clear': () => Promise<void>")
+    expect(artifact?.remote?.dts).toContain("'goals/clear': () => Promise<RemoteResult<void>>")
     // An explicit `T | undefined` stays a required argument; only authored
     // optionality lets a consumer omit the field.
     expect(artifact?.remote?.dts).not.toContain('value?: string')
-    expect(artifact?.remote?.dts).toContain("'goals/labelled': (id: string, label?: string) => Promise<string>")
+    expect(artifact?.remote?.dts).toContain("'goals/labelled': (id: string, label?: string) => Promise<RemoteResult<string>>")
 
     const remoteJs = artifact?.remote?.js
     if (remoteJs === undefined) throw new Error('undefined Remote fixture emitted no Host-for-Client JavaScript')
@@ -256,7 +256,7 @@ export type GenericResult = {
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toContain(
-      "'goals/dispatch': (request: GenericRequest) => Promise<GenericResult>",
+      "'goals/dispatch': (request: GenericRequest) => Promise<RemoteResult<GenericResult>>",
     )
     const remoteJs = artifact?.remote?.js
     if (remoteJs === undefined) throw new Error('generic Remote fixture emitted no Host-for-Client JavaScript')
@@ -306,7 +306,7 @@ export interface BoxPayload {
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toMatch(/import type \{ [^}]*Box[^}]*BoxPayload[^}]* \} from '@fixture\/remote\/types'/)
-    expect(artifact?.remote?.dts).toContain('box: (request: Box<BoxPayload>) => Promise<Box<BoxPayload>>')
+    expect(artifact?.remote?.dts).toContain('box: (request: Box<BoxPayload>) => Promise<RemoteResult<Box<BoxPayload>>>')
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
   })
 
@@ -326,7 +326,7 @@ export interface BoxPayload {
     ))
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
-    expect(artifact?.remote?.dts).toContain("'create-goal': (request: CreateGoalRequest) => Promise<CreateGoalResult>")
+    expect(artifact?.remote?.dts).toContain("'create-goal': (request: CreateGoalRequest) => Promise<RemoteResult<CreateGoalResult>>")
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
   })
 
@@ -636,6 +636,7 @@ function assertRemoteConsumerTypechecks(
   const consumerSource = `
 import remote from '@fixture/remote/remote'
 import type {
+  RemoteResult,
   TypeRTRemoteContribution,
   TypeRTRemoteScopeMap,
   TypeRTRemoteMap,
@@ -647,12 +648,12 @@ const contribution: TypeRTRemoteContribution = remote
 declare const create: TypeRTRemoteMap['goals/create']
 declare const createScoped: TypeRTRemoteScopeMap['agent:goals/create']
 declare const rename: TypeRTRemoteScopeMap['agent:goals/rename']
-const created: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' })
-const cancellable: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' }, new AbortController().signal)
-const createdScoped: Promise<CreateGoalResult> = createScoped({ title: 'ship' })
-const renamed: Promise<RenameGoalResult> = rename({ ref: 'goal-1', title: 'land' })
+const created: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' })
+const cancellable: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' }, new AbortController().signal)
+const createdScoped: Promise<RemoteResult<CreateGoalResult>> = createScoped({ title: 'ship' })
+const renamed: Promise<RemoteResult<RenameGoalResult>> = rename({ ref: 'goal-1', title: 'land' })
 declare const ctx: { remote: TypeRTRemoteNamespaceMap }
-const navigated: Promise<CreateGoalResult> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
+const navigated: Promise<RemoteResult<CreateGoalResult>> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
 void contribution
 void created
 void cancellable

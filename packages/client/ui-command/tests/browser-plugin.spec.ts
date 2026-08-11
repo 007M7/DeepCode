@@ -33,7 +33,9 @@ async function bench() {
     scopeOf: (c: Context) => scopeOf(c),
   })
   const commandsRemote = { list: () => Promise.resolve([]) }
-  ctx.provide('remote', { commands: commandsRemote })
+  // The service subscribes its cache-invalidation events on construction, so
+  // the Remote face needs `$on` even where this spec dispatches none.
+  ctx.provide('remote', { commands: commandsRemote, $on: () => () => {} })
   ctx.provide('remote.commands', commandsRemote)
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({

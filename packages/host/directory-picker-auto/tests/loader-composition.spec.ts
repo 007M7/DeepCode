@@ -1,10 +1,10 @@
 /**
  * REAL-composition coverage: a test-only cordis.yml booted through the
  * vendored Loader mounts the webserver row plus the adaptive chooser, and the
- * assertions observe the durable outcome — which backend entry the chooser
- * mounted into the Loader store, the capability the seam then serves, and
- * that disposing the chooser removes the mounted entry again (HMR safety),
- * joining the backend's own teardown before the disposer settles.
+ * assertions observe the durable outcome — which backend and surface entries
+ * the chooser mounted into the Loader store, the capability the seam then
+ * serves, and that disposing the chooser removes both mounted entries again
+ * (HMR safety), joining the backend's own teardown before the disposer settles.
  */
 
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -20,6 +20,8 @@ import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import type { DirectoryPicker } from '@deepseek-ai/dsh-host-directory-picker'
 import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse'
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
+import * as BrowseSurface from '@deepseek-ai/dsh-client-ui-directory-picker'
+import * as NativeSurface from '@deepseek-ai/dsh-client-ui-directory-picker-native'
 import * as DirectoryPickerAuto from '../src/index.ts'
 
 const renameControl = vi.hoisted(() => ({
@@ -48,6 +50,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 const AUTO = '@deepseek-ai/dsh-host-directory-picker-auto'
 const NATIVE = '@deepseek-ai/dsh-host-directory-picker-native'
 const BROWSE = '@deepseek-ai/dsh-host-directory-picker-browse'
+const NATIVE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-native'
+const BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker'
 
 let root: string | undefined
 let fakeBin: string | undefined
@@ -92,6 +96,8 @@ async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx
     [AUTO, DirectoryPickerAuto],
     [NATIVE, NativeDirectoryPicker],
     [BROWSE, BrowseDirectoryPicker],
+    [NATIVE_SURFACE, NativeSurface],
+    [BROWSE_SURFACE, BrowseSurface],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -142,7 +148,9 @@ describe('real Loader composition', () => {
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
     expect(entryNames(ctx)).toContain(NATIVE)
+    expect(entryNames(ctx)).toContain(NATIVE_SURFACE)
     expect(entryNames(ctx)).not.toContain(BROWSE)
+    expect(entryNames(ctx)).not.toContain(BROWSE_SURFACE)
     const picker = ctx.get('directoryPicker') as DirectoryPicker
     expect(picker.capability().kind).toBe('native')
     // The mounted row lives in the Loader's in-memory root tree only — the
@@ -155,6 +163,7 @@ describe('real Loader composition', () => {
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     await autoEntry.fiber!.dispose()
     expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
     expect(ctx.get('directoryPicker')).toBeUndefined()
     // Self-disposing an include-tree entry persists `disabled: true` (loader
     // behavior, not the chooser's); await that debounced write so it cannot
@@ -170,7 +179,9 @@ describe('real Loader composition', () => {
     const { ctx } = await loadComposition('127.0.0.1')
 
     expect(entryNames(ctx)).toContain(BROWSE)
+    expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
     expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
     const picker = ctx.get('directoryPicker') as DirectoryPicker
     expect(picker.capability().kind).toBe('browse')
   })
@@ -180,7 +191,9 @@ describe('real Loader composition', () => {
     const { ctx } = await loadComposition('0.0.0.0')
 
     expect(entryNames(ctx)).toContain(BROWSE)
+    expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
     expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
   })
 
   it('tolerates the mounted entry being removed by the tree before the chooser unloads', { timeout: 60_000 }, async () => {
@@ -193,6 +206,7 @@ describe('real Loader composition', () => {
     renameControl.remainingFailures = 1
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
     expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
     // Same self-dispose persistence as above: let the write land before teardown.
     await expect.poll(async () => await readFile(configPath, 'utf8')).toContain('disabled: true')
     expect(renameControl.injectedFailures).toBe(1)

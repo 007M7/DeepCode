@@ -13,7 +13,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 // key face and per-event listener signatures.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import * as RuntimeClient from '../src/client/index.ts'
-import { FakeApiClient } from './fake-api.ts'
+import { FakeApiClient, fakeRemote } from './fake-api.ts'
 
 /**
  * Compile-time face of `ctx.remote.$on`, asserted by type-checking this file
@@ -74,6 +74,7 @@ async function mount(): Promise<Bench> {
     },
   }
   ctx.reflect.provide('connection', handle)
+  ctx.reflect.provide('remote.commands', fakeRemote().commands)
   await ctx.plugin(RuntimeClient).await()
   return bench
 }

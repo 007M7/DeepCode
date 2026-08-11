@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
+  RemoteResult,
   TypeRTClientRemote,
   TypeRTContext,
   TypeRTRemoteScopeApi,
@@ -46,16 +47,18 @@ declare module '@deepseek-ai/dsh-type-meta' {
       agentId: string,
       request: { readonly objective: string },
       signal?: AbortSignal,
-    ) => Promise<{ readonly ref: string }>
-    'probe/maybe': (value: string | null | undefined) => Promise<string | null | undefined>
+    ) => Promise<RemoteResult<{ readonly ref: string }>>
+    'probe/maybe': (value: string | null | undefined) => Promise<RemoteResult<string | null | undefined>>
   }
 
   interface TypeRTRemoteScopeMap {
     'fixture:probe/create': (
       request: { readonly objective: string },
       signal?: AbortSignal,
-    ) => Promise<{ readonly ref: string }>
-    'fixture:probe/rename': (request: { readonly objective: string }) => Promise<{ readonly renamed: boolean }>
+    ) => Promise<RemoteResult<{ readonly ref: string }>>
+    'fixture:probe/rename': (
+      request: { readonly objective: string },
+    ) => Promise<RemoteResult<{ readonly renamed: boolean }>>
   }
 
   interface TypeRTRemoteNamespaceMap {
@@ -182,7 +185,8 @@ describe('Client TypeRT API', () => {
     await assembly
     const retained = ctx.remote.probe.create
 
-    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toEqual({ ref: 'goal-1' })
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' }))
+      .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     expect(call).toHaveBeenCalledWith(
       '/api',
       'probe/create',
@@ -194,7 +198,7 @@ describe('Client TypeRT API', () => {
       'agent-1',
       { objective: 'cancel me' },
       callerAbort.signal,
-    )).resolves.toEqual({ ref: 'goal-1' })
+    )).resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     const combinedSignal = call.mock.calls.at(-1)?.[3]
     expect(combinedSignal).toBeInstanceOf(AbortSignal)
     expect(combinedSignal).not.toBe(callerAbort.signal)
@@ -205,14 +209,20 @@ describe('Client TypeRT API', () => {
     await expect(ctx.remote.probe.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
 
     call.mockResolvedValueOnce({ ok: true, value: { ref: 1 } })
-    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).rejects.toThrow('rejected "result"')
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: expect.stringContaining('rejected "result"') },
+    })
 
     await assembly.dispose()
     expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
     expect(ctx.get('remote.probe')).toBeUndefined()
     expect(ctx.get('probe')).toBe(businessProbe)
     expect(ctx.typert.remotes.list()).toEqual([])
-    await expect(retained?.('agent-1', { objective: 'ship' })).rejects.toThrow('no longer mounted')
+    await expect(retained?.('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: expect.stringContaining('no longer mounted') },
+    })
     disposeBusinessProbe()
   })
 
@@ -226,7 +236,7 @@ describe('Client TypeRT API', () => {
       descriptors: [maybeDescriptor()],
     })
 
-    await expect(ctx.remote.probe.maybe(undefined)).resolves.toBeUndefined()
+    await expect(ctx.remote.probe.maybe(undefined)).resolves.toStrictEqual({ ok: true, value: undefined })
     expect(call).toHaveBeenNthCalledWith(
       1,
       '/api',
@@ -234,7 +244,7 @@ describe('Client TypeRT API', () => {
       { args: {} },
       expect.any(AbortSignal),
     )
-    await expect(ctx.remote.probe.maybe(null)).resolves.toBeNull()
+    await expect(ctx.remote.probe.maybe(null)).resolves.toStrictEqual({ ok: true, value: null })
     expect(call).toHaveBeenNthCalledWith(
       2,
       '/api',
@@ -260,7 +270,8 @@ describe('Client TypeRT API', () => {
     ))
     await assembly
 
-    await expect(agentCtx.remote.probe.create({ objective: 'ship scoped' })).resolves.toEqual({ ref: 'goal-2' })
+    await expect(agentCtx.remote.probe.create({ objective: 'ship scoped' }))
+      .resolves.toEqual({ ok: true, value: { ref: 'goal-2' } })
     expect(call).toHaveBeenCalledWith(
       '/api',
       'probe/create',
@@ -289,7 +300,8 @@ describe('Client TypeRT API', () => {
     ))
     await assembly
 
-    await expect(agentCtx.remote.probe.rename({ objective: 'land' })).resolves.toEqual({ renamed: true })
+    await expect(agentCtx.remote.probe.rename({ objective: 'land' }))
+      .resolves.toEqual({ ok: true, value: { renamed: true } })
     expect(call).toHaveBeenCalledWith(
       '/api',
       'probe/rename',
@@ -373,7 +385,8 @@ describe('Client TypeRT API', () => {
       package: '@fixture/multiple-scoped',
       descriptors: [directDescriptor(), contextDescriptor()],
     })
-    await expect(agentCtx.remote.probe.rename({ objective: 'remounted' })).resolves.toEqual({ renamed: true })
+    await expect(agentCtx.remote.probe.rename({ objective: 'remounted' }))
+      .resolves.toEqual({ ok: true, value: { renamed: true } })
     expect(call).toHaveBeenLastCalledWith(
       '/api',
       'probe/rename',
@@ -523,7 +536,10 @@ describe('Client TypeRT API', () => {
     await dispose()
     resolveCall({ ok: true, value: { ref: 'goal-1' } })
 
-    await expect(invocation).rejects.toThrow('withdrawn during invocation')
+    await expect(invocation).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: expect.stringContaining('no longer mounted') },
+    })
     expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
   })
 
@@ -560,7 +576,7 @@ describe('Client TypeRT API', () => {
     const dispose = await ctx.remote.$mount({ package: '@fixture/prototype', descriptors: [descriptor] })
 
     const method = (ctx.remote.probe as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>).prototype
-    await expect(method?.('wire-value')).resolves.toEqual({ ref: 'goal-1' })
+    await expect(method?.('wire-value')).resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     const payload = call.mock.calls[0]?.[2] as { readonly args: Record<string, unknown> }
     expect(Object.getPrototypeOf(payload.args)).toBeNull()
     expect(Object.hasOwn(payload.args, '__proto__')).toBe(true)
@@ -649,21 +665,26 @@ describe('Client TypeRT API', () => {
     await disposeReplacement()
   })
 
-  it('throws RPC failures with the structured error as its cause', async () => {
+  it('delivers an RPC failure in the error branch with the Host error verbatim', async () => {
     const rpcError = { code: 'internal' as const, message: 'host failed', details: {} }
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({ ok: false, error: rpcError }))
     await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
 
-    let failure: unknown
-    try {
-      await ctx.remote.probe.create('agent-1', { objective: 'ship' })
-    } catch (error) {
-      failure = error
-    }
-    expect(failure).toBeInstanceOf(Error)
-    if (!(failure instanceof Error)) throw new Error('expected Client API invocation to fail')
-    expect(failure.message).toContain('internal: host failed')
-    expect(failure.cause).toBe(rpcError)
+    const outcome = await ctx.remote.probe.create('agent-1', { objective: 'ship' })
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('expected the Client API invocation to report a failure')
+    expect(outcome.error).toBe(rpcError)
+  })
+
+  it('folds a transport throw into the error branch', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockRejectedValue(new Error('carrier offline')))
+    await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
+
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: expect.stringContaining('carrier offline') },
+    })
   })
 
   it('owns each $on subscription in the calling fiber', async () => {

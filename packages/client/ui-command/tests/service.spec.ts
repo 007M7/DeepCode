@@ -40,6 +40,28 @@ interface BenchOptions {
   addressed?: SessionId
 }
 
+/**
+ * Fold one programmed answer into the generated Remote face's outcome: a
+ * resolved value is the ok branch, a rejection is the transport failure the
+ * carrier reports in the error branch instead of throwing at the caller.
+ * @param produce - the scripted answer for one Remote method.
+ * @returns the carried result the service reads.
+ */
+async function carried<T>(produce: () => Promise<T>) {
+  try {
+    return { ok: true as const, value: await produce() }
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: {
+        code: 'internal',
+        message: error instanceof Error ? error.message : String(error),
+        details: {},
+      },
+    }
+  }
+}
+
 async function bench(opts: BenchOptions = {}) {
   const ctx = new Context()
   const registered = new Map<string, SlashSource>()
@@ -50,21 +72,22 @@ async function bench(opts: BenchOptions = {}) {
   const commandsRemote = {
     list: async (sessionId: SessionId) => {
       listCalls.push({ sessionId })
-      const value = await (opts.commands ?? (p => Promise.resolve({
-        commands: p.sessionId === sid('s2') ? S2_CMDS : S1_CMDS,
-      })))({ sessionId })
-      return { ok: true as const, value: value.commands }
+      return await carried(async () => {
+        const value = await (opts.commands ?? (p => Promise.resolve({
+          commands: p.sessionId === sid('s2') ? S2_CMDS : S1_CMDS,
+        })))({ sessionId })
+        return value.commands
+      })
     },
     execute: async (sessionId: SessionId, line: string) => {
       executeCalls.push({ sessionId, line })
-      const fallback = (): Promise<ExecuteValue> => Promise.resolve({ matched: true })
-      const value = await (opts.execute ?? fallback)({ sessionId, line })
-      return {
-        ok: true as const,
-        value: value.matched
+      return await carried(async () => {
+        const fallback = (): Promise<ExecuteValue> => Promise.resolve({ matched: true })
+        const value = await (opts.execute ?? fallback)({ sessionId, line })
+        return value.matched
           ? { commandId: value.commandId ?? 'fake-command', result: { kind: 'success' as const } }
-          : undefined,
-      }
+          : undefined
+      })
     },
   }
   ctx.provide('slash', {
