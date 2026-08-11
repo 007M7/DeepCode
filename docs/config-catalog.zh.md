@@ -2411,7 +2411,7 @@ export interface Config {
 export type CompletionDelivery = 'quiet' | 'wakeup'
 ```
 
-来源：[`packages/tasks/tool-tasks/src/index.ts:31`](../packages/tasks/tool-tasks/src/index.ts)
+来源：[`packages/tasks/tool-tasks/src/index.ts:32`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-todo`
 

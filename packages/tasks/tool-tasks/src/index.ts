@@ -1,8 +1,9 @@
 /**
  * Model-facing `task_output`, `task_list`, and `task_kill` tools over
  * `ctx.tasks`. Loading the plugin attaches the controller required by
- * producers. It also injects unreported completions as durable context for the
- * owner's next request; notices do not wake idle agents.
+ * producers. It also delivers unreported completions to the owning agent:
+ * injected into a busy owner's next step, or opening a turn on an idle one
+ * under the default `wakeup` delivery, bounded per owner.
  * @module @deepseek-ai/dsh-tool-tasks
  */
 
@@ -213,6 +214,11 @@ export function apply(ctx: Context, config: Config): void {
   const spentWakes = new WeakMap<object, number>()
   if (waitDefault > waitCap) {
     throw new Error(`tool-tasks: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
+  }
+  // A budget is a count of turns. `Infinity` would leave the runaway chain this
+  // field exists to bound unbounded, and a fraction never names a turn at all.
+  if (!Number.isSafeInteger(wakeBudget)) {
+    throw new Error(`tool-tasks: maxConsecutiveWakes (${wakeBudget}) must be a whole number of turns`)
   }
   ctx.on('agent/inbox/claimed', ({ agent, message }) => {
     // Claiming is the point the human's input actually enters a step; a notice

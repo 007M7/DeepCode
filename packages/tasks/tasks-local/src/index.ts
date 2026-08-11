@@ -466,14 +466,17 @@ export class LocalTaskService extends TaskService {
   private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
     for (const task of tasks) {
       if (isTerminal(task.status)) continue
+      // Teardown cancellation is a kill without a caller, so it claims the
+      // terminal report the same way `kill()` does. Nothing will read a notice
+      // for a task whose owner or service is being destroyed, and a waking
+      // reporter would spend a model request per teardown layer. This is
+      // decided before the producer runs: the force-failure below settles the
+      // record too, so a throwing cancel must not be the one path that
+      // announces an unreported completion into a disposing owner.
+      task.reported = true
       try {
         task.cancel(reason)
         task.status = 'stopping'
-        // Teardown cancellation is a kill without a caller, so it claims the
-        // terminal report the same way `kill()` does. Nothing will read a
-        // notice for a task whose owner or service is being destroyed, and a
-        // waking reporter would spend a model request per teardown layer.
-        task.reported = true
         // Teardown reaches settlement only after the producer releases, which a
         // slow stop can defer; announcing the transition here is what keeps an
         // observer from showing `running` for that whole window.

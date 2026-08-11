@@ -128,6 +128,28 @@ describe('tool-tasks setup', () => {
       .rejects.toThrow('waitTimeoutMs (100) exceeds maxWaitTimeoutMs (50)')
   })
 
+  it('rejects a wake budget that cannot bound anything', async () => {
+    // Reports the load outcome as text: a resolved fiber is not safely printable.
+    const loadWith = async (maxConsecutiveWakes: number): Promise<string> => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(LocalTaskService)
+      try {
+        await ctx.plugin(ToolTasks, { maxConsecutiveWakes })
+        return 'loaded'
+      } catch (error: unknown) {
+        return String(error)
+      }
+    }
+
+    // The field exists to bound runaway waking; a fractional budget counts
+    // nothing and an infinite one removes the bound it was configured for.
+    expect(await loadWith(Number.POSITIVE_INFINITY)).toContain('maxConsecutiveWakes')
+    expect(await loadWith(2.5)).toContain('maxConsecutiveWakes')
+    expect(await loadWith(1)).toBe('loaded')
+  })
+
   it('renders status lines with and without producer detail', () => {
     const base = { id: 'bash-1', kind: 'bash', label: 'x', startedAt: 0, reported: false } as unknown as TaskSnapshot
     expect(statusLine({ ...base, status: 'running' })).toBe('[status: running]')
@@ -603,6 +625,33 @@ describe('completion notice delivery', () => {
     // model request on an agent the host is destroying, once per tree layer.
     await disposeAgentScope(owner)
     await tick()
+    expect(followup).not.toHaveBeenCalled()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it('neither wakes nor injects when the teardown cancel itself threw', async () => {
+    const { ctx } = await setup()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'broken producer',
+      owner,
+      run: () => ({
+        cancel() { throw new Error('cancel boom') },
+        done: new Promise<TaskOutcome>(() => {}),
+      }),
+    })
+
+    // The registry force-fails the record instead of deadlocking. That path
+    // settles the task too, so it must claim the report as the ordinary
+    // teardown cancel does — otherwise a throwing producer is all it takes to
+    // spend a model request on an owner being destroyed.
+    await disposeAgentScope(owner)
+    await tick()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('work may be orphaned'))
     expect(followup).not.toHaveBeenCalled()
     expect(inject).not.toHaveBeenCalled()
   })

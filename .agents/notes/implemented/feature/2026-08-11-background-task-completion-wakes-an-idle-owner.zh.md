@@ -70,3 +70,5 @@ Status: implemented
 在 `quiet` 下待领于空闲所有者的通知仍会随该所有者释放而消亡，与此前一致：释放时的取消会清空未领取的 inbox，日志保留插入/取消这一对作为记录。[结算交付 note](2026-08-06-manager-owned-subagent-settlement-delivery.md) 承载这需要的离线信箱讨论。
 
 对短命任务而言，完成究竟是延长运行中的轮次还是开启新轮次是一场真实竞态，因此没有哪份编写的 transcript 能同时容纳两种顺序。组装态覆盖断言结果；通道选择由单元测试钉住。
+
+还残留一个微任务窗口：结算若落在轮次循环最后一次检查 inbox 之后、driver 提交 idle 相位之前，读到的仍是 `status === 'running'`，于是走注入且无人唤醒。改用 steer 也堵不上——`wakeDriver()` 只为 maintenance 与取消后的相位设置 latch，不为「最后一次检查与自身退休之间」的 driver 设置。要堵上它需要 `agent-loop` 在最后一次领取之前就发布退休状态，那属于核心 agent 的决策，而非交付策略。
