@@ -171,6 +171,9 @@ importers:
       '@deepseek-ai/dsh-environment':
         specifier: workspace:^
         version: link:../../packages/util/environment
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:^
+        version: link:../../packages/fs/fs-local
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../packages/goal/goal
