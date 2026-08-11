@@ -15,7 +15,7 @@
  * bytes are produced incrementally and the host never holds the whole archive
  * in one buffer; production waits for consumer pull whenever the response queue
  * reaches its byte high-water mark, so a slow consumer bounds accumulation to
- * the configured queue plus one synchronous fflate push.
+ * the fixed 64 KiB response queue plus one synchronous fflate push.
  * @module
  */
 
