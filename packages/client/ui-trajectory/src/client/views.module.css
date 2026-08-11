@@ -13,6 +13,18 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
+.exportError {
+  box-sizing: border-box;
+  flex: none;
+  width: 100%;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-danger, var(--dsw-alias-label-primary));
+  background: var(--dsw-alias-bg-layer-2);
+  font: var(--dsw-font-xxs-12);
+  overflow-wrap: anywhere;
+}
+
 .ledger {
   position: relative;
   z-index: 0;
