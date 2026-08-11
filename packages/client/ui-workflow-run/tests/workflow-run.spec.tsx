@@ -227,13 +227,12 @@ describe('workflow-run Conversation Definition', () => {
     const unrelated = matched(at(3, 'turn/start', { turn: 1 }), 'update')
     expect(workflowRunDefinition.update(updateContext, unrelated)).toBe(state)
     expect(workflowRunDefinition.target).toBe('chat')
-    const buildViewNode = workflowRunDefinition.buildViewNode
-    if (buildViewNode === undefined) throw new Error('expected workflow Chat view builder')
-    expect(buildViewNode({
+    expect(workflowRunDefinition.buildViewNode?.({
       ...updateContext, matches: [], start: undefined,
     })).toBeNull()
-    const directNode = buildViewNode(updateContext) as ChatConversationViewNode | null
+    const directNode = workflowRunDefinition.buildViewNode?.(updateContext) as ChatConversationViewNode | null | undefined
     if (directNode === null) throw new Error('expected direct workflow Chat node')
+    if (directNode === undefined) throw new Error('expected workflow Chat view builder')
     expect(directNode.kind).toBe('workflow-run')
     expect((directNode.data as WorkflowRunChatData).status).toBe('running')
   })
