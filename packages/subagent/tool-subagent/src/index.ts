@@ -8,8 +8,8 @@
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -134,6 +134,21 @@ function stopReasonError(result: SubagentResult): string | undefined {
   }
 }
 
+/**
+ * Append the child's preserved partial answer to a stop-reason error so a
+ * truncated or cancelled child's real text still reaches the parent model.
+ * @param error - the stop-reason headline.
+ * @param output - the child's selected output (`SubagentResult.output`).
+ * @returns the headline, extended with the partial text when any exists.
+ */
+function withPartialText(error: string, output: ContentBlock[]): string {
+  const text = output
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join('')
+  return text.length === 0 ? error : `${error}\nPartial output before the run ended:\n${text}`
+}
+
 type ForegroundToolResult = {
   readonly kind: 'foreground'
   readonly runId: SubagentRun['id']
@@ -149,8 +164,9 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
     run.result.then((result): ForegroundToolResult => {
       const error = stopReasonError(result)
       if (error !== undefined) {
-        // The registry converts this throw to isError; partial output is not success.
-        throw new Error(error)
+        // The registry converts this throw to isError; partial output is not
+        // success, but the preserved partial answer still reaches the parent.
+        throw new Error(withPartialText(error, result.output))
       }
       return {
         kind: 'foreground',
@@ -314,6 +330,9 @@ export function apply(ctx: Context, config: Config): void {
               : outputValueText(value.output),
         }],
       },
+      // Children never mutate the parent session; the one parent-owned write
+      // (tasks.start) is a synchronous commutative insertion.
+      isConcurrencySafe: () => true,
       async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {

@@ -14,7 +14,7 @@
 
 规范成功结果分别为检查字符串、挂载 `{ id, pluginName, state, provides, waitingFor }`，以及卸载 `{ id, pluginName }`。原生渲染会说明临时插件正在运行还是等待中，并说明它可用至被卸载或 DSH 重启；卸载结果确认它已移除。
 
-临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现普通的本地、项目或仓库插件。
+临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现 SDK 插件或可安装的 profile 组合包。
 
 ## 信任立场
 
@@ -87,3 +87,4 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 - **沙箱只用于约束诚实代码，并非安全边界**：可以访问沙箱全局变量上的 host realm helper，因此挂载代码可以触达 Node；加载该插件时，应当像授予 bash 工具一样慎重（见 § 信任立场）。
 - **`ctx` façade 不公开 `effect()`**：挂载代码无法注册定制 disposer；`on`／`provide`／`tools.register` 是受支持的清理路径。
 - **`vmTimeoutMs` 只限制同步求值**：async 挂载主体可逃出该边界；挂载代码没有 async 预算。
+- **临时 Plugin 属于组装，而不属于挂载它的那个会话**：group fiber 与 `dyn-N` 表是本行自己的，因此本行覆盖的每个 agent 共享它们——注册在某个 agent preset 的常驻挂载里时，一个会话挂载出来的东西会出现在另一个会话的工具目录和 `cordis_inspect what:"temporary"` 里，同一个 id 的第二次挂载会顶掉第一次。多个会话并发运行同一 preset 时这一点才变得可观察。要做到逐会话，需要把 group 与表按调用方 agent 建键。

@@ -8,8 +8,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -17,7 +17,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type import carries the loader Context merge for the settlement await.
-import type {} from '@cordisjs/plugin-loader'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 /** Stable Cordis plugin name. */
 export const name = 'headless-runner'
@@ -25,7 +25,7 @@ export const name = 'headless-runner'
 /** Core services required before the one-shot turn can start. */
 export const inject = ['agentDefaultModel', 'agents', 'sessions']
 
-/** Plugin config: the task, patched in by the launcher. */
+/** Plugin config: the task resolved from this app's injected provider service. */
 export interface Config {
   /** The prompt text for the single run. */
   task: string
@@ -52,7 +52,7 @@ export interface HeadlessIo {
   exit(code: number): void
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Process-facing effects provided before the headless tree mounts. */
     headlessIo?: HeadlessIo
@@ -106,6 +106,10 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
 
   const selection = defaultModel.currentSelection()
+  // This bundle composes no preset roster, so the model-facing rows sit in the
+  // host plane and the agent reads them from the global layer. A deployment
+  // that DOES configure one has to join it here first
+  // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
   const { agent } = await agents.create({
     sessionId: SessionId(`session-${randomUUID()}`),
     meta: { cwd: process.cwd() },

@@ -172,5 +172,7 @@ jobs:
           tag_args=()
           case "$version" in *-*) tag_args=(--tag next);; esac
           while IFS= read -r tarball; do
-            npm publish "dist/npm/${tarball}" --access public "${tag_args[@]}"
+            # No --access: publishConfig.access in each manifest decides, and a
+            # command-line flag would override it.
+            npm publish "dist/npm/${tarball}" "${tag_args[@]}"
           done < dist/npm/publish-order.txt

@@ -22,9 +22,11 @@
  */
 
 import { stat } from 'node:fs/promises'
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
+// Type-only: resolves the `agent/created` lifecycle event this service watches.
+import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
@@ -62,7 +64,7 @@ export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     agentPresets: AgentPresets
   }
@@ -129,6 +131,28 @@ export class AgentPresets extends Service {
         this.settings = undefined
         this.settingsService = undefined
       }, 'agentPresets.settings()')
+    })
+
+    // Advisory, not fatal: a synchronous `agent/created` listener that throws
+    // VETOES publication, and this service must not, because composing an agent
+    // outside the roster is legal — `recompose` binds exactly such a bare agent
+    // below, and the ACP, SDK-server, and headless entry points all create one.
+    // The invariant companion is the check that fails loud, at assembly. Why an
+    // unjoined agent matters at all has one home: the [Agent
+    // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md).
+    //
+    // Known false positive: a session created bare and bound later by
+    // `recompose` is warned about once, before its first bind. No shipped flow
+    // does that today — the Web surface mounts in `setup` and children join
+    // through `composeFrom` before publication.
+    ctx.on('agent/created', ({ agent }) => {
+      if (this.config.roots.length === 0) return
+      if (this.composedPreset(agent.ctx) !== undefined) return
+      ctx.logger.warn(
+        `agent "${agent.id}" was published without joining an agent preset; `
+        + 'its tools, prompt sections, and skill catalog resolve against the empty global layer '
+        + '(join through AgentPresets.mount() or composeFrom() in the agent factory setup)',
+      )
     })
   }
 
@@ -440,6 +464,12 @@ export class AgentPresets extends Service {
       // disappearing, and failing the session over a stat would not.
       const current = await compositionStamp(preset.path)
       if (current === undefined || sameStamp(mounted.stamp, current)) return mounted
+      // TODO: reclaim the superseded generation once the last agent joined to
+      // it is gone. The subtree is not inert — `dsh-skill-local` watches its
+      // roots — and the settings-page authoring flow turns "a composition
+      // changed" into a per-save event. This needs a joined-agent count on
+      // StandingMount, incremented in `mount`/`composeFrom`/`recompose` and
+      // decremented when the agent's scope key dies.
       // Guarded delete: a caller that raced this one may have already started
       // the next generation, and dropping THAT pointer would fork a third.
       if (this.standing.get(preset.id) === pending) this.standing.delete(preset.id)

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This package registers the fixed `claude-code` subagent provider. Each accepted run invokes the official Claude Agent SDK in the delegating Session's workspace, starts the SDK-distributed Claude Code CLI through the shared subprocess service, submits one self-contained text task, and returns only the final answer through the shared [`dsh-subagent`](../subagent/README.md) result contract.
+This package registers the fixed `claude-code` subagent provider. Each accepted run invokes the official Claude Agent SDK in the delegating Session's workspace, resolves the native `claude` executable through the shared subprocess service, submits one self-contained text task, and returns only the final answer through the shared [`dsh-subagent`](../subagent/README.md) result contract.
 
 ## Start and ownership
 
@@ -29,9 +29,9 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
 | `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
 
-Production uses the Claude Code CLI supplied by `@anthropic-ai/claude-agent-sdk` and the host's native settings and authentication. The plugin does not install another CLI, select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or token intended for the child must be supplied there. Non-credential endpoint variables such as `ANTHROPIC_BASE_URL`, along with ordinary ambient values such as `PATH` and `HOME`, remain inherited unless overridden.
+Production resolves `claude` from the subprocess execution world's credential-scrubbed `PATH`, with explicit `env` entries applied, and passes the resulting path to the SDK as `pathToClaudeCodeExecutable`. On Windows, a resolved `.cmd` or `.bat` path is carried as a quoted, per-spawn environment value that `cmd.exe /v:off` expands once, so valid path metacharacters remain data. The pinned SDK's fixed flags then occupy cmd's command tail and contain no cmd metacharacters; they are not ordinary Windows argv. Native settings and authentication remain authoritative. The plugin does not install another CLI, select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or token intended for the child must be supplied there. Non-credential endpoint variables such as `ANTHROPIC_BASE_URL`, along with ordinary ambient values such as `PATH` and `HOME`, remain inherited unless overridden.
 
-Install this package and add the following rows to your own `cordis.yml`. Shipped CLI configurations do not load this provider or expose `subagent_claude_code` by default.
+Shipped profiles load this provider once on the host and start no Claude process until a tool call. Full Agent Presets carry the tool row below with `disabled: true`; copy a preset and remove that field to expose `subagent_claude_code` only to agents composed from the copy. A custom host composition can still use both rows directly.
 
 ```yaml
 - id: subagent-claude-code
@@ -42,6 +42,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 - id: tool-subagent-claude-code
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
   config:
     provider: claude-code
     toolName: subagent_claude_code
@@ -51,7 +52,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 ## Product compatibility and evidence
 
-The runtime dependency is pinned to `@anthropic-ai/claude-agent-sdk@0.3.220`, whose platform optional dependency supplies Claude Code 2.1.220. Required evidence exercises that official distribution through a keyless loopback product path and a credentialed DeepSeek path, while Loader composition proves that both opt-in product packages coexist without starting either product.
+The runtime dependency is pinned to `@anthropic-ai/claude-agent-sdk@0.3.220`. Production runs the native `claude` installation. The keyless real-product test uses the SDK-distributed Claude Code 2.1.220 CLI as a deterministic fixture, routed through the same native executable-resolution and Windows batch-shim path; it does not claim compatibility with every independently installed version. Loader composition proves that both product packages coexist without starting either product.
 
 The project owner's identity-scoped distribution authorization covers the official SDK and the official CLI/platform payloads declared by each SDK version. [`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) discloses the current optional payload closure without classifying its declared terms as permissive; unrelated non-permissive runtime dependencies continue to fail the notices gate.
 
@@ -89,7 +90,8 @@ Append-only: the new tool result follows the reusable parent request prefix.
 
 - **One fresh query and process per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
 - **Host settings are intentionally authoritative** — project and user settings can change model, tools, and behavior; the provider does not provide a filtered or hermetic production mode.
-- **Product installation and account state remain native** — an incompatible SDK payload, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer or login flow.
+- **Product installation and account state remain native** — a missing or incompatible `claude`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer or login flow.
+- **The SDK platform CLI remains in the install closure** — production ignores it in favor of the host `claude`, but the current SDK optional dependency is still installed and supplies the keyless compatibility fixture. Removing that payload belongs to the separate product installation-closure follow-up.
 - **No human interaction path** — `AskUserQuestion` is disabled and other interactive callbacks are absent, so tasks requiring new approval or input fail instead of suspending.
 - **Final text only** — reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
 - **No optional shared capabilities** — output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.

@@ -5,7 +5,7 @@
 # verbatim, and the acp-agent restatement re-pins `deepseek-v4-flash` to match
 # the recorded corpus and its pinned request headers.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ../cordis.yml
     patches:

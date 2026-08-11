@@ -30,10 +30,10 @@
  * composes the wire.
  */
 
-import type {} from 'cordis'
+import type {} from '@deepseek-ai/cordis'
 import type { ClientModuleSystem } from './system.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The client module system the web shell builds at boot (provided by the `./client` wrapper plugin). */
     modules: ClientModuleLoader

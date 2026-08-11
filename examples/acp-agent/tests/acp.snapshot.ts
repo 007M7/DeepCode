@@ -38,6 +38,8 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
+const IMAGE_CONFIG = fileURLToPath(new URL('../image.cordis.yml', import.meta.url))
+const IMAGE_TEXT_ROUTE_CONFIG = fileURLToPath(new URL('../image-text-route.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const CHILD_QUESTION_CONFIG = fileURLToPath(new URL('../child-question.cordis.yml', import.meta.url))
@@ -47,11 +49,16 @@ const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml'
 const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
   new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
 )
+const SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG = fileURLToPath(
+  new URL('../subagent-continuable-inheritance.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
+const PRODUCT_SUBAGENT_CODEX_CONFIG = fileURLToPath(new URL('../product-subagent-codex.cordis.yml', import.meta.url))
+const PRODUCT_SUBAGENT_BOTH_CONFIG = fileURLToPath(new URL('../product-subagent-both.cordis.yml', import.meta.url))
 const FS_DIFF_BOUND_CONFIG = fileURLToPath(new URL('./fs-diff-bound.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -123,6 +130,27 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the default header pin and owns the prompt and tool-schema
   // sidecars reused by alternate classes with identical component sequences.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  // Product-subagent scenarios are authored schema-isolation fixtures: they
+  // reuse the stable text-turn transcript so only Loader-composed headers and
+  // tool sidecars vary. Model output and usage are not evidence here, so record
+  // mode must not replace them with live-API output.
+  {
+    name: 'product-subagent-codex',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'product-subagent-codex',
+    configPath: PRODUCT_SUBAGENT_CODEX_CONFIG,
+  },
+  {
+    name: 'product-subagent-both',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'product-subagent-both',
+    systemPromptSource: 'product-subagent-codex',
+    configPath: PRODUCT_SUBAGENT_BOTH_CONFIG,
+  },
   {
     name: 'session-title-after-turn',
     hasModelTurn: true,
@@ -153,6 +181,30 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'session-query',
     configPath: SESSION_QUERY_CONFIG,
     posixOnly: true,
+  },
+  // Authored keyless replays through the assembled app: the replay catalog
+  // declares flash image-capable (success) or text-only (refusal), and the
+  // real read_image tool executes against the workspace fixture and the real
+  // attachment store. Both boot the same composed header (the tool registers
+  // with the attachment store, independent of route), so they share one class.
+  {
+    name: 'read-image',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'image',
+    // The overlay adds no prompt section (read_image carries no guidance), so
+    // the composed system prompt is byte-identical to the default class; only
+    // the tool-schema sidecar is class-specific.
+    systemPromptSource: 'text-turn',
+    configPath: IMAGE_CONFIG,
+  },
+  {
+    name: 'read-image-text-route',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'image',
+    configPath: IMAGE_TEXT_ROUTE_CONFIG,
   },
   {
     name: 'pty-tools',
@@ -315,7 +367,17 @@ const SCENARIOS: Scenario[] = [
   // Windows bash process-tree kill is deferred with the Bash execution domain.
   { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  // Keyless authored scenario: the child ends at max-tokens with an empty
+  // usage-only assistant/message after earlier text and a tool call. The
+  // parent's tool result must retain that assistant output and stop reason.
+  { name: 'subagent-max-tokens-partial', hasModelTurn: true, recorded: false },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
+  // Authored keyless replay: one assistant message carries two subagent calls
+  // and the parent log pins call/call/result/result instead of the serial
+  // interleaving. The twin delegations must stay identical: replay binds child
+  // scripts and harvest order nondeterministically across concurrent children
+  // (XXX(concurrent-subagents) in dsh-llm-replay).
+  { name: 'subagent-parallel', hasModelTurn: true, recorded: false },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // Authored continuable-subagent transcript: a background delegation returns
@@ -330,6 +392,18 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsChildToolSchemas: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // Authored policy-inheritance transcript: the root session is switched to
+  // read-only at creation (the UI Access switch equivalent), and the
+  // continuable background child's log carries that override as a
+  // `sandbox/mode` `source: 'delegation'` event, so the child's runtime
+  // context states the inherited policy instead of the deployment default.
+  {
+    name: 'subagent-continuable-inheritance',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    configPath: SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
   // foreground tool retains both that run-result failure and an independent

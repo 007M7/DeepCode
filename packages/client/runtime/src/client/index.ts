@@ -1,12 +1,11 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
-import { SessionHistoryService } from './session-history/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
 import type { ConversationSnapshot } from './sessions/conversation.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
@@ -28,12 +27,12 @@ export type {
   ConversationLocation, ConversationMatch, ConversationMatchResult,
   ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
   ConversationPublication, ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewBuilder,
-  ConversationViewDefinition, ConversationViewNode, StepLocation, TurnLocation,
+  ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
+  ConversationViewSnapshotStore, StepLocation, TurnLocation,
 } from './contract/conversation.ts'
 export type { ConversationRuntime } from './sessions/conversation-assembler.ts'
 export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
-export { SessionHistoryService } from './session-history/service.ts'
 export { indexSubagentDescendants } from './sessions/subagent-lineage.ts'
 export type { SubagentDescendantSummary } from './sessions/subagent-lineage.ts'
 // The provide channel is shared with the client test runtime (one
@@ -48,16 +47,13 @@ export type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './
 export { resolveWorkspacePath } from './workspaces/path.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
-export type {
-  ISessionHistory, SessionHistoryFace, SessionHistorySnapshot,
-} from './contract/session-history.ts'
 export type { AgentContext, ISessions } from './contract/sessions.ts'
 export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
 export type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './sessions/manager.ts'
-export type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+export type { SubagentAddress, TaskView } from '@deepseek-ai/dsh-client-connection/client'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -76,7 +72,9 @@ export type {
   LegacyConversationSlice, PartialAssistant, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolCallBlock, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
-export { EMPTY_CHAT_SNAPSHOT, toAssistantBlock, toAssistantBlocks } from './sessions/conversation.ts'
+export {
+  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, toAssistantBlock, toAssistantBlocks,
+} from './sessions/conversation.ts'
 export { emptyAssistantBlock } from './sessions/partial.ts'
 export { isTokenDelta } from './sessions/assistant-timing.ts'
 export { contextForm, contextProvenance } from './sessions/context-provenance.ts'
@@ -90,8 +88,6 @@ export type {
 export type {
   ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
 } from './sessions/request-inspection.ts'
-export type { ConversationHistoryProjection } from './session-history/history-fold.ts'
-export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type {
   PendingInteraction, PendingInteractionStatus, PendingKind, PendingPayloads,
@@ -146,7 +142,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
      * A slot's definition or registration set changed.
@@ -211,8 +207,6 @@ declare module 'cordis' {
     conversationViews: import('./conversation/view-registry.ts').ConversationViewRegistry
     /** The outward face only; the concrete service stays inside the runtime. */
     sessions: import('./contract/sessions.ts').ISessions
-    /** Read-only history sources isolated from Chat sessions and workspace state. */
-    sessionHistory: import('./contract/session-history.ts').ISessionHistory
     /** The outward face only; the concrete service stays inside the runtime. */
     workspaces: import('./contract/workspaces.ts').IWorkspaces
   }
@@ -235,7 +229,6 @@ export function apply(ctx: Context): void {
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
-  const sessionHistory = new SessionHistoryService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
   ctx.effect(
     () => workspaces.startInitialSelection(),
@@ -244,11 +237,6 @@ export function apply(ctx: Context): void {
   const loop = connection.start({
     onMuxEnvelope: (envelope) => {
       sessions.handleMuxEnvelope(envelope)
-      try {
-        sessionHistory.handleMuxEnvelope(envelope)
-      } catch (error) {
-        console.error('[web-runtime] history frame routing failed:', error)
-      }
     },
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
@@ -264,21 +252,11 @@ export function apply(ctx: Context): void {
       else if (frame.type === 'host/settings-changed') ctx.emit('settings/changed', frame.ns)
       else if (frame.type === 'host/credentials-changed') ctx.emit('credentials/changed', frame.ref)
       else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
-      try {
-        sessionHistory.handleHostEnvelope(envelope)
-      } catch (error) {
-        console.error('[web-runtime] history host-frame routing failed:', error)
-      }
     },
     onConnected: () => {
       sessions.handleConnected()
       workspaces.handleConnected()
       ctx.emit('connection/reset')
-      try {
-        sessionHistory.handleConnected()
-      } catch (error) {
-        console.error('[web-runtime] history reconnect failed:', error)
-      }
     },
     onStateChange: (state) => {
       // Generation death fires before any next-generation frame can arrive
@@ -286,11 +264,6 @@ export function apply(ctx: Context): void {
       // the only safe moment to drop generation-scoped interaction state.
       if (state === 'reconnecting') {
         sessions.handleDisconnected()
-        try {
-          sessionHistory.handleDisconnected()
-        } catch (error) {
-          console.error('[web-runtime] history disconnect failed:', error)
-        }
       }
     },
   })

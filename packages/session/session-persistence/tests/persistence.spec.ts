@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { Session, SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -244,6 +244,24 @@ runPersistenceContract('memory', async () => {
     persistence: ctx.sessionPersistence,
     dispose: async () => { await fiber.dispose() },
   }
+})
+
+describe('the inherited readRaw default', () => {
+  it('answers undefined and honors an aborted signal', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(MemoryPersistence)
+    expect(await ctx.sessionPersistence.readRaw(SessionId('any-session'))).toBeUndefined()
+    await expect(
+      ctx.sessionPersistence.readRaw(SessionId('any-session'), AbortSignal.abort()),
+    ).rejects.toThrow()
+    // A non-Error abort reason falls back to a wrapped Error rejection.
+    const controller = new AbortController()
+    controller.abort('boom')
+    await expect(
+      ctx.sessionPersistence.readRaw(SessionId('any-session'), controller.signal),
+    ).rejects.toThrow('aborted')
+  })
 })
 
 // Each fixture shares one map across mounts. No `corruptTail` is supplied because map writes are

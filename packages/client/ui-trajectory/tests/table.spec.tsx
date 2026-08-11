@@ -308,6 +308,43 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('Request #2')).toBeTruthy()
   })
 
+  it('places the request boundary after leading steering input', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 2',
+        cells: [{
+          index: 1,
+          kind: 'user',
+          sourceSeq: 3,
+          text: 'change direction',
+          timeSeconds: 0,
+        }, {
+          index: 2,
+          kind: 'message',
+          sourceSeq: 4,
+          text: 'continued',
+          timeSeconds: 1,
+        }],
+      }],
+    }]
+
+    render(<TrajectoryTable
+      turns={turns}
+      requestNumbers={[{
+        seq: 2,
+        turn: 1,
+        step: 2,
+        group: 'Step 2',
+        number: 1,
+      }]}
+      {...FOLD_PROPS}
+    />)
+
+    const request = screen.getByRole('button', { name: 'Request #1' })
+    expect(request.closest('tr')?.getAttribute('aria-label')).toContain('ASSISTANT')
+  })
+
   it('follows appended records only while the ledger is already at the bottom', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     const tablePane = screen.getByRole('table').parentElement as HTMLElement

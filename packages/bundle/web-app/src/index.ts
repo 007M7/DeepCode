@@ -4,17 +4,21 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * web-surface prompt section and the bash-visible web runtime variables, and
- * prints the URL line when configured to. Flag-derived values (`mode`,
- * `lanAddresses`, `printUrl`) arrive as launcher patches over this row.
+ * harness-source and web-surface prompt sections, the bash-visible web runtime
+ * variables, and the URL line. App command-line values arrive through the
+ * `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
  */
 
 import { createRequire } from 'node:module'
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import { networkInterfaces } from 'node:os'
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import { enableRow } from '@deepseek-ai/dsh-cmdline'
 import * as FrontendStatic from '@deepseek-ai/dsh-frontend-static'
-import type {} from '@cordisjs/plugin-loader'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-bash-env'
@@ -22,40 +26,50 @@ import type {} from '@deepseek-ai/dsh-bash-env'
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
 
+/** This dsh installation's root, from either this package's source or built entry. */
+const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
+const HMR_ROW_ID = 'client-hmr'
+
+/** Runtime service that releases Web rows after bind-dependent values resolve. */
+const WEB_RUNTIME_SERVICE = 'webRuntime'
+
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
 
 /** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
 export type WebMode = 'production' | 'development'
 
-/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+/** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
-  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
    * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * layer turns it off: its user is not interacting through the GUI, so the
+   * non-interactive layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
-  /**
-   * LAN IPv4 addresses sampled once by the launcher when the effective bind
-   * is all-interfaces — the exact snapshot the /api trust fence was
-   * configured with, so the printed LAN URL can never name an address the
-   * fence rejects. Empty on a loopback bind.
-   */
-  lanAddresses: string[]
+  /** Explicit `--trusted-host` authorities from this invocation. */
+  trustedHosts: string[]
 }
 
 export const Config: z<Config> = z.object({
   mode: z.union([z.const('production'), z.const('development')]).default('production'),
   printUrl: z.boolean().default(true),
   surfaceContext: z.boolean().default(true),
-  lanAddresses: z.array(String).default([]),
+  trustedHosts: z.array(String).default([]),
 })
+
+/** Bind-dependent Web values shared by the trust fence and URL display. */
+export interface WebRuntimeValues {
+  /** LAN IPv4 literals sampled once when the server binds all interfaces. */
+  lanAddresses: string[]
+  /** LAN literals followed by explicit invocation authorities. */
+  trustedHosts: string[]
+}
 
 /** Environment variable naming the canonical local URL of this Web GUI. */
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
@@ -65,6 +79,27 @@ const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
 // Display-only mirror of the webserver schema's loopback host: the address the
 // local URL always prints. Not a source of truth — the schema is.
 const LOOPBACK_HOST = '127.0.0.1'
+/** The webserver schema's all-interfaces bind literal. */
+const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Resolve one LAN-trust snapshot from the active server bind.
+ *
+ * Derived entries are port-less IP literals: DNS rebinding needs an
+ * attacker-controlled name, while an IP-literal Host is safe on any port and
+ * an OS-assigned port is unknowable before bind.
+ * @param bindHost - the active webserver bind host.
+ * @param extra - explicit `--trusted-host` values, in argument order.
+ * @returns the LAN display addresses and invocation-derived fence authorities.
+ */
+export function resolveLanTrust(bindHost: string, extra: readonly string[]): WebRuntimeValues {
+  const lanAddresses = bindHost === ALL_INTERFACES_HOST
+    ? Object.values(networkInterfaces()).flat()
+      .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+      .map(iface => iface.address)
+    : []
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
 function webSurfacePrompt(webUrl: string, mode: WebMode): string {
@@ -109,11 +144,21 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  * variables, and the URL line.
  * @param ctx - plugin context carrying the httpServer service.
  * @param config - validated {@link Config}.
+ * @returns nothing once the invocation's client roster and runtime contributions are registered.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  // Client discovery must start after the optional HMR row has a pending
+  // fiber. Otherwise its first browser graph omits the reload receiver, which
+  // cannot use that receiver to discover itself later.
+  if (config.mode === 'development') await enableRow(ctx, HMR_ROW_ID)
+  const runtime = resolveLanTrust(ctx.httpServer.host, config.trustedHosts)
+  // Release dependent rows only after the optional row has a pending fiber and
+  // bind-dependent trust has been sampled once.
+  ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
+      addHarnessSourceSection(promptCtx, SOURCE_ROOT)
       promptCtx.systemPrompt.section({
         name: 'app:web-surface',
         order: -98,
@@ -137,21 +182,24 @@ export function apply(ctx: Context, config: Config): void {
     // sibling rows (the /api route owner) are still mounting. Await Loader
     // settlement first; a hand-built tree without a Loader prints at once.
     const printUrl = (): void => {
-      // The launcher's boot-time LAN snapshot, not a fresh sample: the printed
-      // LAN URL must name an address the /api trust fence was configured with.
-      const lanCandidate = config.lanAddresses[0]
+      // Reuse the exact LAN snapshot provided to the /api trust fence.
+      const lanCandidate = runtime.lanAddresses[0]
       const port = ctx.httpServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }
-    const loader = ctx.get('loader')
-    if (loader === undefined) printUrl()
+    // This row's own activation can precede a sibling failure. The app owns
+    // readiness by waiting for its Loader tree, or prints at once in a
+    // hand-built context without Loader.
+    const settled = ctx.get('loader')?.await()
+    if (settled === undefined) printUrl()
     else {
-      void loader.await().then(() => {
-        // The tree can be disposed while settlement was in flight (early
+      void settled.then(() => {
+        // The tree can be disposed while the boot was in flight (early
         // SIGTERM); a URL line for a dead server would only mislead, and
         // reading the torn-down port would turn a clean shutdown into a crash.
         if (ctx.get('httpServer') !== undefined) printUrl()
-      })
+      // Loader reports a failed boot; this row only stays quiet.
+      }, () => {})
     }
   }
 }

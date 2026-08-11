@@ -12,8 +12,8 @@
  * service; sessions that have already logged a selection remain unchanged.
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy } from './api-proxy.ts'
@@ -26,7 +26,7 @@ export type { IApiClient } from './fetch/client.ts'
 export { createApiProxy } from './api-proxy.ts'
 export type { ApiProxyDefaults } from './api-proxy.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The host-side ApiProxy implementation (the transport-agnostic gateway face). */
     apiProxy: ApiProxy
@@ -72,6 +72,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly credentials: ApiProxy['credentials']
   readonly llm: ApiProxy['llm']
   readonly events: ApiProxy['events']
+  readonly downloads: ApiProxy['downloads']
   readonly respond: ApiProxy['respond']
 
   constructor(ctx: Context, config: Config) {
@@ -94,6 +95,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.credentials = api.credentials
     this.llm = api.llm
     this.events = api.events
+    this.downloads = api.downloads
     // createApiProxy returns closures (no `this` capture), so the bind is
     // behavior-neutral.
     this.respond = api.respond.bind(api)

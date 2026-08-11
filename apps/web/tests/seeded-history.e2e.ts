@@ -18,7 +18,6 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
@@ -195,21 +194,11 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      // The meter belongs to an agent's preset, not to the process — token
-      // accounting is per session. It is used here as a pure pricing function
-      // over fixture content, so a throwaway composition is enough to reach one.
-      const priced = await scaffold.ctx.agents.create({
-        sessionId: SessionId('seeded-history-pricing'),
-        setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
-      })
-      let realizedWithCompaction: string
-      try {
-        const meter = scaffold.ctx.agentPresets.serviceFor(priced.agent, 'tokenMeter')
-        if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
-        realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
-      } finally {
-        await priced.dispose()
-      }
+      // The meter is host-plane — it takes no configuration and keys every
+      // fold by Session — so pricing fixture content needs no agent at all.
+      const meter = scaffold.ctx.get('tokenMeter')
+      if (meter === undefined) throw new Error('seeded-history requires the host token meter')
+      const realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
       await seedSession(scaffold, realizedWithCompaction, SEED_ID)
     }
     browser = await chromium.launch()
@@ -468,9 +457,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
       if (done?.type !== 'command/done') throw new Error('feedback command did not settle')
       const [sessionLine, userLine, extraLine] = done.data.text?.split('\n') ?? []
       expect(sessionLine).toBe(`Feedback recorded for session ${SEED_ID}`)
-      expect(userLine).toMatch(/^User: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      expect(userLine).toMatch(/^User: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i)
       expect(extraLine).toBeUndefined()
-      const userId = userLine?.slice('User: '.length)
+      const userId = userLine?.match(/^User: ([0-9a-f-]+)/i)?.[1]
       if (userId === undefined) throw new Error('feedback command omitted the user id')
 
       const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))

@@ -90,6 +90,24 @@ function commandOpts(signal: AbortSignal | undefined): { envs: Record<string, st
   return { envs: e2bControlEnvs(), ...signalOpts(signal) }
 }
 
+async function openReadStream(
+  sandbox: Sandbox,
+  target: FsTarget,
+  signal: AbortSignal | undefined,
+): Promise<ReadableStream<Uint8Array>> {
+  try {
+    // The pinned SDK's stream overload lies for empty files: content-length 0
+    // returns '' instead of a ReadableStream.
+    const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
+      ReadableStream<Uint8Array> | string
+    return typeof read === 'string'
+      ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
+      : read
+  } catch (error: unknown) {
+    throw mapError(error, 'read', target.displayPath, signal)
+  }
+}
+
 function entryType(entry: EntryInfo): FsInfo['type'] {
   switch (entry.type) {
     case FileType.FILE:
@@ -227,21 +245,57 @@ export class E2BFileSystem extends FileSystem {
     }
   }
 
+  override async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    const sandbox = await this.ctx.e2b.getSandbox()
+    const info = await this.requireRegular(target, signal)
+    if (info.size !== undefined && info.size > maxBytes) {
+      throw new FsError(`cannot read "${target.displayPath}": ${info.size} bytes exceeds the ${maxBytes}-byte limit`, 'FS_TOO_LARGE')
+    }
+    const stream = await openReadStream(sandbox, target, signal)
+    const reader = stream.getReader()
+    const chunks: Uint8Array[] = []
+    let bytes = 0
+    let completed = false
+    try {
+      while (true) {
+        assertNotAborted(signal, 'read')
+        const next = await reader.read()
+        if (next.done) break
+        // The stat preflight covers the at-rest case; this streamed bound stops
+        // a post-stat grower without transferring past the first overflowing chunk.
+        bytes += next.value.byteLength
+        if (bytes > maxBytes) {
+          throw new FsError(`cannot read "${target.displayPath}": content exceeds the ${maxBytes}-byte limit`, 'FS_TOO_LARGE')
+        }
+        chunks.push(next.value)
+      }
+      completed = true
+    } catch (error: unknown) {
+      throw mapError(error, 'read', target.displayPath, signal)
+    } finally {
+      if (!completed) {
+        try {
+          await reader.cancel()
+        } catch (_streamCancellationFailure) {
+          // The read already failed; a cancellation failure on the abandoned
+          // remote stream adds nothing actionable for the caller.
+        }
+      }
+      reader.releaseLock()
+    }
+    const whole = new Uint8Array(bytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      whole.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return whole
+  }
+
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     const sandbox = await this.ctx.e2b.getSandbox()
     await this.requireRegular(target, signal)
-    let stream: ReadableStream<Uint8Array>
-    try {
-      // The pinned SDK's stream overload lies for empty files: content-length 0
-      // returns '' instead of a ReadableStream.
-      const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
-        ReadableStream<Uint8Array> | string
-      stream = typeof read === 'string'
-        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
-        : read
-    } catch (error: unknown) {
-      throw mapError(error, 'read', target.displayPath, signal)
-    }
+    const stream = await openReadStream(sandbox, target, signal)
     const displayPath = target.displayPath
     return {
       async *[Symbol.asyncIterator](): AsyncGenerator<string> {
@@ -412,10 +466,11 @@ export class E2BFileSystem extends FileSystem {
     }
   }
 
-  private async requireRegular(target: FsTarget, signal?: AbortSignal): Promise<void> {
+  private async requireRegular(target: FsTarget, signal?: AbortSignal): Promise<FsInfo> {
     const info = await this.stat(target, signal)
     if (info === undefined) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
     if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+    return info
   }
 
   private checkWriteIntent(existing: EntryInfo | undefined, expected: FsWriteIntent | undefined, target: FsTarget): void {

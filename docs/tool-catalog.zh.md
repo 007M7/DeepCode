@@ -25,7 +25,7 @@
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`、`cordis_mount`、`cordis_unmount` | `ctx.tools` | `tool/call`、`tool/result`、`process-local temporary Plugin lifecycle` | - | 不在任何随产品发布的树中，需要有意选择启用；临时 Plugin 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。由 cordis_mount 创建的插件在卸载或 DSH 重启之前可以注册**额外的**模型可见工具；发生这类工具集变更时，系统会记录完整且有变动的请求头。 |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`、`ctx.pty`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`、`ctx.fs` | `tool/call`、`fs/observed after view presence/absence, edit absence, or successful mutation`、`tool/result` | - | 基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。 |
-| `@deepseek-ai/dsh-tool-fs` | `edit`、`read`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful mutation`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。无论是否加载策略插件，上述工具 schema 都完全相同。 |
+| `@deepseek-ai/dsh-tool-fs` | `edit`、`read`、`read_image`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt`、`ctx.attachments (read_image registration)`、`ctx.llm + an image-capable route (read_image execution)` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful file operation`、`durable attachment (read_image)`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。 |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`、`grep` | `ctx.tools`、`ctx.subprocess`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。 |
 | `@deepseek-ai/dsh-tool-pty` | `terminal_close`、`terminal_list`、`terminal_open`、`terminal_read`、`terminal_send`、`terminal_signal` | `ctx.tools`、`ctx.pty`、`ctx.systemPrompt`、`ctx.tasks at call time for run_in_background` | `tool/call`、`tool/result` | - | 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.tasks`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。 |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`、`get_goal`、`update_goal` | `ctx.tools`、`ctx.agents`、`ctx.goals`、`ctx.systemPrompt`、`a calling Agent in an authorized open turn` | `tool/call`、`goal/change for mutations`、`tool/result` | - | create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。 |
@@ -286,7 +286,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `cordis_mount`
 
-在当前 DSH 进程中挂载临时 Cordis Plugin。它创建的是内存中的运行时 Plugin，而不是已安装或已配置的 Plugin。该插件会在后续轮次中保持活动，直到执行 cordis_unmount、工具集卸载或 DSH 重启。它不会创建文件、安装包、修改 cordis.yml 或个人／项目配置、在重启后保留，也不会自动转为永久插件。若要保留，请让 Agent 通过常规开发工作流实现普通的本地、项目或仓库 Plugin。它可能影响同一进程中的其他会话；沙箱不是安全边界，注入的服务会访问真实运行时。`code` 会立即作为异步 JavaScript 函数的函数体在隔离沙箱中运行，并且**必须** `return` 一个插件。支持两种形式：函数形式 `return (ctx) => { … }`，它不声明 inject，因此可以注册工具、监听事件和提供服务，但访问**任何**服务（例如 ctx.bash）都会抛出异常；仅在不需要服务时使用。对象形式 `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }`，它声明依赖，Cordis 只在服务存在后激活插件；**优先使用**这种形式。你只能访问 inject 中列出的服务：即使未声明的服务存在，访问它也会抛出异常，因为如果提供方被卸载，未声明的依赖将无法清理。代码调用服务**之前**，请读取 cordis_inspect 的 what:"api"；它会列出方法签名以及参数／返回值的类型形状，不要猜测字段类型，例如 bash 运行的 stdout 是对象而非字符串。在 `apply` 内，请使用标准 Cordis API：通过 `ctx.on(event, listener)` 观察事件（见 cordis_inspect 的 what:"events"），或调用 `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` 为自己提供新工具；该工具会在你的**下一步骤**可调用。工具参数：每个键**就是**一个属性，即 { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }；每个直接 DSL 对象都声明 additionalProperties: true|false，而 oneOf: [schema, schema, ...] 会取代 type，表示恰好匹配一个成员的联合。也接受原始 JSON Schema { type: 'object', properties, required?: […] } 包装层，其中对象默认开放。工具的 `execute` **必须**返回 `output.schema` 声明的无损 JSON 值；`output.render(args, value)` 单独返回 Native／模型内容块。临时 Plugin 可以**组合**：一个 Plugin 可以通过 `ctx.provide('name', value)` 提供服务，另一个则可声明 `inject: ['name']` 来消费它；消费方会在提供方出现前保持等待，提供方卸载后重新回到等待状态。在 `apply` 中注册的一切都会由 cordis_unmount 自动清理。沙箱全局对象：`console`（带 `[cordis:<id>]` 标签，写入 harness 终端）、`harness.defineTool`、`harness.registerTool`、`btoa`、`atob`、`TextEncoder`、`TextDecoder`。Node API 已**禁用**：文件系统／网络／定时工作必须通过 Cordis 服务完成，绝不能使用 Node 内置能力；`require`、`setTimeout`／`setInterval` 和 `fetch` 会抛出重定向错误，`process` 和 `Buffer` 未定义。应改用 inject: ['fs'] + ctx.fs 处理文件、inject: ['web'] + ctx.web 处理 HTTP、inject: ['bash'] + ctx.bash 处理进程、inject: ['timer'] + ctx.setTimeout/ctx.setInterval 处理定时（这些是 fiber effect，卸载时自动清理）；cordis_inspect 的 what:"api" 会展示**当前**运行时提供的能力。请编写**纯** JavaScript，不要使用 TypeScript（不得使用 `as` 或类型注解）。注意事项：(1) waterfall（瀑布式事件）事件（例如 tools/pre-execute）会向监听器传入最后一个 `next` 回调，该回调**必须**被调用；不调用 `next()` 就返回会**短路**此次调用。除非你有意拦截，否则请优先使用普通通知事件。(2) 切勿等待只能在当前轮次之后解析的内容；你的代码运行在该轮次的工具调用**内部**，否则会死锁。(3) 你的 `ctx` 是受限门面：可以注册工具、观察事件、提供／消费服务和使用定时器，但不会提供框架内部能力（ctx.root、ctx.fiber、ctx.extend、ctx.plugin 等）。不过，它并非安全边界：你注入的服务（例如 ctx.bash）会访问真实运行时。
+在当前 DSH 进程中挂载临时 Cordis Plugin。它创建的是内存中的运行时 Plugin，而不是已安装或已配置的 Plugin。该插件会在后续轮次中保持活动，直到执行 cordis_unmount、工具集卸载或 DSH 重启。它不会创建文件、安装包、修改 cordis.yml 或个人／项目配置、在重启后保留，也不会自动转为永久插件。若要保留，请让 Agent 通过常规开发工作流实现 SDK Plugin 或可安装的 profile bundle。它可能影响同一进程中的其他会话；沙箱不是安全边界，注入的服务会访问真实运行时。`code` 会立即作为异步 JavaScript 函数的函数体在隔离沙箱中运行，并且**必须** `return` 一个插件。支持两种形式：函数形式 `return (ctx) => { … }`，它不声明 inject，因此可以注册工具、监听事件和提供服务，但访问**任何**服务（例如 ctx.bash）都会抛出异常；仅在不需要服务时使用。对象形式 `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }`，它声明依赖，Cordis 只在服务存在后激活插件；**优先使用**这种形式。你只能访问 inject 中列出的服务：即使未声明的服务存在，访问它也会抛出异常，因为如果提供方被卸载，未声明的依赖将无法清理。代码调用服务**之前**，请读取 cordis_inspect 的 what:"api"；它会列出方法签名以及参数／返回值的类型形状，不要猜测字段类型，例如 bash 运行的 stdout 是对象而非字符串。在 `apply` 内，请使用标准 Cordis API：通过 `ctx.on(event, listener)` 观察事件（见 cordis_inspect 的 what:"events"），或调用 `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` 为自己提供新工具；该工具会在你的**下一步骤**可调用。工具参数：每个键**就是**一个属性，即 { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }；每个直接 DSL 对象都声明 additionalProperties: true|false，而 oneOf: [schema, schema, ...] 会取代 type，表示恰好匹配一个成员的联合。也接受原始 JSON Schema { type: 'object', properties, required?: […] } 包装层，其中对象默认开放。工具的 `execute` **必须**返回 `output.schema` 声明的无损 JSON 值；`output.render(args, value)` 单独返回 Native／模型内容块。临时 Plugin 可以**组合**：一个 Plugin 可以通过 `ctx.provide('name', value)` 提供服务，另一个则可声明 `inject: ['name']` 来消费它；消费方会在提供方出现前保持等待，提供方卸载后重新回到等待状态。在 `apply` 中注册的一切都会由 cordis_unmount 自动清理。沙箱全局对象：`console`（带 `[cordis:<id>]` 标签，写入 harness 终端）、`harness.defineTool`、`harness.registerTool`、`btoa`、`atob`、`TextEncoder`、`TextDecoder`。Node API 已**禁用**：文件系统／网络／定时工作必须通过 Cordis 服务完成，绝不能使用 Node 内置能力；`require`、`setTimeout`／`setInterval` 和 `fetch` 会抛出重定向错误，`process` 和 `Buffer` 未定义。应改用 inject: ['fs'] + ctx.fs 处理文件、inject: ['web'] + ctx.web 处理 HTTP、inject: ['bash'] + ctx.bash 处理进程、inject: ['timer'] + ctx.setTimeout/ctx.setInterval 处理定时（这些是 fiber effect，卸载时自动清理）；cordis_inspect 的 what:"api" 会展示**当前**运行时提供的能力。请编写**纯** JavaScript，不要使用 TypeScript（不得使用 `as` 或类型注解）。注意事项：(1) waterfall（瀑布式事件）事件（例如 tools/pre-execute）会向监听器传入最后一个 `next` 回调，该回调**必须**被调用；不调用 `next()` 就返回会**短路**此次调用。除非你有意拦截，否则请优先使用普通通知事件。(2) 切勿等待只能在当前轮次之后解析的内容；你的代码运行在该轮次的工具调用**内部**，否则会死锁。(3) 你的 `ctx` 是受限门面：可以注册工具、观察事件、提供／消费服务和使用定时器，但不会提供框架内部能力（ctx.root、ctx.fiber、ctx.extend、ctx.plugin 等）。不过，它并非安全边界：你注入的服务（例如 ctx.bash）会访问真实运行时。
 
 ```json
 {
@@ -489,6 +489,27 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
+### `read_image`
+
+读取 PNG/JPEG/WebP/GIF 文件并返回图像本身。要求当前模型接受图像输入。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to the image file, resolved by the filesystem backend."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+
 ### `write`
 
 创建或完全替换 UTF-8 文本文件。
@@ -515,7 +536,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
-先读后写／编辑策略由 `@deepseek-ai/dsh-fs-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。无论是否加载策略插件，上述工具 schema 都完全相同。
+先读后写／编辑策略由 `@deepseek-ai/dsh-fs-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。
 
 ## `@deepseek-ai/dsh-tool-fs-search`
 

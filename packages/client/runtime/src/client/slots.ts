@@ -14,8 +14,8 @@
  * holds this package's 'root' row in this compilation unit, but consumers
  * merge keys in; the rule fires on the narrow-map view, not on real
  * redundancy. */
-import { Service } from 'cordis'
-import type { Context } from 'cordis'
+import { Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,

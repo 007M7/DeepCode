@@ -7,8 +7,8 @@
  * @module @deepseek-ai/dsh-web-fetch-local
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import { LocalFetchProvider } from './provider.ts'
 import type { LocalFetchLimits } from './provider.ts'

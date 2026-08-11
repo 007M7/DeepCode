@@ -30,7 +30,7 @@ function listStore() {
     },
     current: undefined,
     phase: 'ready',
-    subagentsByParent: {},
+    subagentsByParent: {}, tasksBySession: {},
     currentAddress: undefined,
   })
 }

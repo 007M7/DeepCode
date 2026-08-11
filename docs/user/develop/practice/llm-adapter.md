@@ -11,8 +11,8 @@ An LLM adapter extends `LlmAdapter` and implements `stream()`, translating Harne
 ## Minimal implementation
 
 ```ts
-import type { Context } from 'cordis'
-import Schema from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
 import { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
 class MyAdapter extends LlmAdapter {

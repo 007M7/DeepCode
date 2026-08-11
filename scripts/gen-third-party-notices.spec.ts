@@ -134,13 +134,17 @@ describe('parseVendoredRows', () => {
     const rows = parseVendoredRows(readFileSync(resolve(root, 'vendor/README.md'), 'utf8'))
 
     expect(rows.length).toBeGreaterThan(0)
-    expect(rows).toContainEqual({ npmName: 'cordis', upstream: 'https://github.com/cordiverse/cordis' })
+    expect(rows).toContainEqual({
+      npmName: '@deepseek-ai/cordis',
+      upstreamName: 'cordis',
+      upstream: 'https://github.com/cordiverse/cordis',
+    })
     // The upstream column carries a trailing package path for some rows; it is not part of the URL.
     expect(rows.every(row => /^https:\/\/\S+$/.test(row.upstream))).toBe(true)
   })
 
   it('yields nothing when the table columns change, so the generator fails loud', () => {
-    expect(parseVendoredRows('| `cordis/` | cordis | 4.0.0 | https://example.com | `abc123` |\n')).toEqual([])
+    expect(parseVendoredRows('| `cordis/` | `@deepseek-ai/cordis` | cordis | 4.0.0 | https://example.com | `abc123` |\n')).toEqual([])
   })
 
   it('covers every vendored directory, so no package can drop out of the notices', () => {
@@ -227,7 +231,7 @@ describe('collectPythonDependencies', () => {
   it('excludes normalized local project names without exempting a third-party prefix', () => {
     const pyprojects = [
       '[project]\nname = "deepseek-harness-runtime-bin"\ndependencies = ["pydantic"]\n',
-      '[project]\nname = "deepseek-harness"\ndependencies = ["DeepSeek.Harness_Runtime-Bin", "deepseek-unrelated"]\n',
+      '[project]\nname = "deepseek-harness-sdk"\ndependencies = ["DeepSeek.Harness_Runtime-Bin", "deepseek-unrelated"]\n',
     ]
     expect(() => collectPythonDependencies(pyprojects)).toThrow(
       'python dependency deepseek-unrelated is missing from PYTHON_METADATA',

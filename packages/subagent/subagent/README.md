@@ -44,7 +44,7 @@ Every in-process child is composed by one call, `applyChildComposition(childCtx,
 
 `childSessionMeta()` records the joined preset id on the child's durable header for the same reason a top-level session records its own: the preset decides the tool schemas and prompt sections the model saw, so a cold read of the child's history has to rebuild that composition rather than the deployment default. It is read from the parent's live scope chain, not from the parent header, because a parent that switched preset while blank runs on the newer composition while its header still names the older one.
 
-Continuable creation is the optional `SubagentProvider.prepareContinuable?()` method: its presence is the capability check, so the service rejects a configured continuable start on a provider without it, while a provider that has it may still serve ordinary one-shot delegations. The method returns only a detached `ContinuableCreateSpec` (`{ seed? }`) — data, never a capability: it carries no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation, because the continuation manager owns identity reservation, composition, Agent creation, prompt delivery, cold resume, ownership, and disposal after preparation. A one-shot `SubagentRun` represents one disposable foreground delegation with one result and no cold-resume operation.
+Continuable creation is the optional `SubagentProvider.prepareContinuable?()` method: its presence is the capability check, so the service rejects a configured continuable start on a provider without it, while a provider that has it may still serve ordinary one-shot delegations. The method returns only a detached `ContinuableCreateSpec` (`{ seed? }`) — data, never a capability: it carries no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation, because the continuation manager owns identity reservation, composition, Agent creation, prompt delivery, cold resume, ownership, and disposal after preparation. A one-shot `SubagentRun` represents one disposable foreground delegation with one result and no cold-resume operation. The service may invoke one provider concurrently for distinct siblings: each start or preparation owns its mutable state and cancellation path, and one operation's failure, result, or cleanup must not settle or release another. A provider may queue its own capacity internally without changing that independence contract.
 
 ## The durable descriptor
 
@@ -56,11 +56,15 @@ The seam owns the depth vocabulary shared by Service providers and Consumers: th
 
 `inheritsParentContext` is descriptive rather than enforceable. It says only whether the child sees completed parent conversation history (`fork` does; `spawn` and the out-of-process one-shot providers do not), not whether it inherits tools, services, or authority.
 
+## Delegated policy
+
+Both in-process delegation paths fix the child's permission scope at the delegation boundary through the shared child-agent helpers. `captureDelegatedPolicyOverrides(parent)` snapshots the parent session's explicit sandbox override (`sandboxPolicy.overrideOf()`) and pins the child's approval policy to `'never'` whenever the approval capability is composed — regardless of the parent's own policy — so a delegated child acts only within its inherited sandbox scope and every ask (for example a `sandbox_permissions` escalation) is rejected deterministically instead of waiting on a prompt no one is watching (both services are optional `ctx.get` consumers). `appendDelegatedPolicyOverrides()` writes each value onto the child's own log as a `source: 'delegation'` `sandbox/mode` or `approval/policy` event during unpublished setup, after any fork seed — so fresh policy wins stale seed state and the child's effective policy stays reconstructable from its log alone. The sandbox deployment default is never copied: an unswitched parent stamps no `sandbox/mode` and its child follows the deployment default dynamically. A continuable start captures before its first await and seeds only fresh materialization; a cold resume replays the persisted delegation events instead of re-capturing the parent, so a parent switch after creation never retroactively changes a durable child. Every in-process child also receives a scoped runtime-context statement (`subagent:delegation`) telling it the scope is fixed and that a task needing wider access ends with a reported limitation, not retries. See the [one-shot](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md) and [continuable](../../../.agents/notes/implemented/feature/2026-08-10-continuable-subagent-policy-inheritance.md) delegation-policy Agent Notes.
+
 ## One-shot ownership and lifecycle
 
 `provider.start(request): Promise<SubagentRun>` is the ownership-transfer boundary; the delegation tool also uses it inside its one-shot Task-backed background path. Before fulfillment, the provider owns setup and must cancel, roll back, and quiesce unpublished resources on every failure. After fulfillment, the caller owns the run and must call `dispose()` on every path; remaining prompt and turn work belongs to `SubagentRun.result`.
 
-`SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. `dispose()` is idempotent, cancels remaining work, and waits for both result settlement and child-resource quiescence. A result rejection remains on `result`; `dispose()` rejects only for an independent resource-release failure.
+`SubagentRun.result` resolves to `{ output, structured?, stopReason }`. Child-level failures resolve with a non-`completed` reason; only an infrastructure fault that the seam cannot represent may reject. `dispose()` is idempotent, cancels remaining work, and waits for both result settlement and child-resource quiescence. A result rejection remains on `result`; `dispose()` rejects only for an independent resource-release failure. `output` and the `subagent/end` event's `lastAssistantMessage` use the exported `AssistantOutputFold`/`finalAssistantOutput` helpers to select the child's last non-empty assistant message, or its accumulated assistant text when no such message exists. `output` is `[]` and the event field is absent when the child produced neither ([`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) owns the result contract).
 
 A local run publishes an ordinary child agent/session before `start()` fulfills, returns that shared session id as `SubagentRun.id`, exposes the exact child as `SubagentRun.localAgent`, records `request.parent.session.id` in the child's `parentSession` header, and appends the resolved descriptor inside its initial turn. Remote providers instead mint a parent-scoped lifecycle id and return `localAgent: undefined`; without a local child session, their one-shot runs are not part of trace-backed enumeration.
 
@@ -96,11 +100,25 @@ Continuable Activations await a best-effort final session flush without treating
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-subagent`, `dsh-tool-subagent-control`, and `dsh-tool-subagent-report`. The first owns delegation schemas, the second owns parent continuation and discovery, and the third contributes `report` only to continuable child scopes.
+### Child delegation-scope statement
+
+#### What the model sees
+
+Every in-process child's runtime-context snapshot carries the `subagent:delegation` statement below, after the sandbox-policy and approval-policy sentences; parent-side rendering stays with `dsh-tool-subagent` (delegation schemas), `dsh-tool-subagent-control` (continuation and discovery), and `dsh-tool-subagent-report` (the child-scoped `report`).
+
+##### The delegation-scope statement
+
+```markdown
+You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+```
+
+#### Token effect
+
+One fixed statement in each child's runtime-context snapshot; none in the parent's requests.
 
 #### KV Cache effect
 
-No direct invalidation; the named consumers own any request-prefix changes.
+Prefix-stable within a child: the statement never changes during the child's lifetime, so it is written once into the first runtime-context snapshot. Parent-side, no direct invalidation; the named tool consumers own any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

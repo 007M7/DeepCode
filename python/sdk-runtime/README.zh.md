@@ -2,14 +2,14 @@
 
 [English](README.md) | 中文
 
-Python SDK 的运行时载体包（分发名 `deepseek-harness-runtime-bin`，模块名 `deepseek_harness_runtime`）：它定位 `deepseek-harness` 客户端要 spawn 的内置运行时二进制，并附带支撑零配置运行的默认配置。
+Python SDK 的运行时载体包（分发名 `deepseek-harness-runtime-bin`，模块名 `deepseek_harness_runtime`）：它定位 `deepseek-harness-sdk` 客户端要 spawn 的内置运行时二进制，并附带支撑零配置运行的默认配置。
 
 ## 运行时载体
 
 两种载体并存于 `src/deepseek_harness_runtime/runtime/` 之下，均由仓库的 `scripts/build-exe-for-python-sdk.ts` 构建注入，且均被 git 忽略：
 
 - **exe（生产）**——单文件 Node 可执行程序 `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（platform：`linux`/`macos`；arch：`x64`/`arm64`）。macOS 构建还会随附 `node-pty` 在该平台使用的原生 `-spawn-helper` 伴随文件。目标机器无需安装 Node。这是唯一随 wheel 包分发的载体；本包不发布 sdist。
-- **node（仅限开发）**——`runtime/node/` 下的完整部署闭包（`package.json` + `node_modules/`），在系统 Node >= 22.19 上以 `node runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js` 执行。它是当前检出的源码构建，仅用于仓库本地的开发与验证；不会被自动选中，也不进入分发物。
+- **node（仅限开发）**——`runtime/node/` 下的完整部署闭包（`package.json` + `node_modules/`），在系统 Node >= 22.19 上以 `node runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/packaged-bin.js` 执行。它是当前检出的源码构建，仅用于仓库本地的开发与验证；不会被自动选中，也不进入分发物。
 
 两种载体承载相同的内容，且只定义一次：本包根目录的 [package.json](package.json) 是 single-exe 流水线的部署根目录——一份零代码的纯依赖 manifest，其依赖闭包既是编译进 exe 的插件集，也是物化到 `runtime/node/` 的文件树。往分发物里加插件，就是在那里加一行依赖再重新构建。
 

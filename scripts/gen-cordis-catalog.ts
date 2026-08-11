@@ -63,6 +63,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   httpServer: 'http-server.md',
   invariants: 'invariants.md',
   llm: 'llm-streaming.md',
+  messageFeedback: 'feedback.md',
   permission: 'permission.md',
   planMode: 'plan.md',
   pty: 'pty.md',
@@ -99,7 +100,7 @@ export const SERVICE_PAGE: Record<string, string> = {
 /**
  * Context keys declared in `interface Context` merges that the rendering
  * projection cannot see, each with the reason and its documentation owner.
- * The scan that enforces this list reads EVERY `declare module 'cordis'`
+ * The scan that enforces this list reads EVERY `declare module '@deepseek-ai/cordis'`
  * Context merge under `packages/x/x/src/**` — any depth, not only root
  * `index.ts` files with a same-named service class — so a new service can
  * never silently join this blind spot: it either enters {@link SERVICE_PAGE}
@@ -111,6 +112,8 @@ export const SERVICE_PAGE: Record<string, string> = {
  */
 export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   agent: 'not a service: the DX accessor field on Agent.ctx (root accessor defaulting to undefined) — docs/subsystems/core.md owns the Agent handle',
+  appExit: 'not a service: launcher-provided bounded process-exit callback — packages/boot/cmdline/README.md owns the launcher contract',
+  cmdlineArgs: 'not a service: launcher-provided immutable app argument accessor — packages/boot/cmdline/README.md owns the launcher contract',
   configuredAgentIdentities: 'not a service: launcher-provided boot-context value (ConfiguredAgentIdentities | undefined) — packages/core/agent-loop/README.md owns this launcher contract',
   launcherSessionQueryPath: 'not a service: launcher-provided boot-context value (string | undefined) — packages/session-query/session-query-sqlite/README.md owns this launcher contract',
   dshHomePath: 'not a service: boot-provided root accessor function (typeof dshHomePath | undefined) for Loader !!js config expressions — packages/boot/app-boot/README.md owns the boot contract',
@@ -130,7 +133,6 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   models: 'client-side interface-typed browser service — packages/client/ui-model/README.md owns the surface',
   modules: 'client-side interface-typed browser service — packages/client/modules/README.md owns the surface',
   remote: 'client-side interface-typed gateway accessor (ClientRemote) — packages/api/gateway/README.md owns the surface',
-  sessionHistory: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
   slash: 'client-side interface-typed browser service — packages/client/ui-slash/README.md owns the surface',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the surface',
@@ -168,7 +170,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
  * Event names declared in `interface Events` merges that the rendering
  * projection cannot see, each with the reason and its documentation owner.
  * The mirror of {@link SERVICE_WALK_EXEMPTIONS} for events: an independent
- * scan reads EVERY `declare module 'cordis'` Events merge under
+ * scan reads EVERY `declare module '@deepseek-ai/cordis'` Events merge under
  * `packages/x/x/src/**`, so a declared event either renders onto a subsystems
  * page (via {@link EVENT_SCOPE_PAGE}) or names itself here — never vanishes
  * silently. Keys are full event names, not scopes: client-face events share
@@ -228,6 +230,25 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ResolvedRetryPolicy: 'llm-streaming.md',
   Message: 'llm-streaming.md',
   MessageSource: 'llm-streaming.md',
+  MessageFeedbackDeleteRequest: 'feedback.md',
+  MessageFeedbackDeleteResult: 'feedback.md',
+  MessageFeedbackDeleteValue: 'feedback.md',
+  MessageFeedbackFailure: 'feedback.md',
+  MessageFeedbackItem: 'feedback.md',
+  MessageFeedbackListRequest: 'feedback.md',
+  MessageFeedbackListResult: 'feedback.md',
+  MessageFeedbackListValue: 'feedback.md',
+  MessageFeedbackNoteBlank: 'feedback.md',
+  MessageFeedbackNoteTooLarge: 'feedback.md',
+  MessageFeedbackPutRequest: 'feedback.md',
+  MessageFeedbackPutResult: 'feedback.md',
+  MessageFeedbackRating: 'feedback.md',
+  MessageFeedbackRejected: 'feedback.md',
+  MessageFeedbackSessionNotFound: 'feedback.md',
+  MessageFeedbackSuccess: 'feedback.md',
+  MessageFeedbackTargetNotFound: 'feedback.md',
+  MessageFeedbackVersion: 'feedback.md',
+  MessageFeedbackVersionConflict: 'feedback.md',
   UserMessage: 'session.md',
   PreStepDecision: 'core.md',
   PreStepContext: 'core.md',
@@ -301,6 +322,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionLocation: 'persistence.md',
   SessionPreparation: 'persistence.md',
   SessionPersistenceSnapshot: 'persistence.md',
+  SessionRawArtifact: 'persistence.md',
   ConfinedArgv: 'sandbox.md',
   SandboxExecutionPolicy: 'sandbox.md',
   SandboxMode: 'sandbox.md',
@@ -383,6 +405,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   TaskRead: 'tasks.md',
   TaskSnapshot: 'tasks.md',
   TaskStart: 'tasks.md',
+  TasksChangedListener: 'tasks.md',
   TokenMeasurement: 'token-meter.md',
   CodeDispatchLog: 'tools.md',
   PostToolDecision: 'tools.md',
@@ -461,6 +484,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Promise',
   'Record',
   'Readonly',
+  'Uint8Array',
 ])
 
 /** Project types deliberately documented outside the subsystems catalog. */

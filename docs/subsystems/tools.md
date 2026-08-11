@@ -480,12 +480,14 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 
 ```ts cordis-catalog
 /**
- * Present this agent's tools in `mode` instead of the deployment default.
+ * Present the calling scope's tools in `mode` instead of the deployment
+ * default. Nearest scope on the chain wins, so a preset's standing
+ * declaration covers every agent joined under it.
  *
- * Scoped only, and one declaration per agent: this is how an agent preset
- * composes a Code Mode agent beside native ones in the same process, and a
+ * Scoped only, and one declaration per scope: this is how an agent preset
+ * composes Code Mode agents beside native ones in the same process, and a
  * process-global override would be the `mode` config field instead.
- * @param mode - the presentation this agent's model sees.
+ * @param mode - the presentation the covered agents' models see.
  * @returns the exact disposer that restores the deployment default.
  */
 presentAs(mode: ToolPresentationMode): () => void

@@ -47,6 +47,7 @@
         "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "acp-agent/tests/fixtures/child-question-tripwire.ts",
+        "acp-agent/tests/fixtures/parent-sandbox-override.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
@@ -67,7 +68,6 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
-        "@cordisjs/plugin-logger-console",
         "@deepseek-ai/.+"
       ]
     },
@@ -717,20 +717,6 @@
         "@deepseek-ai/.+"
       ]
     },
-    "apps/cli/tests/fixtures/github-repository-plugin/.dsh-plugin": {
-      "entry": [
-        "src/*.ts"
-      ],
-      "project": [
-        "src/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "@deepseek-ai/dsh-repository-plugin"
-      ],
-      "ignoreBinaries": [
-        "dsh-plugin-prepare"
-      ]
-    },
     "packages/client/modules": {
       "entry": [
         "tests/**/*.spec.ts"
@@ -761,8 +747,7 @@
     },
     "packages/bundle/base": {
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/bundle/headless": {

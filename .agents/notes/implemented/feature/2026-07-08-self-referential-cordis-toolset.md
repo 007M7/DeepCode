@@ -40,7 +40,7 @@ The boundary normalizes unambiguous JSON-Schema forms into `ParameterSchemaSpec`
 
 Every temporary Plugin is a child of one internal `cordis-dynamic` group beneath the tool plugin, so ordinary fiber disposal handles toolset reload and unload. `cordis_mount` awaits settlement; startup failure disposes the fiber before returning an error. A settled pending Plugin remains visible with its missing injections. `cordis_unmount` awaits the Plugin fiber's disposal.
 
-Temporary Plugins exist only in process memory. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and have no automatic save, promote, or install path. Keeping an experiment means asking the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
+Temporary Plugins exist only in process memory. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and have no automatic save, promote, or install path. Keeping an experiment means asking the Agent to implement a normal project Plugin or installable profile bundle through the regular development workflow.
 
 ### Cross-mount composition via provide/inject
 

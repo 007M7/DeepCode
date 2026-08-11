@@ -3,7 +3,7 @@
 # entries behind a nested include; the acp-agent restatement keeps the recorded
 # deepseek-v4-flash model and raw JSONL persistence for the harness's harvest.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ../cordis.yml
     patches:

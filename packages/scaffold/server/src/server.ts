@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-jsonrpc/server
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { resolve } from 'node:path'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -216,6 +216,10 @@ export class HarnessSdkServer {
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
+    // No preset composition: this server's compositions keep the model-facing
+    // rows in the host plane, so this agent reads them from the global layer. A
+    // deployment that configures a roster has to join one here first
+    // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },

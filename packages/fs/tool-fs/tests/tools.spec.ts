@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
@@ -70,6 +70,13 @@ class FakeFs extends FileSystem {
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()
+  }
+  override async readBytes(target: FsTarget, _signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    const bytes = new TextEncoder().encode(this.files.get(target.targetKey) ?? '')
+    if (bytes.length > maxBytes) {
+      throw new FsError(`too large: ${target.displayPath}`, 'FS_TOO_LARGE')
+    }
+    return bytes
   }
   override async listDir(_target: FsTarget): Promise<FsDirEntry[]> {
     return []

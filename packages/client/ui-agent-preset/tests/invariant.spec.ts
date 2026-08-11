@@ -1,7 +1,7 @@
 /** The package's node half: an empty host body and an explained empty invariant companion. */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as AgentPresetInvariant from '@deepseek-ai/dsh-client-ui-agent-preset/invariant'
 

@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-subagent/activation-setup-registry
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { AgentSetupCommit } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import { SubagentError } from './error.ts'
