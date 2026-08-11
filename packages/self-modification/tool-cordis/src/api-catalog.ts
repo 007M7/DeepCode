@@ -1406,6 +1406,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
+    name: 'agent-preset/selected',
+    mode: 'emit',
+    signature: '\'agent-preset/selected\'(sessionId: SessionId, agentPreset: string): void',
+    jsDoc: '/**\n * One session committed a different agent preset to its durable log.\n * Consumers invalidate only state derived from that session\'s composition.\n * @mode emit\n * @param sessionId - the session whose composition changed.\n * @param agentPreset - the preset recorded by the committed selection.\n */',
+    summary: 'One session committed a different agent preset to its durable log.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
@@ -1549,7 +1556,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
-    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This payload-free registry notification fires at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
   },
   {

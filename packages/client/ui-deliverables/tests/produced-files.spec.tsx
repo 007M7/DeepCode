@@ -16,9 +16,9 @@ import type {
   ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
   ConversationViewNode, ToolResultNode, TurnLocation,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
@@ -341,7 +341,10 @@ describe('plugin registration', () => {
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+    // ui-theme's Appearance row binds a durable scope through these two.
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+    await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()

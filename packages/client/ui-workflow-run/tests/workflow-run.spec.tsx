@@ -9,8 +9,8 @@ import type {
   ChatConversationViewNode, ConversationEventInput, ConversationMatch, ConversationNodeDefinition,
   ConversationViewDefinition, SessionId, SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
+import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   WorkflowRunPanel, type WorkflowRunInjected, type WorkflowRunPanelProps,
 } from '../src/client/WorkflowRunPanel.tsx'
@@ -481,13 +481,15 @@ describe('plugin lifecycle', () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     await ctx.plugin(ConversationEventRegistry).await()
     await ctx.plugin(TestSessions).await()
     ctx.slots.register({
       name: 'root',
       children: { 'conversation.chat.node': { kind: 'keyed', scope: 'session' } },
     } as never, () => null)
-    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+    await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.conversationEvents.entries().map(entry => entry.kind)).toEqual(['workflow-run'])
