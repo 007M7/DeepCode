@@ -7,6 +7,7 @@ import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { NativeDirectoryFlow } from '../src/client/flow.ts'
+import { apply as nodeApply } from '../src/index.ts'
 
 afterEach(cleanup)
 
@@ -223,5 +224,13 @@ describe('directory-picker-native client half', () => {
     expect(closed.container.innerHTML).toBe('')
     const opened = render(<NativeDirectoryFlow {...owner()} pick={vi.fn(async () => null)} />)
     expect(opened.container.innerHTML).toBe('')
+  })
+})
+
+describe('directory-picker-native node half', () => {
+  // The invariant companion is mounted by the vitest-wide invariant host on
+  // every Context this suite creates; its registration is covered there.
+  it('the node apply is an inert loader seat', () => {
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })

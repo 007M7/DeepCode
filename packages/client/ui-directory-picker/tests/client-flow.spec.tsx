@@ -9,6 +9,7 @@ import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
+import { apply as nodeApply } from '../src/index.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -219,5 +220,13 @@ describe('directory-picker-browse client half', () => {
       />,
     )
     expect(view.container.innerHTML).toBe('')
+  })
+})
+
+describe('directory-picker-browse node half', () => {
+  // The invariant companion is mounted by the vitest-wide invariant host on
+  // every Context this suite creates; its registration is covered there.
+  it('the node apply is an inert loader seat', () => {
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })
