@@ -67,7 +67,7 @@ function WorkspaceHoverContent({ label, cwd, createdAt, t }: {
 }
 
 /**
- * Project (workspace) header row: 54px, folder + title + session count;
+ * Project (workspace) header row: folder + title;
  * hover reveals the chevron and create button, and dwelling on a real
  * Workspace shows its hover card (the ungrouped bucket has none).
  * `containsCurrent` arrives on the node (derivation fact, no renderer scan).
@@ -89,7 +89,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = group.expanded && group.containsCurrent
-  const count = t(row.sessionCount === 1 ? 'sessions.count.one' : 'sessions.count.other', { n: row.sessionCount })
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
@@ -110,7 +109,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
       </span>
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
-        <span className={css.meta}>{count}</span>
       </span>
       <span className={css.rowActions}>
         {actions !== undefined && (

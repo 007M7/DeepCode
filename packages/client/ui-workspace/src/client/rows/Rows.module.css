@@ -82,14 +82,10 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* Two-line row: the leading slot (folder/chevron), title, and trailing
-   actions all top-align on the 20px first text line (figma cell) — content
-   is 42px (20 + 2 + 20), so 6px vertical padding centers the block. */
+/* Compact one-line Workspace row after removing the session-count subtitle. */
 .projectRow {
-  height: 54px;
-  align-items: flex-start;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  height: 36px;
+  align-items: center;
   box-sizing: border-box;
 }
 

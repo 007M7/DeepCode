@@ -9,9 +9,11 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type WorkspaceGroupBy = 'workspace' | 'flat'
+/** Session order: durable Workspace order or a derived timestamp order. */
+export type WorkspaceOrderBy = 'manual' | 'created' | 'updated'
 
-/** Workspace browser viewing state (grouping mode only; transient UI facts stay component-local). */
-type WorkspaceViewState = { groupBy: WorkspaceGroupBy }
+/** Workspace browser viewing state; transient expansion facts stay component-local. */
+type WorkspaceViewState = { groupBy: WorkspaceGroupBy; orderBy: WorkspaceOrderBy }
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -19,6 +21,7 @@ type WorkspaceViewState = { groupBy: WorkspaceGroupBy }
  */
 type WorkspaceViewActions = {
   setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
+  setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
 }
 
 /**
@@ -27,10 +30,12 @@ type WorkspaceViewActions = {
  */
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   return defineStore({
-    init: (): WorkspaceViewState => ({ groupBy: 'workspace' }),
-    persist: 'dsh.workspace.view',
+    init: (): WorkspaceViewState => ({ groupBy: 'workspace', orderBy: 'manual' }),
+    // The added order field changes the whole-value persistence format.
+    persist: 'dsh.workspace.view.v2',
     actions: {
       setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
+      setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
     },
   })
 }

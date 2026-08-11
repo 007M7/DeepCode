@@ -147,6 +147,8 @@ export type QueueAction =
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
+  /** Session creation time from the durable session header when supplied by the Host. */
+  createdAt?: number
   /**
    * Last activity. Attached: the last non-`session/end-seed` event, since a
    * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend

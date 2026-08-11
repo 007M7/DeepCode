@@ -1,6 +1,6 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + group-by + add
+ * `sidebar.workspaces` hole: section header (title + view options + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
  * region icons (search / add workspace), each requesting shell expansion
@@ -19,7 +19,7 @@ import type {
   SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
-import type { SessionNode } from './tree.ts'
+import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
@@ -34,6 +34,8 @@ const EXPAND_SLIDE_MS = 300
 const SEARCH_DEBOUNCE_MS = 250
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
+/** Session rows visible per Workspace before the local overflow control. */
+const COLLAPSED_SESSION_LIMIT = 6
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
@@ -51,10 +53,12 @@ function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
 }
 
-/** Group-by strategy menu; own open state so it resets with the wide chrome. */
-function GroupByMenu({ groupBy, onPick, t }: {
+/** Grouping and ordering menu; own open state so it resets with the wide chrome. */
+function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
   groupBy: 'workspace' | 'flat'
-  onPick: (mode: 'workspace' | 'flat') => void
+  orderBy: SessionOrderBy
+  onGroupPick: (mode: 'workspace' | 'flat') => void
+  onOrderPick: (mode: SessionOrderBy) => void
   t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
@@ -66,14 +70,19 @@ function GroupByMenu({ groupBy, onPick, t }: {
         { type: 'label' as const, id: 'group-by', text: t('groupBy.label') },
         { id: 'workspace', label: t('groupBy.workspace') },
         { id: 'flat', label: t('groupBy.flat') },
+        { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
+        { id: 'manual', label: t('orderBy.manual'), disabled: groupBy !== 'workspace' },
+        { id: 'created', label: t('orderBy.created') },
+        { id: 'updated', label: t('orderBy.updated') },
       ]}
-      selectedId={groupBy}
+      selectedIds={[groupBy, orderBy]}
       onSelect={(id) => {
-        /* v8 ignore next -- narrowing guard: the heading label is not selectable, so the only arriving ids are the two modes. */
-        if (id === 'workspace' || id === 'flat') onPick(id)
+        if (id === 'workspace' || id === 'flat') onGroupPick(id)
+        else if (id === 'manual' || id === 'created' || id === 'updated') onOrderPick(id)
         setOpen(false)
       }}
       align="end"
+      dense
       // Portal: the section header clips overflow, so an in-place list would
       // be cut off at the header's bounds.
       portal
@@ -116,16 +125,19 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Visual order; only manual mode exposes durable Workspace dragging. */
+  orderBy: SessionOrderBy
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, t,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, orderBy, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  const [expandedSessionGroups, setExpandedSessionGroups] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
   const currentGroup = current === undefined
@@ -137,8 +149,8 @@ function SessionTree({
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }),
-    [list, workspaces, archivedSessionIds, expandedProjects],
+    () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }, orderBy),
+    [list, workspaces, archivedSessionIds, expandedProjects, orderBy],
   )
   const now = Date.now()
 
@@ -173,11 +185,14 @@ function SessionTree({
                   },
                 }}
             />
-            {group.sessions.map((node, index) => {
+            {(expandedSessionGroups.includes(group.key)
+              ? group.sessions
+              : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)
+            ).map((node, index) => {
               // Draggable: real-workspace session rows. The drag
               // never leaves its group — rows of other groups show no markers
               // and reject drops (visual movement confined to this section).
-              const draggable = group.workspaceId !== undefined
+              const draggable = group.workspaceId !== undefined && orderBy === 'manual'
               const sameGroupDrag = drag !== null && drag.workspaceId === group.workspaceId
               const dragProps = !draggable || group.workspaceId === undefined ? undefined : {
                 start: () => {
@@ -223,6 +238,18 @@ function SessionTree({
                 />
               )
             })}
+            {group.sessions.length > COLLAPSED_SESSION_LIMIT && (
+              <button
+                type="button"
+                className={css.sessionOverflowButton}
+                aria-expanded={expandedSessionGroups.includes(group.key)}
+                onClick={() => { setExpandedSessionGroups(keys => toggled(keys, group.key)) }}
+              >
+                {expandedSessionGroups.includes(group.key)
+                  ? t('sessions.collapse')
+                  : t('sessions.expand', { n: group.sessions.length - COLLAPSED_SESSION_LIMIT })}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -232,11 +259,14 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, t }: Pick<
-  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 't'
+function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, orderBy, t }: Pick<
+  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 'orderBy' | 't'
 >) {
   const list = useSessions(s => s)
-  const rows = useMemo(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds])
+  const rows = useMemo(
+    () => deriveFlat(list, archivedSessionIds, orderBy),
+    [list, archivedSessionIds, orderBy],
+  )
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
@@ -367,6 +397,12 @@ export function WorkspaceBrowser({
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
+  // A live HMR handoff can retain the pre-ordering store instance until the
+  // slot is remounted; manual is the established Workspace order.
+  const orderBy = useStore(s => s.orderBy ?? 'manual')
+  // A flat list has no single Workspace account to drag. Keep the stored
+  // grouped preference intact while presenting the flat list by recency.
+  const effectiveOrderBy = groupBy === 'flat' && orderBy === 'manual' ? 'updated' : orderBy
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
@@ -548,7 +584,15 @@ export function WorkspaceBrowser({
             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
-        {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} t={t} />}
+        {wide && (
+          <ViewOptionsMenu
+            groupBy={groupBy}
+            orderBy={effectiveOrderBy}
+            onGroupPick={(mode) => { actions.setGroupBy(mode) }}
+            onOrderPick={(mode) => { actions.setOrderBy(mode) }}
+            t={t}
+          />
+        )}
         {/* Adding is the button's one action, so a composition with no
             picking affordance has nothing to offer here: the region hides the
             button rather than leaving a dead one in the header. */}
@@ -644,7 +688,7 @@ export function WorkspaceBrowser({
               <FlatList
                 useSessions={useSessions} open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
-                archivedSessionIds={archivedSessionIds} t={t}
+                archivedSessionIds={archivedSessionIds} orderBy={effectiveOrderBy} t={t}
               />
             )
             : (
@@ -658,6 +702,7 @@ export function WorkspaceBrowser({
                 startSession={startSession}
                 open={open}
                 insertSessionBefore={insertSessionBefore}
+                orderBy={orderBy}
                 t={t}
                 onRenameRequest={(workspaceId, currentTitle) => {
                   setRenameTarget({ workspaceId, currentTitle })

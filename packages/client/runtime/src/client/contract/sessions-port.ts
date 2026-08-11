@@ -16,6 +16,7 @@ export interface SessionsPortSummary {
   /** Empty-log bit (blank sessions are reused by New Session instead of minting another). */
   blank: boolean
   cwd?: string
+  createdAt: number
   updatedAt: number
 }
 

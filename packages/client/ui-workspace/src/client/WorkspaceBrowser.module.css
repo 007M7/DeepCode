@@ -194,14 +194,14 @@
   position: relative;
 }
 
-/* Bottom fade (figma 133:7666): 72px overlay pinned to the visible bottom,
+/* Bottom fade: compact overlay pinned to the visible bottom,
    transparent -> sidebar fill so it tracks the theme. */
 .fade {
   position: absolute;
   left: 0;
   right: var(--dsh-session-list-edge-inset);
   bottom: 0;
-  height: 72px;
+  height: 24px;
   background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
   pointer-events: none;
 }
@@ -229,9 +229,9 @@
     - var(--dsh-session-list-scrollbar-width)
     - var(--dsh-session-list-scrollbar-offset)
   );
-  /* Clears the 72px bottom fade overlay: at scroll end the last row sits
+  /* Clears the compact bottom fade overlay: at scroll end the last row sits
      above the gradient instead of under it. */
-  padding-bottom: 48px;
+  padding-bottom: 16px;
   scrollbar-gutter: stable;
 }
 
@@ -256,6 +256,24 @@
 /* One workspace section: header row + a compact expanded session run. */
 .groupSection + .groupSection {
   margin-top: 4px;
+}
+
+.sessionOverflowButton {
+  width: 100%;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  padding: 0 12px 0 28px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sessionOverflowButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .empty {

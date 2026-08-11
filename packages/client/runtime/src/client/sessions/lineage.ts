@@ -17,6 +17,7 @@ export interface TitledSessionSummary extends SessionSummary {
 export interface SessionListEntry {
   sessionId: SessionId
   title?: string
+  createdAt: number
   updatedAt: number
   running: boolean
   /** Empty-log bit mirrored from the summary; lists hide blank sessions (filtering stays with the consumer). */
@@ -77,6 +78,7 @@ export function flattenLineage(
     const pendingInteraction = pendingInteractions?.get(s.sessionId)
     out.push({
       ...s,
+      createdAt: s.createdAt ?? s.updatedAt,
       ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
       completed: completed?.has(s.sessionId) ?? false,
       depth,

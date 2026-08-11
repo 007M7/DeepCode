@@ -71,6 +71,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('host/session-added'),
     sessionId: sessionIdSchema,
+    createdAt: z.number().optional(),
     blank: z.boolean(),
     parentSessionId: sessionIdSchema.optional(),
     origin: z.literal('subagent').optional(),
