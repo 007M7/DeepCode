@@ -15,14 +15,14 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
-import { createTransport } from './transport.ts'
-import { syncTools } from './tools.ts'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import type { ReconnectConfig } from './connection.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export type { McpResult } from './tools.ts'
+export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -68,6 +68,8 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -88,10 +90,19 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
 export type Config = StdioConfig | StreamableHttpConfig
+
+const Reconnect: z<ReconnectConfig> = z.object({
+  enabled: z.boolean().default(RECONNECT_DEFAULTS.enabled),
+  initialDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.initialDelayMs),
+  maxDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.maxDelayMs),
+  maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
+})
 
 export const Config = z.union([
   z.object({
@@ -103,6 +114,7 @@ export const Config = z.union([
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    reconnect: Reconnect,
   }),
   z.object({
     transport: z.const('streamable-http'),
@@ -111,6 +123,7 @@ export const Config = z.union([
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    reconnect: Reconnect,
   }),
 ]) as unknown as z<Config>
 
@@ -125,7 +138,12 @@ export const Config = z.union([
  * @returns startup readiness after connection and initial tool discovery settle.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Reserve the namespace first: a duplicate `serverName` fails THIS instance
+  // Fail loud at load: reconnect misconfiguration (including programmatic
+  // construction that bypassed Schemastery) rejects THIS instance before any
+  // effect registers.
+  const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+
+  // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
   ctx.effect(() => {
     let names = activeServerNames.get(ctx.root)
@@ -142,58 +160,22 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return () => void names.delete(config.serverName)
   }, 'mcp-client.serverName')
 
-  const transport = createTransport(config)
-  const client = new Client(
-    { name: 'dsh-mcp-client', version: '0.0.1' },
-    { capabilities: {} },
-  )
+  // The supervisor owns the client/transport generations, the reconnect
+  // loop, and the live tool registrations; disposal stops reconnection,
+  // quiesces in-flight work, and unregisters the current generation.
+  const connection = startConnection(ctx, config, reconnect)
 
-  const opts = {
-    registrationFailure: 'contain' as const,
-    serverName: config.serverName,
-    toolCallTimeoutMs: config.toolCallTimeoutMs,
-  }
-
-  // Connect and set up tools. `ready` always settles to an outcome so rollback
-  // can close a partially opened client even when strict startup later rejects.
-  // Its accessor returns the CURRENT disposer generation, so disposal always
-  // unregisters the live set, not the first one.
-  const ready = (async () => {
-    await client.connect(transport)
-
-    let disposers = await syncTools(client, ctx, {
-      ...opts,
-      registrationFailure: config.failOnStartupError ? 'throw' : 'contain',
-    }, new Map())
-
-    client.setNotificationHandler(
-      ToolListChangedNotificationSchema,
-      async () => {
-        ctx.logger.info(`mcp-client(${config.serverName}): tool list changed, re-syncing`)
-        try {
-          disposers = await syncTools(client, ctx, opts, disposers)
-        } catch (error) {
-          // Fetch-phase failure: the previous generation is still registered
-          // and `disposers` still owns it — keep serving the last good list.
-          ctx.logger.error(`mcp-client(${config.serverName}): tool re-sync failed: ${String(error)}`)
-        }
-      },
-    )
-
-    return { getDisposers: () => disposers }
-  })().catch((error: unknown) => {
-    ctx.logger.error(`mcp-client(${config.serverName}): startup failed: ${String(error)}`)
-    return { getDisposers: () => new Map<string, () => void>(), error }
-  })
-
-  ctx.effect(() => async () => {
-    const outcome = await ready
-    for (const dispose of outcome.getDisposers().values()) dispose()
-    try { await client.close() } catch { /* transport already gone */ }
+  ctx.effect(() => {
+    return () => connection.dispose()
   }, 'mcp-client.connection')
 
-  const outcome = await ready
-  if ('error' in outcome && config.failOnStartupError) {
+  // Block plugin activation on the initial connection + tool discovery so
+  // Cordis consumers observe the tools immediately after the fiber activates.
+  // When failOnStartupError is true, a failed initial attempt rejects the
+  // fiber (Cordis rolls it back); otherwise the error is logged and the
+  // supervisor enters its reconnect loop.
+  const outcome = await connection.ready
+  if (outcome.error !== undefined && config.failOnStartupError) {
     throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
   }
 }

@@ -16,7 +16,7 @@ import { scheduler } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -256,19 +256,29 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       }
     }
     let prefix: Omit<StoredPrefix<JsonlTornMarker>, 'revision'>
-    if (this.compression === 'zstd') {
-      prefix = await this.readZstdPrefix(buffer, signal)
-    } else {
-      signal?.throwIfAborted()
-      const { meta, events, committedBytes } = scanLog(buffer)
-      signal?.throwIfAborted()
-      prefix = {
-        meta,
-        events,
-        ...committedBytes < buffer.byteLength
-          ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
-          : {},
+    try {
+      if (this.compression === 'zstd') {
+        prefix = await this.readZstdPrefix(buffer, signal)
+      } else {
+        signal?.throwIfAborted()
+        const { meta, events, committedBytes } = scanLog(buffer)
+        signal?.throwIfAborted()
+        prefix = {
+          meta,
+          events,
+          ...committedBytes < buffer.byteLength
+            ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
+            : {},
+        }
       }
+    } catch (error: unknown) {
+      // A parse-time format refusal predates any SessionHeader, so the
+      // coordinator's locate-based enrichment cannot run; attach the artifact
+      // this read actually refused.
+      if (error instanceof SessionFormatUnsupportedError && error.location === undefined) {
+        throw new SessionFormatUnsupportedError(`${error.message} (raw log: ${path})`, { kind: 'jsonl', path })
+      }
+      throw error
     }
     signal?.throwIfAborted()
     await this.assertStoredIdentity(path, prefix.meta, expectedId, signal)
