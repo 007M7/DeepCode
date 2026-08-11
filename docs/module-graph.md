@@ -201,6 +201,7 @@ flowchart TD
   end
   subgraph group_feedback["packages/feedback"]
     pkg_command_feedback["command-feedback"]
+    pkg_message_feedback["message-feedback"]
   end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
@@ -571,6 +572,13 @@ flowchart TD
   pkg_time_context --> pkg_agent
   pkg_time_context --> pkg_invariants
   pkg_time_context --> pkg_session
+  pkg_message_feedback --> pkg_brand
+  pkg_message_feedback --> pkg_invariants
+  pkg_message_feedback --> pkg_llm
+  pkg_message_feedback --> pkg_session
+  pkg_message_feedback --> pkg_session_persistence
+  pkg_message_feedback --> pkg_storage_domain
+  pkg_message_feedback --> pkg_type_meta
   pkg_host_apiproxy --> pkg_agent_presets
   pkg_host_apiproxy --> pkg_invariants
   pkg_host_directory_picker_auto --> pkg_host_directory_picker_browse
@@ -1350,6 +1358,7 @@ flowchart TD
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`invariants`](../packages/support/invariants), [`spill`](../packages/spill/spill) |
 | [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
+| [`message-feedback`](../packages/feedback/message-feedback) | `feedback` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`storage-domain`](../packages/storage/storage-domain), [`type-meta`](../packages/typert/type-meta) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`invariants`](../packages/support/invariants) |
 | [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`commands`](../packages/interaction/commands) | `interaction` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
