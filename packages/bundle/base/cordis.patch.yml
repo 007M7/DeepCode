@@ -170,10 +170,21 @@
         mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
         workspaceRoot: !!js process.cwd()
 
+    # POSIX shell executor and its win32 twin: bash has no Windows runner, so
+    # each row gates itself on platform and exactly one shell stack mounts per
+    # host (both executors register the same 'bash' service).
     - id: bash-sandbox
       name: '@deepseek-ai/dsh-bash-sandbox'
+      disabled: !!js process.platform === 'win32'
       config:
         timeoutMs: 60000
+
+    # The confined PowerShell executor, mounted on win32 only. Its config keeps
+    # the schema defaults (a 120s timeout); the 60s pin above is the bash
+    # executor's own knob, not a shared shell policy.
+    - id: pwsh-sandbox
+      name: '@deepseek-ai/dsh-pwsh-sandbox'
+      disabled: !!js process.platform !== 'win32'
 
     - id: approval
       name: '@deepseek-ai/dsh-user-approval'
@@ -197,8 +208,14 @@
     - id: bash-env
       name: '@deepseek-ai/dsh-bash-env'
 
+    # The dialect tools gate with their executors: one shell tool per host.
     - id: tool-bash
       name: '@deepseek-ai/dsh-tool-bash'
+      disabled: !!js process.platform === 'win32'
+
+    - id: tool-pwsh
+      name: '@deepseek-ai/dsh-tool-pwsh'
+      disabled: !!js process.platform !== 'win32'
 
     - id: tool-tasks
       name: '@deepseek-ai/dsh-tool-tasks'

@@ -40,11 +40,11 @@
 # the criterion for host-plane ownership — injection resolves before any session
 # exists, so there is no agent to key by. Behind a preset realm those variables
 # never reached the model's shell at all. `tool-bash` consumes the host registry
-# from here; the executor behind it is host-plane too, where the sandbox policy
-# owns it.
+# from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
+# sandbox policy owns it.
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
-  # POSIX-only: the Windows platform layer swaps the bash stack for the pwsh stack.
+  # POSIX-only: the base composition swaps the bash stack for the pwsh stack on win32.
   disabled: !!js process.platform === 'win32'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
