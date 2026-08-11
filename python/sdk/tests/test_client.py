@@ -60,6 +60,17 @@ for line in sys.stdin:
         }), flush=True)
         print(json.dumps({
             "jsonrpc": "2.0",
+            "method": "session.event",
+            "params": {
+                "sessionId": params["sessionId"],
+                "event": {
+                    "type": "turn/end",
+                    "data": {"turn": 1, "reason": {"kind": "completed"}},
+                },
+            },
+        }), flush=True)
+        print(json.dumps({
+            "jsonrpc": "2.0",
             "method": "session.status",
             "params": {"sessionId": params["sessionId"], "status": "idle"},
         }), flush=True)
@@ -86,7 +97,8 @@ for line in sys.stdin:
         result = harness.run("say hello", session_id="main")
 
     assert result.final_response == "hello from runtime"
-    assert result.events[-1]["type"] == "assistant/message"
+    assert result.finish_reason == "completed"
+    assert result.events[-1]["type"] == "turn/end"
     dumped_env = json.loads(env_dump.read_text())
     assert dumped_env["DEEPSEEK_API_KEY"] == "env-key"
     assert dumped_env["DEEPSEEK_BASE_URL"] == "http://127.0.0.1:4321"
@@ -137,6 +149,7 @@ for line in sys.stdin:
         )
 
     assert seen == ["session.event", "session.status", "subagent.started", "session.status"]
+    assert result.finish_reason is None
 
 
 def test_relative_cwd_is_absolute_in_process_environment_and_wire(

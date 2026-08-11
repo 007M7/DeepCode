@@ -38,6 +38,7 @@ class DeepSeekHarnessConfig:
 class RunResult:
     session_id: str
     final_response: str
+    finish_reason: str | None
     events: list[JsonObject]
     notifications: list[Notification]
     session_root: str | None = None
@@ -174,6 +175,7 @@ class Session:
         return RunResult(
             session_id=self.id,
             final_response=final_response(events),
+            finish_reason=finish_reason(events),
             events=events,
             notifications=notifications,
             session_root=self.harness.config.session_root,
@@ -217,3 +219,15 @@ def final_response(events: list[JsonObject]) -> str:
                 parts.append(str(block.get("text") or ""))
         return "".join(parts)
     return ""
+
+
+def finish_reason(events: list[JsonObject]) -> str | None:
+    """Return the last root turn's reason kind in an owned run interval."""
+    for event in reversed(events):
+        if event.get("type") != "turn/end":
+            continue
+        data = event.get("data")
+        reason = data.get("reason") if isinstance(data, dict) else None
+        kind = reason.get("kind") if isinstance(reason, dict) else None
+        return kind if isinstance(kind, str) else None
+    return None
