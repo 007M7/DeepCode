@@ -162,6 +162,7 @@
       "@deepseek-ai/dsh-host-apiproxy/*": ["./packages/host/apiproxy/src/*"],
       "@deepseek-ai/dsh-host-webserver": ["./packages/host/webserver/src"],
       "@deepseek-ai/dsh-client-ui-slots": ["./packages/client/ui-slots/src"],
+      "@deepseek-ai/dsh-client-ui-attachment": ["./packages/client/ui-attachment/src"],
       "@deepseek-ai/dsh-client-ui-primitives": ["./packages/client/ui-primitives/src"],
       "@deepseek-ai/dsh-client-schema-form": ["./packages/client/schema-form/src"],
       "@deepseek-ai/dsh-client-schema-form/invariant": ["./packages/client/schema-form/src/invariant.ts"],
