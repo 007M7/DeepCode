@@ -14,7 +14,7 @@ The earlier [anonymous-user-id decision](../feature/2026-07-31-telemetry-anonymo
 
 `@deepseek-ai/dsh-user-id` owns `getOrCreateAnonymousUserId()` and the `$DSH_HOME/.userid` storage contract. `session-telemetry-otel` uses the returned id as OpenTelemetry Resource `user.id`; the `/feedback` success acknowledgement reports `Feedback recorded for session {sessionId}` followed by `User: {userId}` on a second line, which keeps both identifiers available through the generic command row's expandable body. Invalid feedback is rejected before resolving the id, so an empty command does not create `.userid`.
 
-The extraction preserves the existing random UUID, home resolution, process memo, exclusive-create concurrency, corruption replacement, and best-effort write semantics. It does not unify the dsh-sdk launcher's separate `telemetry.json` identity.
+The extraction preserves the existing random UUID, home resolution, process memo, exclusive-create concurrency, corruption replacement, and best-effort write semantics.
 
 ## Alternatives considered
 
@@ -23,7 +23,6 @@ The extraction preserves the existing random UUID, home resolution, process memo
 | Import the helper from `session-telemetry-otel` | Couples feedback to an optional exporter backend and forms a reverse dependency cycle once telemetry exports feedback |
 | Duplicate the persistence helper in feedback | Two implementations of one file contract can drift and race with different validation or failure semantics |
 | Generate a separate feedback user id | The acknowledgement could not correlate with the OTel Resource and would not satisfy the reporting purpose |
-| Move the launcher telemetry id too | The launcher feed is not a consumer of `.userid`; unifying unrelated stores remains out of scope |
 
 ## Consequences
 

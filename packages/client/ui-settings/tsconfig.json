@@ -12,19 +12,22 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../locale"
-    },
-    {
       "path": "../ui-slots"
-    },
-    {
-      "path": "../ui-primitives"
     },
     {
       "path": "../runtime"
     },
     {
-      "path": "../ui-sidebar"
+      "path": "../connection"
+    },
+    {
+      "path": "../schema-form"
+    },
+    {
+      "path": "../../api/gateway"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../support/invariants"

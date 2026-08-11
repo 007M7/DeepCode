@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import type {
@@ -132,7 +133,11 @@ const TEST_EVENT_DEFINITION: ConversationNodeDefinition<TestEventState> = {
     if (context.state === undefined || context.start === undefined) return null
     return {
       key: context.key,
-      kind: 'runtime-test-event',
+      kind: context.start.event.type === 'command/run' && context.start.event.data.name === 'goal'
+        ? 'command-input'
+        : context.start.event.type === 'command/run' || context.start.event.type === 'command/done'
+          ? 'command'
+          : 'runtime-test-event',
       id: context.id,
       target: 'chat',
       anchorSeq: context.start.event.seq,
@@ -270,6 +275,24 @@ describe('live event path', () => {
     const snapshot = session.getSnapshot()
     expect(chatSeqs(snapshot)).toEqual([0, 1])
     expect(snapshot.composerPhase).toBe('blank')
+  })
+
+  it('activates a fresh conversation for a command-input View Node without opening a model turn', async () => {
+    const { session } = await opened([])
+    session.handleBlank(true)
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    feed(ev.commandRun(0, 'cmd-goal', 'goal', ' '))
+    feed(ev.commandDone(1, 'cmd-goal', 'success', 'No goal is currently set.'))
+
+    expect(session.getSnapshot()).toMatchObject({
+      blank: true,
+      composerPhase: 'active',
+    })
+    expect(session.getSnapshot().chat.order.map(
+      key => session.getSnapshot().chat.nodes.get(key)?.kind,
+    )).toContain('command-input')
   })
 
   it('publishes animation-frame Definitions once per frame and lets an immediate event supersede the pending frame', async () => {
@@ -442,6 +465,7 @@ describe('prompt and cancel errors', () => {
       {
         parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
         content: [{ type: 'text', text: '继续' }],
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
     expect(api.callsOf('subagent.interrupt')).toEqual([
@@ -507,7 +531,12 @@ describe('prompt and cancel errors', () => {
     expect(result.ok).toBe(true)
     // Monotone: settlement alone does not step the phase anywhere.
     expect(session.getSnapshot().composerPhase).toBe('engaging')
-    expect(api.callsOf('session.prompt')).toMatchObject([{ sessionId: SID, mode: 'queue', content: [{ type: 'text', text: '要发的' }] }])
+    expect(api.callsOf('session.prompt')).toMatchObject([{
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: '要发的' }],
+      clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }])
     // First content lands (running turn): engaging → active.
     session.handleRunning(true)
     expect(session.getSnapshot().composerPhase).toBe('active')

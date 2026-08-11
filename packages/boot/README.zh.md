@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-各 app bin 共享的、与渠道无关的启动库：`apps/cli`、[`scaffold/`](../scaffold/README.md) 启动器与 [`examples/`](../examples/README.md) demo bin 都消费它。
+由 `apps/cli` 和 [`examples/`](../examples/README.md) demo bin 共享、与渠道无关的启动库。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|

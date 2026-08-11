@@ -1,7 +1,8 @@
 /**
- * Session log export: browser download of the host-streamed ZIP. The archive
- * itself is produced and streamed by the host (GET /api/session.export); this
- * module only derives the download filename and triggers the browser save.
+ * Session log export delivery. The host streams the archive from
+ * `GET /api/session.export`; this module owns the browser-native download
+ * handoff so the browser can stream the response directly to its download
+ * manager instead of buffering the ZIP in JavaScript.
  * @module
  */
 
@@ -27,16 +28,18 @@ export function sessionLogZipFilename(sessionId: string): string {
 }
 
 /**
- * Trigger a browser download of a blob response.
- * @param blob - the response body to save (passed straight through, no copy).
- * @param filename - the download filename.
+ * Hand one host-streamed session archive to the browser download manager.
+ * The operation resolves after dispatching the native download; HTTP delivery
+ * continues outside JavaScript and is reported by the browser itself.
+ * @param sessionId - the root session id to export with all descendants.
+ * @returns a promise that rejects if the browser handoff itself fails.
  */
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  // Revoke one tick later: some browsers read the blob URL after click().
-  setTimeout(() => { URL.revokeObjectURL(url) }, 0)
+export function downloadSessionLog(sessionId: string): Promise<void> {
+  return Promise.resolve().then(() => {
+    const query = new URLSearchParams({ sessionId, includeDescendants: 'true' })
+    const anchor = document.createElement('a')
+    anchor.href = `/api/session.export?${query.toString()}`
+    anchor.download = sessionLogZipFilename(sessionId)
+    anchor.click()
+  })
 }

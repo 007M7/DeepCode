@@ -28,6 +28,8 @@
 
 `settings/document-updated (ns, revision)` 在**原始**用户分节发生变化时触发，无论解析值是否随之改变。配置界面需要的是这一个：存入一个与组合 `base` 相同的覆盖值不会改变解析值，却改变了文档的说法（该字段从继承变成了覆盖），也推进了每个已打开编辑器所持有的 revision。监听器的收容方式与 `settings/updated` 相同。
 
+两条声明都住在 client-safe 的 `./types` 子路径出口，与其签名点名的 `SettingsNamespace`、`SettingsUpdateSource` 类型同处一处；包根继续 re-export 这些类型。于是 Host 编译面之外的消费方读到的正是 Host 发射的那一份签名，而不必再写一遍。
+
 ## 模型体验
 
 间接生效：消费插件从各自 namespace 解析影响模型的值（例如默认模型路由）；效果由各消费者自己的文档描述。

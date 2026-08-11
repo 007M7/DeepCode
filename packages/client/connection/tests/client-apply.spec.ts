@@ -152,14 +152,14 @@ describe('connection client apply', () => {
     sockets[1]!.receive(JSON.stringify({
       type: 'server-request',
       rpcId: 'host-browser',
-      method: 'host/commands-changed',
-      payload: { type: 'host/commands-changed' },
+      method: 'host/remote-event',
+      payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
     }))
     expect(await muxFrame).toMatchObject({
       value: { rpcId: 'mux-browser', payload: { type: 'session/subscribed', lastSeq: 8 } },
     })
     expect(await hostFrame).toMatchObject({
-      value: { rpcId: 'host-browser', payload: { type: 'host/commands-changed' } },
+      value: { rpcId: 'host-browser', payload: { type: 'host/remote-event', event: 'commands/change' } },
     })
     expect(errors).toHaveBeenCalledTimes(2)
     await vi.waitFor(() => { expect(envelopes.flat()).toHaveLength(2) })

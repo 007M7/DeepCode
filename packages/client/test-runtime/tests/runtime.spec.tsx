@@ -7,6 +7,7 @@
  * stack — this suite is the fixture the migrated feature specs rely on.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { stubSettingsScope } from '../src/settings-scope.ts'
 import { cleanup } from '@testing-library/react'
 import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -633,5 +634,34 @@ describe('single-slot mounting edge arms', () => {
     const slot = runtime.renderSlot('trt.panel', {})
     expect(slot.container).toMatchSnapshot()
     await runtime.dispose()
+  })
+})
+
+describe('stubbed settings scope', () => {
+  it('records both write kinds and publishes a Host acceptance to its listeners', async () => {
+    const host = stubSettingsScope<{ preference: string }>()
+    let notified = 0
+    const stop = host.scope.subscribe(() => { notified += 1 })
+    expect(host.listenerCount()).toBe(1)
+    expect(host.scope.getSnapshot()).toMatchObject({
+      status: 'loading', base: undefined, user: undefined,
+    })
+
+    await host.scope.set('preference', 'dark')
+    await host.scope.unset('preference')
+    host.publish({
+      status: 'ready',
+      value: { preference: 'system' },
+      base: { preference: 'system' },
+      revision: 2,
+      writable: true,
+    })
+
+    expect(host.set).toHaveBeenCalledWith('preference', 'dark')
+    expect(host.unset).toHaveBeenCalledWith('preference')
+    expect(notified).toBe(1)
+    expect(host.scope.getSnapshot()).toMatchObject({ status: 'ready', revision: 2, writable: true })
+    stop()
+    expect(host.listenerCount()).toBe(0)
   })
 })

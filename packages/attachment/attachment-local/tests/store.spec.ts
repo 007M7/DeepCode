@@ -9,12 +9,23 @@ import sharp from 'sharp'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { readImageFile, saveImageFile } from '../src/store.ts'
 
-const fsControl = vi.hoisted(() => ({ syncedDirectories: [] as string[] }))
+const fsControl = vi.hoisted(() => ({
+  readSignals: [] as AbortSignal[],
+  syncedDirectories: [] as string[],
+}))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
+    readFile(...args: Parameters<typeof actual.readFile>): ReturnType<typeof actual.readFile> {
+      const options = args[1]
+      if (typeof options === 'object' && options !== null) {
+        const signal = (options as { signal?: AbortSignal }).signal
+        if (signal !== undefined) fsControl.readSignals.push(signal)
+      }
+      return actual.readFile(...args)
+    },
     async open(...args: Parameters<typeof actual.open>): ReturnType<typeof actual.open> {
       if (args[1] === constants.O_RDONLY) fsControl.syncedDirectories.push(String(args[0]))
       return actual.open(...args)
@@ -128,6 +139,20 @@ describe('local attachment store', () => {
     const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
 
     await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+  })
+
+  it('forwards read cancellation to the filesystem and preserves its reason', async () => {
+    const storageRoot = await root()
+    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
+    const controller = new AbortController()
+    fsControl.readSignals.length = 0
+
+    await expect(readImageFile(storageRoot, ref, controller.signal)).resolves.toEqual({ ref, data: PNG })
+    expect(fsControl.readSignals).toEqual([controller.signal])
+
+    const cancellation = new Error('attachment read cancelled')
+    controller.abort(cancellation)
+    await expect(readImageFile(storageRoot, ref, controller.signal)).rejects.toBe(cancellation)
   })
 
   it('rejects malformed bytes, mismatched declarations, byte limits, and decoded-pixel limits', async () => {

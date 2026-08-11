@@ -375,7 +375,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:296`](../../packages/core/agent-loop/src/index.ts)
 
 <a id="ctxagentpresets--agentpresets"></a>
 
@@ -546,7 +546,7 @@ async standingKeyFor(id?: string): Promise<ScopeKey>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/preset/agent-presets/src/index.ts:80`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:81`](../../packages/preset/agent-presets/src/index.ts)
 
 <a id="ctxagents--agentregistry"></a>
 
@@ -1041,5 +1041,28 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:182`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:183`](../../packages/core/agent-loop/src/index.ts)
+
+<a id="agent-preset-events"></a>
+
+### `agent-preset/*` events
+
+<a id="agent-presetselected--emit"></a>
+
+#### `agent-preset/selected` — emit
+
+One session committed a different agent preset to its durable log. Consumers invalidate only state derived from that session's composition.
+
+```ts cordis-catalog
+/**
+ * One session committed a different agent preset to its durable log.
+ * Consumers invalidate only state derived from that session's composition.
+ * @mode emit
+ * @param sessionId - the session whose composition changed.
+ * @param agentPreset - the preset recorded by the committed selection.
+ */
+'agent-preset/selected'(sessionId: SessionId, agentPreset: string): void
+```
+
+Source: [`packages/preset/agent-presets/src/types.ts:13`](../../packages/preset/agent-presets/src/types.ts)
 <!-- END GENERATED cordis-surface -->

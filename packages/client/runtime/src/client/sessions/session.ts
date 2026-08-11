@@ -23,6 +23,7 @@ import { PendingWait } from './pending.ts'
 import { Notifier } from './notifier.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
+import { resolvedClientTimeZone } from '../time-zone.ts'
 import { SessionQueueMirror } from './queue-mirror.ts'
 
 /** Messages requested per history page. */
@@ -194,7 +195,12 @@ export class Session implements SessionFace {
     let result: RpcResult<{ accepted: true }>
     try {
       if (this.address === undefined) {
-        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+        result = (await this.api.sessions.prompt({
+          sessionId: this.sessionId,
+          mode,
+          content,
+          clientTimeZone: resolvedClientTimeZone(),
+        })).result
       } else if (this.address.mode === 'one-shot') {
         result = {
           ok: false,
@@ -220,6 +226,7 @@ export class Session implements SessionFace {
             content: content.flatMap(part => part.type === 'text'
               ? [{ type: 'text' as const, text: part.text }]
               : []),
+            clientTimeZone: resolvedClientTimeZone(),
           })).result
           result = routed.ok ? { ok: true, value: { accepted: true } } : routed
         }
@@ -741,7 +748,8 @@ export class Session implements SessionFace {
         ? null
         : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
-        (!this.blankBit && !this.firstPromptPendingTurn)
+        hasVisibleConversationContent(chat)
+          || (!this.blankBit && !this.firstPromptPendingTurn)
           || this.running
           || this.pendingCache.value.length > 0,
         this.promptAttempted,
@@ -774,13 +782,18 @@ function conversationInput(entry: HistoryEntry): ConversationEventInput {
   return { event: entry.event, view: entry.view }
 }
 
+/** A generic command row alone remains control-plane content; every other visible Chat Node activates the conversation. */
+function hasVisibleConversationContent(chat: ChatSnapshot): boolean {
+  return chat.order.some(key => chat.nodes.get(key)?.kind !== 'command')
+}
+
 /**
  * The composerPhase judgment — the single site that knows the predicate
  * (consumers switch on the result, never re-derive). A failed first prompt
  * stays engaging until an authoritative accepted-turn, running, or pending
  * signal arrives (retry semantics — see ComposerPhase).
  * @param hasContent - authoritative non-blank activity beyond a pending first
- *   prompt, a running turn, or a pending interaction.
+ *   prompt, visible non-command Chat content, a running turn, or a pending interaction.
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

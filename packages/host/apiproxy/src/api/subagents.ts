@@ -92,10 +92,15 @@ export interface SubagentsApi {
    * Delivers human content to a continuable child through the exact live
    * parent's continuation owner. Success identifies the message accepted by
    * the child's FIFO inbox; later execution is independent of this request.
+   * Optional browser-zone provenance is validated and logged on that message.
    */
   prompt(
     request: RpcRequest<
-      Extract<SubagentAddress, { mode: 'continuable' }> & { content: ContentBlock[] }
+      Extract<SubagentAddress, { mode: 'continuable' }> & {
+        content: ContentBlock[]
+        /** Optional browser zone sampled for this exact human prompt. */
+        clientTimeZone?: string
+      }
     >,
     signal: AbortSignal,
   ): Promise<RpcResponse<SubagentPromptReceipt>>

@@ -50,6 +50,7 @@ import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import PtyService from '@deepseek-ai/dsh-pty'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -114,15 +115,18 @@ const catalogChildScopes = new WeakMap<Context, Agent>()
  * schema harvest, without starting a model, Agent loop, or persistence backend.
  * @param ctx - catalog context owning the scope.
  * @param mountScoped - package installer for the scoped context.
+ * @param key - agent-like scope key exposed to the package's scope selector.
+ * @param inject - services the package installer must await before mounting.
  */
 async function mountCatalogChildScope(
   ctx: Context,
   mountScoped: (childCtx: Context) => void,
+  key: Agent = { id: SessionId('tool-catalog-child') } as Agent,
+  inject: string[] = ['tools', 'systemPrompt', 'subagents'],
 ): Promise<void> {
-  const key = { id: SessionId('tool-catalog-child') } as Agent
   await ctx.plugin(Object.assign((inner: Context) => {
     mountScoped(createScope(inner, key).ctx)
-  }, { inject: ['tools', 'systemPrompt', 'subagents'] }))
+  }, { inject }))
   catalogChildScopes.set(ctx, key)
 }
 
@@ -347,6 +351,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-schedule',
+    dir: 'tool-schedule',
+    source: 'packages/schedule/tool-schedule/src/tools.ts',
+    requires: ['ctx.tools', 'ctx.sessions', 'Session persistence', 'a future live root Agent'],
+    writes: ['tool/call', 'schedule/change create or delete', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionStore)
+      const session = ctx.sessions.create(SessionId('tool-catalog-schedule'))
+      const agent = { id: session.id, session } as Agent
+      await mountCatalogChildScope(ctx, (childCtx) => {
+        ToolSchedule.registerScheduleTools(ctx, childCtx, agent, () => {})
+      }, agent, ['tools', 'systemPrompt'])
+    },
+    scope: ctx => catalogChildScopes.get(ctx) as Agent,
+    note:
+      'Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. '
+      + 'Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, '
+      + 'and discloses session-local delivery; '
+      + 'management reads and mutations require the shared Session persistence barrier.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-lsp',
