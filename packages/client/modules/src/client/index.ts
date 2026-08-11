@@ -9,7 +9,7 @@
  * a no-op against the already-registered entry.
  * @module @deepseek-ai/dsh-client-modules/client
  */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { DshWindow } from './manifest.ts'
 
 export { ClientModuleSystem } from './system.ts'

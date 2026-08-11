@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-settings/redact
  */
 
-import type z from 'schemastery'
+import type z from '@deepseek-ai/schemastery'
 
 /**
  * Minimal structural view of a live schemastery node. Only the relations the

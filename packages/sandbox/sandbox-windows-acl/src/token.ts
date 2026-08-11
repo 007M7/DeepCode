@@ -162,18 +162,19 @@ export interface RestrictingSidSet {
  * Create the write-restricted token with the mode-selected restricting list
  * (verified on Win11 26200, see the POC-worktree restrict-variant harness):
  *  - read-only:       [logon SID, EVERYONE]
- *  - workspace-write: [logon SID, EVERYONE, orphan]
+ *  - workspace-write: [logon SID, EVERYONE, workspace SID, optional temp SID]
  *
  * The logon SID + EVERYONE keep-alive group is shared by both modes: early
  * DLL init dies with 0xC0000142 and CNG (`\Device\CNG` write trustee —
- * pwsh crashes 0xE0434352) fails without them. The write SID joins ONLY
+ * pwsh crashes 0xE0434352) fails without them. The write SIDs join ONLY
  * workspace-write — read-only carries no write SID, so a standing grant ACE
  * from an earlier workspace-write period (a `/permission` mode downgrade, or
  * a crash-resumed session) stays INERT under read-only: the WRITE_RESTRICTED
- * pass-2 check grants only what the restricting list carries, keeping
- * read-only strictly zero-grant even with stale ACEs standing, while the
- * unrevoked ACE keeps the re-upgrade free (the grant's exact-ACE skip — no
- * re-propagation). Authenticated Users is absent from BOTH lists: the WMI
+ * pass-2 check grants only what the restricting list carries, keeping that
+ * workspace grant inert under read-only while the unrevoked ACE keeps the
+ * re-upgrade free (the grant's exact-ACE skip — no re-propagation).
+ * Everyone's own ambient grants remain the documented partial boundary.
+ * Authenticated Users is absent from BOTH lists: the WMI
  * namespace security check fails (0x80041003), so CIM is unavailable in
  * every confined mode, and the C:\-root tree-creation escape (standing
  * `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACEs) is closed in both — documented in
@@ -185,24 +186,25 @@ export interface RestrictingSidSet {
  * @param api - the binding table.
  * @param currentToken - the process token to restrict.
  * @param logonSid - the copied logon session SID.
- * @param writeSid - the write SID forming the write allowlist (workspace-write only; absent under read-only).
+ * @param writeSids - the distinct write SIDs forming the workspace and
+ * optional temp allowlists (workspace-write only; empty under read-only).
  * @param known - the well-known SIDs entering the restricting list.
- * @param mode - selects the restricting list (workspace-write adds the write SID).
+ * @param mode - selects the restricting list (workspace-write adds the capability SIDs).
  * @returns the restricted token handle.
  */
 export function createRestrictedToken(
   api: Win32Bindings,
   currentToken: NativePtr,
   logonSid: NativePtr,
-  writeSid: NativePtr | undefined,
+  writeSids: readonly NativePtr[],
   known: RestrictingSidSet,
   mode: 'read-only' | 'workspace-write',
 ): NativePtr {
   const restrictingSids = buildRestrictingSids(mode === 'read-only'
     ? [logonSid, known.world]
-    : writeSid === undefined
-      ? (() => { throw new Error('createRestrictedToken: workspace-write restricting list requires the write SID') })()
-      : [logonSid, known.world, writeSid])
+    : writeSids.length === 0
+      ? (() => { throw new Error('createRestrictedToken: workspace-write restricting list requires at least one write SID') })()
+      : [logonSid, known.world, ...writeSids])
   const tokenSlot = allocPtrSlot()
   const created = api.createRestrictedToken(
     currentToken,

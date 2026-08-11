@@ -53,7 +53,7 @@
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
-# All three register into the host `tools` registry and provide nothing, so
+# Both register into the host `tools` registry and provide nothing, so
 # they need no realm. The `fs` service and its policy stay in the host.
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
@@ -62,11 +62,6 @@
   name: '@deepseek-ai/dsh-tool-fs-search'
   config:
     sampleOverCapGlobResults: false
-
-- id: tool-str-replace-editor
-  name: '@deepseek-ai/dsh-tool-str-replace-editor'
-  config:
-    maxOutputChars: 16000
 
 # ── background tasks ────────────────────────────────────────────────────────
 
@@ -134,17 +129,20 @@
 
 # `compact-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
 # share this realm rather than sit outside it.
+#
+# `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+# plane, and the rows here resolve that one instance. It takes no configuration,
+# keys every fold by Session, and owns the context-meter projection units the
+# browser reads for every session — behind a realm those units would come and go
+# with whichever presets happen to be mounted. What a preset chooses is whether
+# its agent compacts at all, which is `compact-basic` below.
 - id: compaction
   name: cordis:group
   group: true
   isolate:
-    tokenMeter: true
     compact: true
     toolResultPrune: true
   config:
-    - id: token-meter
-      name: '@deepseek-ai/dsh-token-meter'
-
     - id: compact-basic
       name: '@deepseek-ai/dsh-compact-basic'
 
@@ -194,6 +192,27 @@
         provider: fork
         toolName: subagent_fork
         backgroundMode: continuable
+
+    # Product providers are host-plane singletons. Copy this preset, then
+    # remove `disabled` from either ordinary tool row to expose that product
+    # only to agents composed from the copy.
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
 
     - id: workflow-workerthread
       name: '@deepseek-ai/dsh-workflow-workerthread'

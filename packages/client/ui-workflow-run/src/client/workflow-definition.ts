@@ -148,6 +148,7 @@ function updateAgentEnd(state: WorkflowState, data: ToolWorkflowAgentEndData): W
 /** Durable workflow event family folded into one keyed Chat node. */
 export const workflowRunDefinition: ConversationNodeDefinition<WorkflowState> = {
   kind: 'workflow-run',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'tool-workflow/run-start') return { id: String(event.data.runId), role: 'start' }
     if (event.type === 'tool-workflow/agent-start'
@@ -175,8 +176,8 @@ export const workflowRunDefinition: ConversationNodeDefinition<WorkflowState> = 
     }
     return context.state
   },
-  buildViewNode: (context, target): ChatConversationViewNode | null => {
-    if (target !== 'chat' || context.start === undefined) return null
+  buildViewNode: (context): ChatConversationViewNode | null => {
+    if (context.start === undefined) return null
     const data = projectWorkflow(context, context.start.location)
     return {
       key: context.key,

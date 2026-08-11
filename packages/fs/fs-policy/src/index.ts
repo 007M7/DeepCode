@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-fs-policy
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsObservation, FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 import type { FsPolicyExec } from './types.ts'

@@ -7,7 +7,9 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -37,7 +39,7 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
@@ -58,6 +60,9 @@ interface BenchOptions {
   running?: boolean
   subagent?: Exclude<ConversationSnapshot['subagent'], null>
   disabled?: boolean
+  inert?: boolean
+  workspacePickerOpen?: boolean
+  onRequestWorkspace?: () => void
   promptError?: ConversationSnapshot['promptError']
   /** Authoritative queue rows served to the machine overlay (empty = none). */
   queue?: ConversationSnapshot['queue']
@@ -134,7 +139,7 @@ function bench(over?: BenchOptions) {
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -166,6 +171,9 @@ function bench(over?: BenchOptions) {
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
     variant: over?.variant ?? 'composer',
+    ...(over?.inert === true ? { disabled: true } : {}),
+    ...(over?.workspacePickerOpen !== undefined ? { workspacePickerOpen: over.workspacePickerOpen } : {}),
+    ...(over?.onRequestWorkspace !== undefined ? { onRequestWorkspace: over.onRequestWorkspace } : {}),
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
     ...(over?.accessory !== undefined ? { accessory: over.accessory } : {}),
     ...(over?.overlay !== undefined ? { overlay: over.overlay } : {}),
@@ -781,6 +789,40 @@ describe('running and lock semantics', () => {
     expect(live.textarea.placeholder).toBe('给智能体发消息')
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
+  })
+
+  it('the inert textarea opens the Workspace picker by pointer or keyboard', () => {
+    const onRequestWorkspace = vi.fn()
+    const { view, textarea } = bench({
+      inert: true,
+      workspacePickerOpen: false,
+      onRequestWorkspace,
+      placeholder: '选择一个工作区开始',
+    })
+    expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(true)
+    expect(textarea.getAttribute('aria-haspopup')).toBe('menu')
+    expect(textarea.getAttribute('aria-expanded')).toBe('false')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(textarea)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    fireEvent.keyDown(textarea, { key: ' ' })
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(3)
+
+    // The WHOLE capsule is the pick target, and its pointerdown never reaches
+    // the document — the open picker's outside-close must not race the reopen.
+    const card = view.container.querySelector('[data-composer-card]') as HTMLElement
+    fireEvent.click(card)
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(4)
+    const onDocumentPointerDown = vi.fn()
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    try {
+      fireEvent.pointerDown(card)
+    } finally {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+    }
+    expect(onDocumentPointerDown).not.toHaveBeenCalled()
   })
 
   it('the plan projection swaps the placeholder while its effective target is plan mode', () => {

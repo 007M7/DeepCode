@@ -8,7 +8,7 @@ The library owns **only** the mechanical question *"what did we keep, and what d
 
 It is a **library, not a service or plugin**: no `ctx`, registers nothing, emits no events. The only state is per-retainer (one accumulation), never cross-call. Tool packages import it directly.
 
-## Surface
+## API
 
 ```ts
 import {

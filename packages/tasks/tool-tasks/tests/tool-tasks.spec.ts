@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -82,11 +82,11 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
 describe('tool-tasks setup', () => {
-  it('attaches the control surface on load and detaches it with the fiber', async () => {
+  it('attaches the task controller on load and detaches it with the fiber', async () => {
     const { ctx, toolsFiber } = await setup()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
     await toolsFiber.dispose()
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no task controller serves this agent')
   })
 
   it('rejects a config whose default wait exceeds the cap', async () => {

@@ -12,7 +12,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
@@ -262,6 +262,43 @@ describe('readText / streamText', () => {
 
     await writeFile(join(dir, 'bad'), Buffer.from([0x68, 0xff, 0x69]))
     await expect(fs.readText(await fs.resolve('bad'))).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+})
+
+describe('readBytes', () => {
+  it('reads raw bytes without decoding or NUL rejection', async () => {
+    const raw = Buffer.from([0x68, 0x00, 0x69, 0xff])
+    await writeFile(join(dir, 'a.bin'), raw)
+    expect(Buffer.from(await fs.readBytes(await fs.resolve('a.bin'), undefined, raw.length))).toEqual(raw)
+  })
+
+  it('accepts a file exactly at maxBytes and rejects one past it', async () => {
+    await writeFile(join(dir, 'a.bin'), Buffer.alloc(4, 1))
+    const target = await fs.resolve('a.bin')
+    expect((await fs.readBytes(target, undefined, 4)).length).toBe(4)
+    await expect(fs.readBytes(target, undefined, 3)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+  })
+
+  it('bounds content I/O when a file grows after stat preflight', async () => {
+    await writeFile(join(dir, 'a.bin'), Buffer.alloc(4, 1))
+    const target = await fs.resolve('a.bin')
+    fs.internals.inspectReadBytesAfterStat = () => writeFile(join(dir, 'a.bin'), Buffer.alloc(1024 * 1024, 2))
+
+    await expect(fs.readBytes(target, undefined, 4)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+  })
+
+  it('rejects a missing file and a directory', async () => {
+    await expect(fs.readBytes(await fs.resolve('nope'), undefined, 1024)).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    await expect(fs.readBytes(await fs.resolve('.'), undefined, 1024)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+  })
+
+  it('reads under a live signal and rejects an already-aborted one with FS_ABORTED', async () => {
+    await writeFile(join(dir, 'a.bin'), 'data')
+    const live = new AbortController()
+    expect((await fs.readBytes(await fs.resolve('a.bin'), live.signal, 1024)).length).toBe(4)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(fs.readBytes(await fs.resolve('a.bin'), controller.signal, 1024)).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 })
 

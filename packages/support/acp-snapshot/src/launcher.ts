@@ -49,7 +49,7 @@ export interface AcpTestLaunchOptions {
   requestPermission?: (params: RequestPermissionRequest) => Promise<RequestPermissionResponse>
 }
 
-/** A running ACP test process and its captured client-side surfaces. */
+/** A running ACP test process and its captured client-side outputs. */
 export interface LaunchedAcpTestAgent {
   /** The child process, exposed for process-level assertions. */
   child: ChildProcessWithoutNullStreams

@@ -41,7 +41,7 @@ Keep a complete local contract at the point of use: behavior, failure, ownership
 
 Keep non-obvious rationale when omitting it could plausibly cause misuse or an incorrect simplification. Otherwise state the consequence and link the rationale home.
 
-## Required coverage by prose surface
+## Required coverage by prose location
 
 This is not a one-way shortening pass. Add or restore prose when code, types, and structure do not communicate a required contract below. Do not add a comment when those facts are already obvious locally.
 

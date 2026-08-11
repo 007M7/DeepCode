@@ -51,7 +51,7 @@
  * The Landlock UAPI, defined locally instead of via <linux/landlock.h>: the
  * kernel's user-space ABI is stable by contract, self-defining it keeps the
  * build independent of the toolchain's header vintage, and the definitions
- * double as the audit record of exactly which kernel surface this launcher
+ * double as the audit record of exactly which kernel API this launcher
  * touches. Layouts and values are verbatim from the kernel header (the
  * path-beneath struct is packed there, so it must be packed here).
  */

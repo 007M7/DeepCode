@@ -55,7 +55,7 @@ Build the pure SDK wheel once and one runtime wheel on each native platform:
 version="$(node -p "require('./package.json').version")"
 python scripts/build-python-release.py --package sdk --output-dir dist-python
 python scripts/build-python-release.py --package runtime --platform macos-arm64 --runtime-exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64 --output-dir dist-python
-pip install --find-links dist-python deepseek-harness=="$version"
+pip install --find-links dist-python deepseek-harness-sdk=="$version"
 ```
 
 The runtime distribution is wheel-only. The release pipeline publishes three platform wheels with the pure SDK wheel: Linux x64, Linux arm64, and macOS arm64. A `python-vX.Y.Z` tag is accepted only when it matches the repository version.

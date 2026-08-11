@@ -40,7 +40,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 极简模式"':
-        - text: 极简模式 内置 仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。
+        - text: 极简模式 内置 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
         - code: minimal
       - 'button "查看: 极简模式"':
         - img
@@ -61,8 +61,8 @@
   - heading "自定义" [level=3]
   - list:
     - listitem:
-      - 'button "已损坏: broken-yaml" [disabled]':
-        - text: broken-yaml 已损坏 自定义 暂无描述。
+      - 'button "加载失败: broken-yaml" [disabled]':
+        - text: broken-yaml 加载失败 自定义 暂无描述。
         - alert: "the composition is not valid YAML: unexpected end of the stream within a flow collection (3:1)"
         - code: broken-yaml
       - 'button "查看路径: broken-yaml"':
@@ -70,13 +70,13 @@
         - text: 查看路径
       - 'button "复制: broken-yaml" [disabled]':
         - img
-        - text: 预设已损坏，无法复制
+        - text: 预设加载失败，不能复制
       - 'button "删除: broken-yaml"':
         - img
         - text: 删除
     - listitem:
-      - 'button "已损坏: 幽灵预设" [disabled]':
-        - text: 幽灵预设 已损坏 自定义 composition 已被手动删除。
+      - 'button "加载失败: 幽灵预设" [disabled]':
+        - text: 幽灵预设 加载失败 自定义 composition 已被手动删除。
         - alert: the composition file agent.cordis.yml is missing — the directory still occupies the id; delete it or restore the file
         - code: ghost
       - 'button "查看路径: 幽灵预设"':
@@ -84,7 +84,7 @@
         - text: 查看路径
       - 'button "复制: 幽灵预设" [disabled]':
         - img
-        - text: 预设已损坏，无法复制
+        - text: 预设加载失败，不能复制
       - 'button "删除: 幽灵预设"':
         - img
         - text: 删除

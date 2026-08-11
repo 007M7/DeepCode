@@ -30,6 +30,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-slash/`](ui-slash/README.md) | 协调内联命令和引用建议。 |
 | [`ui-skill/`](ui-skill/README.md) | 向内联建议添加 skill（技能）引用。 |
 | [`ui-subagent/`](ui-subagent/README.md) | 提供 subagent 导航、子会话记录状态和内联引用。 |
+| [`ui-task/`](ui-task/README.md) | 在会话标题栏列出当前会话的后台任务。 |
 | [`ui-model/`](ui-model/README.md) | 在会话界面中提供模型选择。 |
 | [`ui-permission/`](ui-permission/README.md) | 配置默认权限并切换当前会话的访问模式。 |
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |

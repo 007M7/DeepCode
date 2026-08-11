@@ -30,6 +30,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-slash/`](ui-slash/README.md) | Coordinates inline command and reference suggestions. |
 | [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions. |
 | [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references. |
+| [`ui-task/`](ui-task/README.md) | Lists this session's background tasks in the conversation header. |
 | [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
 | [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |

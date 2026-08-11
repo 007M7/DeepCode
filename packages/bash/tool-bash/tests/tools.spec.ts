@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
@@ -42,7 +42,7 @@ async function setup() {
   return ctx
 }
 
-/** Full harness: the generic task runtime + its control surface, then the bash tool. */
+/** Full harness: the generic task runtime + its controller, then the bash tool. */
 async function setupWithTasks() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -524,7 +524,7 @@ describe('background execution through the task runtime', () => {
   })
 
   it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
-    // With no control surface, task preflight fails before the executor can spawn.
+    // With no task controller, preflight fails before the executor can spawn.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -536,7 +536,7 @@ describe('background execution through the task runtime', () => {
 
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface serves this agent')
+    expect(text(result)).toContain('no task controller serves this agent')
     // Declare-then-execute: the failed preflight means no process ever ran.
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })

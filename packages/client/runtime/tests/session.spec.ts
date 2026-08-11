@@ -123,12 +123,13 @@ function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNo
 
 const TEST_EVENT_DEFINITION: ConversationNodeDefinition<TestEventState> = {
   kind: 'runtime-test-event',
+  target: 'chat',
   match: event => ({ id: String(event.seq), role: 'start' }),
   start: (_context, match) => ({ event: match.event, view: match.view }),
   update: context => context.state,
   publication: match => match.event.type === 'assistant/chunk' ? 'animation-frame' : 'immediate',
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined || context.start === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined || context.start === undefined) return null
     return {
       key: context.key,
       kind: 'runtime-test-event',

@@ -24,6 +24,9 @@
       "path": "../../session/user-id"
     },
     {
+      "path": "../../session/session-telemetry"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

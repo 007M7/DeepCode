@@ -17,7 +17,7 @@ Services normally extend `GatewayService` so the constructor explicitly binds th
 ```ts
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 export interface CreateGoalRequest {
   objective: string
@@ -60,7 +60,7 @@ The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. 
 ```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 export const inject = ['remote', 'remote.goals']
@@ -138,20 +138,14 @@ SRC solves only dispatch for a Host process running from source. The Client does
 
 ## Development mode
 
-A complete build generates Host contracts before compiling the Host, Client, and Web, so it is the deterministic entry for creating or refreshing all artifacts:
+The repository `dsh` script completes the Host, Client, and Web build before starting the source Host. Web development runs that command and the Client plugin watcher in separate terminals:
 
 ```sh
-pnpm run build
-```
-
-Web development normally starts the source Host after one complete build and runs the Client plugin watcher in another terminal:
-
-```sh
-pnpm run dsh -- web --dev
+pnpm dsh web --dev
 pnpm run dev:web
 ```
 
-`dsh` starts the Host source through tsx, so the Host can use the SRC fallback; `dev:web` watches only Client plugins with a `dshClient` declaration and rewrites their `lib/client.js`. It does not analyze Host decorators or generate Remote Client DTS.
+`dsh` starts the Host source through tsx, so the Host can use the SRC fallback; `dev:web` watches only Client plugins with a `dsh.client` declaration and rewrites their `lib/client.js`. It does not analyze Host decorators or generate Remote Client DTS.
 
 Changing only a Remote method's implementation body without changing its contract does not require regenerating the TypeRT files. After adding or removing a decorator or changing an export name, namespace, parameter, return value, lookup, Context, or cancellation signature, rerun the ordered lib build so the Host generates the strict contract before the Client compiles and bundles the new contribution:
 

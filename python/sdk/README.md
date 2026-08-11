@@ -5,10 +5,15 @@ English | [中文](README.zh.md)
 Python subprocess SDK for driving DeepSeek Harness over JSON-RPC stdio. The
 runtime inherits normal DeepSeek Harness environment variables such as
 `DEEPSEEK_BASE_URL` and `DEEPSEEK_API_KEY`, so callers can use real model
-endpoints directly or point those variables at a local proxy during
-benchmark runs.
+endpoints directly or point those variables at a local proxy.
 
-Installing `deepseek-harness` installs the exact same-version `deepseek-harness-runtime-bin` platform wheel. The normal entry point therefore needs no executable argument:
+Install the `deepseek-harness-sdk` distribution from PyPI; the import module remains `deepseek_harness`:
+
+```sh
+python -m pip install deepseek-harness-sdk
+```
+
+Installing `deepseek-harness-sdk` installs the exact same-version `deepseek-harness-runtime-bin` platform wheel. The normal entry point therefore needs no executable argument:
 
 ```py
 from deepseek_harness import DeepSeekHarness
@@ -35,7 +40,9 @@ with DeepSeekHarness(
 
 `provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. `max_tokens` is an optional positive per-request output-token cap for the root agent and its in-process descendants; omission leaves the provider default in control. Compaction summaries keep the separate limit configured by their compaction plugin. The bundled default composition registers `deepseek-official`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
-`Session.run()` owns an activity interval from its prompt's durable inbox receipt through the next whole-agent idle and returns `RunResult(session_id, final_response, events, notifications, session_root)`. The result has no prompt-level status or turn reason: `final_response` is the last committed root-session assistant text in the interval, not an output causally assigned to the prompt. Steering, injected context, and other queued work may contribute before idle.
+The [Python SDK tutorial](../../docs/user/guide/python-sdk.md) uses a complete standalone Cordis file to demonstrate installation, direct SDK usage, and runs without the Web UI.
+
+`Session.run()` owns an activity interval from its prompt's durable inbox receipt through the next whole-agent idle and returns `RunResult(session_id, final_response, finish_reason, events, notifications, session_root)`. `final_response` is the last committed root-session assistant text in the interval. `finish_reason` is the `kind` of the last root-session `turn/end` in the interval, such as `completed`, `max-tokens`, or `error`, and is `None` when no turn ended. A `turn/end` without a string `data.reason.kind` violates the runtime protocol and raises `SdkProtocolError`. Both result fields describe the owned interval rather than an output or ending causally assigned to the prompt. Steering, injected context, and other queued work may contribute before idle.
 
 `HarnessClient` retains discovered subagent ancestry for the lifetime of the runtime process. During each `Session.run()`, `RunResult.notifications` and `on_notification` receive the root session and all known descendant notifications in wire order, including nested subagent lifecycle and session events. `RunResult.events` contains root-session events only, so descendant messages cannot replace the root response. The low-level `session_prompt()` returns the queued `MessageId` immediately; callers that bypass `Session.run()` own any later activity boundary themselves.
 

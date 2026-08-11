@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import '@deepseek-ai/dsh-user-interaction'
 
 /** Snapshot-only provider whose invocation means the child guard failed. */

@@ -5,8 +5,8 @@
  * {@link SlashController}; the service only registers sources, resolves
  * controllers by session scope, and relays roster changes.
  */
-import { Service } from 'cordis'
-import type { Context } from 'cordis'
+import { Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashSource } from '../types.ts'
 import { SlashController } from './controller.ts'

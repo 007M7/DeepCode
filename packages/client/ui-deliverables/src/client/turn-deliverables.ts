@@ -136,7 +136,6 @@ export const deliverablesDefinition: ConversationNodeDefinition<DeliverablesStat
       key: 'deliverables',
       value: { produced: context.state.produced },
     },
-  buildViewNode: () => null,
 }
 
 /**

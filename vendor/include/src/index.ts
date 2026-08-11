@@ -1,5 +1,5 @@
-import { EntryTree, isJsExpr, type EntryOptions } from '@cordisjs/plugin-loader'
-import { Context, Service } from 'cordis'
+import { EntryConfigResolver, EntryTree, interpolate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { extname } from 'node:path'
 import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -173,6 +173,21 @@ export namespace Include {
 /** Loader entry tree backed by a YAML or JSON file. */
 export class Include extends EntryTree {
   static inject = ['loader']
+
+  /**
+   * Resolve Include's own options while preserving nested entry expressions.
+   * @param ctx - the Include plugin context.
+   * @param config - the raw Include config.
+   * @returns resolved Include options with `initial` and `patches` untouched.
+   */
+  static [EntryConfigResolver](ctx: Context, config: Include.Config): Include.Config {
+    const { initial, patches, ...own } = config
+    return {
+      ...interpolate(ctx, own),
+      ...(initial === undefined ? {} : { initial }),
+      ...(patches === undefined ? {} : { patches }),
+    }
+  }
 
   public filename: string
   private type?: string

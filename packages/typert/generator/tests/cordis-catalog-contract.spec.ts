@@ -91,7 +91,7 @@ function fixtureRoot(eventsBlock: string): string {
   const root = mkdtempSync(join(tmpdir(), 'cordis-catalog-'))
   writeProject(
     root,
-    `declare module 'cordis' {\n  interface Events {\n${eventsBlock}\n  }\n}\n`,
+    `declare module '@deepseek-ai/cordis' {\n  interface Events {\n${eventsBlock}\n  }\n}\n`,
   )
   return root
 }
@@ -103,7 +103,7 @@ function serviceFixtureRoot(classSource: string): string {
   const root = mkdtempSync(join(tmpdir(), 'cordis-catalog-'))
   writeProject(
     root,
-    `declare module 'cordis' {\n  interface Context {\n    fix: FixService\n  }\n}\n\n${classSource}\n`,
+    `declare module '@deepseek-ai/cordis' {\n  interface Context {\n    fix: FixService\n  }\n}\n\n${classSource}\n`,
   )
   return root
 }
@@ -334,7 +334,7 @@ export class FixService {
     ))).toThrow(/is a binding pattern/)
   })
 
-  it('ignores private/protected/static members (not the ctx.<key> surface)', () => {
+  it('ignores private/protected/static members (not the ctx.<key> API)', () => {
     const services = collectServices(makeService(
       '/** Fixture service. */\nexport class FixService {\n  private hidden(id: string): string { return id }\n  protected hook(): void {}\n  static helper(): void {}\n}',
     ))

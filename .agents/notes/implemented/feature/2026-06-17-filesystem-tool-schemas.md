@@ -6,7 +6,7 @@ English | [中文](2026-06-17-filesystem-tool-schemas.zh.md)
 
 ## Problem
 
-[The filesystem capability-seam Agent Note](../architecture/2026-06-17-filesystem-capability-seam.md) defines the filesystem capability seam (`ctx.fs`), the package split (`dsh-fs`, `dsh-fs-local`, `dsh-tool-fs`, plus the `dsh-fs-policy` policy plugin), and the observed-file/stale-version policy for read-before-write/edit checks — which the [split-fs-seam](../simplification/2026-06-26-fsspec-style-fs-seam.md) and [event-gate](../architecture/2026-06-26-file-context-as-event-gate.md) Agent Notes moved off `ctx.fs` into the `dsh-fs-policy` plugin on the `fs/*` event gate. The remaining decision for the first filesystem tool delivery is the model-facing schema surface: what arguments the model sees for `read`, `write`, and `edit`.
+[The filesystem capability-seam Agent Note](../architecture/2026-06-17-filesystem-capability-seam.md) defines the filesystem capability seam (`ctx.fs`), the package split (`dsh-fs`, `dsh-fs-local`, `dsh-tool-fs`, plus the `dsh-fs-policy` policy plugin), and the observed-file/stale-version policy for read-before-write/edit checks — which the [split-fs-seam](../simplification/2026-06-26-fsspec-style-fs-seam.md) and [event-gate](../architecture/2026-06-26-file-context-as-event-gate.md) Agent Notes moved off `ctx.fs` into the `dsh-fs-policy` plugin on the `fs/*` event gate. The remaining decision for the first filesystem tool delivery is the model-facing schema: what arguments the model sees for `read`, `write`, and `edit`.
 
 The schema must be small, yet stable enough that local/remote/sandboxed filesystem backends do not require model-facing churn, and must avoid importing every option from reference systems. Claude Code and OpenCode expose similar core file tools but differ in naming style and extra flags; this decision picks the minimal shared surface.
 
@@ -100,7 +100,7 @@ Schema tests pin the required/optional argument set per tool, empty-`old_string`
 ## Alternatives considered
 
 - **A Codex-style patch grammar or multi-mode edit API** — rejected: one strict literal replacement mode keeps the model-facing contract simple and lets the backend own exact-match, duplicate-match, line-ending, and stale-version semantics.
-- **camelCase argument names (OpenCode's style)** — snake_case aligns with Claude Code and the existing harness tool-schema examples, and naming is public surface once shipped.
+- **camelCase argument names (OpenCode's style)** — snake_case aligns with Claude Code and the existing harness tool-schema examples, and naming is public API once shipped.
 - **Model-facing `expected_hash` / `expected_version` / `create_only` parameters** — rejected: stale checks are driven by backend-minted versions and the policy plugin's observed state, never by fragile model-copied tokens.
 
 ## Consequences
@@ -109,4 +109,4 @@ Schema tests pin the required/optional argument set per tool, empty-`old_string`
 
 **No explicit model-facing stale guard in v1.** The schema does not ask the model to provide an expected hash/version. That is intentional: stale checks come from backend-produced versions and the `dsh-fs-policy` plugin's observed state, not from fragile model-copied tokens. Filesystem safety failures surface through structured `FsError` codes owned by `dsh-fs`, not through model-supplied version fields.
 
-**Naming becomes public surface.** Once shipped, changing `file_path` to `filePath` or `old_string` to `oldString` would churn prompts, examples, and downstream clients. This Agent Note chooses snake_case up front and treats it as the stable model-facing contract.
+**Naming becomes public API.** Once shipped, changing `file_path` to `filePath` or `old_string` to `oldString` would churn prompts, examples, and downstream clients. This Agent Note chooses snake_case up front and treats it as the stable model-facing contract.

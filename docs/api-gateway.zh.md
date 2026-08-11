@@ -17,7 +17,7 @@ Service 通常继承 `GatewayService`，让 Cordis service key 与默认 Remote 
 ```ts
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 export interface CreateGoalRequest {
   objective: string
@@ -60,7 +60,7 @@ Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直�
 ```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 export const inject = ['remote', 'remote.goals']
@@ -138,20 +138,14 @@ SRC 只解决 Host 源码进程的分发问题。Client 不会从运行中的 Ho
 
 ## 开发模式
 
-完整构建会先生成 Host 约定，再编译 Host、Client 与 Web，因此是建立或刷新所有产物的确定性入口：
+仓库的 `dsh` 脚本会先完成 Host、Client 与 Web 构建，再启动源码 Host。Web 开发需要在两个终端中分别运行该命令和 Client plugin watcher：
 
 ```sh
-pnpm run build
-```
-
-Web 开发通常在完成一次构建后启动源码 Host，并在另一个终端运行 Client plugin watcher：
-
-```sh
-pnpm run dsh -- web --dev
+pnpm dsh web --dev
 pnpm run dev:web
 ```
 
-`dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dshClient` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
+`dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dsh.client` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
 
 只修改 Remote 方法实现体而不改变约定时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，重新执行有序 lib 构建，让 Host 先生成严格约定，再让 Client 编译并打包新的贡献：
 

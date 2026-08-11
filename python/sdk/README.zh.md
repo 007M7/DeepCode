@@ -2,9 +2,15 @@
 
 [English](README.md) | 中文
 
-通过 JSON-RPC stdio 驱动 DeepSeek Harness 的 Python 子进程 SDK。运行时继承常规的 DeepSeek Harness 环境变量（如 `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`），调用方可以直接用真实模型端点，也可以在跑基准测试时把它们指向本地代理。
+通过 JSON-RPC stdio 驱动 DeepSeek Harness 的 Python 子进程 SDK。运行时继承常规的 DeepSeek Harness 环境变量（如 `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`），调用方可以直接使用真实模型端点，也可以把这些变量指向本地代理。
 
-安装 `deepseek-harness` 会同时安装版本完全相同的 `deepseek-harness-runtime-bin` 平台 wheel 包。因此常规入口不需要传可执行文件参数：
+请从 PyPI 安装 `deepseek-harness-sdk` 分发包；导入模块仍为 `deepseek_harness`：
+
+```sh
+python -m pip install deepseek-harness-sdk
+```
+
+安装 `deepseek-harness-sdk` 会同时安装版本完全相同的 `deepseek-harness-runtime-bin` 平台 wheel 包。因此常规入口不需要传可执行文件参数：
 
 ```py
 from deepseek_harness import DeepSeekHarness
@@ -31,7 +37,9 @@ with DeepSeekHarness(
 
 `provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent（智能体）及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
-`Session.run()` 拥有一个从提示词进入持久 inbox 时开始、到整个 agent 下一次进入空闲状态为止的活动区间，并返回 `RunResult(session_id, final_response, events, notifications, session_root)`。结果不携带提示词级状态或轮次原因：`final_response` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的输出。steering（中途引导）、注入的上下文和其他排队工作都可能在进入空闲状态前参与其中。
+[Python SDK 教程](../../docs/user/guide/python-sdk.md)使用完整的独立 Cordis 文件演示安装方式、直接调用 SDK，以及在不使用 Web UI 的情况下运行 agent。
+
+`Session.run()` 拥有一个从提示词进入持久 inbox 时开始、到整个 agent 下一次进入空闲状态为止的活动区间，并返回 `RunResult(session_id, final_response, finish_reason, events, notifications, session_root)`。`final_response` 是该区间内根会话最后提交的助手文本。`finish_reason` 是该区间内根会话最后一个 `turn/end` 的 `kind`，例如 `completed`、`max-tokens` 或 `error`；没有轮次结束时为 `None`。缺少字符串 `data.reason.kind` 的 `turn/end` 违反运行时协议，并会抛出 `SdkProtocolError`。两个结果字段描述的都是自有活动区间，而不是因果上归属于该提示词的输出或结束原因。steering（中途引导）、注入的上下文和其他排队工作都可能在进入空闲状态前参与其中。
 
 `HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`RunResult.notifications` 与 `on_notification` 会按协议传输顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期事件与会话事件。`RunResult.events` 只包含根会话事件，因此后代消息不会覆盖根会话回复。底层 `session_prompt()` 会立即返回已排队消息的 `MessageId`；绕过 `Session.run()` 的调用方必须自行负责后续的活动边界。
 

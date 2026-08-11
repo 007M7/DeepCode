@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-compact-basic
  */
 
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { CompactService, ManualCompactionError } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'

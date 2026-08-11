@@ -13,8 +13,8 @@
  */
 
 import { createRequire } from 'node:module'
-import z from 'schemastery'
-import type { Context } from 'cordis'
+import z from '@deepseek-ai/schemastery'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
   Telemetry,
@@ -22,6 +22,7 @@ import {
   type TelemetryBackend,
   type TelemetryRecord,
   type TelemetrySeverity,
+  type TelemetrySharingStatus,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
 import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
@@ -69,6 +70,17 @@ function resolveMode(mode: TelemetryMode | undefined): TelemetryMode {
 /** Fail closed when direct construction bypasses the runtime config schema. */
 function assertNever(value: never): never {
   throw new Error(`session-telemetry-otel: unsupported mode ${JSON.stringify(value)}`)
+}
+
+/** Map the serialized mode onto the seam's backend-independent sharing vocabulary. */
+function sharingStatusFor(mode: TelemetryMode): TelemetrySharingStatus {
+  switch (mode) {
+    case TelemetryMode.FULL: return 'full'
+    case TelemetryMode.FEEDBACK_ONLY: return 'feedback-only'
+    case TelemetryMode.DISABLED: return 'disabled'
+    /* v8 ignore next 2 -- resolveMode already rejected unknown values before this switch; the closed enum cannot reach the default. */
+    default: return assertNever(mode)
+  }
 }
 
 /**
@@ -139,10 +151,12 @@ export class TelemetryOtel extends Telemetry {
   private readonly directEmit: TelemetryBackend['emit']
   private readonly provider: LoggerProvider | undefined
   private readonly shutdownTimeoutMillis: number
+  override readonly sharing: TelemetrySharingStatus
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)
     super(ctx)
+    this.sharing = sharingStatusFor(mode)
     if (mode === TelemetryMode.DISABLED) {
       this.directEmit = DROP_RECORD
       this.provider = undefined

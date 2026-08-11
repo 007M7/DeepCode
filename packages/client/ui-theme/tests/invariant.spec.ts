@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-theme'
 import { apply as clientApply, inject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import * as ThemeInvariant from '@deepseek-ai/dsh-client-ui-theme/invariant'
@@ -15,7 +15,7 @@ describe('invariant companion', () => {
     await expect(ctx.plugin(ThemeInvariant).await()).resolves.toBeDefined()
   })
 
-  it('node-half waits for an optional settings provider', () => {
+  it('node-half waits for optional Host services', () => {
     nodeApply(new Context())
     expect(true).toBe(true)
   })

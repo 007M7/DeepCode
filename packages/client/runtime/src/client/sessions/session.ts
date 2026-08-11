@@ -1,6 +1,6 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -60,7 +60,7 @@ export interface SessionOptions {
  * remaining public members are manager/runtime entry points.
  */
 export class Session implements SessionFace {
-  // ---- Window and derived state (all private; the snapshot is the only read surface) ----
+  // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
@@ -428,7 +428,7 @@ export class Session implements SessionFace {
     await this.open()
   }
 
-  // ---- Subscription surface (useSyncExternalStore direct wiring) ----
+  // ---- Subscription API (useSyncExternalStore direct wiring) ----
 
   /**
    * uSES subscription entry.
@@ -727,6 +727,7 @@ export class Session implements SessionFace {
     const legacy = chat.legacy
     return {
       sessionId: this.sessionId,
+      views: this.conversation,
       chat,
       nodes: legacy.nodes,
       turnTimings: legacy.turnTimings,

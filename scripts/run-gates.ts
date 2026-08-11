@@ -406,7 +406,6 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     builtBinSmokeGate(validatedBuild),
-    githubRepositoryPluginE2eGate(validatedBuild),
   ]
 }
 
@@ -518,7 +517,7 @@ function coverageGates(): Gate[] {
 }
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
-// plugins via real exports); repository-script snapshots execute their real source entry path.
+// plugins via real exports); script snapshots execute their real source entry path.
 // Callers wait either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
@@ -554,6 +553,7 @@ function flagEnabled(envName: string): boolean {
 function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
   const artifactOptions = options.artifactNeeds === undefined ? {} : { needs: options.artifactNeeds }
   return [
+    pnpmScript('rescope-vendor', 'rescope-vendor:check', { label: 'vendor rescope' }),
     pnpmScript('knip', 'knip'),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
@@ -622,7 +622,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'apps/cli/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
-    'packages/scaffold/server/tests/built-scope-carrier.e2e.ts',
+    'packages/sdk/server/tests/built-scope-carrier.e2e.ts',
     'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
     'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
     'packages/api/remotes/tests/built-lib.e2e.ts',
@@ -636,20 +636,6 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     label: 'built-bin smoke',
     needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
-  })
-}
-
-function githubRepositoryPluginE2eGate(needs: string[]): Gate {
-  return pnpmExec('github-repository-plugin-e2e', [
-    'vitest',
-    'run',
-    '--config',
-    'vitest.e2e.config.ts',
-    'apps/cli/tests/github-repository-plugin.built.e2e.ts',
-  ], {
-    label: 'GitHub repository Plugin dsh run',
-    needs,
-    env: { DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1' },
   })
 }
 

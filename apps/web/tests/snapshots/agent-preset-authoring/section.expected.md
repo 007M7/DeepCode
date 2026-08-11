@@ -40,7 +40,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 极简模式"':
-        - text: 极简模式 内置 仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。
+        - text: 极简模式 内置 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
         - code: minimal
       - 'button "查看: 极简模式"':
         - img
@@ -58,6 +58,7 @@
       - 'button "复制: 创造模式"':
         - img
         - text: 复制
+  - heading "自定义" [level=3]
   - button "用「创造模式」创作自定义预设":
     - img
     - text: 用「创造模式」创作自定义预设

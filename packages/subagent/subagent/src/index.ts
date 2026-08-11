@@ -1,6 +1,6 @@
 /**
  * Service Definition for the subagent capability seam (`ctx.subagents`): a named-provider registry plus a
- * capability-validating asynchronous start surface. Providers establish a
+ * capability-validating asynchronous start API. Providers establish a
  * child before returning its run, so fulfillment is the single publication and
  * ownership-transfer boundary.
  *
@@ -31,7 +31,7 @@
  * @module @deepseek-ai/dsh-subagent
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -69,6 +69,7 @@ import { snapshotSubagentDescriptor } from './descriptor.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 
 export * from './out-of-process.ts'
+export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   ContinuableCreateRequest,
@@ -100,13 +101,15 @@ export { SubagentError } from './error.ts'
 export { settleRun } from './run-settlement.ts'
 export { assertSubagentMaxDepth, delegationDepthOf } from './depth.ts'
 export {
+  appendDelegatedPolicyOverrides,
   applyChildComposition,
+  captureDelegatedPolicyOverrides,
   childSessionMeta,
   resolveChildAgentOptions,
   resolveChildDepth,
   SubagentDepthError,
 } from './child-agent.ts'
-export type { ChildComposition } from './child-agent.ts'
+export type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
 export type {
   ContinuableStart,
   ContinuableStartSpec,
@@ -116,13 +119,14 @@ export type {
   SubagentReportDelivery,
   SubagentReportMessageSource,
   SubagentReportOptions,
+  SubagentSettledMessageSource,
 } from './continuation.ts'
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 export type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     subagents: SubagentService
   }

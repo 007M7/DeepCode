@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -226,11 +226,13 @@ describe('workflow-run Conversation Definition', () => {
     const updateContext: Parameters<typeof workflowRunDefinition.update>[0] = { ...startedContext, state }
     const unrelated = matched(at(3, 'turn/start', { turn: 1 }), 'update')
     expect(workflowRunDefinition.update(updateContext, unrelated)).toBe(state)
-    expect(workflowRunDefinition.buildViewNode(updateContext, 'trajectory')).toBeNull()
-    expect(workflowRunDefinition.buildViewNode({
+    expect(workflowRunDefinition.target).toBe('chat')
+    const buildViewNode = workflowRunDefinition.buildViewNode
+    if (buildViewNode === undefined) throw new Error('expected workflow Chat view builder')
+    expect(buildViewNode({
       ...updateContext, matches: [], start: undefined,
-    }, 'chat')).toBeNull()
-    const directNode = workflowRunDefinition.buildViewNode(updateContext, 'chat') as ChatConversationViewNode | null
+    })).toBeNull()
+    const directNode = buildViewNode(updateContext) as ChatConversationViewNode | null
     if (directNode === null) throw new Error('expected direct workflow Chat node')
     expect(directNode.kind).toBe('workflow-run')
     expect((directNode.data as WorkflowRunChatData).status).toBe('running')
@@ -271,6 +273,7 @@ const listState = (overrides: Partial<SessionListState> = {}): SessionListState 
   current: PARENT_ID,
   phase: 'ready',
   subagentsByParent: {},
+  tasksBySession: {},
   currentAddress: undefined,
   ...overrides,
 })

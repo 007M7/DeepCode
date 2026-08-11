@@ -3,7 +3,7 @@
 # The redact-rule entry models a deployment mounting its own scrub rule on the
 # telemetry/record waterfall — the seam itself ships no rules.
 - id: logger-console
-  name: '@cordisjs/plugin-logger-console'
+  name: '@deepseek-ai/cordis-plugin-logger-console'
   config:
     colors: false
     levels:
