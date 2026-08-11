@@ -1,13 +1,13 @@
 /**
  * Validate Cordis Loader entry metadata and package resolution.
  *
- * The Loader interpolates a plugin entry's `config` and the entry `disabled`
- * field (both evaluate against the loader context; `disabled` at tree build).
- * Every other entry metadata field stays static, so an expression there
- * remains truthy data and silently changes composition. Example configs and
- * the dsh Web composition resolve named plugins from their owning workspace
- * manifests. Local example packages must also be in the root TypeScript
- * project graph.
+ * The Loader interpolates a plugin entry's `config` (after declared injections
+ * activate, against that plugin context) and the entry `disabled` field (at
+ * every mount decision, against the loader context). Every other entry
+ * metadata field stays static, so an expression there remains truthy data and
+ * silently changes composition. Example configs and the dsh Web composition
+ * resolve named plugins from their owning workspace manifests. Local example
+ * packages must also be in the root TypeScript project graph.
  */
 
 import { globSync, readFileSync } from 'node:fs'
@@ -387,7 +387,9 @@ function validateMetadata(entry: Record<string, unknown>, file: string, path: st
 
 /**
  * Expression-node diagnostics for one entry. `disabled` is the single
- * interpolated metadata field; every other metadata field must stay static.
+ * interpolated metadata field: its own `!!js` expression node is allowed and
+ * must parse, while expressions nested below it stay truthy data; every other
+ * metadata field must stay fully static.
  * @param entry - one loader entry (or patch row).
  * @param path - the entry's diagnostic path prefix.
  * @returns one diagnostic per offending expression.
@@ -400,7 +402,39 @@ export function metadataExpressionErrors(entry: Record<string, unknown>, path: s
     collectExpressionPaths(entry[field], `${path}.${field}`, expressionPaths)
     for (const expressionPath of expressionPaths) problems.push(`${expressionPath}: !!js is not interpolated here`)
   }
+  const disabled = entry.disabled
+  if (disabled !== undefined) {
+    if (isJsExpr(disabled)) {
+      const detail = disabledExpressionProblem(disabled.__jsExpr)
+      if (detail !== undefined) problems.push(`${path}.disabled${detail}`)
+    } else {
+      // A non-expression value gates on Boolean() at mount; an expression
+      // nested anywhere below it never evaluates, so it must stay literal.
+      const expressionPaths: string[] = []
+      collectExpressionPaths(disabled, `${path}.disabled`, expressionPaths)
+      for (const expressionPath of expressionPaths) problems.push(`${expressionPath}: !!js is not interpolated here`)
+    }
+  }
   return problems
+}
+
+/**
+ * Parse-only validation of a `disabled` expression: the Loader evaluates it
+ * at every mount decision, and a syntax error would fail the boot — rejecting
+ * it here moves that failure to the earliest resolvable point.
+ * @param expression - the `!!js` expression text.
+ * @returns the diagnostic suffix, or `undefined` when the expression parses.
+ */
+function disabledExpressionProblem(expression: string): string | undefined {
+  try {
+    // Compilation only — the constructor never executes the body.
+    // eslint-disable-next-line no-new-func
+    new Function(`return (${expression})`)
+    return undefined
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return `: disabled expression does not parse: ${detail}`
+  }
 }
 
 function collectExpressionPaths(value: unknown, path: string, output: string[]): void {

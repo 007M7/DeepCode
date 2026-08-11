@@ -20,4 +20,20 @@ describe('verify-cordis-config metadata expressions', () => {
     const problems = metadataExpressionErrors({ id: { __jsExpr: 'process.platform' }, name: 'pkg' }, '[0]')
     expect(problems).toContain('[0].id: !!js is not interpolated here')
   })
+
+  it('rejects an expression nested below disabled (only the field itself interpolates)', () => {
+    const problems = metadataExpressionErrors(
+      { id: 'tool-bash', name: 'pkg', disabled: { when: { __jsExpr: 'process.platform' } } },
+      '[0]',
+    )
+    expect(problems).toContain('[0].disabled.when: !!js is not interpolated here')
+  })
+
+  it('rejects a disabled expression that does not parse (the loader would fail the boot)', () => {
+    const problems = metadataExpressionErrors(
+      { id: 'tool-bash', name: 'pkg', disabled: { __jsExpr: 'process.platform ===' } },
+      '[0]',
+    )
+    expect(problems.some(problem => problem.includes('[0].disabled: disabled expression does not parse'))).toBe(true)
+  })
 })
