@@ -428,7 +428,7 @@ export function metadataExpressionErrors(entry: Record<string, unknown>, path: s
 function disabledExpressionProblem(expression: string): string | undefined {
   try {
     // Compilation only — the constructor never executes the body.
-    // eslint-disable-next-line no-new-func
+    // oxlint-disable-next-line typescript/no-implied-eval
     new Function(`return (${expression})`)
     return undefined
   } catch (error) {
