@@ -130,7 +130,8 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
 
 /** In-flight root-row drag: source identity plus the current insert marker. */
 interface DragState {
-  workspaceId: WorkspaceId
+  /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
+  workspaceKey: string
   sessionId: SessionNode['id']
   /** Row the marker sits on and which half (insert above/below it). */
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
@@ -227,13 +228,22 @@ function SessionTree({
     () => Object.entries(workspaceExpansion).filter(([, expanded]) => expanded).map(([key]) => key),
     [workspaceExpansion],
   )
+  const ungroupedSessionIds = useMemo(() => {
+    const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
+    return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
+  }, [list, workspaces])
   useEffect(() => {
     if (list.phase !== 'ready') return
     const switchedToUpdated = previousOrderBy.current !== 'updated' && orderBy === 'updated'
     previousOrderBy.current = orderBy
-    for (const workspace of workspaces) {
-      const key = workspace.workspaceId as string
-      const sessionIds = workspace.sessionIds.filter(id => list.byId[id] !== undefined)
+    const accounts = [
+      ...workspaces.map(workspace => ({
+        key: workspace.workspaceId as string,
+        sessionIds: workspace.sessionIds.filter(id => list.byId[id] !== undefined),
+      })),
+      { key: UNGROUPED_KEY, sessionIds: ungroupedSessionIds },
+    ]
+    for (const { key, sessionIds } of accounts) {
       const previousOrder = recentSessionOrder[key]
       const previousUpdatedAt = recentSessionUpdatedAt[key] ?? {}
       let nextOrder = reconciledSessionOrder(sessionIds, previousOrder)
@@ -266,7 +276,7 @@ function SessionTree({
         syncRecentSessions(key, nextOrder.map(id => id as string), nextUpdatedAt)
       }
     }
-  }, [list, orderBy, recentSessionOrder, recentSessionUpdatedAt, syncRecentSessions, workspaces])
+  }, [list, orderBy, recentSessionOrder, recentSessionUpdatedAt, syncRecentSessions, ungroupedSessionIds, workspaces])
   const orderedWorkspaces = useMemo(() => {
     return workspaces.map((workspace) => {
       const stored = recentSessionOrder[workspace.workspaceId as string]
@@ -274,16 +284,25 @@ function SessionTree({
       return { ...workspace, sessionIds }
     })
   }, [recentSessionOrder, workspaces])
+  const orderedUngroupedSessionIds = useMemo(
+    () => reconciledSessionOrder(ungroupedSessionIds, recentSessionOrder[UNGROUPED_KEY]),
+    [recentSessionOrder, ungroupedSessionIds],
+  )
   const groups = useMemo(
-    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, { expandedProjects }),
-    [list, orderedWorkspaces, archivedSessionIds, expandedProjects],
+    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, {
+      expandedProjects,
+      ...(recentSessionOrder[UNGROUPED_KEY] === undefined
+        ? {}
+        : { ungroupedOrder: recentSessionOrder[UNGROUPED_KEY] }),
+    }),
+    [list, orderedWorkspaces, archivedSessionIds, expandedProjects, recentSessionOrder],
   )
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (sessionDropCommitted.current) return
     sessionDropCommitted.current = true
     setDrag(null)
-    const group = groups.find(candidate => candidate.workspaceId === activeDrag.workspaceId)
+    const group = groups.find(candidate => candidate.key === activeDrag.workspaceKey)
     if (group === undefined) return
     const targetIndex = group.sessions.findIndex(session => session.id === over.id)
     if (targetIndex === -1) return
@@ -294,14 +313,16 @@ function SessionTree({
       ? group.sessions.length
       : group.sessions.findIndex(session => session.id === anchor)
     if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
-    const account = orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.workspaceId)
-    if (account === undefined) return
-    const nextOrder = account.sessionIds.filter(id => id !== activeDrag.sessionId)
+    const accountSessionIds = activeDrag.workspaceKey === UNGROUPED_KEY
+      ? orderedUngroupedSessionIds
+      : orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.workspaceKey)?.sessionIds
+    if (accountSessionIds === undefined) return
+    const nextOrder = accountSessionIds.filter(id => id !== activeDrag.sessionId)
     const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
     nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
-    setRecentSessionOrder(activeDrag.workspaceId, nextOrder.map(id => id as string))
-    if (orderBy === 'updated') return
-    insertSessionBefore(activeDrag.workspaceId, activeDrag.sessionId, anchor).catch((reason: unknown) => {
+    setRecentSessionOrder(activeDrag.workspaceKey, nextOrder.map(id => id as string))
+    if (orderBy === 'updated' || activeDrag.workspaceKey === UNGROUPED_KEY) return
+    insertSessionBefore(activeDrag.workspaceKey as WorkspaceId, activeDrag.sessionId, anchor).catch((reason: unknown) => {
       console.warn('session reorder rejected:', reason)
     })
   }
@@ -427,15 +448,13 @@ function SessionTree({
                 ? group.sessions
                 : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)
               ).map((node) => {
-              // Draggable: real-workspace session rows. The drag
-              // never leaves its group — rows of other groups show no markers
-              // and reject drops (visual movement confined to this section).
-                const draggable = group.workspaceId !== undefined
-                const sameGroupDrag = drag !== null && drag.workspaceId === group.workspaceId
-                const dragProps = !draggable || group.workspaceId === undefined ? undefined : {
+              // Session drag never leaves its group. Ungrouped writes only the
+              // browser-local account; real Workspaces may also write Host order.
+                const sameGroupDrag = drag !== null && drag.workspaceKey === group.key
+                const dragProps = {
                   start: () => {
                     sessionDropCommitted.current = false
-                    setDrag({ workspaceId: group.workspaceId as WorkspaceId, sessionId: node.id, over: null })
+                    setDrag({ workspaceKey: group.key, sessionId: node.id, over: null })
                   },
                   active: sameGroupDrag,
                   marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,

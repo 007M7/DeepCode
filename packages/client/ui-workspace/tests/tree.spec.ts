@@ -24,8 +24,9 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedProjects: readonly string[] = []) => ({
+const view = (expandedProjects: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
   expandedProjects,
+  ...(ungroupedOrder === undefined ? {} : { ungroupedOrder }),
 })
 const noArchive: readonly SessionId[] = []
 const archived = (...ids: string[]): readonly SessionId[] => ids.map(sid)
@@ -52,6 +53,19 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(sessions, [workspace('first', ['owned'])], noArchive, view([UNGROUPED_KEY]))
     expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+  })
+
+  it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
+    const sessions = list(summary('one', 3), summary('two', 2), summary('new', 4))
+    const groups = deriveGroups(
+      sessions,
+      [],
+      noArchive,
+      view([UNGROUPED_KEY], ['two', 'stale', 'two']),
+    )
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([
+      sid('two'), sid('new'), sid('one'),
+    ])
   })
 
   it('shows only the current blank session in its Workspace count and tree', () => {

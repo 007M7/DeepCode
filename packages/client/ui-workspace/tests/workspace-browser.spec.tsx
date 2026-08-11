@@ -9,6 +9,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
+import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -111,8 +112,8 @@ describe('WorkspaceBrowser', () => {
     rerender(b, { useWorkspaces: hook(workspaceState([])) })
     await waitFor(() => {
       expect(b.store.getSnapshot().workspaceExpansion).toEqual({})
-      expect(b.store.getSnapshot().recentSessionOrder).toEqual({})
-      expect(b.store.getSnapshot().recentSessionUpdatedAt).toEqual({})
+      expect(b.store.getSnapshot().recentSessionOrder).toEqual({ [UNGROUPED_KEY]: [] })
+      expect(b.store.getSnapshot().recentSessionUpdatedAt).toEqual({ [UNGROUPED_KEY]: {} })
     })
   })
 
@@ -774,6 +775,55 @@ describe('WorkspaceBrowser', () => {
     fireEvent.dragStart(one, { dataTransfer })
     fireDrag(one, 'drop', 130)
     expect(insertSessionBefore).toHaveBeenCalledTimes(1)
+  })
+
+  it('persists Ungrouped drag order in both modes without writing a Host Workspace account', async () => {
+    const insertSessionBefore = vi.fn(async () => {})
+    const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([])),
+      insertSessionBefore,
+    })
+    fireEvent.click(screen.getByText('未分组'))
+
+    const dragAfter = (sourceTitle: string, targetTitle: string): void => {
+      const source = screen.getByText(sourceTitle).closest('[role="treeitem"]') as HTMLElement
+      const target = screen.getByText(targetTitle).closest('[role="treeitem"]') as HTMLElement
+      target.getBoundingClientRect = () => ({
+        top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+      })
+      fireEvent.dragStart(source, { dataTransfer: dragData() })
+      fireDrag(target, 'drop', 180)
+    }
+
+    dragAfter('one', 'three')
+    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    dragAfter('two', 'one')
+    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['three', 'one', 'two'])
+    expect(insertSessionBefore).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['one', 'two', 'three'])
+    })
+    dragAfter('one', 'three')
+    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(insertSessionBefore).not.toHaveBeenCalled()
+
+    b.view.unmount()
+    const restored = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([])),
+      insertSessionBefore,
+    })
+    expect(restored.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(screen.getAllByRole('treeitem').slice(1).map(row => row.textContent)).toEqual([
+      expect.stringContaining('two'),
+      expect.stringContaining('three'),
+      expect.stringContaining('one'),
+    ])
   })
 
   it('still sends the reorder when the dragged row left the group mid-drag', () => {
