@@ -20,6 +20,7 @@ import type {
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -232,6 +233,24 @@ function applyLauncherIdentities(
   })
 }
 
+/** Settings namespace carrying the tool-call parallelism a user owns. */
+export const AGENT_LOOP_SETTINGS_NAMESPACE = settingsNamespace('agent-loop')
+
+/**
+ * The agent-loop fields a user owns. Deliberately a strict subset of
+ * {@link Config}: `agents` is a boot-time composition array consumed once when
+ * the service starts, so a stored change could only look like it had an effect.
+ */
+export interface AgentLoopSettings {
+  /** Maximum parallel-safe calls in flight per agent step. */
+  maxParallelToolCalls: number
+}
+
+/** Schema of the agent-loop settings section. */
+export const AGENT_LOOP_SETTINGS_SCHEMA: z<AgentLoopSettings> = z.object({
+  maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
+})
+
 /** Agent-loop plugin configuration. */
 export interface Config {
   /**
@@ -299,11 +318,31 @@ export class AgentLoop extends Service implements AgentFactory {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'agentLoop')
+    const entry: AgentLoopSettings = {
+      maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
+    }
+    let source: () => AgentLoopSettings = () => entry
     this.config = {
       ...config,
       agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
-      maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
+      // Read through on every scheduler decision: `tool-calls.ts` destructures
+      // this at the start of each group, so a committed change caps the next
+      // group without disturbing the one in flight.
+      get maxParallelToolCalls() {
+        return source().maxParallelToolCalls
+      },
     }
+    installSettingsSection(ctx, AGENT_LOOP_SETTINGS_NAMESPACE, AGENT_LOOP_SETTINGS_SCHEMA, entry, {
+      // The schema admits any integer above zero; `resolveMaxParallelToolCalls`
+      // owns the whole rule, so refusing here keeps the running scheduler on
+      // its last good cap instead of failing at the next tool group.
+      validate: value => void resolveMaxParallelToolCalls(value.maxParallelToolCalls),
+      setSource: (current) => {
+        source = current
+      },
+      // Nothing is derived from the cap: the getter above is the only reader.
+      onChange: () => {},
+    })
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }

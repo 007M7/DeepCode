@@ -344,11 +344,21 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('ui-conversation'), z.object({
       busyEnter: z.union(['queue', 'steer']).default('queue'),
     }))
+    ctx.settings.register(settingsNamespace('bash'), z.object({
+      timeoutMs: z.number().default(120_000),
+    }))
+    ctx.settings.register(settingsNamespace('agent-loop'), z.object({
+      maxParallelToolCalls: z.number().default(10),
+    }))
+    ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
+      baseURL: z.string(),
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
 
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
       'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
+      'bash', 'agent-loop', 'web-search-deepseek',
     ])
     const permission = expectOk(await api.settings.mutate(request({
       ns: 'permission',
@@ -370,6 +380,21 @@ describe('settings domain', () => {
       ops: [{ op: 'set', path: ['busyEnter'], value: 'steer' }],
     })))
     expect(conversation.value).toEqual({ busyEnter: 'steer' })
+    const bash = expectOk(await api.settings.mutate(request({
+      ns: 'bash',
+      ops: [{ op: 'set', path: ['timeoutMs'], value: 5_000 }],
+    })))
+    expect(bash.value).toEqual({ timeoutMs: 5_000 })
+    const agentLoop = expectOk(await api.settings.mutate(request({
+      ns: 'agent-loop',
+      ops: [{ op: 'set', path: ['maxParallelToolCalls'], value: 2 }],
+    })))
+    expect(agentLoop.value).toEqual({ maxParallelToolCalls: 2 })
+    const webSearch = expectOk(await api.settings.mutate(request({
+      ns: 'web-search-deepseek',
+      ops: [{ op: 'set', path: ['baseURL'], value: 'https://search.test/v1' }],
+    })))
+    expect(webSearch.value).toEqual({ baseURL: 'https://search.test/v1' })
 
     for (const response of [
       await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),
