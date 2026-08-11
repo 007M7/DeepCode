@@ -119,6 +119,8 @@ function isENOENT(error: unknown): boolean {
  * recovered from an incomplete final Zstandard frame.
  */
 export class SessionPersistenceJsonl extends SessionPersistence implements PersistenceBackend<JsonlTornMarker> {
+  override readonly supportsRawArtifacts = true
+
   static inject = ['sessions']
 
   static Config: z<Config> = z.object({

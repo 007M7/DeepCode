@@ -124,7 +124,7 @@ interface CreateSessionOptions {
 
 ## `SessionRawArtifact`——逐字存储工件文本
 
-后端为单个会话自持的工件文本，与其持久化写入的字节逐字一致（按物理编码解码）。`readRaw` 返回它而不从解析后事件重建，因此后端特定的序列化（chunk 打包、键序、换行）得以保留；没有每会话工件的后端（如 SQLite）继承 `undefined` 默认。
+后端为单个会话自持的工件文本，与其持久化写入的字节逐字一致（按物理编码解码）。`readRaw` 返回它而不从解析后事件重建，因此后端特定的序列化（chunk 打包、键序、换行）得以保留。Consumer 须先检查 `supportsRawArtifacts`：`false` 表示后端不提供此能力（如 SQLite），而 `readRaw(...) === undefined` 表示受支持的后端没有该会话的已实体化工件。
 
 ```ts type-equiv
 /** A backend's own raw artifact text for one session, verbatim. */
@@ -262,13 +262,15 @@ abstract locate(meta: SessionHeader): SessionLocation | undefined
  * bytes the backend wrote (decoded from its physical encoding, e.g. a
  * decompressed JSONL). The returned `content` is the raw text, not a
  * reconstruction from parsed events, so it preserves backend-specific
- * serialization (chunk packing, key order, line breaks). Backends without a
- * per-session artifact (SQLite) inherit the `undefined` default.
+ * serialization (chunk packing, key order, line breaks). Callers first test
+ * {@link supportsRawArtifacts}; `undefined` then means only that the requested
+ * session has no materialized artifact.
  * @param _id - the persisted session to read (unused by the default: no
  * per-session artifact).
  * @param signal - optional cancellation for backend read work.
  * @returns the raw artifact plus its parsed header, or `undefined` when the
- * session is absent or the backend owns no per-session artifact.
+ * session is absent.
+ * @throws when this backend does not expose per-session raw artifacts.
  */
 readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 

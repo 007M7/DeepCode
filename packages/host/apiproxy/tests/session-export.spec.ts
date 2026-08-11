@@ -59,7 +59,7 @@ async function buildApi(
   descendants: SessionLineageNode[] = [],
   services: {
     query?: boolean
-    persistence?: boolean | 'throw'
+    persistence?: boolean | 'throw' | 'unsupported'
     attachments?: boolean | ((ref: ImageAttachmentRef) => Promise<ReturnType<typeof storedImage>>)
   } = {},
 ) {
@@ -80,6 +80,7 @@ async function buildApi(
   }
   if (persistence) {
     ctx.provide('sessionPersistence', {
+      supportsRawArtifacts: persistence !== 'unsupported',
       readRaw: async (id: SessionId) => {
         if (persistence === 'throw') throw new Error('/host/private/session.jsonl')
         return artifacts[id]
@@ -149,6 +150,15 @@ describe('session.export download endpoint', () => {
       new Request('http://host/api/session.export?sessionId=session-root'),
     )
     expect(response.status).toBe(404)
+  })
+
+  it('answers 501 when the persistence backend has no per-session raw artifacts', async () => {
+    const api = await buildApi({}, [], { persistence: 'unsupported' })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    expect(response.status).toBe(501)
+    expect(await response.text()).toContain('does not expose per-session raw artifacts')
   })
 
   it('answers 400 when the sessionId query parameter is absent', async () => {

@@ -3489,6 +3489,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             { status: 500 },
           )
         }
+        if (!deps.sessionPersistence.supportsRawArtifacts) {
+          return new Response(
+            'session log export is unavailable: the persistence backend does not expose per-session raw artifacts',
+            { status: 501 },
+          )
+        }
         const ready: SessionLogExportReady = {
           sessionQuery: deps.sessionQuery,
           sessionPersistence: deps.sessionPersistence,

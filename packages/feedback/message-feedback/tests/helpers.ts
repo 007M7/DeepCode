@@ -109,6 +109,8 @@ export function messageFixture(
 
 /** Minimal controllable persistence provider for service-level tests. */
 class TestPersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
   static inject = ['sessions']
 
   readonly durable = new Map<SessionId, SessionInspection>()

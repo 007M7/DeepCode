@@ -124,7 +124,7 @@ Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resumi
 
 ## `SessionRawArtifact` — verbatim stored artifact text
 
-A backend's own artifact text for one session, byte-identical to what it durably wrote (decoded from its physical encoding). `readRaw` returns it without reconstructing from parsed events, so backend-specific serialization (chunk packing, key order, line breaks) survives; backends without a per-session artifact, such as SQLite, inherit the `undefined` default.
+A backend's own artifact text for one session, byte-identical to what it durably wrote (decoded from its physical encoding). `readRaw` returns it without reconstructing from parsed events, so backend-specific serialization (chunk packing, key order, line breaks) survives. Consumers first test `supportsRawArtifacts`: `false` means the backend does not provide this capability (for example SQLite), while `readRaw(...) === undefined` means a supported backend has no materialized artifact for that session.
 
 ```ts type-equiv
 /** A backend's own raw artifact text for one session, verbatim. */
@@ -262,13 +262,15 @@ abstract locate(meta: SessionHeader): SessionLocation | undefined
  * bytes the backend wrote (decoded from its physical encoding, e.g. a
  * decompressed JSONL). The returned `content` is the raw text, not a
  * reconstruction from parsed events, so it preserves backend-specific
- * serialization (chunk packing, key order, line breaks). Backends without a
- * per-session artifact (SQLite) inherit the `undefined` default.
+ * serialization (chunk packing, key order, line breaks). Callers first test
+ * {@link supportsRawArtifacts}; `undefined` then means only that the requested
+ * session has no materialized artifact.
  * @param _id - the persisted session to read (unused by the default: no
  * per-session artifact).
  * @param signal - optional cancellation for backend read work.
  * @returns the raw artifact plus its parsed header, or `undefined` when the
- * session is absent or the backend owns no per-session artifact.
+ * session is absent.
+ * @throws when this backend does not expose per-session raw artifacts.
  */
 readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 
