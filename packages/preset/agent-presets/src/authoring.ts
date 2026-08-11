@@ -17,7 +17,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
 import { METADATA_FILE, renderPresetMetadata } from './metadata.ts'
-import { PRESET_ID, type AgentPreset, type PresetRoot } from './types.ts'
+import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 
 /** A preset id that cannot be used as a directory name under a root. */
 export class InvalidPresetIdError extends Error {

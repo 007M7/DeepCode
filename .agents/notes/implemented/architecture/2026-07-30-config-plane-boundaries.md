@@ -26,7 +26,7 @@ Three smaller defects sat beside them. `llm/adapters-updated` documented contain
 
 **Staleness is detected, not ordered away.** Each namespace carries a monotonic `revision` over its RAW section; writes may carry `expectedRevision`, and a mismatch rejects with `SettingsConflictError` → `settings-conflict` on the wire, both revisions attached. The editor captures the revision it opened at and, on conflict, tells the user to reopen rather than replaying its snapshot.
 
-**The raw layer gets its own event.** `settings/updated` stays gated on the resolved value — that is what a consumer means by change. `settings/document-updated (ns, revision)` fires on any raw-section change, because a configuration surface must learn that a field went from inherited to overridden (same resolved value, different meaning) and that its held revision is stale. The host frame `host/settings-changed` now rides this event, and a change to an exposed provider namespace also emits `host/models-changed`: that namespace holds the provider's catalog, which no route change announces.
+**The raw layer gets its own event.** `settings/updated` stays gated on the resolved value — that is what a consumer means by change. `settings/document-updated (ns, revision)` fires on any raw-section change, because a configuration surface must learn that a field went from inherited to overridden (same resolved value, different meaning) and that its held revision is stale. The event is forwarded verbatim, and model consumers subscribe to it alongside `llm/adapters-updated`, because provider settings hold catalog data that no route change announces.
 
 ## Alternatives considered
 

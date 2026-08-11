@@ -16,7 +16,8 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: Host calls re-read authoritative Cordis and TypeRT
- * state, while Client methods and descriptors mutate in one owned effect.
+ * state, while Client methods, descriptors, and `$on` subscriptions mutate in
+ * one owned effect.
  */
 const install: InvariantInstaller = () => {}
 
