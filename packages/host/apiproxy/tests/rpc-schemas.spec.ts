@@ -20,8 +20,11 @@ import {
   hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
 } from '../src/api/host.schema.ts'
 import {
+  workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
+  workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
+  workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
 } from '../src/api/workspace.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
@@ -73,6 +76,8 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
+    // The credentials producer still emits this code, so the branch has to stay.
+    expect(rpcErrorSchema.parse({ code: 'credential-rejected', message: 'm', details: { ref: 'r' } }).code).toBe('credential-rejected')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -344,11 +349,29 @@ describe('workspace domain schemas', () => {
     createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
   }
 
-  it('validates ids and the view row', () => {
+  it('validates ids, the view row, and list request/value', () => {
     expect(workspaceIdSchema.parse('w1')).toBe('w1')
     expect(() => workspaceIdSchema.parse('')).toThrow()
     expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
     expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
+    expect(workspaceListRequestSchema.parse({})).toEqual({})
+    expect(workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] }).items).toHaveLength(1)
+    expect(() => workspaceListValueSchema.parse({ items: [view] })).toThrow()
+  })
+
+  it('archiveSession request/value carry the id and the full updated set', () => {
+    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => workspaceArchiveSessionRequestSchema.parse({})).toThrow()
+    expect(workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: ['s1', 's2'] }).archivedSessionIds)
+      .toEqual(['s1', 's2'])
+    expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
+  })
+
+  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
+    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
+    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
   })
 
   it('create requires a path', () => {

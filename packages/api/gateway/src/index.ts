@@ -176,6 +176,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
       if (request.signal?.aborted === true) throw new RemoteInvocationCancelled(endpoint, error)
       throw error
     }
+    // A weak descriptor declares no return type, so nothing returned is a void
+    // result and rides the wire as an absent value field. A strict descriptor
+    // keeps its schema: there, undefined has to be a declared result.
+    if (result === undefined && descriptor.result.mode !== 'strict') return result
     return decode(descriptor.result, result, 'result-invalid', endpoint, 'result')
   }
 
@@ -405,6 +409,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     args: Readonly<Record<string, unknown>>,
     endpoint: string,
   ): Promise<unknown> {
+    // An absent field reached assertExactArguments' allowance, so this parameter
+    // takes undefined; a present-but-undefined field is not JSON-safe input and
+    // still fails decode. Lookup ids are never omissible, so absence here only
+    // ever belongs to a json parameter.
+    if (!Object.hasOwn(args, parameter.wire)) return undefined
     const value = decode(parameter.codec, args[parameter.wire], 'input-invalid', endpoint, parameter.wire)
     if (parameter.source === 'json') return value
     const key = parameter.lookup

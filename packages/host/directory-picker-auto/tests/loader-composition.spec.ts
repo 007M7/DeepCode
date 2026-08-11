@@ -88,7 +88,10 @@ afterEach(async () => {
 })
 
 /** Write a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
-async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx: Context; configPath: string }> {
+async function loadComposition(
+  bindHost: '127.0.0.1' | '0.0.0.0',
+  options: { failSurface?: boolean } = {},
+): Promise<{ ctx: Context; configPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-directory-picker-auto-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -115,6 +118,9 @@ async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx
   context.loader.internal = {
     version: 'v2',
     async import(specifier: string) {
+      if (options.failSurface === true && (specifier === NATIVE_SURFACE || specifier === BROWSE_SURFACE)) {
+        throw new Error(`surface import failed: ${specifier}`)
+      }
       if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
       return modules.get(specifier)
     },
@@ -207,6 +213,17 @@ describe('real Loader composition', () => {
     expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
     expect(entryNames(ctx)).not.toContain(NATIVE)
     expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
+  })
+
+  it('unmounts the backend when the surface entry fails to load', { timeout: 60_000 }, async () => {
+    stubAttendedHost()
+    await expect(loadComposition('127.0.0.1', { failSurface: true })).rejects.toThrow(/surface import failed/)
+
+    // Setup owns both entries until it returns its disposer, so a failed surface
+    // must take the mounted backend with it: otherwise a retry collides with the
+    // directoryPicker registration this backend already made.
+    expect(entryNames(context!)).not.toContain(NATIVE)
+    expect(context!.get('directoryPicker')).toBeUndefined()
   })
 
   it('tolerates the mounted entry being removed by the tree before the chooser unloads', { timeout: 60_000 }, async () => {

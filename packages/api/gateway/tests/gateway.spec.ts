@@ -788,6 +788,19 @@ describe('TypertGatewayService', () => {
     }), 'input-invalid')
   })
 
+  it('admits an omitted SRC field and hands the Host method undefined', async () => {
+    const { ctx, service } = await setup()
+    // A weak descriptor reads parameter names from the JavaScript signature and
+    // cannot see which are optional, so an absent field is admitted; the case
+    // above keeps an explicitly undefined field rejected.
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'passthrough',
+      args: {},
+    })).resolves.toBeUndefined()
+    expect(service.calls).toContain('passthrough')
+  })
+
   it('rejects cyclic SRC input and non-JSON SRC results', async () => {
     const { ctx, service } = await setup()
     const cyclic: { self?: unknown } = {}

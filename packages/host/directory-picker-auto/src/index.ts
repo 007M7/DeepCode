@@ -72,11 +72,8 @@ export async function apply(ctx: Context): Promise<void> {
     // backend lands first: the surface's browser half drives the capability
     // the backend registers.
     const ids: string[] = []
-    for (const name of [BACKEND_PACKAGES[backend], SURFACE_PACKAGES[backend]]) {
-      ids.push(await ctx.loader.create({ name }))
-    }
-    return async () => {
-      for (const id of ids.reverse()) {
+    const unmount = async () => {
+      for (const id of [...ids].reverse()) {
         // Tree teardown (group.stop) can have removed the entry already;
         // nothing is left to unmount or await then.
         if (ctx.loader.store[id] === undefined) continue
@@ -85,5 +82,17 @@ export async function apply(ctx: Context): Promise<void> {
         await ctx.loader.remove(id)
       }
     }
+    try {
+      for (const name of [BACKEND_PACKAGES[backend], SURFACE_PACKAGES[backend]]) {
+        ids.push(await ctx.loader.create({ name }))
+      }
+    } catch (cause) {
+      // Setup owns the entries it created until it returns the disposer: leaving
+      // the backend mounted would make a retry collide with its own
+      // directoryPicker registration.
+      await unmount()
+      throw cause
+    }
+    return unmount
   }, 'directory-picker-auto: interaction entries')
 }
