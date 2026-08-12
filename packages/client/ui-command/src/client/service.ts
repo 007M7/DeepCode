@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (`commands/change` rides the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
@@ -22,6 +23,28 @@ import type { CommandDescriptor } from './directory.ts'
 import { CommandDirectory } from './directory.ts'
 import { PopupSelectController } from './popup.ts'
 import type { TokenSegment } from './popup.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * This browser client completed one admitted Host command execution.
+     * Other clients receive the durable command nodes but never this local
+     * submission acknowledgment.
+     * @param sessionId - Session addressed by the local submission.
+     * @param name - Executed command name without the leading slash.
+     * @param result - Host command result returned to this browser.
+     * @mode emit
+     */
+    'command/executed'(sessionId: SessionId, name: string, result: CommandResult): void
+  }
+}
+
+/** Recover the command name from a line the Host confirmed as executed. */
+function submittedCommandName(line: string): string {
+  const trimmed = line.trim()
+  const separator = trimmed.search(/\s/u)
+  return (separator === -1 ? trimmed : trimmed.slice(0, separator)).slice(1)
+}
 
 /** Live mutable state in one holder (service methods run behind the caller-ctx tracker). */
 interface LiveState {
@@ -351,6 +374,7 @@ export class CommandService extends Service implements CommandServiceContract {
     const result = await this.ctx.remote.commands.execute(session.sessionId, line)
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    this.ctx.emit('command/executed', session.sessionId, submittedCommandName(line), result.value.result)
     return { kind: 'success' }
   }
 

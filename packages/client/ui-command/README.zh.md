@@ -8,6 +8,8 @@
 
 `CommandDirectory`（`src/client/directory.ts`）是唯一的 wire 派生缓存，以会话为 key。普通会话通过 `command.list({sessionId})` 拉取，source 的 scope 出生 `warm` 钩子会预热该会话的缓存项。由目录寻址的可继续子代理会在客户端解析为空命令目录：`command.list` 绑定 Agent，若预热它，就会仅因查看持久化历史而激活子代理。缓存项由转发的 owner 事件 `commands/change` 软失效（重拉在途期间旧快照继续服务），也由转发的 `agent-preset/selected` 对该会话单独软失效（重组 agent 不产生任何注册，注册表级信号不会为它触发），由 `connection/reset` 硬失效，并以 epoch 把关，被取代的旧拉取永远无法覆盖更新的结果。`matchSpace` 只凭该缓存同步应答；`matchEnter` 在 SubmitAttempt 信号上强等缓存，预热失败即拒绝——`/` 开头的一行绝不会被静默降级为普通提示词。
 
+`command.execute` 返回已匹配的命令结果后，当前浏览器会发布本地 `command/executed(sessionId, name, result)`。其他客户端只会通过 Host 事件流收到持久命令节点，不会收到这条确认，因此浏览器专属副作用可以筛选由实际提交命令的客户端收到的成功结果，而不会把 Session 回放当成操作请求。
+
 菜单查询会按顺序且不区分大小写地模糊匹配命令名的子序列。前缀排名最高；其余匹配项按分隔符边界优先、相邻字符优先、间隔越短越优先的规则排序，若仍同分，则以目录顺序和 contribution 顺序打破平局。此行为只影响命令发现：space 和 Enter 仍要求命令名精确匹配。原理：[Web 斜杠命令模糊发现](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.md)。
 
 `PopupSelectController`（`src/client/popup.ts`）是无头的壳状态：`PopupSelectView` 自行注册进 `conversation.input.overlay`（SlotMap key 归 ui-conversation 所有；本包只以 type-only 导入引入该声明——没有运行时依赖边）。壳是打开期间持有焦点的瞬态层；onSelect 之后的 token 片段消费在两条分支上都经 `consumeTokenSegment` 执行（菜单路径做 span CAS，回车路径做裸 token 相等比较），作用于接线层经 `bindDraft` 绑定的草稿表层。

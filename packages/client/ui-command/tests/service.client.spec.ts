@@ -9,6 +9,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
+import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
@@ -120,6 +121,10 @@ async function bench(opts: BenchOptions = {}) {
     },
   })
   ctx.provide('remote.commands', commandsRemote)
+  const executions: Array<{ sessionId: SessionId; name: string; result: CommandResult }> = []
+  ctx.on('command/executed', (sessionId, name, result) => {
+    executions.push({ sessionId, name, result })
+  })
   /** Notices the fake conversation face collected (runDetached routing). */
   const notices: Array<{ scope: SessionId | undefined; level: 'info' | 'error'; text: string }> = []
   ctx.provide('conversation', {
@@ -145,7 +150,7 @@ async function bench(opts: BenchOptions = {}) {
   const warm = async (session: ClientSessionContext) => {
     await source.candidates(session, { query: '', position: 'leading', signal: new AbortController().signal })
   }
-  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, registered, notices }
+  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices }
 }
 
 function menuPick(source: SlashSource, name: string, session: ClientSessionContext, end?: number) {
@@ -367,7 +372,7 @@ describe('dispatch (menu column)', () => {
   })
 
   it('host bare → consume-token span guard on the session scope + detached execute', async () => {
-    const { source, mint, warm, executeCalls } = await bench()
+    const { source, mint, warm, executeCalls, executions } = await bench()
     const scope = mint('s1')
     const consumes: ConsumeTokenRequest[] = []
     scope.ctx.on('slash/input-consume-token', (r) => {
@@ -377,8 +382,14 @@ describe('dispatch (menu column)', () => {
     await warm(proj('s1'))
     expect(menuPick(source, 'plan', proj('s1'), 5)).toBe('handled')
     expect(consumes).toEqual([{ guard: { kind: 'span', span: { start: 0, end: 5, draftRev: 3 } } }])
-    await Promise.resolve()
-    expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/plan' }])
+    await vi.waitFor(() => {
+      expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/plan' }])
+      expect(executions).toEqual([{
+        sessionId: sid('s1'),
+        name: 'plan',
+        result: { kind: 'success' },
+      }])
+    })
   })
 
   it('a name the directory no longer serves → undefined (snapshot swapped between menu and pick)', async () => {
@@ -496,7 +507,7 @@ describe('matchEnter (enter column)', () => {
 
 describe('execute payload', () => {
   it('claim.submit addresses the session; admitted outcomes stay off the composer (flow card owns them)', async () => {
-    const { source, warm, executeCalls } = await bench({
+    const { source, warm, executeCalls, executions } = await bench({
       execute: () => Promise.resolve({ matched: true }),
     })
     await warm(proj('s1'))
@@ -507,6 +518,11 @@ describe('execute payload', () => {
     // Pure admission: no outcome text ever rides the submit result — the
     // durable command lifecycle events render the outcome in the flow.
     expect(settled).toEqual({ kind: 'success' })
+    expect(executions).toEqual([{
+      sessionId: sid('s1'),
+      name: 'goal',
+      result: { kind: 'success' },
+    }])
   })
 
   it('maps matched:false to an error outcome and a matched bare result to success', async () => {
