@@ -11,9 +11,8 @@
  * neither entry because those Agent-bound RPCs would activate persisted
  * history outside the direct-parent continuation path.
  */
-import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
-// Type-only: pulls the forwarded Host-event face and ctx.remote merge.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
+import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).

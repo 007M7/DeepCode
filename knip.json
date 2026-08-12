@@ -91,6 +91,12 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/host/directory-picker-auto": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-ui-directory-picker",
+        "@deepseek-ai/dsh-client-ui-directory-picker-native"
+      ]
+    },
     "packages/host/directory-picker-native": {
       "entry": [
         "tests/**/*.spec.{ts,tsx}",
@@ -148,6 +154,25 @@
       "project": [
         "src/**/*.ts",
         "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/ui-directory-picker": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/ui-directory-picker-native": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
         "tests/**/*.tsx"
       ]
     },
@@ -559,6 +584,9 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
       ]
     },
     "packages/examples/jsonrpc-demo": {

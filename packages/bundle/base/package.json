@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-base",
   "description": "The shared dsh core as a profile bundle: every profile's first patch layer, inserting the base plugin rows over the empty profile root",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "publishConfig": {
     "access": "restricted"
   },
@@ -23,7 +23,6 @@
       "default": "./lib/invariant.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./windows.cordis.patch.yml": "./windows.cordis.patch.yml",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -31,7 +30,6 @@
     "lib/index.js",
     "lib/invariant.js",
     "cordis.patch.yml",
-    "windows.cordis.patch.yml",
     "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",

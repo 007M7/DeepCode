@@ -68,8 +68,8 @@ export function apply(ctx: ClientContext): void {
   const browserFlowSource = flowSource('sidebar.workspaces.directoryFlow')
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
   const browserInjected = (): WorkspaceBrowserInjected => ({
-    // Explicit group actions keep their target; unscoped New Session rides
-    // the runtime's shared action (recent-Workspace projection inside).
+    // Explicit group actions keep their target; unscoped New Session inherits
+    // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     searchSessions,
@@ -91,6 +91,9 @@ export function apply(ctx: ClientContext): void {
     },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
+    insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
+      await ctx.workspaces.insertBefore(workspaceId, beforeWorkspaceId)
+    },
     archiveSession: async (sessionId) => { await ctx.workspaces.archiveSession(sessionId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)

@@ -436,7 +436,7 @@ describe('dsh-subagent-spawn', () => {
         prompt: [{ type: 'text', text: 'do X' }],
         parent,
         toolFilter: { deny: ['no_such_tool'] },
-      })).rejects.toThrow(/unknown inherited tool "no_such_tool"/)
+      })).rejects.toThrow(/unknown global tool "no_such_tool"/)
       expect(ctx.agents.list().length).toBe(before)
     })
   })

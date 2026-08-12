@@ -74,6 +74,15 @@ export interface WorkspaceApi {
   Promise<RpcResponse<{ deleted: true }>>
 
   /**
+   * Moves one Workspace within the registry display order,
+   * DOM-insertBefore-like. An omitted anchor appends to the end.
+   */
+  insertBefore(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    beforeWorkspaceId?: WorkspaceId
+  }>): Promise<RpcResponse<{ workspaceIds: WorkspaceId[] }>>
+
+  /**
    * Moves an accounted session within its workspace's manual order,
    * DOM-insertBefore-like: with `beforeSessionId` the session is inserted
    * before that anchor; omitted appends to the end. An unknown workspace

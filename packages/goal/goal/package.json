@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-goal",
   "description": "Event-sourced same-session goal state and lifecycle service for the DeepSeek Harness",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "publishConfig": {
     "access": "restricted"
   },
@@ -49,9 +49,7 @@
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts",
-    "lib/typert.remote-client.d.ts.map",
-    "src"
+    "lib/typert.remote-client.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {

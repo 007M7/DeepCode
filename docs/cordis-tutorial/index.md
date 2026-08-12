@@ -10,7 +10,7 @@ If you want the condensed concept reference instead of a walkthrough, read the [
 
 ## Setup
 
-You need a clone of this repository with dependencies installed — the [quick start](../user/guide/quickstart.md) covers prerequisites. No API key is needed for this tutorial; every example runs keylessly.
+You need a clone of this repository with dependencies installed; the [development guide](../development.md#setup-tutorial) lists the prerequisites. No API key is needed for this tutorial; every example runs keylessly.
 
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
