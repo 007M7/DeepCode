@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SessionsService } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
@@ -17,7 +17,7 @@ function workspace(id: string, sessionIds: SessionId[] = [], createdAt = '2026-0
 }
 
 describe('WorkspaceManager', () => {
-  it('replays changed frames over hydration and keeps established order on refresh', async () => {
+  it('replays changed frames over hydration and adopts the durable order on refresh', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
     api.onWorkspaceList = () => gate.promise
@@ -36,7 +36,7 @@ describe('WorkspaceManager', () => {
       items: [workspace('old'), workspace('new')] as never[],
     }))
     await manager.refresh()
-    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['new', 'old'])
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['old', 'new'])
   })
 
   it('single-flights refreshes and exposes result and transport failures independently of readiness', async () => {
@@ -75,6 +75,73 @@ describe('WorkspaceManager', () => {
     await expect(manager.create({ path: '/w/existing' })).resolves.toMatchObject({
       ok: false, error: { code: 'internal', message: 'create transport' },
     })
+  })
+
+  it('reorders optimistically while newer Host frames outrank unary echoes and failures roll back', async () => {
+    const api = new FakeApiClient()
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('one'), workspace('two'), workspace('three')] as never[],
+    }))
+    const manager = new WorkspaceManager(api)
+    await manager.refresh()
+
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceInsertBefore']>>>()
+    api.onWorkspaceInsertBefore = () => gate.promise
+    const pending = manager.insertBefore(wid('three'), wid('one'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['three', 'one', 'two'])
+    manager.handleHostEnvelope({
+      rpcId: 'newer-order' as never,
+      payload: {
+        type: 'host/workspace-order-changed',
+        workspaceIds: [wid('one'), wid('three'), wid('two')],
+      },
+    })
+    gate.resolve(ok({ workspaceIds: [wid('three'), wid('one'), wid('two')] }))
+    await pending
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
+
+    api.onWorkspaceInsertBefore = () => Promise.resolve(err({
+      code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'three' },
+    }))
+    const rejected = manager.insertBefore(wid('three'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two', 'three'])
+    await expect(rejected).resolves.toMatchObject({ ok: false })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
+
+    api.onWorkspaceInsertBefore = () => Promise.reject(new Error('transport down'))
+    const disconnected = manager.insertBefore(wid('three'), wid('one'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['three', 'one', 'two'])
+    await expect(disconnected).rejects.toThrow('transport down')
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
+  })
+
+  it('rolls overlapping rejected reorders back to the last Host-confirmed order', async () => {
+    const api = new FakeApiClient()
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('one'), workspace('two'), workspace('three')] as never[],
+    }))
+    const manager = new WorkspaceManager(api)
+    await manager.refresh()
+    const firstGate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceInsertBefore']>>>()
+    const secondGate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceInsertBefore']>>>()
+    let request = 0
+    api.onWorkspaceInsertBefore = () => request++ === 0 ? firstGate.promise : secondGate.promise
+
+    const first = manager.insertBefore(wid('three'), wid('one'))
+    const second = manager.insertBefore(wid('two'), wid('three'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'three', 'one'])
+
+    firstGate.resolve(err({
+      code: 'workspace-not-found', message: 'first rejected', details: { workspaceId: 'three' },
+    }))
+    await expect(first).resolves.toMatchObject({ ok: false })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'three', 'one'])
+
+    secondGate.resolve(err({
+      code: 'workspace-not-found', message: 'second rejected', details: { workspaceId: 'two' },
+    }))
+    await expect(second).resolves.toMatchObject({ ok: false })
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two', 'three'])
   })
 
   it('replays removal over an in-flight baseline and ignores duplicate or late updates', async () => {
@@ -307,6 +374,72 @@ describe('WorkspacesService', () => {
       code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'ghost' },
     }))
     await expect(workspaces.delete(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
+  })
+
+  it('moves a Workspace through the durable order RPC and surfaces Host rejection', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api, fakeRemote()))
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('one'), workspace('two')] as never[],
+    }))
+    await workspaces.refresh()
+    api.onWorkspaceInsertBefore = () => Promise.resolve(ok({
+      workspaceIds: [wid('two'), wid('one')],
+    }))
+    await expect(workspaces.insertBefore(wid('two'), wid('one'))).resolves.toBeUndefined()
+    expect(api.callsOf('workspace.insertBefore')).toEqual([{
+      workspaceId: 'two', beforeWorkspaceId: 'one',
+    }])
+    expect(workspaces.list.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'one'])
+
+    api.onWorkspaceInsertBefore = () => Promise.resolve(err({
+      code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'ghost' },
+    }))
+    await expect(workspaces.insertBefore(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
+  })
+
+  it('targets New Session at explicit, current-session, then recent Workspaces and clears with none', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api, fakeRemote())
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [
+        workspace('current-home', [sid('current')]),
+        workspace('recent-home', [sid('recent')]),
+      ] as never[],
+    }))
+    api.onList = () => Promise.resolve(ok({ items: [
+      { sessionId: sid('current'), updatedAt: 1, running: false, blank: false },
+      { sessionId: sid('recent'), updatedAt: 2, running: false, blank: false },
+    ] as never[] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    sessions.open(sid('current'))
+    const unresolved = new Promise<SessionId>(() => {})
+    const connect = vi.spyOn(workspaces, 'connectWorkspace').mockReturnValue(unresolved)
+
+    workspaces.startSession(wid('recent-home'))
+    await Promise.resolve()
+    expect(connect).toHaveBeenLastCalledWith(wid('recent-home'))
+
+    workspaces.startSession()
+    await Promise.resolve()
+    expect(connect).toHaveBeenLastCalledWith(wid('current-home'))
+
+    sessions.clear()
+    workspaces.startSession()
+    await Promise.resolve()
+    expect(connect).toHaveBeenLastCalledWith(wid('recent-home'))
+
+    const emptyCtx = new Context()
+    const emptyApi = new FakeApiClient()
+    const emptySessions = new SessionsService(emptyCtx, emptyApi, fakeRemote())
+    const emptyWorkspaces = new WorkspacesService(emptyCtx, emptyApi, emptySessions)
+    const clear = vi.spyOn(emptySessions, 'clear')
+    emptyWorkspaces.startSession()
+    expect(clear).toHaveBeenCalledOnce()
   })
 
   it('archives a session, projects the set from the response, list, and frame, and clears only the current one', async () => {

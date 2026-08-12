@@ -25,7 +25,7 @@ import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
+  WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
@@ -2758,6 +2758,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { deleted: true as const })
       },
 
+      async insertBefore(request) {
+        const { workspaceId, beforeWorkspaceId } = request.payload
+        try {
+          const workspaceIds = await ctx.workspace.insertBefore(
+            brandWorkspaceId(workspaceId),
+            beforeWorkspaceId === undefined ? undefined : brandWorkspaceId(beforeWorkspaceId),
+          )
+          return ok(request, { workspaceIds: [...workspaceIds] })
+        } catch (error: unknown) {
+          if (!(error instanceof WorkspaceOrderInvalidError)) throw error
+          return workspaceNotFound(request, error.workspaceId)
+        }
+      },
+
       async insertSessionBefore(request) {
         const { payload } = request
         const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
@@ -3412,9 +3426,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const committedWorkspaces = ctx.workspace.list()
         const committedWorkspaceIds = new Set(
-          ctx.workspace.list().map(workspace => String(workspace.id)),
+          committedWorkspaces.map(workspace => String(workspace.id)),
         )
+        let committedWorkspaceOrder = committedWorkspaces.map(workspace => workspace.id)
         // Frame-dedup baseline, same posture as committedWorkspaceIds: the
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.
@@ -3445,6 +3461,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (change.table === '') {
               if (change.operation !== 'put') return
               const state = workspaceDomainState.parse(change.value)
+              const orderChanged = state.workspaceIds.length === committedWorkspaceOrder.length
+                && state.workspaceIds.every(workspaceId => committedWorkspaceIds.has(String(workspaceId)))
+                && state.workspaceIds.some((workspaceId, index) => workspaceId !== committedWorkspaceOrder[index])
               for (const workspaceId of state.workspaceIds) {
                 if (committedWorkspaceIds.has(workspaceId)) continue
                 const workspace = ctx.workspace.get(workspaceId)
@@ -3453,6 +3472,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+              }
+              committedWorkspaceOrder = [...state.workspaceIds]
+              if (orderChanged) {
+                queue.push(frame({
+                  type: 'host/workspace-order-changed',
+                  workspaceIds: [...state.workspaceIds],
+                }))
               }
               if (state.archivedSessionIds.length !== archivedSessionIds.length
                 || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {

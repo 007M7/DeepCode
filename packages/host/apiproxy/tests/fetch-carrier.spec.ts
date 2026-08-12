@@ -179,6 +179,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async delete(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { deleted: true as const } } }
       },
+      async insertBefore(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { workspaceIds: [request.payload.workspaceId] } } }
+      },
       async insertSessionBefore(request) {
         return {
           rpcId: request.rpcId,

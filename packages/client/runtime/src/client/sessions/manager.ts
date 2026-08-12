@@ -72,6 +72,7 @@ type SessionListMutation =
   | { kind: 'upsert'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
   | { kind: 'status'; sessionId: SessionId; running: boolean }
+  | { kind: 'activity'; sessionId: SessionId; updatedAt: number }
   /** Local first-send flip: the sender clears blank without waiting for a host frame. */
   | { kind: 'engaged'; sessionId: SessionId }
 
@@ -682,6 +683,16 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
+    if (
+      frame.type === 'session/event'
+      && frame.event.type === 'user/message'
+      && frame.event.data.source.kind === 'user'
+    ) {
+      // session.list supplies the cold baseline, while a direct prompt or an
+      // admitted steer advances it between pulls. Max keeps replayed or
+      // repaired older user messages from moving the row backwards.
+      this.recordMutation({ kind: 'activity', sessionId: frame.sessionId, updatedAt: frame.event.time })
+    }
     if (frame.type === 'session/projection') {
       // Finished host-computed value: land it in the resident store whether or
       // not the Session is instantiated (list rows read the 'title' key). The
@@ -1100,6 +1111,11 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
       return summaries.map(summary => summary.sessionId === mutation.sessionId
         && (summary.running !== mutation.running || (mutation.running && summary.blank))
         ? { ...summary, running: mutation.running, blank: summary.blank && !mutation.running }
+        : summary)
+    case 'activity':
+      return summaries.map(summary => summary.sessionId === mutation.sessionId
+        && mutation.updatedAt > summary.updatedAt
+        ? { ...summary, updatedAt: mutation.updatedAt }
         : summary)
     case 'engaged':
       return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.blank
