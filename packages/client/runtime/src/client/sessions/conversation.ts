@@ -169,6 +169,17 @@ export interface TurnErrorNode {
   code?: string
 }
 
+/** Durable notice for a turn ended by the per-request output-token cap. */
+export interface TurnMaxTokensNode {
+  kind: 'turn-max-tokens'
+  /** Seq of the owning turn/end event. */
+  seq: number
+  /** Unix epoch ms from the turn/end event. */
+  time: number
+  turn: number
+  step: number
+}
+
 /** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
@@ -274,6 +285,7 @@ export type ConversationNode =
   | ContextMessageNode
   | ModelRetryNode
   | TurnErrorNode
+  | TurnMaxTokensNode
   | ToolResultNode
   | CommandNode
   | CompactionSummaryNode

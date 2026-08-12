@@ -11,6 +11,7 @@ export type {} from './conversation-nodes/message.ts'
 export type {} from './conversation-nodes/retry.ts'
 export type {} from './conversation-nodes/tool.ts'
 export type {} from './conversation-nodes/turn-error.ts'
+export type {} from './conversation-nodes/turn-max-tokens.ts'
 export type {} from './conversation-nodes/turn-tail.ts'
 
 export { apply, inject } from './apply.ts'
