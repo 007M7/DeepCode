@@ -582,9 +582,28 @@ describe('stdio dispositions', () => {
 })
 
 describe('windows tree semantics (injected platform)', () => {
+  it('host-exit termination routes through taskkill immediately', async () => {
+    const killed: number[] = []
+    const running = spawnSubprocess(spec('exec sleep 60', { graceMs: 60_000 }), {
+      spillDir,
+      platform: 'win32',
+      taskkill: (pid) => {
+        killed.push(pid)
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already gone — matches taskkill's tolerated not-found status.
+        }
+      },
+    })
+    running.terminateForHostExit()
+    await running.done
+    expect(killed).toEqual([running.pid])
+  })
+
   it('terminate routes through taskkill by root pid', async () => {
     const killed: number[] = []
-    const running = spawnSubprocess(spec('sleep 60', { graceMs: 100 }), {
+    const running = spawnSubprocess(spec('exec sleep 60', { graceMs: 100 }), {
       spillDir,
       platform: 'win32',
       taskkill: (pid) => {
@@ -628,6 +647,23 @@ describe('waitForExit', () => {
     await expect(running.waitForExit(controller.signal)).resolves.toBe(false)
     running.terminate()
     await running.done
+  })
+})
+
+describe('synchronous host-exit termination', () => {
+  it('force-kills the current process tree without waiting for the normal grace', async () => {
+    const running = spawnSubprocess(spec('trap "" TERM; sleep 60', { graceMs: 60_000 }))
+    running.terminateForHostExit()
+    await expect(running.done).resolves.toMatchObject({ exitCode: null, signal: 'SIGKILL' })
+    await expect(running.waitForExit()).resolves.toBe(true)
+
+    const kill = vi.spyOn(process, 'kill')
+    try {
+      running.terminateForHostExit()
+      expect(kill).not.toHaveBeenCalled()
+    } finally {
+      kill.mockRestore()
+    }
   })
 })
 
