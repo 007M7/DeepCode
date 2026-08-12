@@ -53,9 +53,18 @@
 .titleRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   min-height: 32px;
 }
+
+.titleCluster {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .crumbs {
   display: flex;
   align-items: center;
@@ -109,6 +118,18 @@
   flex: none;
   align-items: center;
   gap: 8px;
+}
+
+.headerUtilities {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: 20px;
+}
+
+.headerUtilities:empty {
+  display: none;
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */

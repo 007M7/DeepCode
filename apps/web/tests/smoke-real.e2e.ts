@@ -138,13 +138,13 @@ async function detailsTrack(page: Page): Promise<number> {
   return Number(cols.split(' ').pop()!.replace('px', ''))
 }
 
-// Readiness gate: `dsh web` serves all ten production manifest plugins; until every UI
+// Readiness gate: `dsh web` serves every production manifest plugin; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
 const UI_PLUGIN_DIRS = [
   'connection', 'runtime', 'ui-theme', 'locale', 'ui-layout', 'ui-sidebar',
   'ui-settings', 'ui-settings-general', 'ui-models', 'ui-conversation',
-  'ui-model', 'ui-question', 'ui-trajectory',
+  'ui-model', 'ui-question', 'ui-trajectory', '../session-query/session-export',
 ]
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {

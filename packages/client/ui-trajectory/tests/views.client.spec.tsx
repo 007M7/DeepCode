@@ -136,12 +136,6 @@ function standaloneDuration(): Pick<
   }
 }
 
-function standaloneExport(
-  onExport: () => Promise<void> = vi.fn(() => Promise.resolve()),
-): Pick<ComponentProps<typeof TrajectoryView>, 'exportLog'> {
-  return { exportLog: onExport }
-}
-
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore(historySnapshot(nodes))
   return { store, useSession: bindSnapshotSelector(store) }
@@ -253,7 +247,6 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
         return {
           loadOlder: trajectory.loadOlder,
           setActualDuration: trajectory.setActualDuration,
-          exportLog: trajectory.exportLog,
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
           t: (key: TrajectoryKey) => zh[key],
         }
@@ -1134,46 +1127,10 @@ describe('timeline projection', () => {
         ...standaloneProps([]),
         ...standaloneHistory(historySnapshot([])),
         ...standaloneDuration(),
-        ...standaloneExport(),
       },
     ))
     expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
-  })
-})
-
-describe('session log export', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    Reflect.deleteProperty(HTMLAnchorElement.prototype, 'click')
-  })
-
-  it('downloads the host-streamed ZIP with descendants on click', async () => {
-    const clickAnchor = vi.fn()
-    HTMLAnchorElement.prototype.click = clickAnchor
-    const b = await bench(historySnapshot(NODES))
-    mount(b.slots)
-    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
-    await vi.waitFor(() => { expect(clickAnchor).toHaveBeenCalledOnce() })
-    const anchor = clickAnchor.mock.contexts[0] as HTMLAnchorElement
-    const url = new URL(anchor.href)
-    expect(url.pathname).toBe('/api/session.export')
-    expect(url.searchParams.get('sessionId')).toBe(SID)
-    expect(url.searchParams.get('includeDescendants')).toBe('true')
-  })
-
-  it('surfaces a browser handoff failure in the visible alert bar', async () => {
-    HTMLAnchorElement.prototype.click = vi.fn(() => { throw new Error('download denied') })
-    const b = await bench(historySnapshot(NODES))
-    mount(b.slots)
-    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
-    await vi.waitFor(() => {
-      const alert = screen.queryByRole('alert')
-      expect(alert).not.toBeNull()
-      expect(alert!.textContent).toContain('download denied')
-    })
   })
 })
 
@@ -1187,7 +1144,6 @@ describe('TrajectoryView state', () => {
     const first = render(
       <TrajectoryView
         {...commonProps}
-        {...standaloneExport()}
         useDuration={bindSnapshotSelector(firstDuration)}
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
@@ -1203,7 +1159,6 @@ describe('TrajectoryView state', () => {
     render(
       <TrajectoryView
         {...commonProps}
-        {...standaloneExport()}
         useDuration={bindSnapshotSelector(restoredDuration)}
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
@@ -1228,7 +1183,6 @@ describe('TrajectoryView state', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
-        {...standaloneExport()}
         useSession={bindSnapshotSelector(store)}
         loadOlder={vi.fn(() => Promise.resolve(false))}
       />,

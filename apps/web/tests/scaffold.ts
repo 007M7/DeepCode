@@ -51,7 +51,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-paths'
 // } from '@deepseek-ai/dsh-client-ui-settings-general'
 export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
 export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
-export const WELCOME_NOTICE_VERSION = '2026-07-30.7'
+export const WELCOME_NOTICE_VERSION = '2026-08-11.1'
 export const WELCOME_NOTICE_COPY = { zh: { title: '内测声明', continueLabel: '继续' } } as const
 
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -421,7 +421,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // disclosure passes a local dead endpoint instead of disabling the row.
     options.telemetryUrl === undefined
       ? { id: 'telemetry-otel', disabled: true }
-      : { id: 'telemetry-otel', config: { exporter: { url: options.telemetryUrl }, shutdownTimeoutMillis: 1_000 } },
+      : {
+        id: 'telemetry-otel',
+        config: {
+          mode: 'FULL',
+          exporter: { url: options.telemetryUrl },
+          shutdownTimeoutMillis: 1_000,
+        },
+      },
     {
       id: 'webserver',
       config: { host: '127.0.0.1', port: 0 },
