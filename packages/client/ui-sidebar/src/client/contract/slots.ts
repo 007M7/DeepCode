@@ -58,8 +58,8 @@ export interface SidebarSettingsOwnerProps {
 export type SidebarRootInjected = {
   /**
    * Start a New Session: with a workspace, reuse-or-create its blank session
-   * and open it; without one, clear the selection into the New Session pure
-   * view state (the conversation.empty seat).
+   * and open it; without one, inherit the current Session Workspace, then the
+   * recent Workspace, or clear into the New Session pure view when none exist.
    */
   startSession: (workspaceId?: WorkspaceId) => void
   /** Toggle the sidebar column through the layout service. */

@@ -195,6 +195,15 @@ list(): Workspace[]
 delete(id: WorkspaceId): Promise<boolean>
 
 /**
+ * Move one workspace within the durable display order, DOM-insertBefore-like.
+ * With an anchor it lands before that workspace; without one it appends.
+ * @param id - Workspace to move.
+ * @param beforeId - Workspace anchor; omitted appends.
+ * @returns the complete committed workspace order.
+ */
+insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]>
+
+/**
  * Archive one session durably. The session must exist (live or in session
  * persistence); its workspace accounting — or lack of one — is irrelevant.
  * An already archived id resolves without writing.
@@ -215,5 +224,5 @@ async resolveByPath(path: string): Promise<Workspace | undefined>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
+Source: [`packages/workspace/workspace/src/index.ts:92`](../../packages/workspace/workspace/src/index.ts)
 <!-- END GENERATED cordis-surface -->

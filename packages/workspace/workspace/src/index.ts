@@ -52,6 +52,17 @@ export class WorkspaceUnknownSessionError extends Error {
   }
 }
 
+/** A workspace reorder named a source or anchor absent from the durable registry order. */
+export class WorkspaceOrderInvalidError extends Error {
+  /**
+   * @param workspaceId - Missing source or anchor id.
+   */
+  constructor(readonly workspaceId: WorkspaceId) {
+    super(`cannot reorder unknown workspace '${workspaceId}'`)
+    this.name = 'WorkspaceOrderInvalidError'
+  }
+}
+
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -187,6 +198,30 @@ export class WorkspaceRegistry extends Service {
    */
   delete(id: WorkspaceId): Promise<boolean> {
     return this.enqueueOperation(() => this.deleteKnown(id))
+  }
+
+  /**
+   * Move one workspace within the durable display order, DOM-insertBefore-like.
+   * With an anchor it lands before that workspace; without one it appends.
+   * @param id - Workspace to move.
+   * @param beforeId - Workspace anchor; omitted appends.
+   * @returns the complete committed workspace order.
+   */
+  insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.workspaceIds.includes(id)) throw new WorkspaceOrderInvalidError(id)
+      if (beforeId !== undefined && !state.workspaceIds.includes(beforeId)) {
+        throw new WorkspaceOrderInvalidError(beforeId)
+      }
+      if (beforeId === id) return state.workspaceIds
+      const without = state.workspaceIds.filter(workspaceId => workspaceId !== id)
+      const at = beforeId === undefined ? without.length : without.indexOf(beforeId)
+      const workspaceIds = [...without.slice(0, at), id, ...without.slice(at)]
+      if (sameIds(workspaceIds, state.workspaceIds)) return state.workspaceIds
+      await this.setState({ ...state, workspaceIds })
+      return workspaceIds
+    })
   }
 
   /**

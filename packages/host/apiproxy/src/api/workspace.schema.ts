@@ -66,6 +66,17 @@ export const workspaceDeleteValueSchema = z.object({
   deleted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.delete'>>>
 
+/** workspace.insertBefore request payload (anchor omitted = append to end). */
+export const workspaceInsertBeforeRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  beforeWorkspaceId: workspaceIdSchema.optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.insertBefore'>>>
+
+/** workspace.insertBefore response value: the complete durable display order. */
+export const workspaceInsertBeforeValueSchema = z.object({
+  workspaceIds: z.array(workspaceIdSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.insertBefore'>>>
+
 /** workspace.insertSessionBefore request payload (anchor omitted = append to end). */
 export const workspaceInsertSessionBeforeRequestSchema = z.object({
   workspaceId: workspaceIdSchema,

@@ -20,6 +20,7 @@ The Host provides the following GUI wiring on the Workspace entity:
 | --- | --- |
 | `workspace.list` | Returns persistent Workspaces in order and filters out Session ids that fail header validation |
 | `workspace.create({ path })` | Adopts an existing directory by canonical path; basename-derived display titles may repeat |
+| `workspace.insertBefore({ workspaceId, beforeWorkspaceId? })` | Moves one Workspace within durable registry order and returns the complete committed order |
 | `workspace.delete({ workspaceId })` | Removes the Workspace registration while retaining its directory and session logs; its Sessions become Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | Resolves cwd from the Workspace, idempotently creates a Session with an optional preallocated id, and attaches it |
 | `session.create({ cwd })` | Remains available to non-Workspace callers and creates an Ungrouped Session |
@@ -49,7 +50,7 @@ On initial entry, the application waits until both the Workspace and Session bas
 
 When no Workspace exists, the page creates a frontend Workspace object named `workspace` and a frontend Session that targets it. Neither writes to the Host, and the composer always accepts input; the first send materializes the Workspace, attaches the Session, and sends the message in that order.
 
-Top-level New Session, the plus button on a Workspace row, and the Workspace picker all invoke the same New Session action. An explicit Workspace id becomes the target directly; when none is specified, the action uses the most recent Workspace, or the Workspace Intent if no real Workspace exists. The Workspace picker's one Add workspace action ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md); it was a pair of Use-an-existing-folder and create-by-name actions when this was decided) immediately creates a real Workspace when the user confirms a directory, then retargets the frontend Session to it; an explicitly created empty Workspace remains even if the user sends no message.
+Top-level New Session, the plus button on a Workspace row, and the Workspace picker all invoke the same New Session action. An explicit Workspace id becomes the target directly; when none is specified, the action uses the current Session's Workspace, then the most recent Workspace, and enters the blank New Session page when no real Workspace exists. The Workspace picker's one Add workspace action ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md); it was a pair of Use-an-existing-folder and create-by-name actions when this was decided) immediately creates a real Workspace when the user confirms a directory, then retargets the frontend Session to it; an explicitly created empty Workspace remains even if the user sends no message.
 
 A new Workspace takes its display name from the directory it was created in. Distinct canonical paths may share the same basename-derived title ([identity decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)); the explicit rename operation retains its duplicate-title check. Moving Sessions across Workspaces, manual adoption from Ungrouped, and separate display-name and directory-name inputs remain outside this flow.
 
@@ -67,11 +68,11 @@ Lost RPC responses, Host frames arriving before completions, and completions arr
 
 ### Sidebar and ordering
 
-Workspace groups strictly follow the persistent order returned by the Host. Bootstrap determines the historical order once, explicitly created Workspaces are placed first, and Session activity does not move Workspace groups.
+Workspace groups follow the persistent order returned by the Host. Bootstrap determines the historical order once, explicitly created Workspaces are placed first, and `workspace.insertBefore` durably applies user drag order. Session activity does not move Workspace groups.
 
-Within each group, order strictly follows `Workspace.sessionIds`. A newly attached Session is placed first; when a Session later becomes active, the Host moves only that id to the front and persists the change. The Client does not reorder the entire group by time after the Session list arrives, so it never displays one Workspace order and then jumps to another during hydration.
+The Host account remains the manual `Workspace.sessionIds` order: a newly attached Session is placed first and activity does not mutate it. The grouped browser can instead select a browser-local recent-update view that promotes a Session when its `updatedAt` advances and remains manually editable. Five Sessions are visible per open Workspace until the user transiently expands the remainder. The durable Workspace reorder and browser-local Session order are defined in [Workspace Sidebar Order and Folding](2026-08-11-workspace-sidebar-order-and-folding.md).
 
-A frontend Session Intent appears as a “New session” row and temporarily counts toward the group's Session total only when it targets a real Workspace. When it targets a Workspace Intent, neither the Workspace nor the Session appears in the sidebar. After the Intent is published, the real row with the same preallocated id takes its place; after refresh, both the Intent row and temporary count disappear. Search mode neither retains nor filters Intent rows.
+The current blank Session appears as a “New session” row without a count, time label, or row menu; other blank Sessions remain hidden and eligible for per-Workspace reuse. Search excludes blank rows.
 
 Real Sessions that cannot be assigned to any Workspace appear under Ungrouped. Host `session-added` and `workspace-changed` events may arrive in either order; list merging does not depend on frame order.
 
@@ -105,15 +106,15 @@ The Sidebar and conversation empty hero receive standardized actions through slo
 - Frontend Sessions and Workspaces preserve object identity across materialization; input, errors, focus, and sidebar projections always originate from the object layer.
 - The first send advances through Workspace, Session, and prompt in order; successful stages are not rolled back, input is not lost before the prompt is accepted, and creation retries use the same SessionId.
 - Workspace list performs one reentrant bootstrap using only headers; an initialized empty registry does not initialize again after restart, and membership reads validate both the index and canonical cwd.
-- The initial default target is determined exactly once after both baselines are ready; Workspace groups are not reordered as a whole by hydration or Session activity, and an active Session moves only itself to the front.
-- A frontend Session under a real Workspace temporarily counts toward the sidebar total, while a Workspace Intent remains hidden; neither publication nor refresh leaves duplicate rows or counts.
+- The initial default target is determined exactly once after both baselines are ready; Workspace groups are not reordered by hydration or Session activity, and explicit Workspace drag order survives reconnect.
+- The current blank Session can appear as a single New Session row without exposing other reusable blanks or a Session count.
 - The UI and Host admit distinct same-basename directories as separate Workspaces, while the explicit rename operation rejects duplicate titles; cwd-only Sessions, Sessions with invalid historical cwd values, and unattached Sessions remain Ungrouped.
 - Confirmed Workspace deletion removes only the registration, retains the current Session, directory, files, and session log, and survives reload; package tests pin unary/frame/baseline races and failure rollback.
 - Keyless runnable snapshots cover the zero state, explicit creation, and the first send; package-level tests cover bootstrap, membership validation, ordering, idempotency, failure recovery, and arbitrary frame order.
 
 ## Consequences
 
-- SessionHeader does not record last-active time, so historical bootstrap can initialize order only by `createdAt`; real Session activity events move individual entries afterward.
+- SessionHeader does not record last-active time, so historical bootstrap can initialize the Host manual order only by `createdAt`; the browser's optional recent-update view begins from Session summaries after hydration.
 - Historical Sessions with a missing cwd, an invalid directory, or a failed realpath remain Ungrouped; this iteration has no manual-adoption entry point.
 - Refreshing the page discards unmaterialized Workspace and Session Intents and input not yet accepted by the Host; this is the page-local contract.
 - Explicit Create Workspace writes to disk immediately, so leaving without sending still leaves an empty Workspace.
