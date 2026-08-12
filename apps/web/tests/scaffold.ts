@@ -51,7 +51,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-paths'
 // } from '@deepseek-ai/dsh-client-ui-settings-general'
 export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
 export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
-export const WELCOME_NOTICE_VERSION = '2026-07-30.7'
+export const WELCOME_NOTICE_VERSION = '2026-08-11.1'
 export const WELCOME_NOTICE_COPY = { zh: { title: '内测声明', continueLabel: '继续' } } as const
 
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
