@@ -1,12 +1,12 @@
 {
-  "name": "@deepseek-ai/dsh-session-log-download",
+  "name": "@deepseek-ai/dsh-session-log-export",
   "description": "Web Session-log export command and shared download dialog",
-  "version": "0.0.1-rc.3",
+  "version": "0.0.1-rc.4",
   "publishConfig": { "access": "restricted" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/session-query/session-log-download"
+    "directory": "packages/session-query/session-log-export"
   },
   "type": "module",
   "main": "lib/index.js",

@@ -147,7 +147,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   modelDirectories: 'client-side interface-typed browser service — packages/client/ui-model-selection/README.md owns the API',
   modules: 'client-side interface-typed browser service — packages/client/modules/README.md owns the API',
   remote: 'client-side interface-typed gateway accessor (ClientRemote) — packages/api/gateway/README.md owns the API',
-  sessionLogDownload: 'client-side browser download controller — packages/session-query/session-log-download/README.md owns the API',
+  sessionLogDownload: 'client-side browser download controller — packages/session-query/session-log-export/README.md owns the API',
   inputTriggers: 'client-side interface-typed browser service — packages/client/ui-input-trigger/README.md owns the API',
   timer: 'client-side dynamic-package timer service — packages/extensions/cordis-client-runner/README.md owns the API',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
