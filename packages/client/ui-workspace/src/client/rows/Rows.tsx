@@ -259,6 +259,18 @@ function sessionStatuses(
   return [{ state: 'done', label: t('status.idle') }]
 }
 
+/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
+function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
+  return (
+    <>
+      <StateDot state={statuses[0].state} />
+      {statuses.map(status => (
+        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
+      ))}
+    </>
+  )
+}
+
 /** Hover-card body: full title, relative time, and every relevant live status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   const statuses = sessionStatuses(node, t)
@@ -308,12 +320,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
       <span className={css.searchResultHeading}>
         <span className={css.slot}>
           {(primaryStatus.state !== 'done' || result.completed) && (
-            <>
-              <StateDot state={primaryStatus.state} />
-              {statuses.map(status => (
-                <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-              ))}
-            </>
+            <SessionStatusDots statuses={statuses} />
           )}
         </span>
         <span className={css.searchResultTitle}>{result.title}</span>
@@ -417,14 +424,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           and is cleared by opening the session. */}
       {(!flat || showStatus) && (
         <span className={css.slot}>
-          {showStatus && (
-            <>
-              <StateDot state={primaryStatus.state} />
-              {statuses.map(status => (
-                <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-              ))}
-            </>
-          )}
+          {showStatus && <SessionStatusDots statuses={statuses} />}
         </span>
       )}
       <span className={css.title}>{title}</span>

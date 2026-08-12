@@ -54,6 +54,28 @@ function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
 }
 
+/**
+ * Accept the native drag at document level while a row drag is active: row
+ * hover still owns the insertion marker, and releasing outside the list must
+ * not be rendered as a rejected drop before dragend commits that last marker.
+ */
+function useNativeDragAcceptance(active: boolean): void {
+  useEffect(() => {
+    if (!active) return
+    const acceptDrag = (event: DragEvent): void => {
+      event.preventDefault()
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+    }
+    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
+    document.addEventListener('dragover', acceptDrag)
+    document.addEventListener('drop', acceptDrop)
+    return () => {
+      document.removeEventListener('dragover', acceptDrag)
+      document.removeEventListener('drop', acceptDrop)
+    }
+  }, [active])
+}
+
 /** Reconcile a stored view order with the Workspace's current session account. */
 function reconciledSessionOrder(sessionIds: readonly SessionId[], stored: readonly string[] | undefined): SessionId[] {
   if (stored === undefined) return [...sessionIds]
@@ -241,23 +263,7 @@ function SessionTree({
   const workspaceDropCommitted = useRef(false)
   const previousOrderBy = useRef(orderBy)
   const nativeDragActive = drag !== null || workspaceDrag !== null
-  useEffect(() => {
-    if (!nativeDragActive) return
-    // Row hover still owns the insertion marker. Accept the native drag at
-    // document level so releasing outside the list is not rendered as a
-    // rejected drop before dragend commits that last marker.
-    const acceptDrag = (event: DragEvent): void => {
-      event.preventDefault()
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
-    }
-    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
-    document.addEventListener('dragover', acceptDrag)
-    document.addEventListener('drop', acceptDrop)
-    return () => {
-      document.removeEventListener('dragover', acceptDrag)
-      document.removeEventListener('drop', acceptDrop)
-    }
-  }, [nativeDragActive])
+  useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
@@ -590,20 +596,7 @@ function FlatList({
   }, [baseRows, recentSessionOrder, sessionIds])
   const [drag, setDrag] = useState<DragState | null>(null)
   const dropCommitted = useRef(false)
-  useEffect(() => {
-    if (drag === null) return
-    const acceptDrag = (event: DragEvent): void => {
-      event.preventDefault()
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
-    }
-    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
-    document.addEventListener('dragover', acceptDrag)
-    document.addEventListener('drop', acceptDrop)
-    return () => {
-      document.removeEventListener('dragover', acceptDrag)
-      document.removeEventListener('drop', acceptDrop)
-    }
-  }, [drag])
+  useNativeDragAcceptance(drag !== null)
   const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (dropCommitted.current) return
     dropCommitted.current = true
