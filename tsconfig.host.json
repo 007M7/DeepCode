@@ -93,12 +93,11 @@
   // and the package test glob above needs no per-file entry.
   "exclude": [
     "packages/client/*/src/**",
-    "packages/client/*/tests/**/*.client.ts",
-    "packages/client/*/tests/**/*.client.tsx",
-    "packages/client/*/tests/**/*.client.spec.ts",
-    "packages/client/*/tests/**/*.client.spec.tsx",
+    "packages/*/*/tests/**/*.client.ts",
+    "packages/*/*/tests/**/*.client.tsx",
+    "packages/*/*/tests/**/*.client.spec.ts",
+    "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/client/tsdown.client.ts",
-    "packages/api/gateway/tests/client.spec.ts",
     "scripts/client-bundle-css.spec.ts",
     "packages/typert/generator/tests/fixtures/**",
     "scripts/client-bundle-purity.spec.ts"
