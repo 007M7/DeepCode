@@ -208,6 +208,7 @@ function finalNode(
     return {
       kind: 'assistant',
       seq: event.seq,
+      messageId: event.data.message.id,
       time: event.time,
       turn: state.turn,
       step: state.step,

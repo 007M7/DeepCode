@@ -27,6 +27,9 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../feedback/message-feedback"
+    },
+    {
       "path": "../../host/plugin-inventory"
     },
     {

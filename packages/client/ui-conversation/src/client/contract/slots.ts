@@ -11,6 +11,7 @@ import type {
   TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type {
@@ -77,6 +78,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * only to return null; an all-declined chain renders nothing.
      */
     'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
+    /**
+     * Action strip attached to one finalized assistant message, rendered
+     * inside that message's IconActions row. The chat entry owns the render
+     * site and passes the addressed message identity; contributors add
+     * per-message actions without importing the conversation implementation.
+     * Entries render by ascending `order`.
+     */
+    'conversation.chat.assistant-actions': {
+      kind: 'list'
+      scope: 'session'
+      owner: AssistantActionOwnerProps
+    }
     /** Selected Tool call output inside the details panel. */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
@@ -251,6 +264,16 @@ export interface TurnTailOwnerProps {
    * view resolves relative paths against the session cwd).
    */
   openFile: (path: string) => void
+}
+
+/**
+ * Owner currency of the assistant-message action strip: the durable identity
+ * of the one finalized message the contributed actions address. Only finalized
+ * messages reach this slot, so the id is always present.
+ */
+export interface AssistantActionOwnerProps {
+  /** Stable identity carried from the `assistant/message` event. */
+  messageId: MessageId
 }
 
 /** Hook constrained to business data published on the current Chat Node's Turn. */
