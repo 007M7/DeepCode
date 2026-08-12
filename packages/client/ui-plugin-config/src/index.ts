@@ -1,7 +1,7 @@
 /**
- * Plugin configuration surface, node half. The empty apply exists so the
- * plugin appears in the host cordis.yml / Loader; the browser half ships the
- * settings section through exports["./client"], discovered from the
+ * Plugins settings surface, node half. The empty apply exists so the plugin
+ * appears in the host cordis.yml / Loader; the browser half owns the section
+ * and its configurable tab through exports["./client"], discovered from the
  * package.json dsh.client declaration. Every section this page edits is owned
  * by the Host plugin that registered it, so this package registers no
  * namespace of its own.

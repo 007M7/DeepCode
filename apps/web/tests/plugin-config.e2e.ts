@@ -1,5 +1,5 @@
-// Web e2e scenario: the Plugins settings section — the cards a deployment's
-// exposed host-plane namespaces produce, one field edited through the real
+// Web e2e scenario: the configurable tab in Plugins settings — the cards a
+// deployment's exposed host-plane namespaces produce, one field edited through the real
 // wire down to `$DSH_HOME/settings.yaml`, and the override badge and reset
 // that layering produces. Zero model calls: everything is client state plus
 // the settings document on a blank frame, so there is no fixture and a stray
@@ -56,9 +56,12 @@ describe('web e2e: plugin configuration section', () => {
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
-    await dialog.getByRole('button', { name: '插件配置', exact: true }).click()
+    await dialog.getByRole('button', { name: '插件', exact: true }).click()
     await expect
-      .poll(() => dialog.getByRole('button', { name: '插件配置', exact: true }).getAttribute('aria-current'), { timeout: 5_000 })
+      .poll(() => dialog.getByRole('button', { name: '插件', exact: true }).getAttribute('aria-current'), { timeout: 5_000 })
+      .toBe('true')
+    await expect
+      .poll(() => dialog.getByRole('tab', { name: '插件配置', exact: true }).getAttribute('aria-selected'), { timeout: 5_000 })
       .toBe('true')
     return dialog
   }

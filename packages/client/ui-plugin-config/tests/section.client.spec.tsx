@@ -13,8 +13,10 @@ import { AgentLoopCard } from '../src/client/AgentLoopCard.tsx'
 import type { AgentLoopCardProps } from '../src/client/AgentLoopCard.tsx'
 import { BashCard } from '../src/client/BashCard.tsx'
 import type { BashCardProps } from '../src/client/BashCard.tsx'
+import { ConfigurablePluginsTab } from '../src/client/ConfigurablePluginsTab.tsx'
+import type { ConfigurablePluginsTabProps } from '../src/client/ConfigurablePluginsTab.tsx'
 import { PluginConfigSection } from '../src/client/PluginConfigSection.tsx'
-import type { PluginConfigSectionProps } from '../src/client/PluginConfigSection.tsx'
+import type { PluginConfigSectionProps, PluginSettingsTabRow } from '../src/client/PluginConfigSection.tsx'
 import { WebSearchCard } from '../src/client/WebSearchCard.tsx'
 import type { WebSearchCardProps } from '../src/client/WebSearchCard.tsx'
 import type { AgentLoopCardState } from '../src/client/agent-loop-store.ts'
@@ -46,13 +48,24 @@ function cardActions() {
   return { edit: vi.fn(), resetField: vi.fn(), save: vi.fn(), discard: vi.fn() }
 }
 
-function renderSection(cardCount: number, cards = 'cards') {
+function renderSection(rows: readonly PluginSettingsTabRow[]) {
+  const props = {
+    t,
+    useTabs: (selector: (value: readonly PluginSettingsTabRow[]) => unknown) => selector(rows),
+    renderSlot: (_name: string, _owner: unknown, options: { only?: string }) => (
+      <span>{options.only}</span>
+    ),
+  } as unknown as PluginConfigSectionProps
+  render(<PluginConfigSection {...props} />)
+}
+
+function renderConfigurable(cardCount: number, cards = 'cards') {
   const props = {
     t,
     cardCount,
     renderSlot: () => <li>{cards}</li>,
-  } as unknown as PluginConfigSectionProps
-  render(<PluginConfigSection {...props} />)
+  } as unknown as ConfigurablePluginsTabProps
+  render(<ConfigurablePluginsTab {...props} />)
 }
 
 function renderBash(state: Partial<BashCardState> = {}) {
@@ -69,25 +82,52 @@ function renderBash(state: Partial<BashCardState> = {}) {
 }
 
 describe('PluginConfigSection', () => {
+  it('says so when no plugin contributed a tab', () => {
+    renderSection([])
+
+    expect(screen.getByText(en.empty)).toBeTruthy()
+    expect(screen.queryByRole('tab')).toBeNull()
+  })
+
+  it('defaults to the first ordered tab and mounts another only after selection', () => {
+    renderSection([
+      { id: 'configurable', order: 0, label: en.configurableTab },
+      { id: 'all', order: 10, label: 'Plugin list' },
+    ])
+
+    const configurable = screen.getByRole('tab', { name: en.configurableTab })
+    const all = screen.getByRole('tab', { name: 'Plugin list' })
+    expect(configurable.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('configurable')).toBeTruthy()
+    expect(screen.queryByText('all')).toBeNull()
+
+    fireEvent.click(all)
+    expect(all.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('all')).toBeTruthy()
+    expect(screen.getByText('configurable').closest('[role="tabpanel"]')).toHaveProperty('hidden', true)
+  })
+
+  it('leads with its own heading and intro', () => {
+    renderSection([{ id: 'configurable', order: 0, label: en.configurableTab }])
+
+    expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
+    expect(screen.getByText(en.intro)).toBeTruthy()
+  })
+})
+
+describe('ConfigurablePluginsTab', () => {
   it('says so when no plugin contributed a card', () => {
-    renderSection(0)
+    renderConfigurable(0)
 
     expect(screen.getByText(en.empty)).toBeTruthy()
     expect(screen.queryByText('cards')).toBeNull()
   })
 
   it('renders the card list once a plugin contributed one', () => {
-    renderSection(1)
+    renderConfigurable(1)
 
     expect(screen.getByText('cards')).toBeTruthy()
     expect(screen.queryByText(en.empty)).toBeNull()
-  })
-
-  it('leads with its own heading and intro', () => {
-    renderSection(1)
-
-    expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
-    expect(screen.getByText(en.intro)).toBeTruthy()
   })
 })
 

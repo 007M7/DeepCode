@@ -38,7 +38,7 @@ async function bench() {
 function declare(slots: SlotsService): () => void {
   return slots.register({
     name: 'root',
-    children: { 'settings.section': { kind: 'list', scope: 'root' } },
+    children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
   } as never, () => null)
 }
 
@@ -47,16 +47,16 @@ describe('ui-plugins browser plugin', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginInventory'])
   })
 
-  it('registers a localized section without reading the Remote eagerly', async () => {
+  it('registers a localized tab without reading the Remote eagerly', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
-    const entry = b.slots.entries('settings.section')[0]!
+    const entry = b.slots.entries('settings.plugins.tab')[0]!
     expect(entry.component).toBe(PluginSettingsSection)
-    expect(entry.options).toMatchObject({ id: 'plugin-inventory', order: 15 })
+    expect(entry.options).toMatchObject({ id: 'all', order: 10 })
     expect(entry.locale).toBe(NS)
-    expect(resolveSlotLabel(entry.options.label)).toBe('插件')
+    expect(resolveSlotLabel(entry.options.label)).toBe('插件列表')
     expect(b.list).not.toHaveBeenCalled()
 
     const injected = (entry.inject as unknown as () => PluginSettingsSectionInjected)()
@@ -71,22 +71,22 @@ describe('ui-plugins browser plugin', () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    expect(b.slots.entries('settings.plugins.tab')).toHaveLength(0)
 
     const stop = declare(b.slots)
-    await vi.waitFor(() => { expect(b.slots.entries('settings.section')).toHaveLength(1) })
+    await vi.waitFor(() => { expect(b.slots.entries('settings.plugins.tab')).toHaveLength(1) })
     b.locale.setLocale('en')
-    expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Plugins')
+    expect(resolveSlotLabel(b.slots.entries('settings.plugins.tab')[0]!.options.label)).toBe('Plugin list')
 
     stop()
-    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    expect(b.slots.entries('settings.plugins.tab')).toHaveLength(0)
     declare(b.slots)
     await vi.waitFor(() => {
-      expect(b.slots.entries('settings.section')[0]?.component).toBe(PluginSettingsSection)
+      expect(b.slots.entries('settings.plugins.tab')[0]?.component).toBe(PluginSettingsSection)
     })
 
     await fiber.dispose()
-    expect(b.slots.entries('settings.section')).toHaveLength(0)
+    expect(b.slots.entries('settings.plugins.tab')).toHaveLength(0)
     expect(() => b.locale.register(NS, 'zh', {})).not.toThrow()
     await b.ctx.fiber.dispose()
   })

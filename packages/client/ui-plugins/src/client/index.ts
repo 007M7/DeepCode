@@ -22,7 +22,7 @@ export const NS = 'settings.plugins'
 /** Services required by the Settings registration and generated Remote face. */
 export const inject = ['slots', 'locale', 'remote', 'remote.pluginInventory']
 
-/** Register the lazy plugin inventory page below Models in Settings. */
+/** Contribute the lazy inventory tab to the Plugins settings section. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugins: dictionaries')
 
@@ -36,11 +36,11 @@ export function apply(ctx: ClientContext): void {
   }
   const injected = (): PluginSettingsSectionInjected => ({ list })
 
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'plugin-inventory',
-    order: 15,
-    label: () => t('nav'),
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+    name: 'settings.plugins.tab',
+    id: 'all',
+    order: 10,
+    label: () => t('tab'),
     locale: NS,
     inject: injected,
   }, PluginSettingsSection))

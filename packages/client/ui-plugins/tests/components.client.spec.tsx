@@ -12,16 +12,12 @@ afterEach(cleanup)
 
 type Snapshot = Awaited<ReturnType<PluginSettingsSectionInjected['list']>>
 const t = ((key: PluginsKey): string => en[key]) as PluginSettingsSectionProps['t']
-const unusedHook = (() => { throw new Error('unused by plugin inventory') }) as never
 
 function props(list: PluginSettingsSectionInjected['list']): PluginSettingsSectionProps {
   return {
-    close: vi.fn(),
-    useSessions: unusedHook,
-    useWorkspaces: unusedHook,
     t,
     list,
-  }
+  } as PluginSettingsSectionProps
 }
 
 const SNAPSHOT = {
@@ -36,7 +32,7 @@ const SNAPSHOT = {
 } as unknown as Snapshot
 
 describe('PluginSettingsSection', () => {
-  it('renders searchable two-column-card semantics with dots and tags', async () => {
+  it('renders runtime status only for enabled plugins', async () => {
     const deferred = Promise.withResolvers<Snapshot>()
     const list = vi.fn(() => deferred.promise)
     const view = render(<PluginSettingsSection {...props(list)} />)
@@ -56,10 +52,10 @@ describe('PluginSettingsSection', () => {
       'Loading',
       'Mount failed',
       'Unloading',
-      'Not mounted',
     ]) {
       expect(screen.getByRole('img', { name: value })).toBeTruthy()
     }
+    expect(screen.queryByRole('img', { name: 'Not mounted' })).toBeNull()
     const active = screen.getByRole('button', { name: 'hmr, Mounted, Enabled' })
     expect(active.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(active)
@@ -75,8 +71,10 @@ describe('PluginSettingsSection', () => {
       target: { value: 'disabled-entry' },
     })
     expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'directory-picker-native, Not mounted, Disabled' }))
+    fireEvent.click(screen.getByRole('button', { name: 'directory-picker-native, Disabled' }))
     expect(screen.getAllByText(en.disabledTag)).toHaveLength(2)
+    expect(screen.queryByText(en.cordis)).toBeNull()
+    expect(screen.queryByText(en.unobserved)).toBeNull()
   })
 
   it('filters by module name or Loader entry id', async () => {
