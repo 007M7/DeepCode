@@ -12,8 +12,9 @@ import {
   storeGitBlob,
 } from './translation-pairing-git.ts'
 import {
-  linksTo,
   isTranslationScopeFile,
+  languageSwitcherTargets,
+  linksTo,
   parseTranslationMarkdown,
   requiresSourceLanguageSwitcher,
   translationStructureDiff,
@@ -164,15 +165,17 @@ function loadRecordOwners(
 function assertMergedPairStructure(paths: TranslationPairPaths, source: Buffer, zh: Buffer): void {
   const sourceTree = parseTranslationMarkdown(source.toString('utf8'))
   const zhTree = parseTranslationMarkdown(zh.toString('utf8'))
-  if (requiresSourceLanguageSwitcher(paths.source) && !linksTo(sourceTree, basename(paths.zh))) {
+  const sourceSwitcherTargets = languageSwitcherTargets(paths.source)
+  const zhSwitcherTargets = languageSwitcherTargets(paths.zh)
+  if (requiresSourceLanguageSwitcher(paths.source) && !linksTo(sourceTree, zhSwitcherTargets)) {
     throw new Error(`${paths.source} clean merge lost its language-switcher link to ${basename(paths.zh)}`)
   }
-  if (!linksTo(zhTree, basename(paths.source))) {
+  if (!linksTo(zhTree, sourceSwitcherTargets)) {
     throw new Error(`${paths.zh} clean merge lost its language-switcher link to ${basename(paths.source)}`)
   }
   const divergences = translationStructureDiff(
-    translationStructureSignature(sourceTree, basename(paths.zh)),
-    translationStructureSignature(zhTree, basename(paths.source)),
+    translationStructureSignature(sourceTree, zhSwitcherTargets),
+    translationStructureSignature(zhTree, sourceSwitcherTargets),
   )
   if (divergences.length > 0) {
     throw new Error(`${paths.source} and ${paths.zh} clean merges diverge structurally: ${divergences.join('; ')}`)

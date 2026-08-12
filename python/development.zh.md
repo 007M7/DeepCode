@@ -58,4 +58,12 @@ python scripts/build-python-release.py --package runtime --platform macos-arm64 
 pip install --find-links dist-python deepseek-harness-sdk=="$version"
 ```
 
-运行时分发包仅提供 wheel 包。发布流水线会连同纯 SDK wheel 包一起发布三个平台 wheel 包：Linux x64、Linux arm64 和 macOS arm64。只有与仓库版本匹配时，才接受 `python-vX.Y.Z` 标签。
+运行时分发包仅提供 wheel 包。发布流水线会连同纯 SDK wheel 包一起发布三个平台 wheel 包：Linux x64、Linux arm64 和 macOS 14 或更高版本的 arm64。只有与仓库版本匹配时，才接受 `python-v<repository-version>` 标签；`0.0.1-rc.1` 之类的仓库预发布版本在 wheel 包文件名和元数据中使用规范化的 PEP 440 写法，例如 `0.0.1rc1`。
+
+## 验证候选发行版
+
+为拉取请求添加 `python-release-dry-run` 标签，或手动运行 GitHub 的 `Release (Python)` 工作流并设置 `publish=false`，即可构建全部四个 wheel 包，在 Python 3.10 和 3.14 上安装 Linux 发行集合，检查精确文件名和元数据，执行 PyPI 默认单文件大小限制，并保留一份带 SHA-256 哈希的汇总产物。两条路径都没有注册表凭据，拉取请求运行无法进入任何发布作业。
+
+公开发布从私有自动化仓库运行；包元数据指向独立的只读公开源码镜像，该镜像不运行发布 Actions。私有仓库把仓库变量 `PYPI_PUBLISHER_REPOSITORY` 定义为自身的 `owner/name`，并且只在有意发布期间把 `PUBLIC_PYPI_RELEASE_ENABLED` 从 `false` 改为 `true`。
+
+独立的运行时与 SDK 作业使 SDK 上传失败后可以继续执行，而无需重新发送不可变的运行时文件。只有工作流从配置的发布仓库、匹配的 `python-v*` 标签运行，且受保护的 `pypi-runtime` 和 `pypi` 环境分别批准运行时与 SDK 作业时，才接受 `publish=true`。PyPI Trusted Publishing 仍会提供短期 OIDC 凭据，但公开 attestation 会披露私有发布仓库身份，因此将其禁用。

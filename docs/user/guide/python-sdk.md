@@ -8,7 +8,7 @@ This tutorial is the programmatic alternative to the Web UI. It installs the pub
 
 - Python 3.10 or newer
 - Git
-- Linux x64, Linux arm64, or macOS arm64
+- Linux x64, Linux arm64, or macOS 14 or newer on arm64
 - A DeepSeek-compatible API endpoint and credential
 - An isolated workspace that the agent may modify
 

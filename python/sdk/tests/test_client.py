@@ -721,8 +721,10 @@ def test_client_request_times_out_when_bridge_does_not_respond(tmp_path: Path) -
     script = tmp_path / "fake_bridge.py"
     script.write_text(
         """
+import sys
 import time
 
+print("bridge is still starting", file=sys.stderr, flush=True)
 time.sleep(60)
 """.strip()
     )
@@ -736,8 +738,9 @@ time.sleep(60)
         start = time.monotonic()
         try:
             client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
-        except TimeoutError:
+        except TimeoutError as exc:
             assert time.monotonic() - start < 2
+            assert "bridge is still starting" in str(exc)
         else:
             raise AssertionError("initialize should time out")
 
