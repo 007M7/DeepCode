@@ -2,60 +2,17 @@
 
 English | [中文](architecture.zh.md)
 
-**DeepSeek Harness SDK** uses Cordis: **everything is a plugin**, including the loop.
-
 ## Overview
 
-Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services, typed events, and disposable registrations. `packages/core/` groups the default flow; capabilities remain plugins.
+[Cordis](cordis-primer.md) is the meta framework behind dsh; plugins contribute services, typed events, and reversible effects. For example, the agent-loop itself is a plugin orchestrated by cordis.
 
-### Default Services
+`dsh` is fully config-driven and every component is replaceable. You can get a glimpse of the config tree by running `dsh --profile web --dump-config`.
 
-| ctx key | Package | Role |
-|---|---|---|
-| — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registrations and shared layer storage (library) |
-| `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
-| `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
-| `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
-| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent entry points |
-| `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
-
-### Capability Services
-
-| ctx key | Package family | Role |
-|---|---|---|
-| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry, streaming model calls |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request and surface pressure |
-| `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | executable lookup, managed trees, terminals |
-| `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
-| `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement through argv wrapping and per-call policy |
-| `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
-| `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
-| `ctx.fs` | [`fs/`](../packages/fs/README.md) | execution-world paths, bounded IO, and policy events |
-| `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | semantic navigation registry |
-| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry, progressive disclosure |
-| `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
-| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction, optional model-free result pruning |
-| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
-| `ctx.planMode` | [`plan/`](../packages/plan/README.md) | logged plan collaboration state |
-| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
-| `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
-| `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
-| `ctx.messageFeedback` | [`feedback/`](../packages/feedback/README.md) | lifecycle-bound editable feedback for individual assistant messages and its Host Remote contract |
-| `ctx.sessionPersistence` | [`session/`](../packages/session/README.md) | durable session-log storage |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
-| `ctx.sessionTitle` | [`session/session-title`](../packages/session/README.md) | log-backed fallbacks, one optional asynchronous provider |
-| `ctx.settings` | [`settings/`](../packages/settings/README.md) | per-plugin user-settings namespaces layered over composition entries |
-| `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
-| `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
-| `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | runtime registry for generated package reflection and live Zod schemas |
-| `ctx.typertGateway` | [`api/gateway`](../packages/api/gateway/README.md) | dispatches TypeRT Remote unary calls through the [API Gateway](api-gateway.md) |
-| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
+It's recommended to read [Cordis Primer](cordis-primer.md) and [Cordis Tutorial](cordis-tutorial/index.md) before proceeding.
 
 ## Event
 
-Events are the service extension API ([subsystems](subsystems/core.md), [producer/consumer map](event-producer-consumer.md)).
+Events are the extension points for services ([event producer/consumer map](event-producer-consumer.md)).
 
 ### Event Domains
 
@@ -63,15 +20,9 @@ Events are the service extension API ([subsystems](subsystems/core.md), [produce
 - **Agent events** carry live `Agent` for inbox, step, status, request, validation, and continuation.
 - **Capability events** attach policy and adapters without a loop import.
 
-### Interception Semantics
+## Agent Loop Lifecycle
 
-Waterfalls are around-middleware: listeners delegate with `next()`; returning without it short-circuits or takes over ([semantics](cordis-primer.md#cordis-waterfall-semantics)).
-
-## Default Loop Lifecycle
-
-A **session** is append-only. A **turn** claims one queued follow-up, waits for its predecessor's checkpoint, and may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)); injection claims none. A **step** is one model request plus tools. Fresh creation and persisted resume first acquire an exact unpublished `SessionPreparation`; Agent and session publication happen only after private setup against that Session is ready ([decision](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)). Quotes in the [sequence](agent-lifecycle.md) mark durable events.
-
-Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication; setup failure emits `agent-loop/config-start-failed`.
+A **step** is one model request plus tools.  Quotes in the [sequence](agent-lifecycle.md) mark durable events.
 
 ### Turn Flow
 
@@ -118,8 +69,6 @@ Each step assembles ordered prompt sections, tool schemas, and variables; unknow
 
 `inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. `agent/pre-step` receives the exclusive claimed batch and upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
 
-Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize a same-step retry of the frozen prompt; cancellation wins. Adapter `retryPolicy` bounds normal mode, while always mode retries after specialized recovery ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)). The generated [agent lifecycle](agent-lifecycle.md) owns exact event order, and the [agent-loop README](../packages/core/agent-loop/README.md) owns queue, steering, retry, and cancellation mechanics.
-
 ### Failure Boundaries
 
 Adapter selection, dispatch, and iteration failures become terminal error or aborted `finish` chunks. `agent/request-error` receives request coordinates, normalized `LlmFailure`, available retry policy, and signal; middleware and consumer errors remain outside recovery. Failed chunks commit neither messages nor tool calls.
@@ -142,7 +91,7 @@ Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, an
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from this stream.
 
-**Model-visible ⟺ logged**: messages entering at `step/start` plus the folded `request/header` reconstruct every request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `request/context` separately records registration-bound provider, model, and capacity metadata when the route changes; it does not participate in request reconstruction or header equality. `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible <=> logged**: messages entering at `step/start` plus the folded `request/header` reconstruct every request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `request/context` separately records registration-bound provider, model, and capacity metadata when the route changes; it does not participate in request reconstruction or header equality. `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends copy synchronous `session/event` notifications into fixed-window durable batches; `session/flush` bypasses the wait before requests and top-level tool dispatch, and after `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard, and SQLite uses the same checkpoint and batching rules ([checkpoint decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md), [batching decision](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
 
