@@ -6,7 +6,7 @@ Schedule 家族负责管理提醒，其持久状态保存在原 Session 日志�
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| `tool-schedule/` | 版本化 Schedule 事件与 fold、面向模型的创建／列出／删除工具，以及 live 根 Agent timer owner | 无 |
+| `schedule/` | 版本化 Schedule 事件与 fold、面向模型的创建／列出／删除工具，以及 live 根 Agent timer owner | 无 |
 
 本包有意不公开 Schedule service 或可变数据库。工具与 runtime 向 Session stream 追加事件；到期工作通过 Agent 的普通 follow-up 队列进入同一对话。
 

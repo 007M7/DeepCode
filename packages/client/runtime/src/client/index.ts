@@ -5,12 +5,12 @@ import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/c
 // than api-remotes': that face imports a Host-tsdown-generated artifact, and this
 // project sits in the Host build graph.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
+import type { TypertContext } from '@deepseek-ai/dsh-typert-protocol'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotsService } from './slots.ts'
-import { SessionsService } from './sessions/service.ts'
+import { SlotRegistry } from './slots.ts'
+import { SessionRuntime } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
-import { WorkspacesService } from './workspaces/service.ts'
+import { WorkspaceRuntime } from './workspaces/service.ts'
 import type { ConversationSnapshot } from './sessions/conversation.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
 import { ConversationEventRegistry } from './conversation/event-registry.ts'
@@ -18,7 +18,7 @@ import { ConversationViewRegistry } from './conversation/view-registry.ts'
 
 export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 
-export { SlotsService } from './slots.ts'
+export { SlotRegistry } from './slots.ts'
 export { ConversationEventRegistry } from './conversation/event-registry.ts'
 export { ConversationViewRegistry } from './conversation/view-registry.ts'
 export { ConversationNodeAssembler } from './sessions/conversation-assembler.ts'
@@ -36,7 +36,7 @@ export type {
 } from './contract/conversation.ts'
 export type { ConversationRuntime } from './sessions/conversation-assembler.ts'
 export type { RootOwnerProps } from './slots.ts'
-export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
+export { SessionCreateError, SessionRuntime, scopeOf, workspaceTitleOf } from './sessions/service.ts'
 export { indexSubagentDescendants } from './sessions/subagent-lineage.ts'
 export type { SubagentDescendantSummary } from './sessions/subagent-lineage.ts'
 // The provide channel is shared with the client test runtime (one
@@ -45,7 +45,7 @@ export { SessionProvideChannel } from './sessions/provide.ts'
 export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
-export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
+export { DirectoryBrowseError, WorkspaceCreateError, WorkspaceRuntime } from './workspaces/service.ts'
 export { resolveWorkspacePath } from './workspaces/path.ts'
 // Contract only: the scope implementation and its Host transport belong to
 // dsh-client-ui-settings (see that package's settings-scope.ts).
@@ -60,7 +60,7 @@ export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
 export type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './sessions/manager.ts'
-export type { SubagentAddress, TaskView } from '@deepseek-ai/dsh-client-connection/client'
+export type { SubagentAddress, JobView } from '@deepseek-ai/dsh-client-connection/client'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -111,10 +111,10 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 /** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context
 
-declare module '@deepseek-ai/dsh-type-meta' {
-  interface TypeRTContextMap {
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertContextMap {
     /** Client Agent scope identity; the agent and session share one wire id. */
-    agent: TypeRTContext<SessionId>
+    agent: TypertContext<SessionId>
   }
 }
 
@@ -167,7 +167,7 @@ declare module '@deepseek-ai/cordis' {
     'connection/reset'(): void
   }
   interface Context {
-    slots: import('./slots.ts').SlotsService
+    slots: import('./slots.ts').SlotRegistry
     /** Event-to-business-Context Definition registry. */
     conversationEvents: import('./conversation/event-registry.ts').ConversationEventRegistry
     /** Per-target Conversation snapshot builder registry. */
@@ -179,24 +179,24 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Required services: the wire handle and Client TypeRT registry. */
+/** Required services: the wire handle and Client Typert registry. */
 export const inject = ['connection', 'typert', 'remote', 'remote.commands']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: Context): void {
-  ctx.plugin(SlotsService)
+  ctx.plugin(SlotRegistry)
   const conversation = {
     events: new ConversationEventRegistry(ctx),
     views: new ConversationViewRegistry(ctx),
   }
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionsService(ctx, connection.api, ctx.remote, conversation)
+  const sessions = new SessionRuntime(ctx, connection.api, ctx.remote, conversation)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
-  const workspaces = new WorkspacesService(ctx, connection.api, sessions)
+  const workspaces = new WorkspaceRuntime(ctx, connection.api, sessions)
   ctx.effect(
     () => workspaces.startInitialSelection(),
     'runtime: initial Workspace selection',

@@ -6,7 +6,7 @@
  * point (inside component bodies, contained per entry) and parameter
  * derivation, and cache granularity (entry x scope key). Ledger semantics
  * (declaration conflicts, store instance accounting) belong to the runtime
- * SlotsService suite, not here.
+ * SlotRegistry suite, not here.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'

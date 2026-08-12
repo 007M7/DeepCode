@@ -3,13 +3,13 @@
  * ui-deliverables browser half: the derivation contract of
  * `producedForClosing` over engine-published Turn data, the row's rendering
  * and opener wiring, and the plugin registrations' fiber-teardown removal
- * (HMR safety) against the real SlotsService.
+ * (HMR safety) against the real SlotRegistry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
+  ConversationEventRegistry, ConversationNodeAssembler, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
@@ -453,7 +453,7 @@ describe('package shells', () => {
 describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
-    await ctx.plugin(SlotsService).await()
+    await ctx.plugin(SlotRegistry).await()
     await ctx.plugin(ConversationEventRegistry).await()
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({

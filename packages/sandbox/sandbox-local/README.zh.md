@@ -21,11 +21,11 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，但
   name: '@deepseek-ai/dsh-sandbox-local'
 ```
 
-消费方：[`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/)；可运行的默认组合见 [acp-agent 示例](../../../examples/acp-agent/)。
+消费方：[`@deepseek-ai/dsh-bash-sandbox`](../../shell/bash-sandbox/)；可运行的默认组合见 [acp-agent 示例](../../../examples/acp-agent/)。
 
 ## 模型体验
 
-通过 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md) 和 [`dsh-tool-bash`](../../bash/tool-bash/README.md) 间接影响；它们渲染该提供方的强制执行与拒绝事实，而 [`dsh-sandbox`](../sandbox/README.md) seam 负责定义 `SANDBOX_UNAVAILABLE` 文本，runner 选择与 profile 则不进入上下文。
+通过 [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md) 和 [`dsh-tool-bash`](../../shell/tool-bash/README.md) 间接影响；它们渲染该提供方的强制执行与拒绝事实，而 [`dsh-sandbox`](../sandbox/README.md) seam 负责定义 `SANDBOX_UNAVAILABLE` 文本，runner 选择与 profile 则不进入上下文。
 
 #### KV Cache 影响
 

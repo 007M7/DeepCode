@@ -95,7 +95,7 @@ const SCENARIOS: SdkScenario[] = [
     children: 0,
   },
   {
-    name: 'subagent-spawn',
+    name: 'subagent-spawn-in-process',
     prompt: "Use the subagent tool exactly once with description 'echo probe' and prompt: Reply with exactly: child answer 42. Then reply with the subagent's final answer verbatim.",
     sessionId: 'sdk-snapshot-subagent',
     children: 1,

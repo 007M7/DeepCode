@@ -22,7 +22,7 @@ The controls answer different questions:
 | `toolFilter` | Which deployment-global tools enter this child's visible tool view? | A scoped restriction filters globals before child-local tools are added |
 | `maxDepth` | How deep may this delegation tree grow? | A start whose child depth exceeds the absolute cap is rejected |
 
-`dsh-tool-subagent` exposes the controls as plugin configuration and copies them into each request it creates. Direct `SubagentService` callers may choose them per request. The provider capability descriptor remains the source of truth for whether a backend can honor each field.
+`dsh-tool-subagent` exposes the controls as plugin configuration and copies them into each request it creates. Direct `SubagentRuntime` callers may choose them per request. The provider capability descriptor remains the source of truth for whether a backend can honor each field.
 
 ### Persona is a scoped shadow
 
@@ -34,7 +34,7 @@ This uses the normal system-prompt registration mechanism rather than a second p
 
 ### Tool filtering is one live global-view rule
 
-The tool filter controls capability visibility and executable lookup together. An in-process provider installs `ToolRegistry.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to wire tool schemas, lookup, execution, and Code Mode SDK generation. Independently registered system-prompt sections are outside `ToolRegistry`, so filtering a tool does not remove that plugin's standalone guidance.
+The tool filter controls capability visibility and executable lookup together. An in-process provider installs `ToolRuntime.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to wire tool schemas, lookup, execution, and Code Mode SDK generation. Independently registered system-prompt sections are outside `ToolRuntime`, so filtering a tool does not remove that plugin's standalone guidance.
 
 Resolution follows these rules:
 
@@ -59,7 +59,7 @@ A deployment can combine depth and filtering, but the numeric cap does not synth
 
 ### Capability gating keeps providers honest
 
-Capabilities separate a requested feature from a provider implementation. `SubagentCapabilities` advertises `persona`, `toolFilter`, and `depthLimit`; `SubagentService.start()` checks every present request field against those flags before calling the provider.
+Capabilities separate a requested feature from a provider implementation. `SubagentCapabilities` advertises `persona`, `toolFilter`, and `depthLimit`; `SubagentRuntime.start()` checks every present request field against those flags before calling the provider.
 
 This lets spawn and fork providers share the in-process implementation while external providers advertise only what they can enforce. A request never degrades silently: selecting an unsupported control produces `UNSUPPORTED_CAPABILITY`, and no run or lifecycle event exists.
 

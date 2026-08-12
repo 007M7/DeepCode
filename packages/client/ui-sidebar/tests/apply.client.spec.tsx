@@ -1,22 +1,22 @@
 /** Sidebar shell slot registration and its plain runtime/layout callbacks. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { SidebarRootInjected } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 async function bench(declare = true) {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   const layout = { toggleSidebar: vi.fn() }
   const workspaces = { startSession: vi.fn() }
   const sessions = { open: vi.fn(), clear: vi.fn() }
   ctx.provide('layout', layout)
   ctx.provide('sessions', sessions as never)
   ctx.provide('workspaces', workspaces as never)
-  ctx.provide('locale', new LocaleService(ctx))
-  const slots = ctx.get('slots') as SlotsService
+  ctx.provide('locale', new LocaleRuntime(ctx))
+  const slots = ctx.get('slots') as SlotRegistry
   if (declare) {
     slots.register(
       { name: 'root', children: { 'sidebar': { kind: 'single', scope: 'root' } } } as never,

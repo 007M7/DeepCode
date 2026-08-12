@@ -5,10 +5,10 @@
  * packages.
  */
 
-import { Settings, type SettingsNamespace } from '../src/index.ts'
+import { SettingsProvider, type SettingsNamespace } from '../src/index.ts'
 
 /** In-memory provider exposing the protected provider hooks to tests. */
-export class MemorySettings extends Settings {
+export class MemorySettings extends SettingsProvider {
   /** Raw document the provider "storage" currently holds. */
   doc: Record<string, unknown>
   /** Every persist() call observed, in order. */
@@ -19,7 +19,7 @@ export class MemorySettings extends Settings {
   /** Artificial persist latency so tests can interleave concurrent updates. */
   persistDelayMs: number
 
-  constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: {
+  constructor(ctx: ConstructorParameters<typeof SettingsProvider>[0], options?: {
     doc?: Record<string, unknown>
     writable?: boolean
     persistDelayMs?: number

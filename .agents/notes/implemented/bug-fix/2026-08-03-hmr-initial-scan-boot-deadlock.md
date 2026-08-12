@@ -34,7 +34,7 @@ With both in place a failing boot follows the intended path: the single apply fa
 
 A config file edit landing inside the watcher's startup scan window is now picked up by the next `change` event rather than the scan itself; steady-state reload behavior is unchanged.
 
-One latent gap remains: a config edit made during a *failing* initial apply can still queue a refresh that the rollback's HMR teardown waits on — the same deadlock shape with a human-scale trigger window of one failing boot. If that ever bites, the fix is refresh-task cancellation at HMR teardown.
+One latent gap remains: a config edit made during a *failing* initial apply can still queue a refresh that the rollback's HMR teardown waits on — the same deadlock shape with a human-scale trigger window of one failing boot. If that ever bites, the fix is refresh-job cancellation at HMR teardown.
 
 ## Testing
 

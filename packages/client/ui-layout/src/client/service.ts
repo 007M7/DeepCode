@@ -1,5 +1,5 @@
 /**
- * LayoutService: the cross-plugin panel-action face behind ctx.layout.
+ * LayoutController: the cross-plugin panel-action face behind ctx.layout.
  * Panel geometry itself lives in the root entry's layout store (stores.ts);
  * the current-session selection lives with the runtime sessions service, and
  * the per-session active view dissolved into ui-conversation's session store
@@ -30,7 +30,7 @@ export interface ILayout {
 }
 
 /** Cross-plugin panel-action face (ctx.layout). */
-export class LayoutService implements ILayout {
+export class LayoutController implements ILayout {
   #panels: PanelActions | undefined
 
   /**

@@ -27,13 +27,13 @@
       "path": "../ui-primitives"
     },
     {
-      "path": "../ui-slash"
+      "path": "../ui-input-trigger"
     },
     {
       "path": "../ui-slots"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../api/remotes/tsconfig.client.json"

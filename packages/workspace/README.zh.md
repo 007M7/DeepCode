@@ -6,7 +6,7 @@
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| [`workspace/`](workspace/README.md) | 注册 workspace 并记录其会话归属 | `ctx.workspace` |
+| [`workspace/`](workspace/README.md) | 注册 workspace 并记录其会话归属 | `ctx.workspaceRegistry` |
 
 [workspace 包参考](workspace/README.md)负责生命周期、持久化和删除语义。
 

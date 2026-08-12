@@ -8,7 +8,7 @@
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 
 await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
-// ctx.fs uses the local backend; load @deepseek-ai/dsh-fs-policy for the
+// ctx.fs uses the local backend; load @deepseek-ai/dsh-fs-observation-policy for the
 // freshness policy gate and @deepseek-ai/dsh-tool-fs to expose read/write/edit.
 ```
 

@@ -110,10 +110,10 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 | Add a model provider | register its adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; its schema joins prompt assembly |
 | Give one session a different capability set | compose an agent preset; a service row there needs an `isolate` realm |
-| Add shell execution | register a `ctx.bash` backend; the local one spawns through `ctx.subprocess` |
-| Add persistent terminal execution | register a `ctx.pty` backend plus `dsh-tool-pty` |
+| Add shell execution | register a `ctx.shell` backend; the local one spawns through `ctx.subprocess` |
+| Add persistent terminal execution | register a `ctx.terminals` backend plus `dsh-tool-terminal` |
 | Add a human command | register on `ctx.commands`; it dispatches without a model turn |
-| Add background work | register on `ctx.tasks`; `task_*` tools collect or stop it |
+| Add background work | register on `ctx.jobs`; `job_*` tools collect or stop it |
 | Add filesystem access or policy | register a `ctx.fs` provider or listen to `fs/*` events |
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` stops a turn |

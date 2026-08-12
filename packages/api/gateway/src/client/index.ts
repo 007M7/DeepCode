@@ -1,5 +1,5 @@
 /**
- * Client projection of generated TypeRT Remote descriptors. Contributions
+ * Client projection of generated Typert Remote descriptors. Contributions
  * install traced `remote.<namespace>` services; no JavaScript Proxy
  * participates in method lookup, invocation, or type exposure.
  */
@@ -9,13 +9,13 @@ import type { Context, Events } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
-  TypeRTClientRemote,
+  TypertClientRemote,
   RemoteResult,
-  TypeRTCodec,
-  TypeRTDisposer,
-  TypeRTRemoteContribution,
-  TypeRTRemoteEvent,
-} from '@deepseek-ai/dsh-type-meta'
+  TypertCodec,
+  TypertDisposer,
+  TypertRemoteContribution,
+  TypertRemoteEvent,
+} from '@deepseek-ai/dsh-typert-protocol'
 
 interface MountToken {
   active: boolean
@@ -25,7 +25,7 @@ interface MountToken {
 interface ScopedProjection {
   readonly context: string
   readonly wire: string
-  readonly codec: TypeRTCodec
+  readonly codec: TypertCodec
   readonly parameterIndex?: number
 }
 
@@ -49,11 +49,11 @@ interface BoundContextIdentity {
 
 interface RemoteNamespaceHandle {
   readonly service: RemoteNamespaceService
-  readonly dispose: TypeRTDisposer
+  readonly dispose: TypertDisposer
 }
 
 /** Typed Remote service augmented by generated direct namespaces. */
-export type ClientRemote = TypeRTClientRemote
+export type ClientRemote = TypertClientRemote
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -62,7 +62,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Required Client services: the TypeRT registry and the existing Connection carrier. */
+/** Required Client services: the Typert registry and the existing Connection carrier. */
 export const inject = ['typert', 'connection']
 
 /**
@@ -85,7 +85,7 @@ interface RemoteEventSubscription {
   readonly listener: RemoteEventListener
 }
 
-class ClientRemoteService extends Service implements TypeRTClientRemote {
+class ClientRemoteService extends Service implements TypertClientRemote {
   private readonly ownerCtx: Context
   private readonly namespaces = new Map<string, RemoteNamespaceHandle>()
   private readonly subscriptions = new Map<string, RemoteEventSubscription[]>()
@@ -97,7 +97,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     ctx.effect(() => () => { this.subscriptions.clear() }, 'api-gateway.client.subscriptions')
   }
 
-  async $mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientRemote['$mount']> {
+  async $mount(contribution: TypertRemoteContribution): ReturnType<TypertClientRemote['$mount']> {
     const callerCtx = this.ctx
     const owned = callerCtx.effect(async () => {
       const dispose = await this.enqueue(() => this.mountContribution(callerCtx, contribution))
@@ -107,10 +107,10 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     return async () => { await owned() }
   }
 
-  $on<Event extends TypeRTRemoteEvent>(
+  $on<Event extends TypertRemoteEvent>(
     event: Event,
     listener: Events[Event],
-  ): ReturnType<TypeRTClientRemote['$on']> {
+  ): ReturnType<TypertClientRemote['$on']> {
     // The table is keyed by the runtime event name, so the argument list this
     // signature pins per event cannot survive in it; `$deliver` restores it
     // from the frame the Host emitted for that same name.
@@ -130,7 +130,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
   /**
    * Deliver one forwarded event in registration order, isolating a listener
    * that fails either synchronously or by rejecting a returned promise; see
-   * {@link TypeRTClientRemote.$dispatch} for the caller contract.
+   * {@link TypertClientRemote.$dispatch} for the caller contract.
    */
   $dispatch(event: string, args: readonly unknown[]): void {
     const listeners = this.subscriptions.get(event)
@@ -173,11 +173,11 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
 
   private async mountContribution(
     callerCtx: Context,
-    contribution: TypeRTRemoteContribution,
-  ): Promise<TypeRTDisposer> {
+    contribution: TypertRemoteContribution,
+  ): Promise<TypertDisposer> {
     this.validateContribution(contribution)
     const disposeRemote = callerCtx.typert.remotes.register(contribution)
-    const installed: TypeRTDisposer[] = []
+    const installed: TypertDisposer[] = []
     try {
       for (const descriptor of contribution.descriptors) installed.push(await this.install(descriptor))
     } catch (error) {
@@ -191,7 +191,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     }
   }
 
-  private validateContribution(contribution: TypeRTRemoteContribution): void {
+  private validateContribution(contribution: TypertRemoteContribution): void {
     const direct = new Map<string, Set<string>>()
     const scoped = new Map<string, Set<string>>()
     const add = (
@@ -235,9 +235,9 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     }
   }
 
-  private async install(descriptor: InvocationDescriptor): Promise<TypeRTDisposer> {
+  private async install(descriptor: InvocationDescriptor): Promise<TypertDisposer> {
     const token: MountToken = { active: true, abort: new AbortController() }
-    const installed: TypeRTDisposer[] = []
+    const installed: TypertDisposer[] = []
     try {
       if (descriptor.invocation.kind === 'direct') {
         installed.push(await this.installDirect(descriptor, token))
@@ -259,7 +259,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     }
   }
 
-  private async installDirect(descriptor: InvocationDescriptor, token: MountToken): Promise<TypeRTDisposer> {
+  private async installDirect(descriptor: InvocationDescriptor, token: MountToken): Promise<TypertDisposer> {
     const namespace = await this.namespace(descriptor.namespace)
     try {
       namespace.service.installDirect(descriptor, token)
@@ -277,7 +277,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     descriptor: InvocationDescriptor,
     projection: ScopedProjection,
     token: MountToken,
-  ): Promise<TypeRTDisposer> {
+  ): Promise<TypertDisposer> {
     const namespace = await this.namespace(descriptor.namespace)
     try {
       namespace.service.installScoped(descriptor, projection, token)
@@ -557,13 +557,13 @@ function requireStrictDescriptor(descriptor: InvocationDescriptor): void {
   }
 }
 
-function requireStrictCodec(codec: TypeRTCodec, endpoint: string, field: string): void {
+function requireStrictCodec(codec: TypertCodec, endpoint: string, field: string): void {
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }
 }
 
-function parse(codec: TypeRTCodec, value: unknown, endpoint: string, field: string): unknown {
+function parse(codec: TypertCodec, value: unknown, endpoint: string, field: string): unknown {
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }

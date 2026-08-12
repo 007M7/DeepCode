@@ -24,16 +24,16 @@
       "path": "../../../vendor/hmr"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../core/system-prompt"
     },
     {
-      "path": "../../util/environment"
+      "path": "../../util/launch-environment"
     },
     {
-      "path": "../../util/paths"
+      "path": "../../util/home-paths"
     }
   ]
 }

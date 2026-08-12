@@ -12,7 +12,7 @@
 
 ## 模型与人类交互
 
-激活时，`plan:policy` 会渲染已配置的 `section`。插件始终注册 `exit_plan_mode`，使工具 schema 在转换期间保持稳定；其 execute 路径只接受已激活的 plan mode，且只有通过 `ctx.userInteraction` 获得用户明确批准后才退出。
+激活时，`plan:policy` 会渲染已配置的 `section`。插件始终注册 `exit_plan_mode`，使工具 schema 在转换期间保持稳定；其 execute 路径只接受已激活的 plan mode，且只有通过 `ctx.userQuestions` 获得用户明确批准后才退出。
 
 评审问题声明 `plan-review` 呈现意图，并指名 `Approve` 为表示批准的标签，因此有能力的 UI 会把计划呈现为一次决定而非通用问题；两种情况下该工具读到的回答完全相同。放弃审阅——用户关闭请求，转而发言——会如实报告给模型，要求它留在 plan mode 中等待那条消息；其余每一种评审失败都保留 seam 自身的消息。
 
@@ -83,7 +83,7 @@ You are in plan mode. Explore and design before presenting the complete plan thr
 
 #### Token 影响
 
-稳定 schema 的成本取决于 ToolRegistry mode，每次传入的 plan 参数和评审结果都会保留在对话历史中。
+稳定 schema 的成本取决于 ToolRuntime mode，每次传入的 plan 参数和评审结果都会保留在对话历史中。
 
 #### KV Cache 影响
 

@@ -50,8 +50,8 @@ describe('Oxlint executable contract', () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
     const probes = [
-      ['host package source', 'packages/fs/fs-policy/src', 'packages/fs/fs-policy/tsconfig.json'],
-      ['host package test', 'packages/fs/fs-policy/tests', 'tsconfig.host.json'],
+      ['host package source', 'packages/fs/fs-observation-policy/src', 'packages/fs/fs-observation-policy/tsconfig.json'],
+      ['host package test', 'packages/fs/fs-observation-policy/tests', 'tsconfig.host.json'],
       ['client package source', 'packages/client/ui-primitives/src', 'packages/client/ui-primitives/tsconfig.json'],
       // A test under packages/client states its face in the filename, so the
       // probe carries the Client suffix to reach the Client aggregate.

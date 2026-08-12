@@ -4,7 +4,7 @@ import { createUserMessage, CallId, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
-import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeasurement, TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 
 function header(model: string, extras: Omit<EpochHeader, 'config'> = {}): EpochHeader {
@@ -89,8 +89,8 @@ function appendSuccessfulCall(
   session.append('step/end', { turn, step })
 }
 
-function meter(config: TokenMeterConfig = {}): TokenMeterService {
-  return new TokenMeterService(new Context(), config)
+function meter(config: TokenMeterConfig = {}): TokenMeter {
+  return new TokenMeter(new Context(), config)
 }
 
 function expectSurfaceTotal(measurement: TokenMeasurement): void {
@@ -98,7 +98,7 @@ function expectSurfaceTotal(measurement: TokenMeasurement): void {
     .toBe(measurement.surfaceTokens)
 }
 
-describe('TokenMeterService configuration and registration', () => {
+describe('TokenMeter configuration and registration', () => {
   it('exposes an empty public configuration type', () => {
     expectTypeOf<{}>().toExtend<TokenMeterConfig>()
     expectTypeOf<{ contextWindow: number }>().not.toExtend<TokenMeterConfig>()
@@ -115,14 +115,14 @@ describe('TokenMeterService configuration and registration', () => {
   it('registers and unregisters ctx.tokenMeter with its plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(TokenMeterService)
-    expect(ctx.get('tokenMeter')).toBeInstanceOf(TokenMeterService)
+    const fiber = await ctx.plugin(TokenMeter)
+    expect(ctx.get('tokenMeter')).toBeInstanceOf(TokenMeter)
     await fiber.dispose()
     expect(ctx.get('tokenMeter')).toBeUndefined()
   })
 })
 
-describe('TokenMeterService pricing', () => {
+describe('TokenMeter pricing', () => {
   it('prices every built-in content shape and merge-extended blocks with one fixed heuristic', () => {
     const service = meter()
     const blocks: ContentBlock[] = [
@@ -438,7 +438,7 @@ describe('replay anchors and surface folds', () => {
 })
 
 describe('malformed replay and listener lifecycle', () => {
-  function expectRepeatedFailure(service: TokenMeterService, session: Session, pattern: RegExp): void {
+  function expectRepeatedFailure(service: TokenMeter, session: Session, pattern: RegExp): void {
     expect(() => service.measure(session)).toThrow(pattern)
     expect(() => service.measure(session)).toThrow(pattern)
   }
@@ -660,12 +660,12 @@ describe('malformed replay and listener lifecycle', () => {
   it('handles earlier-reader catch-up, eager observation, and service reload', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    let activeMeter: TokenMeterService | undefined
+    let activeMeter: TokenMeter | undefined
     const revisions: number[] = []
     ctx.on('session/event', (session) => {
       if (activeMeter !== undefined) revisions.push(activeMeter.measure(session).logRevision)
     })
-    const firstFiber = await ctx.plugin(TokenMeterService)
+    const firstFiber = await ctx.plugin(TokenMeter)
     activeMeter = ctx.tokenMeter
     const session = ctx.sessions.create(SessionId('listener-order'), { seed: [{
       type: 'turn/start',
@@ -684,7 +684,7 @@ describe('malformed replay and listener lifecycle', () => {
     expect(activeMeter.measure(session).logRevision).toBe(3)
 
     await firstFiber.dispose()
-    const secondFiber = await ctx.plugin(TokenMeterService)
+    const secondFiber = await ctx.plugin(TokenMeter)
     activeMeter = ctx.tokenMeter
     expect(activeMeter.measure(session).logRevision).toBe(3)
     await secondFiber.dispose()

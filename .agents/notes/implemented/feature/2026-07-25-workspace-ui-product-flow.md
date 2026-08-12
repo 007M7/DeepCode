@@ -38,7 +38,7 @@ The Workspace domain uses a durable marker to distinguish â€œnever initializedâ€
 - A frontend Session preallocates a SessionId when created and owns its Intent target and `pendingPrompt`; it remains the same Session object after Host `session.create` succeeds.
 - Before materialization, a frontend Workspace has no WorkspaceId and owns its create input, phase, and error; after Host `workspace.create` succeeds, the same Workspace object adopts the returned view.
 - `SessionManager` and `WorkspaceManager` own object indexes and merge Host baselines and deltas; the objects are the sole source of state for both Intents and Host views.
-- `SessionsService` provides Session objects, real selection, scope, and list projections; `WorkspacesService` depends on `SessionsService` and owns the default Workspace, cross-object New Session flow, and Workspace materialization.
+- `SessionRuntime` provides Session objects, real selection, scope, and list projections; `WorkspaceRuntime` depends on `SessionRuntime` and owns the default Workspace, cross-object New Session flow, and Workspace materialization.
 
 A page has at most one frontend Session Intent and one accompanying Workspace Intent that exists only in the zero-Workspace state. Intents exist only on the current page and disappear on refresh; real Session selection can be restored persistently. Selecting a real Session or starting another Session Intent revokes the old Intent's eligibility for automatic sending, but does not roll back a Session already published by the Host or any accepted message.
 

@@ -2,7 +2,7 @@
   "initial": [
     {
       "name": "bash",
-      "description": "Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later.",
+      "description": "Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -24,7 +24,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies."
+            "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
           },
           "sandbox_permissions": {
             "type": "string",
@@ -128,6 +128,58 @@
         },
         "required": [
           "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "job_kill",
+      "description": "Request cancellation of a running background job by job id. Returns immediately; the job settles as killed once its work actually stops.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional short reason, recorded in the log and forwarded to the job."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "job_list",
+      "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_output",
+      "description": "Read a background job. Stream jobs return only output since the previous read; final-output jobs return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
+          }
+        },
+        "required": [
+          "job_id"
         ]
       }
     },
@@ -272,58 +324,6 @@
         "required": [
           "description",
           "prompt"
-        ]
-      }
-    },
-    {
-      "name": "task_kill",
-      "description": "Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "task_id": {
-            "type": "string",
-            "description": "Task id returned by the tool that started the background work."
-          },
-          "reason": {
-            "type": "string",
-            "description": "Optional short reason, recorded in the log and forwarded to the task."
-          }
-        },
-        "required": [
-          "task_id"
-        ]
-      }
-    },
-    {
-      "name": "task_list",
-      "description": "List your background tasks (running and finished) with their ids, kinds, and statuses.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "task_output",
-      "description": "Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "task_id": {
-            "type": "string",
-            "description": "Task id returned by the tool that started the background work."
-          },
-          "wait": {
-            "type": "boolean",
-            "description": "Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive."
-          },
-          "timeout_ms": {
-            "type": "number",
-            "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
-          }
-        },
-        "required": [
-          "task_id"
         ]
       }
     },

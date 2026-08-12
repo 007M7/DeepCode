@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-agent（智能体）作用域机制（[决策](2026-07-08-agent-scope-contexts.md)、[运行时设计](2026-07-12-agent-scope-runtime-design.md)）让支持作用域的注册表反复呈现同一种形态：一个全局注册层，加上一个与具体 agent 精确对应的层。七个注册门面都采用这一形态：`tools.register`、`tools.restrict` 和 `tools.guard`（位于 `dsh-tools`）；`SystemPrompt.section`、`SystemPrompt.tools` 和 `SystemPrompt.variable`（位于 `dsh-system-prompt`）；以及 `CommandService.register`（位于 `dsh-commands`）。
+agent（智能体）作用域机制（[决策](2026-07-08-agent-scope-contexts.md)、[运行时设计](2026-07-12-agent-scope-runtime-design.md)）让支持作用域的注册表反复呈现同一种形态：一个全局注册层，加上一个与具体 agent 精确对应的层。七个注册门面都采用这一形态：`tools.register`、`tools.restrict` 和 `tools.guard`（位于 `dsh-tools`）；`SystemPrompt.section`、`SystemPrompt.tools` 和 `SystemPrompt.variable`（位于 `dsh-system-prompt`）；以及 `CommandRuntime.register`（位于 `dsh-commands`）。
 
 如果没有共享原语，每个门面都要围绕自己的领域状态重复相同的生命周期编排：从调用方上下文导出可见性，按需创建专属容器，把属主绑定到同一个 Cordis fiber，先装入 undo 再通知观察者，原样返回 Cordis 的 disposer，并回收空的专属状态。各自分离的映射与集合类型也会让服务缺少一个表示某个 scope 完整贡献的对象。
 
@@ -78,15 +78,15 @@ export class AnonymousEntries<V> {
 - `AnonymousEntries.append()` 为每次登记分配唯一内部键，因此值相等的回调或其他值仍彼此独立。其迭代器保留插入顺序，并采用同样的 generation 活遍历边界。
 - `effect()` 通过 `scopeOf(ctx)` 导出键，并把 action 挂到同一个 `ctx.effect()` 上。它只接受一个同步 action，且该 action 只返回一个同步 undo；action 要么返回其 undo，要么必须在保留任何贡献之前抛错。helper 不会规范化更宽泛的 Cordis `Effect` union。
 - `effect()` 在调用 `onChange` 前收集 action 的 undo，并原样返回 `ctx.effect()` 的 disposer。销毁时先运行 action undo 再通知；Cordis 保证其幂等性；只有在整个层的 `ScopeLayer.isEmpty()` 返回 true 后，helper 才会删除专属层。
-- `options.notify` 默认为 `true`。回调自身的策略仍具最终效力：工具与提示词的 change 回调可以抛错并触发登记回滚；`CommandService.notifyChange()` 会隔离观察者失败；工具 guard 传入 `notify: false`。
+- `options.notify` 默认为 `true`。回调自身的策略仍具最终效力：工具与提示词的 change 回调可以抛错并触发登记回滚；`CommandRuntime.notifyChange()` 会隔离观察者失败；工具 guard 传入 `notify: false`。
 
 ## 注册表迁移
 
-`dsh-tools` 定义一个 `ToolLayer`，其中包含命名工具以及匿名的已编译 restriction 和 guard 登记。`ToolRegistry` 保留其私有领域解析器，由它处理可见定义、限制前的已知名称、可限制的全局名称、专属遮蔽、restriction，以及保留的 `run_code` 插入。guard 求值会先活遍历全局登记，再活遍历专属登记：向非空 generation 新增的登记可以在当前分发中运行，而 guard 表清空后的自我替换则从下一次分发开始运行。
+`dsh-tools` 定义一个 `ToolLayer`，其中包含命名工具以及匿名的已编译 restriction 和 guard 登记。`ToolRuntime` 保留其私有领域解析器，由它处理可见定义、限制前的已知名称、可限制的全局名称、专属遮蔽、restriction，以及保留的 `run_code` 插入。guard 求值会先活遍历全局登记，再活遍历专属登记：向非空 generation 新增的登记可以在当前分发中运行，而 guard 表清空后的自我替换则从下一次分发开始运行。
 
 `dsh-system-prompt` 定义一个 `PromptLayer`，其中包含命名的段落与变量，以及匿名工具提供方。组装流程在求值前合并段落，因此被遮蔽的提供方不会被调用。每次组装只物化一次工具提供方成员集合。变量提供方会先活遍历全局表，再活遍历专属表：向非空 generation 新增的提供方可以在当前组装中运行，而变量表清空后的自我替换则从下一次组装开始运行。
 
-`dsh-commands` 定义一个单表层，其中包含 `NamedEntries<RegisteredCommand>`。生效视图使用 `merge()`；`CommandService` 则保留对定义的规范化与冻结处理、精确重名诊断、经过排序的不可变描述符、直接执行、HMR（热模块替换）清理，以及对各个 `commands/change` 观察者分别隔离失败的行为。
+`dsh-commands` 定义一个单表层，其中包含 `NamedEntries<RegisteredCommand>`。生效视图使用 `merge()`；`CommandRuntime` 则保留对定义的规范化与冻结处理、精确重名诊断、经过排序的不可变描述符、直接执行、HMR（热模块替换）清理，以及对各个 `commands/change` 观察者分别隔离失败的行为。
 
 七个门面都把校验与诊断留在所属注册表中，并继续返回 Cordis 的原始 disposer。迁移既不改变公开注册表行为，也不改变模型可见或人类可见的输出，以及协议、持久化或配置层面的可见输出。
 
@@ -102,7 +102,7 @@ export class AnonymousEntries<V> {
 
 **接受完整的 Cordis `Effect` union。** 七个登记口都不涉及异步 setup、多份 undo 或独立结算边界。若没有现有消费方需要，通用规范化只会重复实现 Cordis 的生命周期机制。
 
-**暴露 `ScopedLayers.values()`、`ScopedLayers.keys()` 或全局放行谓词。** 这些操作会编码消费方特有的活遍历或物化策略，以及过滤策略。直接遍历条目表可保留显式的活语义，`merge()` 覆盖共享的命名遮蔽操作，而 `ToolRegistry` 继续保有功能更丰富的私有解析器。
+**暴露 `ScopedLayers.values()`、`ScopedLayers.keys()` 或全局放行谓词。** 这些操作会编码消费方特有的活遍历或物化策略，以及过滤策略。直接遍历条目表可保留显式的活语义，`merge()` 覆盖共享的命名遮蔽操作，而 `ToolRuntime` 继续保有功能更丰富的私有解析器。
 
 **把 `values()` 放在 `ScopeLayer` 上，或导出 `EntryValues`。** 一个层会聚合异构表，因而没有一致的值类型或迭代策略。`EntryValues` 只适合在两个表类之间共享实现细节；将其公开只会扩大接口，却不能为调用方提供有意义的整层读取方式。
 

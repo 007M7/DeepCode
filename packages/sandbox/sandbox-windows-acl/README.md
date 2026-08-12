@@ -84,7 +84,7 @@ The koffi struct definitions assert their sizes against the probe at module load
 
 ## Model Experience
 
-Indirectly, through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md), [`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md), and their tools, which render this backend's partial-enforcement and denial facts (the confined stderr the tool layer classifies through `denialSignatures`) while the [`dsh-sandbox`](../sandbox/README.md) seam owns the `SANDBOX_UNAVAILABLE` text and runner selection.
+Indirectly, through [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md), [`dsh-pwsh-sandbox`](../../shell/pwsh-sandbox/README.md), and their tools, which render this backend's partial-enforcement and denial facts (the confined stderr the tool layer classifies through `denialSignatures`) while the [`dsh-sandbox`](../sandbox/README.md) seam owns the `SANDBOX_UNAVAILABLE` text and runner selection.
 
 #### KV Cache effect
 

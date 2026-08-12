@@ -118,10 +118,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * the next one rather than applied to a current one.
      */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
-    // 'conversation.input.overlay' merges in ui-slash (the dependency
-    // direction is the hard constraint — ui-slash cannot import
+    // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
+    // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
-    // ui-slash, so the type arrives transitively). The runtime declaration
+    // ui-input-trigger, so the type arrives transitively). The runtime declaration
     // (children table in apply.ts) stays here with the other input slots.
     /**
      * Stacked strip above the input (queue rows / GoalBar / attachments;
@@ -446,7 +446,7 @@ export interface ComposerBarInjected {
     gesture: ComposerSubmitGesture,
     steeringAvailable: boolean,
   ) => InputSubmitMode
-  /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
+  /** Toggle the shared slash menu with only its command source; absent without ui-input-trigger or a session. */
   toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */
   stop: (() => void) | undefined
@@ -539,7 +539,7 @@ export type ConversationSessionHeaderSlotProps =
 export type ApprovalWait = PendingWait<'approval'>
 
 /**
- * Approval domain face over the carrier (the ui-question PendingQuestion
+ * Approval domain face over the carrier (the ui-user-questions PendingQuestion
  * pattern): render identity and question material forwarded transparently;
  * answer owns the wire encoding — the ApprovalResponsePayload value shape
  * with the audit correlation the host reconciles — and turns a rejected

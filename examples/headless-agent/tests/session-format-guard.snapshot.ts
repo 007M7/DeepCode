@@ -16,7 +16,7 @@ import SessionStore, {
   type SessionEvent,
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { describe, expect, it } from 'vitest'
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'workspace-context-resume-snapshots/offline-edit')
@@ -31,7 +31,7 @@ const sessionId = SessionId('workspace-context-resume')
 async function seedSession(root: string, cwd: string, version: number, events: SessionEvent[]): Promise<string> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+  await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
   const meta: SessionHeader = { version, id: sessionId, createdAt: 1, cwd }
   try {
     await ctx.sessionPersistence.create(meta)

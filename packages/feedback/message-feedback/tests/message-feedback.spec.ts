@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { remoteMethods } from '@deepseek-ai/dsh-type-meta'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import MessageFeedbackService, { messageFeedbackRowSchema } from '../src/index.ts'
 import type {
   MessageFeedbackItem,
@@ -43,7 +43,7 @@ function expectItem(
 describe('MessageFeedbackService public contract', () => {
   it('publishes the exact Gateway namespace and Remote method names', async () => {
     const { ctx } = await harness()
-    const binding = ctx.messageFeedback.typertGateway
+    const binding = ctx.messageFeedback.typertRemote
     expect(binding.serviceKey).toBe('messageFeedback')
     expect(binding.namespace).toBe('messageFeedback')
     expect(remoteMethods(ctx.messageFeedback)).toEqual([

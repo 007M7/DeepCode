@@ -46,7 +46,7 @@ Status: implemented
 
 两个适配器同样都需要那句完全相同的「拒绝一个已存储凭据」的诊断，差别仅在包名前缀。`LlmError` 声明在 Service Definition 的 `index.ts` 中，因此 `assertUsableApiKey(raw, pkg, ref)` 就住在它旁边，两个适配器都不再各留一份。断言模块本身保持零依赖：把 `LlmError` 引入 `api-key.ts` 会与 `index.ts` 对它的再导出成环。
 
-客户端无法引入其中任何一个：client 包只 reference client 包，因此 `packages/client/ui-models` 在自己的 `apiKey.ts` 中镜像这个断言并持有本地化文案，正如 `validateDeepSeekModels` 镜像 host 侧的 `catalogModel` schema。两侧在注释中互相指名。
+客户端无法引入其中任何一个：client 包只 reference client 包，因此 `packages/client/ui-settings-models` 在自己的 `apiKey.ts` 中镜像这个断言并持有本地化文案，正如 `validateDeepSeekModels` 镜像 host 侧的 `catalogModel` schema。两侧在注释中互相指名。
 
 ### 各处分别做什么
 
@@ -56,7 +56,7 @@ Status: implemented
 | `llm-deepseek` `resolveApiKey` | 归一化凭据 seam 或环境返回的值，以 `INVALID_CREDENTIAL` 拒绝，消息指明模型设置页，绝不回显 Key。 |
 | `llm-pi-ai` `resolveApiKey` | 归一化凭据与环境路径。不指定任何凭据的 profile 仍返回 `undefined`，ambient 与 OAuth 路由不受影响。 |
 | `llm-pi-ai` `discoverModels` | 在构造 header 之前归一化，使非法 Key 成为凭据故障而非端点不可达。不带 Key 的探测保持未鉴权。 |
-| `ui-models` | 镜像字符集规则，加入形状启发式，在探测与 `credentials.set` 之前 trim `keyDraft`，并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作；只含空白的输入框则是字段级失败。提交**与端点探测**同时受拦截，因此被拒绝的密钥不会白花一次往返去换取字段上已经写明的答案；失败呈现在字段上，与既有的 `modelFailure` 模式一致。 |
+| `ui-settings-models` | 镜像字符集规则，加入形状启发式，在探测与 `credentials.set` 之前 trim `keyDraft`，并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作；只含空白的输入框则是字段级失败。提交**与端点探测**同时受拦截，因此被拒绝的密钥不会白花一次往返去换取字段上已经写明的答案；失败呈现在字段上，与既有的 `modelFailure` 模式一致。 |
 
 `ProviderEditor` 同时服务 DeepSeek 与 pi-ai 两种布局，因此一处客户端改动覆盖两个提供方。`CustomProviderCard` 为手工声明的路由承载同一套判定。
 
@@ -64,7 +64,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**由 client 与 host 共享一个校验模块。** 被 source plane 布局否决：client 包只 reference client 包外加 `vendor/cordis` 与 `support/invariants`，把它放宽到够得着 host 包会撞上这一分割本就要隔开的两份 `Context` 合并。在两侧各镜像一行断言并各配一份测试，是此处的既定形态。
+**由 client 与 host 共享一个校验模块。** 被 source plane 布局否决：client 包只 reference client 包外加 `vendor/cordis` 与 `runtime-diagnostics/invariants`，把它放宽到够得着 host 包会撞上这一分割本就要隔开的两份 `Context` 合并。在两侧各镜像一行断言并各配一份测试，是此处的既定形态。
 
 **在 `llm-deepseek` 与 `llm-pi-ai` 中各留一个抛错 helper。** 最初的计划正是各留一份，差别仅在消息中的包名前缀，并配一个重复检测豁免来放行这一对。在实现之前即被否决：`LlmError` 声明在 Service Definition 中，因此该包完全可以自己拥有这句诊断，而那里的一个豁免恰恰会掩盖它本要遮掩的重复。
 
@@ -96,6 +96,6 @@ Status: implemented
 
 `packages/llm/llm-deepseek/tests/` 在 `dynamic-config.spec.ts` 中经真实凭据 seam（而非 stub）端到端覆盖已存储凭据路径。`packages/llm/llm-pi-ai/tests/` 覆盖探测路径，包括不带 Key 的探测不会发出 `authorization` 标头。
 
-`packages/client/ui-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 同时拦截提交与探测、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
+`packages/client/ui-settings-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 同时拦截提交与探测、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
 
 用户可见的终态则钉在它真正被组装的位置：`examples/headless-agent/tests/headless.snapshot.ts` 让 one-shot 应用在一个 HTTP 标头无法承载的已存密钥下运行，复用其 missing-credential 兄弟场景的同一套无密钥 composition，并记录该轮次以 `INVALID_CREDENTIAL` 结束、消息可操作且既不含密钥也不含 `ByteString` 字样。包级测试无法证明这一点，而 web e2e 只覆盖了浏览器那一半。

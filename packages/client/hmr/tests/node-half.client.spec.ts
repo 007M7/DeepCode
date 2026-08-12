@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WebBootGraph, ClientModuleHostService } from '@deepseek-ai/dsh-client-modules'
-import type { WebRoute, HttpServerService } from '@deepseek-ai/dsh-host-webserver'
+import type { WebBootGraph, ClientModuleRegistry } from '@deepseek-ai/dsh-client-modules'
+import type { WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, EVENTS_ENDPOINT, inject } from '../src/index.ts'
 
 const POLL_MS = 20
@@ -23,7 +23,7 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
  * Structural (Pick+cast): the plugin only touches the read/notify surface;
  * the service class carries private scan state a literal need not reproduce.
  */
-type FakeHost = ClientModuleHostService & { rebuiltCalls: string[]; fireGraphChanged(): void }
+type FakeHost = ClientModuleRegistry & { rebuiltCalls: string[]; fireGraphChanged(): void }
 interface FakeHostOptions {
   beforeGraphRead?: () => void
   rebuilt?: (id: string) => string | undefined
@@ -58,8 +58,8 @@ function fakeClientModuleHost(rows: Map<string, string>, options: FakeHostOption
 
 // Structural fake: the plugin only touches register(); the service class
 // carries private state a literal cannot (and need not) reproduce.
-function fakeHttpServer(routes: WebRoute[]): HttpServerService {
-  const fake: Pick<HttpServerService, 'register' | 'tapIndex' | 'port'> = {
+function fakeHttpServer(routes: WebRoute[]): WebServer {
+  const fake: Pick<WebServer, 'register' | 'tapIndex' | 'port'> = {
     register(route) {
       routes.push(route)
       return () => { routes.splice(routes.indexOf(route), 1) }
@@ -67,13 +67,13 @@ function fakeHttpServer(routes: WebRoute[]): HttpServerService {
     tapIndex: () => () => {},
     port: 0,
   }
-  return fake as HttpServerService
+  return fake as WebServer
 }
 
-async function mount(clientModuleHost: FakeHost, httpServer: HttpServerService) {
+async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
   const ctx = new Context()
-  ctx.provide('clientModuleHost', clientModuleHost)
-  ctx.provide('httpServer', httpServer)
+  ctx.provide('clientModules', clientModuleHost)
+  ctx.provide('webServer', webServer)
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
     { pollIntervalMs: POLL_MS },

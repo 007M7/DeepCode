@@ -70,8 +70,8 @@ SNAPSHOT_DIRECTORY = (
 )
 SNAPSHOT_FILENAMES = ("result.json", "session.jsonl", "session.1.jsonl", "session.2.jsonl")
 CUSTOM_CORDIS = """\
-- id: jsonrpc
-  name: '@deepseek-ai/dsh-jsonrpc'
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
@@ -87,11 +87,11 @@ CUSTOM_CORDIS = """\
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
 - id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker'
+  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
-- id: subagent-spawn
-  name: '@deepseek-ai/dsh-subagent-spawn'
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
   config:
     providerName: spawn
 - id: subagent-tool
@@ -99,7 +99,7 @@ CUSTOM_CORDIS = """\
   config:
     provider: spawn
 - id: workflow-engine
-  name: '@deepseek-ai/dsh-workflow-workerthread'
+  name: '@deepseek-ai/dsh-workflow-worker-thread'
   config:
     provider: spawn
 - id: workflow-tool

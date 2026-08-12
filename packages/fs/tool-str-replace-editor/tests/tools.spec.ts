@@ -9,11 +9,11 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 
 const contexts: Context[] = []
@@ -71,7 +71,7 @@ async function setup(
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   if (options.sandboxMode === undefined) {
     await ctx.plugin(LocalFileSystem, { cwd: root })
@@ -440,7 +440,7 @@ describe('tool-str-replace-editor', () => {
     })).error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
   })
 
-  it('delegates read-before-edit decisions to fs-policy', async () => {
+  it('delegates read-before-edit decisions to fs-observation-policy', async () => {
     const { ctx, root, owner } = await setup({}, { fsPolicy: true })
     const existing = join(root, 'existing.txt')
     const created = join(root, 'created.txt')
@@ -531,7 +531,7 @@ describe('tool-str-replace-editor', () => {
     const ctx = new Context()
     contexts.push(ctx)
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalFileSystem, { cwd: root })
     Object.defineProperty(ctx.fs, 'sandboxMode', { value: 'read-only' })

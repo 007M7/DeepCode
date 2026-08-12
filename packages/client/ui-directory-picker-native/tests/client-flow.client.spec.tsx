@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { NativeDirectoryFlow } from '../src/client/flow.ts'
@@ -15,10 +15,10 @@ const HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.
 
 async function bench() {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   const pickDirectory = vi.fn(async (): Promise<string | null> => '/tmp/picked')
   ctx.provide('workspaces', { pickDirectory } as never)
-  const slots = ctx.get('slots') as SlotsService
+  const slots = ctx.get('slots') as SlotRegistry
   const declare = () => slots.register({
     name: 'root',
     children: Object.fromEntries(HOLES.map(name => [name, { kind: 'single', scope: 'root' }])),

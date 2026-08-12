@@ -8,14 +8,14 @@
 
 | 输入 | 结果 |
 |---|---|
-| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded for session {sessionId}`、`User: {userId}` 加会话共享披露确认。 |
+| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded for session {sessionId}`、`Anonymous user: {userId}` 加会话共享披露确认。 |
 | `/feedback` | 返回一个直接用法错误。仅含空白的输入视为空输入。 |
 
 前后空白会被丢弃，但除此之外，反馈内容不会被解析：不进行截断或大小写折叠，也不识别控制词。看起来像另一个命令的文本（例如 `/feedback /plan felt slow`）就是反馈内容。重复执行命令时，每次都会产生一个事件；不会发生替换或合并。
 
 ## 会话共享披露
 
-确认文本会点名接收会话的 id，并报告该会话如何被共享；该信息通过插件上下文（`ctx.get('telemetry')`，绝不是声明的注入）从已挂载的 [`telemetry`](../../session/session-telemetry/README.md) 服务读取。披露是依据后端 [`TelemetrySharingStatus`](../../session/session-telemetry/README.md) 选择的一句话：
+确认文本会点名接收会话的 id，并报告该会话如何被共享；该信息通过插件上下文（`ctx.get('telemetry')`，绝不是声明的注入）从已挂载的 [`telemetry`](../../session/session-telemetry/README.md) 服务读取。披露是依据后端 [`SessionTelemetrySharingStatus`](../../session/session-telemetry/README.md) 选择的一句话：
 
 | 披露的状态 | 确认文本中的句子 |
 |---|---|
@@ -30,7 +30,7 @@
 
 `recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该函数写入，且不启动任何模型工作。可选的 [`dsh-session-telemetry-otel`](../../session/session-telemetry-otel) 消费方会观察该事件，但不改变它的采集约定。
 
-反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../interaction/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。确认文本同时标明接收反馈的会话和[共享匿名用户](../../session/user-id/)；对于某个 harness home，首次接受反馈时可能创建 `$DSH_HOME/.userid`。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`，也不会查找用户 id。
+反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../interaction/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。确认文本同时标明接收反馈的会话和[共享匿名用户](../../identity/anonymous-user-id/)；对于某个 harness home，首次接受反馈时可能创建 `$DSH_HOME/.anonymous-user-id`。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`，也不会查找用户 id。
 
 权威记录是该事件，而不是命令记录，因为反馈可能来自 `/feedback` 之外的触发方式。让载荷不进入 `command/run`，可避免两条记录携带相同文本。
 

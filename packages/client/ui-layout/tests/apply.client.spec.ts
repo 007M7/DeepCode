@@ -9,10 +9,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { apply as themeApply, inject as themeInject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { apply, inject, LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as themeApply, inject as themeInject, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { apply, inject, LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
 
@@ -22,17 +22,17 @@ beforeEach(() => {
 
 async function bench() {
   const ctx = new Context()
-  const slotsFiber = ctx.plugin(SlotsService)
+  const slotsFiber = ctx.plugin(SlotRegistry)
   // Theme registers its Appearance settings row and requires the connection
   // seam for persistence; model this bench as a remote, memory-only browser.
-  ctx.provide('locale', new LocaleService(ctx))
+  ctx.provide('locale', new LocaleRuntime(ctx))
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   // ui-theme's Appearance row binds a durable scope through these two.
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
-  return { ctx, slots: ctx.get('slots') as SlotsService }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry }
 }
 
 describe('ui-layout client apply', () => {
@@ -44,7 +44,7 @@ describe('ui-layout client apply', () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(ctx.get('layout')).toBeInstanceOf(LayoutService)
+    expect(ctx.get('layout')).toBeInstanceOf(LayoutController)
     // The one register() call occupied 'root'…
     expect(slots.entries('root')).toHaveLength(1)
     // …and declared the three children in the ledger.
@@ -62,7 +62,7 @@ describe('ui-layout client apply', () => {
     }
     const injected = (slots.entries('root')[0]!.inject as (actions: never) => object)(actions as never)
     expect(injected).toEqual({})
-    const layout = ctx.get('layout') as LayoutService
+    const layout = ctx.get('layout') as LayoutController
     layout.toggleSidebar()
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
   })
@@ -76,7 +76,7 @@ describe('ui-layout client apply', () => {
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
     const themeColorMeta = document.head.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     expect(themeColorMeta).not.toBeNull()
-    const theme = ctx.get('theme') as ThemeService
+    const theme = ctx.get('theme') as ThemeRuntime
     theme.setTheme('dark')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)

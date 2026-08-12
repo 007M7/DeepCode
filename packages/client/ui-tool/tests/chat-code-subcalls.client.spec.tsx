@@ -14,14 +14,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
   ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
-  EMPTY_CONVERSATION_VIEWS, SlotsService,
+  EMPTY_CONVERSATION_VIEWS, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
   ToolCallBlock, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '../src/client/apply.ts'
@@ -97,23 +97,23 @@ function AppRoot({ renderSlot }: AppRootProps) {
 }
 
 /**
- * Same real-stack bench as the toolview-slot spec: SlotsService + renderer +
+ * Same real-stack bench as the toolview-slot spec: SlotRegistry + renderer +
  * both owning package applies; fakes only at service boundaries.
  */
 async function bench(snapshot: ConversationSnapshot) {
   const ctx = new Context()
-  const slotsFiber = ctx.plugin(SlotsService)
+  const slotsFiber = ctx.plugin(SlotRegistry)
   await slotsFiber.await()
   await ctx.plugin(ConversationEventRegistry).await()
   await ctx.plugin(ConversationViewRegistry).await()
-  const slots = ctx.get('slots') as SlotsService
+  const slots = ctx.get('slots') as SlotRegistry
 
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
     byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
@@ -162,7 +162,7 @@ async function bench(snapshot: ConversationSnapshot) {
   // ui-theme's Appearance row binds a durable scope through these two.
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
-  const locale = new LocaleService(ctx)
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)
 
@@ -182,7 +182,7 @@ async function bench(snapshot: ConversationSnapshot) {
   return { ctx, slots, fiber, toolFiber, session, layout, workspaces }
 }
 
-function mountApp(slots: SlotsService) {
+function mountApp(slots: SlotRegistry) {
   return render(<>{slots.renderSlot('root', {})}</>)
 }
 

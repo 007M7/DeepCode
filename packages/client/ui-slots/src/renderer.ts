@@ -9,7 +9,7 @@ import type { SlotEntryDef, SlotSpec, StoredEntry, Translate } from './index.ts'
  * active-locale or registry change; the renderer re-derives each entry's `t`
  * from (namespace, revision), so a locale switch hands out NEW function
  * references and memoized components re-render naturally. Implemented by the
- * locale plugin, installed through the runtime SlotsService (installLocale).
+ * locale plugin, installed through the runtime SlotRegistry (installLocale).
  * Install before the first render that needs the seat: outlets bind their
  * revision subscription at mount, and a face appearing later has no channel
  * to notify already-mounted outlets (the locale plugin is immediately-tier
@@ -97,7 +97,7 @@ export interface RenderOpts {
   hookContext?: unknown
 }
 
-/** Host API the runtime SlotsService presents to the installed renderer. */
+/** Host API the runtime SlotRegistry presents to the installed renderer. */
 export interface SlotRendererHost {
   /**
    * Subscribe to a key's registration changes (microtask-batched).

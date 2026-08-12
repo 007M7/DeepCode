@@ -10,7 +10,7 @@ The concrete agent loop owns one turn: it drains admitted input, performs one or
 
 Treating every repeated action as one generic “loop” obscures those differences. Same-session work must persist the human objective in the existing transcript while preserving conversation context. Ralph work must intentionally discard conversation context and use the workspace plus a bounded handoff. Human-facing status must not imply that reopening a session silently authorizes more work. Completion and blocker claims also need an explicit trust boundary rather than being smuggled into a scheduler abstraction.
 
-The repository therefore needs goal-based execution above the turn/step loop, but it does not need a speculative universal loop service that combines persistence, evaluation, budgeting, scheduling, handoff, background tasks, and UI.
+The repository therefore needs goal-based execution above the turn/step loop, but it does not need a speculative universal loop service that combines persistence, evaluation, budgeting, scheduling, handoff, background jobs, and UI.
 
 ## Decision
 
@@ -37,7 +37,7 @@ Time-based `/loop` or scheduled execution is a third policy and is not implement
 |---|---|---|
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`, domain service | Owns `GoalId`, compare-and-set `GoalRef`, `GoalSnapshot`, four-state `GoalPhase`, structured `GoalBlockReason`, process-local `GoalActivation`, replay folding, and `get`, `create`, `edit`, `pause`, `resume`, `complete`, `block`, `clear`, and `disarm` verbs. |
 | `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`, model-facing consumer | Registers exclusive `get_goal`, `create_goal`, and `update_goal`; requires a direct human message in a live root-agent turn and narrows autonomous-round authority to completion or blocking reports with machine-routable reason codes. |
-| `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`, continuation policy | Reserves, fences, admits, attributes, settles, cancels, and quiescently drains same-session goal rounds without importing the concrete loop. |
+| `@deepseek-ai/dsh-goal-round-driver` | `packages/goal/goal-round-driver/`, continuation policy | Reserves, fences, admits, attributes, settles, cancels, and quiescently drains same-session goal rounds without importing the concrete loop. |
 | `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`, UI registry | Owns `CommandDefinition`, discovery, scoped registration, direct dispatch, `CommandResult`, and request cancellation for human-only commands. |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`, human-command producer | Registers `/goal` status, creation, edit, pause, resume, and clear over the goal domain for TUI. |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`, fixed workflow consumer | Registers `ralph({ objective, maxRounds? })`, validates the fresh structured provider and bounded `RalphRoundReport`, and returns `complete`, `blocked`, or `budget-limited`. |
@@ -74,7 +74,7 @@ TUI mounts the shared command registry and complete goal stack by default and ex
 
 ### Fresh-agent Ralph execution
 
-Ralph is a first-class model tool in its own plugin, demonstrating that a sophisticated fixed execution policy can be composed without a new loop core. The plugin owns a fixed workflow script over `ctx.workflows` and `ctx.subagents`; it does not create session-goal state or add a branch to `dsh-agent-loop`.
+Ralph is a first-class model tool in its own plugin, demonstrating that a sophisticated fixed execution policy can be composed without a new loop core. The plugin owns a fixed workflow script over `ctx.workflowEngine` and `ctx.subagents`; it does not create session-goal state or add a branch to `dsh-agent-loop`.
 
 Each round uses an explicit `WorkflowStartRequest.subagentProvider`, defaulting to `spawn`. The provider must exist, support structured output, and declare that it does not inherit parent context. Ralph also passes its resolved round cap as `WorkflowStartRequest.maxTotalAgents`; the worker engine validates both per-run policies before publishing work, so provider misconfiguration or an engine ceiling below the requested Ralph scale fails before a run exists. The child inherits cwd and lineage but receives only the immutable objective, round/cap, workspace-as-authority instruction, and previous normalized report.
 
@@ -98,7 +98,7 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 
 ## Alternatives considered
 
-- **Implement the original universal loop capability** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background task ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
+- **Implement the original universal loop capability** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background job ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
 - **Implement only same-session goals** — rejected because fresh-context iteration is materially different and is a valuable demonstration of the plugin architecture. Ralph belongs as a fixed workflow consumer with explicit context reset.
 - **Put Ralph inside the goal-round driver** — rejected because same-session goals deliberately preserve one conversation while Ralph deliberately removes it. Combining them would make activation, replay, handoff, and UI state ambiguous.
 - **Treat a fork as a fresh Ralph child** — rejected because a fork carries a conversation prefix. Fresh children plus workspace state and one explicit report are easier to bound and replay without a synthetic cancel record.
@@ -114,7 +114,7 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 - Humans receive a small Codex-shaped UX; models receive a compact tool set whose mutating calls require a direct human message in the current live root-agent turn; deployments can remove either independently.
 - Ralph demonstrates a nontrivial fixed policy entirely as a plugin over existing workflow and subagent primitives.
 - Round limits are generous by default but remain deployment-controlled. They bound iterations, not tokens, price, elapsed time, or external side effects.
-- The original proposal's evaluator, budget, reflector, background-task, CLI, and generic loop-session architecture is intentionally not part of the implemented public API.
+- The original proposal's evaluator, budget, reflector, background-job, CLI, and generic loop-session architecture is intentionally not part of the implemented public API.
 
 ## Known limitations and deferred work
 

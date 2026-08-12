@@ -5,7 +5,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // ---- Mock MCP SDK ----
@@ -61,7 +61,7 @@ import { apply, name, inject, Config as ConfigSchema } from '@deepseek-ai/dsh-mc
 async function mountRegistry(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   return ctx
 }
 
@@ -211,7 +211,7 @@ describe('apply (plugin lifecycle)', () => {
   it('releases the serverName reservation on dispose', async () => {
     const first = new Context()
     await first.plugin(SystemPrompt)
-    await first.plugin(ToolRegistry)
+    await first.plugin(ToolRuntime)
     await apply(first, stdioConfig)
 
     await first.fiber.dispose()
@@ -221,7 +221,7 @@ describe('apply (plugin lifecycle)', () => {
     // and the disposed instance no longer holds the reservation on its root.
     const second = new Context()
     await second.plugin(SystemPrompt)
-    await second.plugin(ToolRegistry)
+    await second.plugin(ToolRuntime)
     await expect(apply(second, stdioConfig)).resolves.toBeUndefined()
     await second.fiber.dispose()
   })

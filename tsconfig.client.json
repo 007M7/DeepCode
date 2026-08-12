@@ -39,12 +39,12 @@
     // so it cannot drag host-side Context augmentation into this program.
     { "path": "./packages/host/webserver" },
     // Compaction seam: the client-runtime pin test value-imports the canonical
-    // checkpoint const from the cordis-free dsh-compact/checkpoint leaf and
-    // deliberately never loads the dsh-compact package root or the host-side
+    // checkpoint const from the cordis-free dsh-compaction/checkpoint leaf and
+    // deliberately never loads the dsh-compaction package root or the host-side
     // Context merges reachable through it. The client package pins the same
     // leaf through a type-only import in transcript-adapter.ts; composite
     // rootDir rules make both paths depend on this runtime project reference.
-    { "path": "./packages/compact/compact" },
+    { "path": "./packages/compaction/compaction" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-attachment" },
@@ -57,7 +57,7 @@
     { "path": "./packages/api/gateway/tsconfig.client.json" },
     { "path": "./packages/api/remotes/tsconfig.client.json" },
     { "path": "./packages/client/runtime" },
-    { "path": "./packages/client/test-runtime" },
+    { "path": "./packages/test-support/client-runtime" },
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-conversation" },
@@ -65,28 +65,28 @@
     { "path": "./packages/client/ui-deliverables" },
     { "path": "./packages/client/ui-workflow-run" },
     { "path": "./packages/client/ui-workspace" },
-    { "path": "./packages/client/ui-slash" },
-    { "path": "./packages/client/ui-command" },
+    { "path": "./packages/client/ui-input-trigger" },
+    { "path": "./packages/client/ui-commands" },
     { "path": "./packages/client/ui-skill" },
     { "path": "./packages/client/ui-subagent" },
-    { "path": "./packages/client/ui-task" },
-    { "path": "./packages/client/ui-directory-picker" },
+    { "path": "./packages/client/ui-jobs" },
+    { "path": "./packages/client/ui-directory-picker-browse" },
     { "path": "./packages/client/ui-directory-picker-native" },
     { "path": "./packages/client/ui-goal" },
-    { "path": "./packages/client/ui-feedback" },
-    { "path": "./packages/client/ui-model" },
+    { "path": "./packages/client/ui-message-feedback" },
+    { "path": "./packages/client/ui-model-selection" },
     { "path": "./packages/client/ui-agent-preset" },
-    { "path": "./packages/client/ui-permission" },
+    { "path": "./packages/client/ui-permission-presets" },
     { "path": "./packages/client/ui-plan" },
-    { "path": "./packages/client/ui-plugin-config" },
-    { "path": "./packages/client/ui-question" },
+    { "path": "./packages/client/ui-settings-plugins" },
+    { "path": "./packages/client/ui-user-questions" },
     { "path": "./packages/client/ui-trajectory" },
-    { "path": "./packages/session-query/session-export" },
+    { "path": "./packages/session-query/session-log-download" },
     { "path": "./packages/client/ui-theme" },
     { "path": "./packages/client/ui-settings" },
     { "path": "./packages/client/ui-settings-general" },
-    { "path": "./packages/client/ui-models" },
-    { "path": "./packages/client/ui-plugins" },
+    { "path": "./packages/client/ui-settings-models" },
+    { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }

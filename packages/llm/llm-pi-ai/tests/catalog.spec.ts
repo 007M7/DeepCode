@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmService, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import SettingsLocal from '@deepseek-ai/dsh-settings-local'
+import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -45,8 +45,8 @@ async function home(): Promise<string> {
 /** The dormant composition plus a real settings service, as the product mounts it. */
 async function bootWithSettings(dir: string, config: LlmPiAi.Config): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(FileSettingsProvider, { path: join(dir, 'settings.yaml'), watch: false })
   await ctx.plugin(LlmPiAi, config)
   return ctx
 }
@@ -69,7 +69,7 @@ function gateway(baseURL: string, overrides: Record<string, unknown> = {}): LlmP
 
 async function harness(config: LlmPiAi.Config): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, config)
   return ctx
 }

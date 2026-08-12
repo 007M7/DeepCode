@@ -12,17 +12,17 @@ The user id is transport metadata, not model input. It must not enter the reques
 
 ## Decision
 
-`dsh-llm-deepseek` sends `x-deepseek-harness-user-id` on every provider request sent after successful credential resolution. The value comes from `@deepseek-ai/dsh-user-id` and therefore matches the OpenTelemetry Resource `user.id` and `/feedback` acknowledgement for the same `$DSH_HOME`. The adapter continues to send `x-deepseek-harness-session-id` only when `GenerateOptions.sessionId` is present; the agent loop supplies the current durable `Session.id` for ordinary agent, title-generation, and compaction requests.
+`dsh-llm-deepseek` sends `x-deepseek-harness-user-id` on every provider request sent after successful credential resolution. The value comes from `@deepseek-ai/dsh-anonymous-user-id` and therefore matches the OpenTelemetry Resource `user.id` and `/feedback` acknowledgement for the same `$DSH_HOME`. The adapter continues to send `x-deepseek-harness-session-id` only when `GenerateOptions.sessionId` is present; the agent loop supplies the current durable `Session.id` for ordinary agent, title-generation, and compaction requests.
 
-The plugin resolves the user id lazily after credentials succeed and memoizes it for that plugin instance. A missing credential therefore does not create `.userid`, while the first authorized provider request can create it even when `DSH_TELEMETRY_DISABLED` is set. The direct adapter constructor accepts a `resolveUserId` dependency so wire behavior remains deterministic in unit tests.
+The plugin resolves the user id lazily after credentials succeed and memoizes it for that plugin instance. A missing credential therefore does not create `.anonymous-user-id`, while the first authorized provider request can create it even when `DSH_TELEMETRY_DISABLED` is set. The direct adapter constructor accepts a `resolveUserId` dependency so wire behavior remains deterministic in unit tests.
 
-Both headers are model-hidden HTTP metadata sent to the resolved `baseURL`. They are absent from the JSON request body and do not become model-visible inputs or session events. A configured gateway receives them. Telemetry sharing controls only telemetry export and does not disable provider request identity.
+Both headers are model-hidden HTTP metadata sent to the resolved `baseURL`. They are absent from the JSON request body and do not become model-visible inputs or session events. A configured gateway receives them. SessionTelemetryBackend sharing controls only telemetry export and does not disable provider request identity.
 
 ## Verification
 
 - The mock provider asserts that an authorized request carries the same user id returned by `getOrCreateAnonymousUserId()` and omits the session header when no session id is supplied.
 - The session-identity wire test asserts both headers and preserves the exact supplied session id.
-- A direct-adapter test asserts that user-id resolution happens once per stream, while the keyless configuration test proves a credential failure does not create `.userid`.
+- A direct-adapter test asserts that user-id resolution happens once per stream, while the keyless configuration test proves a credential failure does not create `.anonymous-user-id`.
 - The real Loader composition test asserts that the assembled plugin uses the shared user-id package rather than a test-only value.
 - No keyless snapshot changes because the headers are not model-visible or user-visible transcript content.
 
@@ -39,6 +39,6 @@ Both headers are model-hidden HTTP metadata sent to the resolved `baseURL`. They
 ## Consequences
 
 - DeepSeek support can correlate requests across sessions by one anonymous harness-home id and within a conversation by the durable session id.
-- The first authorized DeepSeek request may create `$DSH_HOME/.userid` independently of telemetry export.
+- The first authorized DeepSeek request may create `$DSH_HOME/.anonymous-user-id` independently of telemetry export.
 - Custom DeepSeek gateways receive the stable user id and any available session id, so operators must treat the configured `baseURL` as an identity recipient.
 - The request body, prompt, token count, KV-cache identity, and session log remain unchanged.

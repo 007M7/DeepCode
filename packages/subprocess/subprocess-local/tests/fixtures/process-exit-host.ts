@@ -2,7 +2,7 @@ import { access, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 
 const [kind, trigger, root] = process.argv.slice(2)
 if ((kind !== 'ordinary' && kind !== 'terminal')
@@ -30,7 +30,7 @@ async function waitForFile(path: string): Promise<void> {
 
 const listenersBefore = process.listenerCount('exit')
 const ctx = new Context()
-const fiber = await ctx.plugin(LocalSubprocessService)
+const fiber = await ctx.plugin(LocalSubprocessRuntime)
 const listenersAfterLoad = process.listenerCount('exit')
 if (kind === 'ordinary') {
   ctx.subprocess.spawn({

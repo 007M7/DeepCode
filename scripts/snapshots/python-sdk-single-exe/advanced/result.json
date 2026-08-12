@@ -108,11 +108,11 @@
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
+            "job_kill",
+            "job_list",
+            "job_output",
             "run_code",
             "subagent",
-            "task_kill",
-            "task_list",
-            "task_output",
             "workflow"
           ]
         },
@@ -332,12 +332,12 @@
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
+            "job_kill",
+            "job_list",
+            "job_output",
             "run_code",
             "snapshot_double",
             "subagent",
-            "task_kill",
-            "task_list",
-            "task_output",
             "workflow"
           ]
         },
@@ -1168,11 +1168,11 @@
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
+            "job_kill",
+            "job_list",
+            "job_output",
             "run_code",
             "subagent",
-            "task_kill",
-            "task_list",
-            "task_output",
             "workflow"
           ]
         },
@@ -1466,11 +1466,11 @@
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
+                "job_kill",
+                "job_list",
+                "job_output",
                 "run_code",
                 "subagent",
-                "task_kill",
-                "task_list",
-                "task_output",
                 "workflow"
               ]
             },
@@ -1762,12 +1762,12 @@
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
+                "job_kill",
+                "job_list",
+                "job_output",
                 "run_code",
                 "snapshot_double",
                 "subagent",
-                "task_kill",
-                "task_list",
-                "task_output",
                 "workflow"
               ]
             },
@@ -2447,12 +2447,12 @@
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
+                "job_kill",
+                "job_list",
+                "job_output",
                 "run_code",
                 "snapshot_double",
                 "subagent",
-                "task_kill",
-                "task_list",
-                "task_output",
                 "workflow"
               ]
             },
@@ -3147,12 +3147,12 @@
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
+                "job_kill",
+                "job_list",
+                "job_output",
                 "run_code",
                 "snapshot_double",
                 "subagent",
-                "task_kill",
-                "task_list",
-                "task_output",
                 "workflow"
               ]
             },
@@ -3767,11 +3767,11 @@
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
+                "job_kill",
+                "job_list",
+                "job_output",
                 "run_code",
                 "subagent",
-                "task_kill",
-                "task_list",
-                "task_output",
                 "workflow"
               ]
             },

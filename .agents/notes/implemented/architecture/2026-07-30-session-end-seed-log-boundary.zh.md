@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-在会话日志中拥有独立开／闭括号的插件无法区分一个已死的标记和一个存活的标记。`compact/start` … `compact/end` 就是已发布的实例：当接手一份日志、而它最后的压缩（compaction）事件是一个未配对的 `compact/start` 时，「上一个写入方在压缩中途死掉了」与「此刻正有一次压缩在运行」在存储历史中是逐字节相同的。该括号所有方只能二选一：拒绝压缩一份其实空闲的日志（把会话卡死），或者在一份确实繁忙的日志上继续压缩。
+在会话日志中拥有独立开／闭括号的插件无法区分一个已死的标记和一个存活的标记。`compaction/start` … `compaction/end` 就是已发布的实例：当接手一份日志、而它最后的压缩（compaction）事件是一个未配对的 `compaction/start` 时，「上一个写入方在压缩中途死掉了」与「此刻正有一次压缩在运行」在存储历史中是逐字节相同的。该括号所有方只能二选一：拒绝压缩一份其实空闲的日志（把会话卡死），或者在一份确实繁忙的日志上继续压缩。
 
 日志中没有任何东西标出继承历史在哪里结束。`session/created`、`session/disposed` 与 `session/flush` 是 Cordis 运行时信号，不是日志事件；`agent/session-start` 只发射不落盘。`Session.firstLiveSeq` 本来就精确地持有这个答案——本生命周期第一次自有写入的 seq——但只存在于内存中，因此读取存储字节的消费方看不到它。
 
-崩溃修复既没有填上这个缺口，也不应该去填：`interruptedTurnClosers` 合成轮次、步骤与工具边界，是因为核心拥有那套词汇表，而 `compact/*` 属于压缩 seam。一个会关闭插件括号的核心修复流程，等于把每个插件的括号语义都搬进核心。
+崩溃修复既没有填上这个缺口，也不应该去填：`interruptedTurnClosers` 合成轮次、步骤与工具边界，是因为核心拥有那套词汇表，而 `compaction/*` 属于压缩 seam。一个会关闭插件括号的核心修复流程，等于把每个插件的括号语义都搬进核心。
 
 ## 决策
 
@@ -18,7 +18,7 @@ Status: implemented
 
 括号所有方按位置读取它：在 `session/end-seed` 之前的未配对开启标记具有更小的 seq，来自构造种子，并且属于一个已结束的生命周期。核心写入该边界但不从中读取任何内容；每个括号的词汇表仍归其所属插件，因此在没有消费方来塑形之前，核心不会先发布谓词辅助函数。
 
-选择构造函数，是因为它是每一个带种子会话都必经的唯一收窄处。全部六个入口都会到达它：`agents.resume()`、在已持久化 id 上的配置驱动启动（`restoreOrCreateConfigured`）、`sessions.fork()`、subagent fork 子会话、`coordinator.adopt()` 的实时前缀路径，以及裸的 `sessions.create(id, {seed})`。在持久化加载时写入的边界会漏掉两条 fork 路径——而一个继承了仍在运行的父会话开放 `compact/start` 的 fork 子会话，恰恰是必须可判定的场景。在 loop 启动时写入的边界会漏掉 `fork()` 与 `adopt()`，并且不得不在 `SessionStartSource: 'startup'` 上触发——那正是 fork 子会话发布的取值，于是该字段将不再具有区分力。
+选择构造函数，是因为它是每一个带种子会话都必经的唯一收窄处。全部六个入口都会到达它：`agents.resume()`、在已持久化 id 上的配置驱动启动（`restoreOrCreateConfigured`）、`sessions.fork()`、subagent fork 子会话、`coordinator.adopt()` 的实时前缀路径，以及裸的 `sessions.create(id, {seed})`。在持久化加载时写入的边界会漏掉两条 fork 路径——而一个继承了仍在运行的父会话开放 `compaction/start` 的 fork 子会话，恰恰是必须可判定的场景。在 loop 启动时写入的边界会漏掉 `fork()` 与 `adopt()`，并且不得不在 `SessionStartSource: 'startup'` 上触发——那正是 fork 子会话发布的取值，于是该字段将不再具有区分力。
 
 两条守卫让这个标记保持精确。省略种子时不写入任何内容，因为这是全新会话。种子本身已以该事件结尾时不会重复标记，这让写入具备幂等性。幂等性是承重的，而不是为了整洁：每次绑定到 Agent 的冷会话接手都会经过 `agentFor()`；没有这条守卫，重复的控制操作即使没有执行任何工作，也会让日志增长。只执行检查的 `session.history` 与 `session.fork` 源端路径不会在源会话中创建这条边界。
 
@@ -42,7 +42,7 @@ Status: implemented
 
 **复用 `header.seedLength`。** 它是持久的 *fork 血缘*边界，并且刻意在恢复时保留原始 fork 取值——而恢复时构造种子是整份存储日志。这两个事实并不相同，混同会同时失去两者。
 
-**让崩溃修复连同轮次边界一起关闭 `compact/*`。** 否决：这会把每个插件的括号语义搬进核心的修复流程，而核心无法知道关闭另一个包的括号应该记录什么。
+**让崩溃修复连同轮次边界一起关闭 `compaction/*`。** 否决：这会把每个插件的括号语义搬进核心的修复流程，而核心无法知道关闭另一个包的括号应该记录什么。
 
 ## 后果
 
@@ -52,4 +52,4 @@ Status: implemented
 
 `session/end-seed` 加入了落盘词汇表。在预发布立场下（`SESSION_FORMAT_VERSION` 固定为 `0`，不作兼容承诺），更旧的日志只是没有它，而没有边界的日志会正确地判定没有任何内容属于构造种子历史。
 
-[排队手动压缩决策](../feature/2026-07-30-queued-manual-compaction.md)如今提供了第一个消费方。其尾部扫描会分别查找未匹配的 `compact/start` 与最新 end-seed，只把位于该边界之后的 start 视为存活，并在同一个回放转换上清除不变量追踪状态。该谓词仍位于压缩功能所在的包中，不会成为通用核心辅助函数。
+[排队手动压缩决策](../feature/2026-07-30-queued-manual-compaction.md)如今提供了第一个消费方。其尾部扫描会分别查找未匹配的 `compaction/start` 与最新 end-seed，只把位于该边界之后的 start 视为存活，并在同一个回放转换上清除不变量追踪状态。该谓词仍位于压缩功能所在的包中，不会成为通用核心辅助函数。

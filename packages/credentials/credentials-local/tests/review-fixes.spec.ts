@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { CredentialsLocal } from '../src/index.ts'
+import { LocalCredentialProvider } from '../src/index.ts'
 
 /** Credential documents are seeded owner-only, exactly as the provider creates them. */
 function writeCredentials(file: string, text: string): Promise<void> {
@@ -31,9 +31,9 @@ async function tempDir(): Promise<string> {
   return dir
 }
 
-async function boot(config: ConstructorParameters<typeof CredentialsLocal>[1]): Promise<Context> {
+async function boot(config: ConstructorParameters<typeof LocalCredentialProvider>[1]): Promise<Context> {
   const ctx = new Context()
-  const fiber = ctx.plugin(CredentialsLocal, config)
+  const fiber = ctx.plugin(LocalCredentialProvider, config)
   cleanups.push(async () => { await fiber.dispose() })
   await fiber
   return ctx

@@ -18,7 +18,7 @@ Status: implemented
 
 > **作为页面范围界定规则已被取代**，见[按包锚定的子系统页面](2026-08-03-package-anchored-subsystem-pages.md)：每页现在锚定到声明其词汇的包分组。下文的 `ts type-equiv` 机制仍然有效。
 
-范围界定的决定性测试是 `BashExecRequest`/`BashExecSpec`/`BashRunResult`：bash 是一个能力 *seam*，不属于 agent loop（智能体循环）主干；如果这些算「核心」，那么「核心」就意味着*所有跨包词汇*，目录沦为平铺罗列；如果不算，「核心」就意味着*中央主干*，bash 词汇归入其自身的子系统页面。后者胜出，由此确定了整体结构：一个**分层文件夹**，而非一份平铺文档。
+范围界定的决定性测试是 `ShellExecRequest`/`ShellExecSpec`/`ShellRunResult`：bash 是一个能力 *seam*，不属于 agent loop（智能体循环）主干；如果这些算「核心」，那么「核心」就意味着*所有跨包词汇*，目录沦为平铺罗列；如果不算，「核心」就意味着*中央主干*，bash 词汇归入其自身的子系统页面。后者胜出，由此确定了整体结构：一个**分层文件夹**，而非一份平铺文档。
 
 确定其余案例的规则是：***你编写、持有或接收的类型是核心；为其提供类型推导、渲染或持久化的机制是子系统页面细节。*** 逐一验证如下：
 
@@ -27,7 +27,7 @@ Status: implemented
 - `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
 - 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇归入子系统页面。
 
-`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到同级子系统页面获取包所拥有的细节；目录的 [README](../../../../docs/subsystems/README.md) 索引全部页面。最初的子系统页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `bash.md`。
+`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到同级子系统页面获取包所拥有的细节；目录的 [README](../../../../docs/subsystems/README.md) 索引全部页面。最初的子系统页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `shell.md`。
 
 ### `ts type-equiv` 机制——既逐字又防漂移
 
@@ -44,7 +44,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-- **平铺罗列所有跨包词汇**：`BashExecRequest` 测试案例否决了它。如果 seam 词汇算「核心」，目录对谁都没帮助；分层的主干与子系统结构胜出。
+- **平铺罗列所有跨包词汇**：`ShellExecRequest` 测试案例否决了它。如果 seam 词汇算「核心」，目录对谁都没帮助；分层的主干与子系统结构胜出。
 - **用编译式 `_Check` 可赋值性断言**代替源码匹配：否决。可赋值性不会保留名称或 JSDoc；同类型字段改名或约定注释变化仍会通过。
 - **将每个类型块的源文件写进指令注释**：否决，改用集中 manifest；其强制的 1:1 对应确保一个块永远不会被静默漏检，一条条目也永远不会腐烂。
 

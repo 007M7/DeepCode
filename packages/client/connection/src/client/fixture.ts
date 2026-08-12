@@ -108,7 +108,7 @@ function sgr(code: number, body: string): string {
  * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
  * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
  * terminal card shows the exit as its own pill and leaving the marker in would
- * render it twice (packages/bash/tool-bash/src/render.ts).
+ * render it twice (packages/shell/tool-bash/src/render.ts).
  */
 const TERMINAL_OUTPUT_FIXTURE = [
   sgr(1, 'Running 4 checks'),
@@ -771,7 +771,7 @@ function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: b
 }
 
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
-/** Fixture preset table (the host PermissionService defaults). */
+/** Fixture preset table (the host PermissionPresetService defaults). */
 const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; description: string }> = {
   'workspace-write': { sandbox: 'workspace-write', approval: 'ask', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
   'danger-full-access': { sandbox: 'danger-full-access', approval: 'never', description: 'Full file access without approval prompts.' },

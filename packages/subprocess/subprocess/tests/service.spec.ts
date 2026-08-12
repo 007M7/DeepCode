@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { scrubbedParentEnv, SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
   SubprocessOutputRead,
@@ -15,7 +15,7 @@ import type {
  * defaulting, shell semantics, and deadlines belong to callers — so this stub
  * is all an implementation owes the abstract class.
  */
-class StubSubprocessService extends SubprocessService {
+class StubSubprocessRuntime extends SubprocessRuntime {
   async resolveExecutable(command: string): Promise<string> {
     return `/bin/${command}`
   }
@@ -50,10 +50,10 @@ class StubSubprocessService extends SubprocessService {
   }
 }
 
-describe('SubprocessService seam', () => {
+describe('SubprocessRuntime seam', () => {
   it('a concrete subclass registers as ctx.subprocess and serves the abstract API', async () => {
     const ctx = new Context()
-    await ctx.plugin(StubSubprocessService)
+    await ctx.plugin(StubSubprocessRuntime)
     const handle = ctx.subprocess.spawn({
       argv: ['true'],
       cwd: '/stub',
@@ -70,8 +70,8 @@ describe('SubprocessService seam', () => {
 
   it('loading a second implementation throws (one subprocess service per context — cordis standard)', async () => {
     const ctx = new Context()
-    await ctx.plugin(StubSubprocessService)
-    class SecondService extends StubSubprocessService {}
+    await ctx.plugin(StubSubprocessRuntime)
+    class SecondService extends StubSubprocessRuntime {}
     await expect(ctx.plugin(SecondService)).rejects.toThrow(/service "subprocess" has been registered/)
   })
 

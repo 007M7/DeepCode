@@ -18,13 +18,13 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../client/connection/tsconfig.host.json"
     },
     {
-      "path": "../../typert/type-meta"
+      "path": "../../typert/protocol"
     }
   ]
 }

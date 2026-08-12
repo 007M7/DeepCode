@@ -9,7 +9,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
@@ -52,7 +52,7 @@ function stubAgent(session: Session): Agent {
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
+    runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -69,7 +69,7 @@ async function harness(
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend())
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
@@ -327,7 +327,7 @@ describe('workspace.insertBefore', () => {
     const third = expectOk(await api.workspace.create(request({ path: stageDir(root, 'third') }))).workspace
 
     const abort = new AbortController()
-    const listWorkspaces = vi.spyOn(ctx.workspace, 'list')
+    const listWorkspaces = vi.spyOn(ctx.workspaceRegistry, 'list')
     const stream: AsyncIterator<RpcRequest<HostFrame>> =
       api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
     expect(listWorkspaces).toHaveBeenCalledTimes(1)
@@ -394,7 +394,7 @@ describe('session creation and Workspace membership', () => {
   it('retains a published session when attachment fails and repairs it on retry', async () => {
     const { api, ctx, root } = await harness()
     const created = expectOk(await api.workspace.create(request({ path: stageDir(root, 'project') }))).workspace
-    const workspace = ctx.workspace.list()[0]
+    const workspace = ctx.workspaceRegistry.list()[0]
     if (workspace === undefined) throw new Error('workspace missing from registry')
     vi.spyOn(workspace, 'attachSession').mockRejectedValueOnce(new Error('simulated write failure'))
     const sessionId = SessionId('session-attach-retry')

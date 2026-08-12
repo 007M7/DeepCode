@@ -28,8 +28,8 @@ Status: implemented
     - **静态到达 entry 包**（`connection`、`runtime`、`ui-theme`、`i18n`、`hmr`）：无 `dsh.client` 键、无浏览器 bundle——壳把它们的 `src/client/` 半边打进自己的 bundle 并向 `ctx.modules` 登记；它们与其余单元一样，作为 host 独家撰写的图里的 entry 受治理。
     - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dsh.client` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
 - `apps/` 作为对外导出的应用入口，可以由 Client / Host 混合组装。
-    - `apps/web`（`dsh-frontend`）是 vite 应用：`dsh-client-web` 导出的壳 API 之上的一层薄 `main.ts`。
-    - `apps/cli`（`@deepseek-ai/dsh`）分发命令：`dsh web` = Host + webserver + 构建出的 `dsh-frontend` dist；`dsh --profile headless` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
+    - `apps/web`（`dsh-web-frontend`）是 vite 应用：`dsh-client-web` 导出的壳 API 之上的一层薄 `main.ts`。
+    - `apps/cli`（`@deepseek-ai/dsh`）分发命令：`dsh web` = Host + webserver + 构建出的 `dsh-web-frontend` dist；`dsh --profile headless` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
     - 将来的 Electron 应用经由 IPC fetch 载体复用同一套 web client 包。
 
 ```
@@ -65,7 +65,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 | 承载层 | `dsh-host-webserver` | Web HTTP 与 upgrade：静态服务 + `/api/*`→handler 转发 + WebSocket upgrade route + close 语义；插件 bundle 端点 + `__DSH_BOOT__` manifest（元数据清单）注入（由 web 插件注册表供给） | Web（浏览器访问）专用；零 workspace 依赖（注册表经结构注入到达）；Electron 不复用它 |
 | client 库 | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | slot 注册表核心 / ctx↔React 胶合 / 纯 React 原子组件 | 组件零 cordis 运行时依赖；由壳播种进 loader 模块表 |
 | client 插件 | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | 浏览器侧 cordis 插件树（wire 消费方、核心服务、主题、i18n、布局、侧栏、对话、轨迹）——见 Web 客户端架构笔记 | 双入口（node 半边=空 apply；实现在 `src/client/`）；消费面唯一经 ApiProxy |
-| 应用 | `@deepseek-ai/dsh`（apps/cli）+ `dsh-frontend`（apps/web，vite 应用） | bin 粗分发 + 每个应用一个拼装模块（web.ts / headless.ts）；vite 应用是 `dsh-client-web` 壳表面之上的薄 main | 各应用使用动态 import，因此不会互相加载；dist 定位等 workspace 知识留在 app |
+| 应用 | `@deepseek-ai/dsh`（apps/cli）+ `dsh-web-frontend`（apps/web，vite 应用） | bin 粗分发 + 每个应用一个拼装模块（web.ts / headless.ts）；vite 应用是 `dsh-client-web` 壳表面之上的薄 main | 各应用使用动态 import，因此不会互相加载；dist 定位等 workspace 知识留在 app |
 
 #### 命名规则
 
@@ -243,7 +243,7 @@ export type ResponseValue<K> =
 | 消费型 client 直连 ctx（省 apiproxy 一层） | client 需要 wire 校验、观测与多 client 一致性。直接 headless 是没有 client 边界的本地入口，使用公开的 Agent／Session seam，而不是 client 命令面 |
 | webserver 依赖 runtime（省 handler 注入） | 结构 typing 注入让 webserver 可被 sidecar/测试复用且零 workspace 依赖；包依赖会把装配知识拖进承载层 |
 | 包名不带组前缀（沿用 dsh-<尾段>） | `dsh-runtime`/`dsh-web-ui` 在扁平 npm 命名空间里失去归属信息；代价只是每包一条显式 paths |
-| 复用仓内 JSON-RPC 2.0（dsh-jsonrpc） | 数字错误码退化成单码兜底、约定双份人肉对齐、命名无 convention 自然漂移 |
+| 复用仓内 JSON-RPC 2.0（dsh-sdk-jsonrpc-server） | 数字错误码退化成单码兜底、约定双份人肉对齐、命名无 convention 自然漂移 |
 | 三信封模型（Request/Response/Frame 各一信封，签名不感知方向） | rpcId 是逻辑层关联，帧与应答的方向语义靠通道推断在换载体时即失效 |
 | 具名 Request/Response 类型对为真源（map 登记类型对） | 平铺具名类型是同一事实的第二个名字；签名 infer 反推让加方法只改一处 |
 | REST 风格路径 | 消费方是自家 client，无第三方 REST 体验诉求；RPC 直映方法表更机械 |

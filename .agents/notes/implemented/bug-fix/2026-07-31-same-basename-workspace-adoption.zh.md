@@ -10,7 +10,7 @@ Workspace 的身份由其稳定 id 和规范目录路径确定，标题则是可
 
 ## 决策
 
-`ctx.workspace.create(path, title?)` 仅以规范路径作为唯一性键。重复传入同一路径仍保持幂等，并保留已注册的标题。不同的规范路径会创建不同的 Workspace 记录，且可以共用标题；未提供标题时，每条记录仍从 `basename(path)` 派生标题，不添加后缀，也不改写标题。
+`ctx.workspaceRegistry.create(path, title?)` 仅以规范路径作为唯一性键。重复传入同一路径仍保持幂等，并保留已注册的标题。不同的规范路径会创建不同的 Workspace 记录，且可以共用标题；未提供标题时，每条记录仍从 `basename(path)` 派生标题，不添加后缀，也不改写标题。
 
 Host 的 `workspace.create({ path })` 接纳入口沿用该规则。Workspace 管理器、选择器、分组树、选择、重命名、删除和 Session 创建仍使用 `WorkspaceId`，因此相同标签既不会合并记录，也不会把操作指向其他记录。需要区分相同标签时，侧边栏悬停详情卡会显示各自的规范路径。
 

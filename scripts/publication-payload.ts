@@ -5,7 +5,7 @@
  * @param manifest - parsed package manifest to inspect.
  * @returns whether the canonical `./remote` export pair is present.
  */
-export function hasTypeRTRemoteNavigation(manifest: unknown): boolean {
+export function hasTypertRemoteNavigation(manifest: unknown): boolean {
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) return false
   const exportsField = (manifest as Record<string, unknown>).exports
   if (exportsField === null || typeof exportsField !== 'object' || Array.isArray(exportsField)) return false

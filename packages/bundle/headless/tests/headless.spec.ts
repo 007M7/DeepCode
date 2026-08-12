@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
-import AgentDefaultModelService from '@deepseek-ai/dsh-agent-default-model'
+import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
@@ -55,7 +55,7 @@ async function bench(script: Script): Promise<{
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentDefaultModelService, { provider: 'test-provider', model: 'test-model' })
+  await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
   ctx.agents.setFactory({
     async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
       const session = ctx.sessions.create(options.sessionId, {

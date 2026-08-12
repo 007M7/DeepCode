@@ -43,7 +43,7 @@ function validateHookEvent(
       fail('hook/invoked point and handlerId must be non-empty')
     }
     const dialect: string = event.data.dialect
-    if (dialect !== 'claude' && dialect !== 'codex') {
+    if (dialect !== 'claude-code' && dialect !== 'codex') {
       fail(`hook/invoked carries unknown dialect ${JSON.stringify(dialect)}`)
     }
     return { key: hookKey(event.data), delta: 1 }

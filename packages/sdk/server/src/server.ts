@@ -2,7 +2,7 @@
  * JSON-RPC methods and notifications for out-of-process harness SDKs.
  * The surrounding context owns plugins, persistence, and configured adapters.
  *
- * @module @deepseek-ai/dsh-jsonrpc/server
+ * @module @deepseek-ai/dsh-sdk-jsonrpc-server/server
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -11,7 +11,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type SubagentService from '@deepseek-ai/dsh-subagent'
+import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type {
@@ -30,17 +30,17 @@ interface SessionRecord {
 }
 
 /** Recover the delegating parent from the service-owned scoped carrier. */
-function subagentParentOf(carrier: Scoped<SubagentService>): Agent {
+function subagentParentOf(carrier: Scoped<SubagentRuntime>): Agent {
   return carrierKeyOf(carrier) as Agent
 }
 
 /** Deployment-specific status mapping for SDK turn and subagent outcomes. */
-export interface HarnessSdkServerOptions {
+export interface HarnessSdkJsonRpcServerOptions {
   /** Report max-token termination as an accepted result instead of an infrastructure error. */
   maxTokensAsSuccess?: boolean
 }
 
-function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' | 'error' {
+function successStatus(reason: string, options: HarnessSdkJsonRpcServerOptions): 'ok' | 'error' {
   if (reason === 'completed') return 'ok'
   return reason === 'max-tokens' && options.maxTokensAsSuccess === true ? 'ok' : 'error'
 }
@@ -50,7 +50,7 @@ function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' |
  * subscribes to session, agent, and subagent lifecycle events until shutdown;
  * reinitialization is unsupported.
  */
-export class HarnessSdkServer {
+export class HarnessSdkJsonRpcServer {
   private cwd = process.cwd()
   private provider = 'deepseek-official'
   private model = 'deepseek-official'
@@ -65,7 +65,7 @@ export class HarnessSdkServer {
   constructor(
     private readonly ctx: Context,
     private readonly transport: JsonRpcTransportPeer,
-    private readonly options: HarnessSdkServerOptions = {},
+    private readonly options: HarnessSdkJsonRpcServerOptions = {},
   ) {
     const serverOptions = this.options
     this.disposers.push(ctx.on('session/event', (session, event) => {
@@ -84,7 +84,7 @@ export class HarnessSdkServer {
       }
       this.transport.notify('subagent.started', payload)
     }))
-    this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
+    this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentRuntime>, info: SubagentRunEndInfo) {
       const parent = subagentParentOf(this)
       // This protocol reports only in-process child sessions. The service
       // snapshots the provider name and local flag through child disposal;

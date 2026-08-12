@@ -4,7 +4,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, {
+import ToolRuntime, {
   defineContentToolFixture,
   type ToolDefinition,
   type ToolExecutionInput,
@@ -16,7 +16,7 @@ const testToolSignal = new AbortController().signal
 async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   return ctx
 }
 
@@ -24,7 +24,7 @@ function exec(name: string, args: unknown): ToolExecutionInput {
   return { signal: testToolSignal, callId: CallId('c1'), name, arguments: args }
 }
 
-describe('ToolRegistry.executionMode', () => {
+describe('ToolRuntime.executionMode', () => {
   it('returns parallel only for an explicit true classifier', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({

@@ -880,7 +880,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
     })
   })
 
-  it('confines explicit face projects to their selected TypeRT face', () => {
+  it('confines explicit face projects to their selected Typert face', () => {
     const root = copyFixture('typert-split-project-')
     configureDualRuntimeClient(root, true)
 

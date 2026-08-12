@@ -1,6 +1,6 @@
 /**
  * Built-artifact guard for the scope carrier shared by `dsh-subagent` and
- * `dsh-jsonrpc`. The carrier registry is module-local, so both bundles must
+ * `dsh-sdk-jsonrpc-server`. The carrier registry is module-local, so both bundles must
  * externalize `dsh-scope`; source-mode tests cannot expose an accidentally
  * inlined second registry. This test runs the real `lib/index.js` bundles in a
  * plain Node subprocess, disposes the child before settlement, and requires the
@@ -27,9 +27,9 @@ const load = (path) => import(pathToFileURL(resolve(path)).href);
 const [
   { Context },
   agentCore,
-  { default: SubagentService },
-  { default: SessionPersistenceJsonl },
-  { HarnessSdkServer },
+  { default: SubagentRuntime },
+  { default: JsonlSessionPersistence },
+  { HarnessSdkJsonRpcServer },
   { SessionId },
 ] = await Promise.all([
   load("vendor/cordis/lib/index.js"),
@@ -44,12 +44,12 @@ const storageRoot = await mkdtemp(join(tmpdir(), "jsonrpc-built-scope-"));
 const ctx = new Context();
 try {
   await ctx.plugin(agentCore, { workspaceContext: false });
-  await ctx.plugin(SubagentService);
-  await ctx.plugin(SessionPersistenceJsonl, { root: storageRoot });
+  await ctx.plugin(SubagentRuntime);
+  await ctx.plugin(JsonlSessionPersistence, { root: storageRoot });
   await new Promise((ready) => setTimeout(ready, 50));
 
   const notifications = [];
-  const server = new HarnessSdkServer(ctx, {
+  const server = new HarnessSdkJsonRpcServer(ctx, {
     request() { return Promise.reject(new Error("unexpected host request")); },
     notify(method, params) { notifications.push({ method, params }); },
   });
@@ -98,7 +98,7 @@ try {
 }
 `
 
-describe.skipIf(!existsSync(jsonrpcBundle))('dsh-jsonrpc BUILT scope carrier', () => {
+describe.skipIf(!existsSync(jsonrpcBundle))('dsh-sdk-jsonrpc-server BUILT scope carrier', () => {
   it('preserves parent-scoped completion after child disposal', async () => {
     const { stdout, stderr } = await execFileAsync(process.execPath, ['--input-type=module', '-e', builtRuntimeProbe], {
       cwd: repoRoot,

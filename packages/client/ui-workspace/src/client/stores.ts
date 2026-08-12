@@ -11,20 +11,20 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
 
 /** Session-list grouping mode: workspace sections or one flat recency list. */
-export type WorkspaceGroupBy = 'workspace' | 'flat'
+export type SessionGroupBy = 'workspace' | 'flat'
 /** Session order: user-arranged only, or user-arranged plus activity promotion. */
-export type WorkspaceOrderBy = 'manual' | 'updated'
+export type SessionOrderBy = 'manual' | 'updated'
 
 /** Workspace browser viewing state persisted across surface remounts and reloads. */
 type WorkspaceViewState = {
-  groupBy: WorkspaceGroupBy
-  orderBy: WorkspaceOrderBy
+  groupBy: SessionGroupBy
+  orderBy: SessionOrderBy
   /** Explicit zero-or-five-session state keyed by Workspace group identity. */
-  workspaceExpansion: Record<string, boolean>
+  groupExpansion: Record<string, boolean>
   /** Shared editable order per Workspace group plus the browser-local flat-list account. */
-  recentSessionOrder: Record<string, string[]>
+  sessionOrderByAccount: Record<string, string[]>
   /** Last observed update timestamps per order account for one-time promotion events. */
-  recentSessionUpdatedAt: Record<string, Record<string, number>>
+  sessionUpdatedAtByAccount: Record<string, Record<string, number>>
 }
 
 /**
@@ -32,17 +32,17 @@ type WorkspaceViewState = {
  * return type); drift fails assignability at the defineStore call.
  */
 type WorkspaceViewActions = {
-  setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
-  setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
-  setWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
-  retainWorkspaceKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
-  syncRecentSessions: (
+  setGroupBy: (draft: WorkspaceViewState, mode: SessionGroupBy) => void
+  setOrderBy: (draft: WorkspaceViewState, mode: SessionOrderBy) => void
+  setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  retainAccountKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
+  syncSessionOrderAccount: (
     draft: WorkspaceViewState,
-    workspaceKey: string,
+    accountKey: string,
     order: string[],
     updatedAt: Record<string, number>,
   ) => void
-  setRecentSessionOrder: (draft: WorkspaceViewState, workspaceKey: string, order: string[]) => void
+  setSessionOrder: (draft: WorkspaceViewState, accountKey: string, order: string[]) => void
 }
 
 /**
@@ -54,33 +54,33 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
     init: (): WorkspaceViewState => ({
       groupBy: 'workspace',
       orderBy: 'manual',
-      workspaceExpansion: {},
-      recentSessionOrder: {},
-      recentSessionUpdatedAt: {},
+      groupExpansion: {},
+      sessionOrderByAccount: {},
+      sessionUpdatedAtByAccount: {},
     }),
     persist: 'dsh.workspace.view.v4',
     actions: {
-      setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
-      setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
-      setWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.workspaceExpansion[key] = expanded },
-      retainWorkspaceKeys: (d, workspaceKeys: readonly string[]) => {
+      setGroupBy: (d, mode: SessionGroupBy) => { d.groupBy = mode },
+      setOrderBy: (d, mode: SessionOrderBy) => { d.orderBy = mode },
+      setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
+      retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
         const retained = new Set(workspaceKeys)
-        d.workspaceExpansion = Object.fromEntries(
-          Object.entries(d.workspaceExpansion).filter(([key]) => retained.has(key)),
+        d.groupExpansion = Object.fromEntries(
+          Object.entries(d.groupExpansion).filter(([key]) => retained.has(key)),
         )
-        d.recentSessionOrder = Object.fromEntries(
-          Object.entries(d.recentSessionOrder).filter(([key]) => retained.has(key)),
+        d.sessionOrderByAccount = Object.fromEntries(
+          Object.entries(d.sessionOrderByAccount).filter(([key]) => retained.has(key)),
         )
-        d.recentSessionUpdatedAt = Object.fromEntries(
-          Object.entries(d.recentSessionUpdatedAt).filter(([key]) => retained.has(key)),
+        d.sessionUpdatedAtByAccount = Object.fromEntries(
+          Object.entries(d.sessionUpdatedAtByAccount).filter(([key]) => retained.has(key)),
         )
       },
-      syncRecentSessions: (d, workspaceKey: string, order: string[], updatedAt: Record<string, number>) => {
-        d.recentSessionOrder[workspaceKey] = order
-        d.recentSessionUpdatedAt[workspaceKey] = updatedAt
+      syncSessionOrderAccount: (d, accountKey: string, order: string[], updatedAt: Record<string, number>) => {
+        d.sessionOrderByAccount[accountKey] = order
+        d.sessionUpdatedAtByAccount[accountKey] = updatedAt
       },
-      setRecentSessionOrder: (d, workspaceKey: string, order: string[]) => {
-        d.recentSessionOrder[workspaceKey] = order
+      setSessionOrder: (d, accountKey: string, order: string[]) => {
+        d.sessionOrderByAccount[accountKey] = order
       },
     },
   })

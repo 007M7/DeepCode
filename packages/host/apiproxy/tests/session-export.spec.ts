@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { unzipSync, strFromU8 } from 'fflate'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
@@ -77,7 +77,7 @@ async function buildApi(
   } = {},
 ) {
   const ctx = new Context()
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(UserQuestionService)
   const query = services.query ?? true
   const persistence = services.persistence ?? true
   if (query) {

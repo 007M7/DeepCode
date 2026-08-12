@@ -69,7 +69,7 @@ export interface SubprocessStdio {
 /**
  * A fully-specified spawn request. This seam applies no defaults: every
  * disposition, limit, and directory is explicit, so the caller's own config —
- * not a hidden subprocess-service default — decides them (the `dsh-bash`
+ * not a hidden subprocess-service default — decides them (the `dsh-shell`
  * request/spec split is the owning template).
  */
 export interface SubprocessSpawnSpec {
@@ -195,7 +195,7 @@ export interface SubprocessHandle {
 
 /**
  * Signals supported by the terminal-process primitive. Kept member-identical
- * to `PtySignal` in `@deepseek-ai/dsh-pty` without a cross-seam dependency;
+ * to `TerminalSignal` in `@deepseek-ai/dsh-terminal` without a cross-seam dependency;
  * change both together.
  */
 export type SubprocessTerminalSignal = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'

@@ -100,7 +100,7 @@ interface SessionTitleUserMessage {
 
 ```ts type-equiv
 /** Automatic generation cadence owned by a registered provider. */
-type SessionTitleAutomaticMode = 'first-message' | 'all-user-messages'
+type SessionTitleAutomaticMode = 'first-prompt' | 'all-prompts'
 ```
 
 ```ts type-equiv

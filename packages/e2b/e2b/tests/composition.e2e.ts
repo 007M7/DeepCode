@@ -11,11 +11,11 @@ import {
   Sandbox,
   SandboxNotFoundError,
 } from '@deepseek-ai/dsh-e2b'
-import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
-import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
+import TerminalSessionService, { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
+import { BashTerminalBackend } from '@deepseek-ai/dsh-terminal-bash'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
+import E2BSubprocessRuntime from '@deepseek-ai/dsh-subprocess-e2b'
 
 const fixtureRoot = fileURLToPath(new URL('../../../../examples/headless-agent/tests/fixtures/e2b/e2b/', import.meta.url))
 const binScript = join(fixtureRoot, 'bin.ts')
@@ -56,8 +56,8 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         mode: 'danger-full-access',
         workspaceRoot: '/home/user',
       })
-      const ptyFiber = await ctx.plugin(PtyService)
-      const subprocessFiber = await ctx.plugin(E2BSubprocessService)
+      const ptyFiber = await ctx.plugin(TerminalSessionService)
+      const subprocessFiber = await ctx.plugin(E2BSubprocessRuntime)
       const node = await ctx.subprocess.resolveExecutable('node')
       const relativeNodePath = posix.relative(ctx.e2b.cwd, posix.dirname(node)) || '.'
       await expect(ctx.subprocess.resolveExecutable('node', { PATH: relativeNodePath })).resolves.toBe(node)
@@ -96,14 +96,14 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         runMaintenance: task => task(new AbortController().signal),
         whenIdle: () => Promise.resolve(),
       }
-      const backend = new LocalPtyBackend(ctx, {
+      const backend = new BashTerminalBackend(ctx, {
         backendType: 'shell', shellPath: '/bin/bash', shellArgs: ['--noprofile', '--norc', '-i'],
         rows: 24, cols: 80,
         scrollbackLines: 100, scrollbackMaxBytes: 65_536, maxReadBytes: 16_384,
         pollIntervalMs: 25, exactProbeAfterMs: 150, idleSilenceMs: 1_000,
         handoffGraceMs: 500, timeoutMs: 5_000, disposeGraceMs: 1_000,
       })
-      const session = await backend.spawn({ sessionId: PtySessionId('env'), owner, type: 'shell' })
+      const session = await backend.spawn({ sessionId: TerminalSessionId('env'), owner, type: 'shell' })
       const result = await session.startSend({
         text: "printf 'NPM=<%s> DSH=<%s> KEEP=<%s>\\n' \"$NPM_TOKEN\" \"$DSH_STALE\" \"$KEEP\"",
         submit: true,

@@ -4,7 +4,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { CredentialsLocal } from '../src/index.ts'
+import { LocalCredentialProvider } from '../src/index.ts'
 
 const fsHarness = vi.hoisted(() => ({
   nextReadError: undefined as NodeJS.ErrnoException | undefined,
@@ -78,9 +78,9 @@ async function tempDir(): Promise<string> {
   return dir
 }
 
-async function boot(config: ConstructorParameters<typeof CredentialsLocal>[1]): Promise<Context> {
+async function boot(config: ConstructorParameters<typeof LocalCredentialProvider>[1]): Promise<Context> {
   const ctx = new Context()
-  const fiber = ctx.plugin(CredentialsLocal, config)
+  const fiber = ctx.plugin(LocalCredentialProvider, config)
   cleanups.push(async () => {
     await fiber.dispose()
   })
@@ -174,7 +174,7 @@ describe('watcher pipeline', () => {
     const path = join(dir, '.credentials.yaml')
     await writeCredentials(path, 'DSH_CRED_PIPE: initial\n')
     const ctx = new Context()
-    const fiber = ctx.plugin(CredentialsLocal, { path, debounceMs: 5 })
+    const fiber = ctx.plugin(LocalCredentialProvider, { path, debounceMs: 5 })
     await fiber
     let disposed = false
     let postDisposeCommits = 0

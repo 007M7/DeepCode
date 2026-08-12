@@ -12,7 +12,7 @@ Workspace 注册已有代码目录，使 GUI 能够为目录命名，并对其�
 
 ## 决策
 
-`ctx.workspace.delete(id)` 只删除 Workspace 注册记录：其 id 会从持久化的 `workspaceIds` 中移除，`workspaces` 表行与实体缓存条目会消失，有序 `sessionIds` 账本也随该行一并消失。它绝不调用文件系统移除操作或 `SessionPersistence`；目录、所有用户文件、所有实时会话和所有已持久化的会话日志都会保留。侧边栏分组是所有存续 Workspace 账本的补集，因此这些会话（包括当前会话）会立即出现在 Ungrouped 下。
+`ctx.workspaceRegistry.delete(id)` 只删除 Workspace 注册记录：其 id 会从持久化的 `workspaceIds` 中移除，`workspaces` 表行与实体缓存条目会消失，有序 `sessionIds` 账本也随该行一并消失。它绝不调用文件系统移除操作或 `SessionPersistence`；目录、所有用户文件、所有实时会话和所有已持久化的会话日志都会保留。侧边栏分组是所有存续 Workspace 账本的补集，因此这些会话（包括当前会话）会立即出现在 Ungrouped 下。
 
 未知 id 在领域约定处返回 `false`。`workspace.delete({ workspaceId })` 将该结果映射为 `workspace-not-found`；成功时返回 `{ deleted: true }`。`workspace.list` 仍是重连基线。
 

@@ -70,7 +70,7 @@
 
 生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记与声明位置。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。每条 `assistant/message` 都会记录提供方、模型和可选回放状态。
 
-`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、钩子桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
+`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compaction/*`、有界恢复的非 surface `llm/retry`、钩子桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
 此包还定义 `TurnEndReasonMap`，即用于轮次结束、可合并扩展且以 `kind` 为标签的和类型。`turn/start` 只携带轮次编号；随后已进入的 `user/message` 批次记录其输入，`llm/retry` 则记录请求恢复。
 
@@ -90,7 +90,7 @@
 
 - 持久化插件：订阅 `session/event`（延后写入），并在 `session/flush`（受等待）及 fiber dispose（资源释放）时排空。持久后端读取日志并重新加载到实时会话；这类后端会把元数据约定（`SessionHeader`、`session.header`）与日志一同存储。
 - 回放／fork：`create(id, { seed })` 校验并冻结连续的当前格式日志，再重建 surface；请求头必须包含提供方／模型，assistant 消息必须包含提供方／模型溯源信息。持久化层在构造该当前格式 seed 前负责读取兼容性处理。`fork(source, boundary?, childSessionId?)` 选择已完成轮次前缀并记录谱系。
-- 压缩：`dsh-compact-basic` 为摘要检查点追加一个替换用 `user/message`，而 `dsh-compact-tool-result-prune` 追加仅修改内容的 `tool/result` 替换。工具配对边界策略及其缓存归 [`dsh-compact` seam](../../compact/compact/README.md) 所有；此包拥有有序 surface 成员关系、替换校验与 `replaceGeneration`。
+- 压缩：`dsh-compaction-basic` 为摘要检查点追加一个替换用 `user/message`，而 `dsh-compaction-tool-result-pruner` 追加仅修改内容的 `tool/result` 替换。工具配对边界策略及其缓存归 [`dsh-compaction` seam](../../compaction/compaction/README.md) 所有；此包拥有有序 surface 成员关系、替换校验与 `replaceGeneration`。
 
 ## 模型体验
 

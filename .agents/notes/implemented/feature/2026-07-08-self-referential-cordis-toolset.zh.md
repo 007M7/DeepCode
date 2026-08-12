@@ -12,9 +12,9 @@ Status: implemented
 
 ## 决策
 
-该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/self-modification/tool-cordis/README.md) 发布，并由 `examples/web-cordis` 演示。它为模型提供三个工具，用于操作当前 DSH 进程中的活跃 Cordis 运行时：检查该运行时、挂载一个仅存于内存的临时插件，再将该插件卸载至完全停稳。
+该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/extensions/tool-cordis/README.md) 发布，并由 `examples/web-cordis` 演示。它为模型提供三个工具，用于操作当前 DSH 进程中的活跃 Cordis 运行时：检查该运行时、挂载一个仅存于内存的临时插件，再将该插件卸载至完全停稳。
 
-vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节。但二者都不限制已暴露服务的权限：临时插件可以调用 `ctx.bash` 以宿主执行器的权限运行命令，也能访问真实的文件系统和网络服务。它运行在共享 DSH 运行时中，可能影响同一进程的其他会话。这是一个需要显式启用的开发工具，信任等级与 bash 相当，不是安全边界，也不是产品默认配置。
+vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节。但二者都不限制已暴露服务的权限：临时插件可以调用 `ctx.shell` 以宿主执行器的权限运行命令，也能访问真实的文件系统和网络服务。它运行在共享 DSH 运行时中，可能影响同一进程的其他会话。这是一个需要显式启用的开发工具，信任等级与 bash 相当，不是安全边界，也不是产品默认配置。
 
 ### 三个工具
 
@@ -32,7 +32,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 沙箱全局变量刻意精简：一个带标签的直写 `console`（在宿主 stdout/stderr 上输出 `[cordis:<id>] …`，这样在挂载调用之后很久才触发的监听器输出仍能落到用户可见的地方）、`harness.defineTool`／`harness.registerTool` 注册对、新 vm 上下文缺少的编码原语（`btoa`／`atob` 作为基于 `Buffer` 的宿主闭包——这是一个明确允许的例外，`Buffer` 本身从不暴露——加上 `TextEncoder`／`TextDecoder`），以及对未暴露的 Node API 设置的可调用陷阱（`require`、`setTimeout`／`setInterval`／`setImmediate`／`clearTimeout`／`clearInterval`、`fetch`），这些陷阱会抛出一条重定向消息指明 cordis 替代方案。只有函数形态的全局变量才设陷阱；`process` 和 `Buffer` 保持 `undefined`，这样 `typeof` 特性探测仍然无害，而不会触发会抛出异常的访问器。
 
-挂载代码通过三道控制跨越 vm 边界。双 realm `instanceof` 同时识别宿主和 vm 对象。`harness.defineTool` 在宿主 realm 中重建输出 schema／投影器，将工具体返回值快照为宿主自有的 JSON，并让注册表在观测前强制执行[规范工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md)。挂载的插件接收的是一个白名单上下文门面，而非原始或透传的 `Context`；框架内部机制和以上下文为值的返回会被拒绝。服务读取需要声明 `inject`，保留 Cordis 的激活与卸载语义。`ctx.tools.get` 仅暴露 schema 视图，因此挂载代码无法绕过 `ToolRegistry.execute` 直接调用定义。
+挂载代码通过三道控制跨越 vm 边界。双 realm `instanceof` 同时识别宿主和 vm 对象。`harness.defineTool` 在宿主 realm 中重建输出 schema／投影器，将工具体返回值快照为宿主自有的 JSON，并让注册表在观测前强制执行[规范工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md)。挂载的插件接收的是一个白名单上下文门面，而非原始或透传的 `Context`；框架内部机制和以上下文为值的返回会被拒绝。服务读取需要声明 `inject`，保留 Cordis 的激活与卸载语义。`ctx.tools.get` 仅暴露 schema 视图，因此挂载代码无法绕过 `ToolRuntime.execute` 直接调用定义。
 
 边界将无歧义的 JSON Schema 形式规范化为 `ParameterSchemaSpec`，同时保留 `integer`、原始对象开放性和 required 数组。直接使用 DSL 的对象节点必须声明 `additionalProperties`；无效词汇会报错并给出可接受的替代方案。解析错误、TypeScript 错误、缺少 return、Node API 误用和重复工具名等错误信息包含相关源码行或纠正性约定，不叙述实现内部细节。
 
@@ -75,9 +75,9 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 **在工具中手工维护服务／事件参考。** inspect 工具的第一版携带了一份手写的服务方法签名表。它被生成的 `api-catalog.ts` 取代，因为手写表在签名变化的瞬间就会与 JSDoc 脱节且没有门禁约束这种漂移，而生成产物的新鲜度由文档使用的同一套 AST 检查。
 
-**新增 `cordis/mount` 会话事件。** 一个持久事件记录每次挂载的源码和名称，有明确先例（`hook/invoked`、`compact/start`）。v1 中予以否决：挂载和卸载已经作为 `tool/call`／`tool/result` 对可见，工具集变化已经作为完整的变更 request header 被记录，因此专用事件只会重复记录。如果审计用例需要在工具调用之外取得挂载的源码和名称，日后仍可添加。
+**新增 `cordis/mount` 会话事件。** 一个持久事件记录每次挂载的源码和名称，有明确先例（`hook/invoked`、`compaction/start`）。v1 中予以否决：挂载和卸载已经作为 `tool/call`／`tool/result` 对可见，工具集变化已经作为完整的变更 request header 被记录，因此专用事件只会重复记录。如果审计用例需要在工具调用之外取得挂载的源码和名称，日后仍可添加。
 
-**加固的／能力受限的沙箱。** 对 Node 内置模块设陷阱并向挂载代码提供白名单门面而非原始上下文，可能暗示意图是为安全而沙箱化。这里明确不是：陷阱和门面收窄的是挂载代码所见的 *API*——将其引导至 cordis 服务、远离易泄漏的 Node 内置模块和框架内部——目的是正确性和封堵未受保护的上下文逃逸，但门面暴露的能力（`ctx.bash`、`ctx.fs`、`ctx.web`）触及真实运行时，因此它不是安全边界。真正的安全边界（独立进程、权限提示）超出了一个开发／显式启用工具集的范围，且会与其核心目的——将活跃运行时交给模型——相冲突。
+**加固的／能力受限的沙箱。** 对 Node 内置模块设陷阱并向挂载代码提供白名单门面而非原始上下文，可能暗示意图是为安全而沙箱化。这里明确不是：陷阱和门面收窄的是挂载代码所见的 *API*——将其引导至 cordis 服务、远离易泄漏的 Node 内置模块和框架内部——目的是正确性和封堵未受保护的上下文逃逸，但门面暴露的能力（`ctx.shell`、`ctx.fs`、`ctx.web`）触及真实运行时，因此它不是安全边界。真正的安全边界（独立进程、权限提示）超出了一个开发／显式启用工具集的范围，且会与其核心目的——将活跃运行时交给模型——相冲突。
 
 ## 后果
 

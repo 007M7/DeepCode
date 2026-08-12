@@ -12,7 +12,7 @@ export interface AssistantProvenance {
   model: string
   /**
    * Lossless-JSON adapter state needed to replay the provider response.
-   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * `LlmRuntime` exposes it to a target adapter only when that adapter instance
    * currently owns both this historical provider and the target provider.
    */
   replayState?: unknown

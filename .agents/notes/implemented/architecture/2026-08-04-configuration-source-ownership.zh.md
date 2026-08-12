@@ -41,13 +41,13 @@ inherited process environment      (read-only, wins)
 
 继承环境优先，因为 `DEEPSEEK_API_KEY=… dsh`、CI 机密与容器 `-e` 是运维必须能按次施加、且无需改动机器状态的那一种覆盖；而它无法从进程内部修改，就必须*可见地*只读。配置本应只携带*引用*——解析哪个名字——该名字本身遵循上面的非机密顺序。
 
-**harness 被启动于其中的项目默认可信，且不做询问。** 一个 checkout 可以携带自己的 endpoint、自己的普通变量和自己的密钥；密钥排在受管存储之下，因此通过 Models 页存下的密钥绝不会被 checkout 中恰好带有的那一个顶掉。`EnvironmentSnapshot.getFrom(name, sources)` 仍然只搜索调用方点名的层，省略某层仍是拒绝而不是降级——该机制是为「某一层必须不可达」的那些决策准备的，而项目层今天不在其列。
+**harness 被启动于其中的项目默认可信，且不做询问。** 一个 checkout 可以携带自己的 endpoint、自己的普通变量和自己的密钥；密钥排在受管存储之下，因此通过 Models 页存下的密钥绝不会被 checkout 中恰好带有的那一个顶掉。`LaunchEnvironmentSnapshot.getFrom(name, sources)` 仍然只搜索调用方点名的层，省略某层仍是拒绝而不是降级——该机制是为「某一层必须不可达」的那些决策准备的，而项目层今天不在其列。
 
 **信任不延伸到改变 harness 本身。** `loadLayeredEnv` 会在加载时、且在物化任何内容之前，拒绝任何设置了下列变量的 `.env`：决定进程如何启动的（`PATH`、`SHELL`、`NODE_OPTIONS`、`LD_PRELOAD`）、决定运行时在执行被要求运行的程序之前先执行哪些代码的（`BASH_ENV`、`PERL5OPT`、`PYTHONSTARTUP`、`RUBYOPT`、`JAVA_TOOL_OPTIONS`、Git 的钩子命令）、决定模型可见指令从哪里加载的（整个 `DSH_*` 命名空间、`HOME`、`XDG_*`），以及决定网络如何访问以及如何建立信任的（proxy 与 CA 变量）。匹配不区分大小写，因此 `https_proxy` 不是绕过手段。
 
 这条界线在于：它们无需任何用户动作、在任何轮次开始之前、且在权限策略与沙箱之外就生效。`DSH_PERMISSION_MODE` 会关掉让「信任项目」根本成立的那道审批，而 `BASH_ENV` 会在 bash 工具每次发出 `bash -c` 时执行项目指定的文件——项目的代码在 agent（智能体）的策略下运行是约定，项目改写那份策略不是。一个变量一个变量地枚举是必输的游戏，所以整个 `DSH_*` 命名空间被拒绝而不是只拒绝一份经审查的子集，也所以这份清单是按变量*做什么*而不是按哪个运行时拥有它来组织的。不设逃生门：逃生门本身总得从某处读取，而任何被发现的文件能设置的东西，就是那个漏洞本身。
 
-**`packages/util/environment` 拥有该快照**，刻意做成 utility 而不是三包能力 seam。快照在 Cordis 启动前就冻结，并由启动器一次性注入，因此不存在需要切换的运行时实现；消费方需要的只是类型和纯函数，而 `util/` 包能提供这些且不必依赖 UI 包。`environmentOf(ctx)` 返回启动器的快照，或者返回只含继承环境的那一层——SDK 宿主或裸 `cordis.yml` 从未发现过任何文件，它那唯一一层确实就是它被启动时的环境，因此同样的受信查询在那里原样继续工作。
+**`packages/util/launch-environment` 拥有该快照**，刻意做成 utility 而不是三包能力 seam。快照在 Cordis 启动前就冻结，并由启动器一次性注入，因此不存在需要切换的运行时实现；消费方需要的只是类型和纯函数，而 `util/` 包能提供这些且不必依赖 UI 包。`launchEnvironmentOf(ctx)` 返回启动器的快照，或者返回只含继承环境的那一层——SDK 宿主或裸 `cordis.yml` 从未发现过任何文件，它那唯一一层确实就是它被启动时的环境，因此同样的受信查询在那里原样继续工作。
 
 **`verify-config-source-ownership`** 仅作为一道窄门禁，检查已交付 Cordis 配置中从环境内联 `apiKey`/`baseURL`/`headers` 的普通单行写法。删除这些内联正是「部署层」得以成立的原因——已交付配置树对 `baseURL` 保持沉默之后，「有值」就意味着「人或部署设过它」。实际解析由适配器负责；该门禁不声称覆盖仓库范围内的 `process.env` 访问。
 

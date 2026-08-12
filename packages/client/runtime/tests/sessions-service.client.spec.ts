@@ -1,5 +1,5 @@
 /**
- * SessionsService: list store projection (manager → {ids, byId, current}
+ * SessionRuntime: list store projection (manager → {ids, byId, current}
  * with derived titles), the migrated current-selection account (open
  * validation, persisted mask semantics, cell resolution), scope-tree
  * lifecycle (lazy mint / frozen survival / removed teardown with staged
@@ -9,7 +9,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import { SessionCreateError, SessionsService, scopeOf } from '../src/client/sessions/service.ts'
+import { SessionCreateError, SessionRuntime, scopeOf } from '../src/client/sessions/service.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 
 const sid = (s: string): SessionId => s as SessionId
@@ -17,13 +17,13 @@ const sid = (s: string): SessionId => s as SessionId
 interface Bench {
   ctx: Context
   api: FakeApiClient
-  svc: SessionsService
+  svc: SessionRuntime
 }
 
 function bench(): Bench {
   const ctx = new Context()
   const api = new FakeApiClient()
-  const svc = new SessionsService(ctx, api, fakeRemote())
+  const svc = new SessionRuntime(ctx, api, fakeRemote())
   return { ctx, api, svc }
 }
 

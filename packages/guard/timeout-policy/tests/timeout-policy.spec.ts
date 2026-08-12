@@ -1,5 +1,5 @@
 /**
- * Unit + real-load-path coverage for @deepseek-ai/dsh-timeout-policy. The
+ * Unit + real-load-path coverage for @deepseek-ai/dsh-tool-call-timeout-policy. The
  * timeout-wins cases drive the deadline under fake timers (deterministic — no
  * wall-clock race) and use a COOPERATIVE tool that settles only when its
  * `exec.signal` aborts, mirroring how a real capability forwards the signal and
@@ -11,9 +11,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
-import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-timeout-policy'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import * as timeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
+import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-tool-call-timeout-policy'
 
 const testToolSignal = new AbortController().signal
 
@@ -21,7 +21,7 @@ const testToolSignal = new AbortController().signal
 async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(timeoutPolicy)
   return ctx
 }
@@ -203,7 +203,7 @@ describe('timeout-policy disposal (HMR safety)', () => {
   it('removes its tools/execute listener when the plugin fiber disposes', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     let seenSignal: AbortSignal | undefined
     ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] } }))
@@ -217,7 +217,7 @@ describe('timeout-policy disposal (HMR safety)', () => {
   })
 })
 
-describe('dsh-timeout-policy real-load-path guard', () => {
+describe('dsh-tool-call-timeout-policy real-load-path guard', () => {
   it('has no default export and keeps name/inject through unwrapExports', () => {
     expect('default' in timeoutPolicy).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader
@@ -231,7 +231,7 @@ describe('dsh-timeout-policy real-load-path guard', () => {
   it('boots over ctx.tools through the unwrapped module and wraps a budgeted tool', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     ctx.tools.register(defineContentToolFixture({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 5_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] } }))
     const loader = Object.create(Loader.prototype) as Loader

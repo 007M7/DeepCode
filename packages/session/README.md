@@ -35,12 +35,12 @@ Derives durable session titles from the session log, with an optional model-back
 |---|---|---|
 | [`session-title/`](session-title/README.md) | Owns title state, fallback behavior, provider registration, and refresh | `ctx.sessionTitle` |
 | [`session-title-llm/`](session-title-llm/README.md) | Provides shared model-backed title generation | — |
-| [`session-title-first-message-llm/`](session-title-first-message-llm/README.md) | Titles a session from its first eligible human message | registers on `ctx.sessionTitle` |
-| [`session-title-all-messages-llm/`](session-title-all-messages-llm/README.md) | Titles a session from all eligible human messages | registers on `ctx.sessionTitle` |
+| [`session-title-first-prompt-llm/`](session-title-first-prompt-llm/README.md) | Titles a session from its first eligible human message | registers on `ctx.sessionTitle` |
+| [`session-title-all-prompts-llm/`](session-title-all-prompts-llm/README.md) | Titles a session from all eligible human messages | registers on `ctx.sessionTitle` |
 
 Deployments may register one model-backed provider; the service retains a deterministic fallback when none is present.
 
-## Telemetry
+## SessionTelemetryBackend
 
 Projects session activity into outbound telemetry and delegates delivery to a configured reporting backend. The [telemetry decision](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md) records the reporting boundary; the [mode decision](../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md) records immediate, feedback-gated, and disabled delivery.
 
@@ -49,4 +49,4 @@ Projects session activity into outbound telemetry and delegates delivery to a co
 | [`session-telemetry/`](session-telemetry/README.md) | Defines capture, redaction, projection, and live or on-demand backend delivery. |
 | [`session-telemetry-otel/`](session-telemetry-otel/README.md) | Delivers telemetry through OpenTelemetry logs in `FULL`, `FEEDBACK_ONLY`, or `DISABLED` mode. |
 
-The subsystem references: [persistence.md](../../docs/subsystems/persistence.md), [session-projection.md](../../docs/subsystems/session-projection.md), [session-title.md](../../docs/subsystems/session-title.md), and [telemetry.md](../../docs/subsystems/telemetry.md). Only one title provider may register at a time; the demo spine mounts the fallback service and leaves both model providers out of default composition.
+The subsystem references: [persistence.md](../../docs/subsystems/persistence.md), [session-projection.md](../../docs/subsystems/session-projection.md), [session-title.md](../../docs/subsystems/session-title.md), and [session-telemetry.md](../../docs/subsystems/session-telemetry.md). Only one title provider may register at a time; the demo spine mounts the fallback service and leaves both model providers out of default composition.

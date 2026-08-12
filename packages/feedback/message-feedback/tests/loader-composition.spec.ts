@@ -7,11 +7,11 @@ import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
-import { remoteMethods } from '@deepseek-ai/dsh-type-meta'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import MessageFeedbackService from '../src/index.ts'
 import { appendMessageFixture } from './helpers.ts'
 
@@ -31,7 +31,7 @@ async function loadComposition(configPath: string): Promise<Context> {
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-session', SessionStore],
-    ['@deepseek-ai/dsh-session-persistence-jsonl', SessionPersistenceJsonl],
+    ['@deepseek-ai/dsh-session-persistence-jsonl', JsonlSessionPersistence],
     ['@deepseek-ai/dsh-storage', Storage],
     ['@deepseek-ai/dsh-storage-json', StorageJson],
     ['@deepseek-ai/dsh-storage-domain', StorageDomain],
@@ -81,7 +81,7 @@ describe('message feedback through a real Loader composition', () => {
     ].join('\n'))
 
     const first = await loadComposition(configPath)
-    expect(first.messageFeedback.typertGateway.namespace).toBe('messageFeedback')
+    expect(first.messageFeedback.typertRemote.namespace).toBe('messageFeedback')
     expect(remoteMethods(first.messageFeedback).map(marker => marker.method))
       .toEqual(['list', 'put', 'delete'])
 

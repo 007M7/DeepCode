@@ -37,7 +37,7 @@ Status: implemented
 |---|---|---|
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`，领域服务 | 拥有 `GoalId`、比较并交换 `GoalRef`、`GoalSnapshot`、四状态 `GoalPhase`、结构化 `GoalBlockReason`、进程本地 `GoalActivation`、重放折叠，以及 `get`、`create`、`edit`、`pause`、`resume`、`complete`、`block`、`clear` 与 `disarm` 动词。 |
 | `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；要求实时根 agent 轮次中有一条人类直接发送的消息，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
-| `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`，续行策略 | 在不导入具体 loop 的情况下，预留、设围栏、接纳、归属、结算、取消并排空同会话 Goal Round，直至完全停稳。 |
+| `@deepseek-ai/dsh-goal-round-driver` | `packages/goal/goal-round-driver/`，续行策略 | 在不导入具体 loop 的情况下，预留、设围栏、接纳、归属、结算、取消并排空同会话 Goal Round，直至完全停稳。 |
 | `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`，UI 注册表 | 拥有面向人类专用命令的 `CommandDefinition`、发现、作用域注册、直接分发、`CommandResult` 与请求取消。 |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`，固定工作流消费方 | 注册 `ralph({ objective, maxRounds? })`，验证全新结构化提供方与有界 `RalphRoundReport`，并返回 `complete`、`blocked` 或 `budget-limited`。 |
@@ -74,7 +74,7 @@ TUI 默认挂载共享命令注册表和完整目标栈，并通过一个生产�
 
 ### 全新 agent Ralph 执行
 
-Ralph 是位于自有插件中的一等模型工具，展示了复杂固定执行策略可以在没有新 loop 核心的情况下组合完成。该插件拥有构建在 `ctx.workflows` 与 `ctx.subagents` 之上的固定工作流脚本；它不会创建会话目标状态，也不会为 `dsh-agent-loop` 增加分支。
+Ralph 是位于自有插件中的一等模型工具，展示了复杂固定执行策略可以在没有新 loop 核心的情况下组合完成。该插件拥有构建在 `ctx.workflowEngine` 与 `ctx.subagents` 之上的固定工作流脚本；它不会创建会话目标状态，也不会为 `dsh-agent-loop` 增加分支。
 
 每个 Round 都使用显式 `WorkflowStartRequest.subagentProvider`，默认为 `spawn`。该提供方必须存在、支持结构化输出，并声明不继承父上下文。Ralph 还会把解析后的 Round 上限作为 `WorkflowStartRequest.maxTotalAgents` 传递；工作线程引擎会在发布工作前验证两项每次运行策略，因此提供方配置错误或低于所请求 Ralph 规模的引擎上限会在运行创建前失败。子 agent 继承 cwd 与谱系，但只接收不可变目标、当前 Round/上限、以工作区为权威的指令和上一份规范化报告。
 

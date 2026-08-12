@@ -3,26 +3,26 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmService, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
-import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
+import { WorkerThreadCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker-thread'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
-import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
-import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import * as WorkspaceContext from '@deepseek-ai/dsh-agent-instructions'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 /**
@@ -50,34 +50,34 @@ afterEach(async () => {
 
 async function codeModeHarness(cwd: string): Promise<Context> {
   const harness = new Context()
-  await harness.plugin(LlmService)
+  await harness.plugin(LlmRuntime)
   await harness.plugin(SessionStore)
   await harness.plugin(SystemPrompt, { persona: PERSONA })
-  await harness.plugin(ToolRegistry, { mode: 'code' })
+  await harness.plugin(ToolRuntime, { mode: 'code' })
   await harness.plugin(AgentRegistry)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
-  await harness.plugin(LocalSubprocessService)
+  await harness.plugin(LocalSubprocessRuntime)
   await harness.plugin(BashEnvPlugin)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
-  await harness.plugin(WorkerCodeRuntime, {})
+  await harness.plugin(WorkerThreadCodeRuntime, {})
   return harness
 }
 
 async function workspaceCodeModeHarness(): Promise<Context> {
   const harness = new Context()
-  await harness.plugin(LlmService)
+  await harness.plugin(LlmRuntime)
   await harness.plugin(SessionStore)
   await harness.plugin(SystemPrompt, { persona: PERSONA })
-  await harness.plugin(ToolRegistry, { mode: 'code' })
+  await harness.plugin(ToolRuntime, { mode: 'code' })
   await harness.plugin(AgentRegistry)
   await harness.plugin(LocalFileSystem, { cwd: '/' })
   await harness.plugin(ToolFs)
   await harness.plugin(WorkspaceContext, { maxBytes: 65536 })
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
-  await harness.plugin(WorkerCodeRuntime, {})
+  await harness.plugin(WorkerThreadCodeRuntime, {})
   return harness
 }
 
@@ -108,17 +108,17 @@ function completion(result: ToolExecutionResult): unknown {
 async function typedCodeModeHarness(): Promise<Context> {
   const harness = new Context()
   await harness.plugin(SystemPrompt)
-  await harness.plugin(ToolRegistry, { mode: 'code' })
-  await harness.plugin(WorkerCodeRuntime, {})
+  await harness.plugin(ToolRuntime, { mode: 'code' })
+  await harness.plugin(WorkerThreadCodeRuntime, {})
   return harness
 }
 
 /** Keyless real-worker harness with the task-owned bash lifecycle. */
 async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   const harness = await typedCodeModeHarness()
-  await harness.plugin(LocalTaskService)
+  await harness.plugin(LocalJobRegistry)
   await harness.plugin(ToolTasks, {})
-  await harness.plugin(LocalSubprocessService)
+  await harness.plugin(LocalSubprocessRuntime)
   await harness.plugin(BashEnvPlugin)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
@@ -179,30 +179,30 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
     })
   })
 
-  it('returns a background task id, settles the outer run, and polls that id to completion', async () => {
+  it('returns a background job id, settles the outer run, and polls that id to completion', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-background-'))
     ctx = await backgroundCodeModeHarness(workdir)
 
-    const taskId = completion(await runCode(ctx, `
+    const jobId = completion(await runCode(ctx, `
       const started = await tools.bash({
         command: "sleep 0.2; printf 'background-complete\\n'",
         description: 'Run completion marker in background',
         run_in_background: true,
       });
-      return started.taskId;
+      return started.jobId;
     `))
-    expect(taskId).toBe('bash-1')
+    expect(jobId).toBe('bash-1')
 
     const polled = completion(await runCode(ctx, `
-      return await tools.task_output({ task_id: ${JSON.stringify(taskId)}, wait: true, timeout_ms: 5000 });
+      return await tools.job_output({ job_id: ${JSON.stringify(jobId)}, wait: true, timeout_ms: 5000 });
     `))
-    if (typeof polled !== 'object' || polled === null || Array.isArray(polled)) throw new Error('invalid task_output completion')
+    if (typeof polled !== 'object' || polled === null || Array.isArray(polled)) throw new Error('invalid job_output completion')
     const taskOutput = polled as Record<string, unknown>
     expect(taskOutput.text).toContain('background-complete')
-    expect(taskOutput.task).toMatchObject({ id: taskId, kind: 'bash', status: 'completed' })
+    expect(taskOutput.job).toMatchObject({ id: jobId, kind: 'bash', status: 'completed' })
   }, 15_000)
 
-  it('pre-abort spawns nothing; post-publication abort leaves task_kill as the cancellation owner', async () => {
+  it('pre-abort spawns nothing; post-publication abort leaves job_kill as the cancellation owner', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-task-cancel-'))
     ctx = await backgroundCodeModeHarness(workdir)
 
@@ -212,31 +212,31 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
       return await tools.bash({ command: 'sleep 10', description: 'Must never start', run_in_background: true });
     `, pre.signal)
     expect(preResult.isError).toBe(true)
-    expect(ctx.tasks.list()).toEqual([])
+    expect(ctx.jobs.list()).toEqual([])
 
     const afterPublication = new AbortController()
     const running = runCode(ctx, `
       const started = await tools.bash({ command: 'sleep 10', description: 'Wait for explicit task kill', run_in_background: true });
-      console.log(started.taskId);
+      console.log(started.jobId);
       await new Promise(() => {});
     `, afterPublication.signal)
-    for (let attempt = 0; attempt < 100 && ctx.tasks.list().length === 0; attempt++) {
+    for (let attempt = 0; attempt < 100 && ctx.jobs.list().length === 0; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
-    const task = ctx.tasks.list()[0]
-    expect(task).toMatchObject({ id: 'bash-1', status: 'running' })
+    const job = ctx.jobs.list()[0]
+    expect(job).toMatchObject({ id: 'bash-1', status: 'running' })
     afterPublication.abort('outer-call-cancelled')
     expect((await running).isError).toBe(true)
-    expect(ctx.tasks.list()[0]).toMatchObject({ id: task!.id, status: 'running' })
+    expect(ctx.jobs.list()[0]).toMatchObject({ id: job!.id, status: 'running' })
 
     const killed = completion(await runCode(ctx, `
-      return await tools.task_kill({ task_id: ${JSON.stringify(task!.id)}, reason: 'test owns cancellation' });
+      return await tools.job_kill({ job_id: ${JSON.stringify(job!.id)}, reason: 'test owns cancellation' });
     `))
-    expect(killed).toMatchObject({ outcome: 'cancellation-requested', task: { id: task!.id } })
+    expect(killed).toMatchObject({ outcome: 'cancellation-requested', job: { id: job!.id } })
     const settled = completion(await runCode(ctx, `
-      return await tools.task_output({ task_id: ${JSON.stringify(task!.id)}, wait: true, timeout_ms: 5000 });
+      return await tools.job_output({ job_id: ${JSON.stringify(job!.id)}, wait: true, timeout_ms: 5000 });
     `))
-    expect(settled).toMatchObject({ task: { id: task!.id, status: 'killed' } })
+    expect(settled).toMatchObject({ job: { id: job!.id, status: 'killed' } })
   }, 15_000)
 
   it('keeps foreground bash coupled to the outer signal', async () => {
@@ -251,7 +251,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
     const result = await pending
     expect(result.isError).toBe(true)
     expect(Date.now() - startedAt).toBeLessThan(5_000)
-    expect(ctx.tasks.list()).toEqual([])
+    expect(ctx.jobs.list()).toEqual([])
   }, 15_000)
 
   it('uses cordis_mount DTO ids directly for running and pending temporary Plugins, then confirms removal', async () => {
@@ -382,9 +382,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     const outerResult = events.find(event => event.type === 'tool/result')
     const workspaceContext = await vi.waitFor(() => {
       const splice = handle.agent.session.events.findLast(event => event.type === 'agent/inbox/spliced'
-        && event.data.inserted.some(message => message.source.kind === 'workspace-instructions'))
+        && event.data.inserted.some(message => message.source.kind === 'agent-instructions'))
       const inserted = splice?.type === 'agent/inbox/spliced'
-        ? splice.data.inserted.find(message => message.source.kind === 'workspace-instructions')
+        ? splice.data.inserted.find(message => message.source.kind === 'agent-instructions')
         : undefined
       expect(inserted).toBeDefined()
       return inserted!

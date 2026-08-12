@@ -15,29 +15,29 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
+| `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
-| `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userInteraction (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
-| `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt`, `ctx.bashEnv`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
-| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt`, `ctx.bashEnv`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.tasks` runtime and are collected/stopped through the `task_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-bash-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
+| `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
+| `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
+| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `process-local temporary Plugin lifecycle` | - | Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes. |
-| `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.pty`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
+| `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after view presence/absence, edit absence, or successful mutation`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API. |
-| `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (read_image registration)`, `ctx.llm + an image-capable route (read_image execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
-| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
-| `@deepseek-ai/dsh-tool-pty` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
+| `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (read_image registration)`, `ctx.llm + an image-capable route (read_image execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
+| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-terminal` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.terminals`, `ctx.systemPrompt`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `goal/change for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
-| `@deepseek-ai/dsh-tool-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
-| `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
-| `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflows`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
+| `@deepseek-ai/dsh-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
+| `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
+| `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance's description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
-| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.tasks.start()`. |
+| `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
-| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
 ## `@deepseek-ai/dsh-tool-ask-user`
@@ -165,13 +165,13 @@ Use only in plan mode. Present your plan for the user's review and, on approval,
 
 Source: [`packages/plan/plan-mode/src/index.ts`](../packages/plan/plan-mode/src/index.ts)
 
-exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.
+exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.
 
 ## `@deepseek-ai/dsh-tool-bash`
 
 ### `bash`
 
-Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`.
 
 ```json
 {
@@ -195,7 +195,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies."
+      "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
   "required": [
@@ -205,15 +205,15 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/src/index.ts)
 
-The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.
+The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.
 
 ## `@deepseek-ai/dsh-tool-pwsh`
 
 ### `pwsh`
 
-Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\...`); read environment variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.
+Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\...`); read environment variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`.
 
 ```json
 {
@@ -237,7 +237,7 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies."
+      "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
   "required": [
@@ -247,9 +247,9 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
 }
 ```
 
-Source: [`packages/bash/tool-pwsh/src/index.ts`](../packages/bash/tool-pwsh/src/index.ts)
+Source: [`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
-The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.tasks` runtime and are collected/stopped through the `task_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-bash-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
+The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -281,11 +281,11 @@ Inspect the live Cordis runtime in the current DSH process. Read-only. Sections:
 }
 ```
 
-Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
+Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
 ### `cordis_mount`
 
-Mount a temporary Cordis Plugin in the current DSH process. This creates an in-memory runtime Plugin, not an installed or configured Plugin. It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. To keep it, ask the Agent to implement an SDK Plugin or installable profile bundle through the regular development workflow. It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. `code` runs now as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return the lossless JSON value declared by `output.schema`; `output.render(args, value)` separately returns Native/model content blocks. Temporary Plugins can COMPOSE: one Plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically by cordis_unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned when unmounted) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` SHORT-CIRCUITS the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
+Mount a temporary Cordis Plugin in the current DSH process. This creates an in-memory runtime Plugin, not an installed or configured Plugin. It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. To keep it, ask the Agent to implement an Harness Plugin or installable profile bundle through the regular development workflow. It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. `code` runs now as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.shell) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return the lossless JSON value declared by `output.schema`; `output.render(args, value)` separately returns Native/model content blocks. Temporary Plugins can COMPOSE: one Plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically by cordis_unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.shell for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned when unmounted) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` SHORT-CIRCUITS the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.shell) reach the real runtime.
 
 ```json
 {
@@ -302,7 +302,7 @@ Mount a temporary Cordis Plugin in the current DSH process. This creates an in-m
 }
 ```
 
-Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
+Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
 ### `cordis_unmount`
 
@@ -323,7 +323,7 @@ Unmount a current-process temporary Plugin created by cordis_mount. Waits for it
 }
 ```
 
-Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
+Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
 Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.
 
@@ -348,7 +348,7 @@ Run commands in a persistent bash shell. State, including the current directory 
 }
 ```
 
-Source: [`packages/pty/tool-bash-persistent/src/index.ts`](../packages/pty/tool-bash-persistent/src/index.ts)
+Source: [`packages/shell/tool-bash-persistent/src/index.ts`](../packages/shell/tool-bash-persistent/src/index.ts)
 
 One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description.
 
@@ -533,7 +533,7 @@ Create or fully replace a UTF-8 text file.
 
 Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
-The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.
+The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.
 
 ## `@deepseek-ai/dsh-tool-fs-search`
 
@@ -591,9 +591,9 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
-glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
 
-## `@deepseek-ai/dsh-tool-pty`
+## `@deepseek-ai/dsh-tool-terminal`
 
 ### `terminal_close`
 
@@ -614,7 +614,7 @@ Close one persistent terminal and wait until its captured owned process tree is 
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_list`
 
@@ -627,7 +627,7 @@ List persistent terminal sessions owned by the current agent.
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_open`
 
@@ -656,7 +656,7 @@ Create a persistent, owner-isolated terminal session from a registered backend t
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_read`
 
@@ -685,11 +685,11 @@ Read a bounded page of retained output from a persistent terminal without sendin
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_send`
 
-Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a job id for job_output/job_kill.
 
 ```json
 {
@@ -709,7 +709,7 @@ Send text to a persistent terminal. By default Enter is submitted and the call w
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Return a task id immediately; collect with task_output or stop with task_kill."
+      "description": "Return a job id immediately; collect with job_output or stop with job_kill."
     }
   },
   "required": [
@@ -719,7 +719,7 @@ Send text to a persistent terminal. By default Enter is submitted and the call w
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
 ### `terminal_signal`
 
@@ -752,9 +752,9 @@ Send an allowed signal to the current foreground process group of a persistent t
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/tool-terminal/src/index.ts)
 
-The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
+The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -848,7 +848,7 @@ Source: [`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/
 
 create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.
 
-## `@deepseek-ai/dsh-tool-schedule`
+## `@deepseek-ai/dsh-schedule`
 
 ### `schedule_create`
 
@@ -905,7 +905,7 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
 }
 ```
 
-Source: [`packages/schedule/tool-schedule/src/tools.ts`](../packages/schedule/tool-schedule/src/tools.ts)
+Source: [`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
 
 ### `schedule_delete`
 
@@ -926,7 +926,7 @@ Delete one active reminder in the current session by the exact id returned by sc
 }
 ```
 
-Source: [`packages/schedule/tool-schedule/src/tools.ts`](../packages/schedule/tool-schedule/src/tools.ts)
+Source: [`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
 
 ### `schedule_list`
 
@@ -939,7 +939,7 @@ List every active reminder in the current session in creation order, including i
 }
 ```
 
-Source: [`packages/schedule/tool-schedule/src/tools.ts`](../packages/schedule/tool-schedule/src/tools.ts)
+Source: [`packages/schedule/schedule/src/tools.ts`](../packages/schedule/schedule/src/tools.ts)
 
 Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier.
 
@@ -987,7 +987,7 @@ Query a language server for precise code navigation. operation is one of goToDef
 
 Source: [`packages/lsp/tool-lsp/src/index.ts`](../packages/lsp/tool-lsp/src/index.ts)
 
-The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.
+The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
@@ -1278,7 +1278,7 @@ The five read-only tools hide provider cursors and authorize every result from t
 
 ### `subagent`
 
-Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the result by default. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.
+Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.
 
 ```json
 {
@@ -1294,7 +1294,7 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     },
     "run_in_background": {
       "type": "boolean",
-      "description": "Whether to run as a background task and return its id. Defaults to false; collect with task_output or stop with task_kill."
+      "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
     }
   },
   "required": [
@@ -1406,36 +1406,36 @@ Source: [`packages/subagent/tool-subagent-report/src/index.ts`](../packages/suba
 
 Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently.
 
-## `@deepseek-ai/dsh-tool-tasks`
+## `@deepseek-ai/dsh-tool-jobs`
 
-### `task_kill`
+### `job_kill`
 
-Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops.
+Request cancellation of a running background job by job id. Returns immediately; the job settles as killed once its work actually stops.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "task_id": {
+    "job_id": {
       "type": "string",
-      "description": "Task id returned by the tool that started the background work."
+      "description": "Job id returned by the tool that started the background work."
     },
     "reason": {
       "type": "string",
-      "description": "Optional short reason, recorded in the log and forwarded to the task."
+      "description": "Optional short reason, recorded in the log and forwarded to the job."
     }
   },
   "required": [
-    "task_id"
+    "job_id"
   ]
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
-### `task_list`
+### `job_list`
 
-List your background tasks (running and finished) with their ids, kinds, and statuses.
+List your background jobs (running and finished) with their ids, kinds, and statuses.
 
 ```json
 {
@@ -1444,23 +1444,23 @@ List your background tasks (running and finished) with their ids, kinds, and sta
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
-### `task_output`
+### `job_output`
 
-Read a background task. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.
+Read a background job. Stream jobs return only output since the previous read; final-output jobs return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "task_id": {
+    "job_id": {
       "type": "string",
-      "description": "Task id returned by the tool that started the background work."
+      "description": "Job id returned by the tool that started the background work."
     },
     "wait": {
       "type": "boolean",
-      "description": "Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive."
+      "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
     },
     "timeout_ms": {
       "type": "number",
@@ -1468,14 +1468,14 @@ Read a background task. Stream tasks return only output since the previous read;
     }
   },
   "required": [
-    "task_id"
+    "job_id"
   ]
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
-The kind-agnostic background-task controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.tasks.start()`.
+The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`.
 
 ## `@deepseek-ai/dsh-tool-todo`
 

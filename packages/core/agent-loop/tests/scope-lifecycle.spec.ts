@@ -1,10 +1,10 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context, symbols, type EffectMeta, type Fiber } from '@deepseek-ai/cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -15,10 +15,10 @@ import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harnessWithLoop(adapter: MockAdapter = new MockAdapter([textResponse('ok')])): Promise<{ ctx: Context; loopFiber: Fiber }> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: 'You are the deployment.' })
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -1052,7 +1052,7 @@ describe('agent scope lifecycle', () => {
   })
 
   it('drains a run re-entered by cancel\'s own idle transition before removing the scope', async () => {
-    // Automation shaped like goal-session: the running→idle transition that
+    // Automation shaped like goal-round-driver: the running→idle transition that
     // disposal's cancel produces immediately queues a follow-up prompt. The
     // teardown must drain that replacement run to true quiescence instead of
     // awaiting only the first captured done and unwinding under a live run.

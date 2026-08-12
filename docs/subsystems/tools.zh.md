@@ -52,7 +52,7 @@ interface ToolDefinition extends ToolSchema {
   finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
-   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * Enforced by `@deepseek-ai/dsh-tool-call-timeout-policy` (a `tools/execute` wrapper); it
    * is NEVER sent to the model — `schemas()` whitelists only name/description/
    * parameters. Declaring it asserts this tool forwards `exec.signal` to a
    * cooperative implementation that can reach quiescence when the signal aborts.
@@ -178,7 +178,7 @@ type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 
 ```ts type-equiv
 /**
- * Caller-supplied description of one tool call. {@link ToolRegistry.execute}
+ * Caller-supplied description of one tool call. {@link ToolRuntime.execute}
  * adds the registry-owned token to form a pipeline {@link ToolExecution};
  * callers do not choose that token.
  */
@@ -201,7 +201,7 @@ interface ToolExecutionInput {
    * The token also marks the call as a transport sub-dispatch rather than a
    * model-direct call: under `mode: 'code'`, only calls WITH a parent may
    * execute a native tool name — a model-direct call (no parent) is denied as
-   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRegistry.execute}.
+   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRuntime.execute}.
    */
   readonly parent?: ToolExecutionToken
   /** Required caller-owned cancellation for this invocation. */
@@ -465,7 +465,7 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 `ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）用于为通用卡片选择图标。`FileLocation`（`{ path, line? }`）、`FileDiff`（`{ path, oldText, newText }`）与 `ReadFileLine`（`{ number, text }`，读取窗口中一行带 1-based 行号的内容）是共享的文件卡片词汇。该设计由[渲染意图联合类型 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)固定；host/client 运行时将这套中性词汇投影为各自的视图。
 
-完整的展示字段文档见 [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)。`bash` schema 与执行器见 [bash.md](bash.md)；通用后台控制见 [tasks.md](tasks.md)。
+完整的展示字段文档见 [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)。`bash` schema 与执行器见 [shell.md](shell.md)；通用后台控制见 [jobs.md](jobs.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -475,9 +475,9 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtools--toolregistry"></a>
+<a id="ctxtools--toolruntime"></a>
 
-### `ctx.tools` — `ToolRegistry`
+### `ctx.tools` — `ToolRuntime`
 
 Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
 
@@ -618,7 +618,7 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
  * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
  * @mode waterfall
  */
-'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
+'tools/code-dispatch-log'(this: Scoped<ToolRuntime>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
 ```
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
@@ -642,7 +642,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
  * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
  * @mode waterfall
  */
-'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/execute'(this: Scoped<ToolRuntime>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
 Types: [Scoped](scope.md)
@@ -667,7 +667,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
  * @param result - the dispatch outcome a listener may accept, replace, or block.
  * @mode waterfall
  */
-'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+'tools/post-execute'(this: Scoped<ToolRuntime>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
 Types: [Scoped](scope.md)
@@ -690,7 +690,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
  * @param exec - the pending call (name, parsed arguments, caller agent).
  * @mode waterfall
  */
-'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+'tools/pre-execute'(this: Scoped<ToolRuntime>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
 ```
 
 Types: [Scoped](scope.md)
@@ -711,7 +711,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
  * @param result - a deep-frozen snapshot of the final returned result.
  * @mode emit
  */
-'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
+'tools/result'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
 ```
 
 Types: [Scoped](scope.md)

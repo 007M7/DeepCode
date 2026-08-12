@@ -7,7 +7,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmService, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -32,7 +32,7 @@ const IMAGE_REF: ImageAttachmentRef = {
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
   vi.stubEnv('PI_TEST_KEY', 'test-key')
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, {
     providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL, ...overrides } },
   })
@@ -144,7 +144,7 @@ describe('PiAiAdapter provider routing', () => {
   it('preserves omitted profile options when constructing the adapter directly', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     ctx.llm.registerAdapter(['deepseek'], adapterOf({
       deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
     }))
@@ -189,7 +189,7 @@ describe('PiAiAdapter provider routing', () => {
   it('uses the catalog API implementation, including OpenAI Responses', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
@@ -234,7 +234,7 @@ describe('PiAiAdapter provider routing', () => {
     }
 
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
@@ -265,7 +265,7 @@ describe('PiAiAdapter provider routing', () => {
       { status: 500, body: JSON.stringify({ error: { message: 'second hidden SDK retry' } }) },
     ])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
@@ -279,7 +279,7 @@ describe('PiAiAdapter provider routing', () => {
   it('uses OpenAI Responses against an Azure project v1 path with its API key header', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         openai: {
@@ -367,7 +367,7 @@ describe('provider profile lifecycle', () => {
 
   it('registers every profile atomically and unregisters on dispose', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     const fiber = await ctx.plugin(LlmPiAi, {
       providers: {
         openai: {
@@ -399,7 +399,7 @@ describe('provider profile lifecycle', () => {
 
   it('exposes the installed pi-ai model catalog through provider-neutral metadata', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, { providers: { openai: {} } })
     const models = await ctx.llm.listModels('openai')
     expect(models.find(model => model.id === 'gpt-4.1')).toEqual({
@@ -413,7 +413,7 @@ describe('provider profile lifecycle', () => {
 
   it('exposes pi-ai model thinking levels verbatim without inventing a provider default', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: { deepseek: {}, openai: {} },
     })
@@ -446,7 +446,7 @@ describe('provider profile lifecycle', () => {
 
   it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
     const supported = new Context()
-    await supported.plugin(LlmService)
+    await supported.plugin(LlmRuntime)
     await supported.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'max' } },
     })
@@ -459,7 +459,7 @@ describe('provider profile lifecycle', () => {
     // field would hide every model on the route, including the ones that do
     // support the level. The request path below is where it is refused.
     const unsupported = new Context()
-    await unsupported.plugin(LlmService)
+    await unsupported.plugin(LlmRuntime)
     await unsupported.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'medium' } },
     })
@@ -473,7 +473,7 @@ describe('provider profile lifecycle', () => {
     })
 
     const disabled = new Context()
-    await disabled.plugin(LlmService)
+    await disabled.plugin(LlmRuntime)
     await disabled.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'off' } },
     })
@@ -483,7 +483,7 @@ describe('provider profile lifecycle', () => {
 
   it('serves declared reasoning efforts to selectors and honours the profile default', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         'acme-gateway': {
@@ -519,7 +519,7 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         'acme-gateway': {
@@ -562,7 +562,7 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         'acme-gateway': {
@@ -600,7 +600,7 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         'acme-gateway': {
@@ -633,7 +633,7 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
         'acme-gateway': {
@@ -717,7 +717,7 @@ describe('provider profile lifecycle', () => {
       const legacy = { [field]: 2 }
       expect(() => resolveProfiles({ openai: legacy })).toThrow(/removed.*agent recovery/i)
       const ctx = new Context()
-      await ctx.plugin(LlmService)
+      await ctx.plugin(LlmRuntime)
       await expect(ctx.plugin(LlmPiAi, { providers: { openai: legacy } }))
         .rejects.toThrow(/removed.*agent recovery/i)
     },
@@ -733,7 +733,7 @@ describe('provider profile lifecycle', () => {
     ]
     for (const entry of invalid) {
       const ctx = new Context()
-      await ctx.plugin(LlmService)
+      await ctx.plugin(LlmRuntime)
       await expect(ctx.plugin(LlmPiAi, { providers: { openai: { ...entry } } }))
         .rejects.toThrow()
     }
@@ -745,7 +745,7 @@ describe('provider profile lifecycle', () => {
     })).toThrow(/retryPolicy\.backoff\.jitterRatio/)
 
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await expect(ctx.plugin(LlmPiAi, {
       providers: { openai: { retryPolicy: { mode: 'normal', maxRetries: -1 } } },
     })).rejects.toThrow(/retryPolicy/)

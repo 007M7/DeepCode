@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as sdk from '../src/index.ts'
 import {
@@ -36,7 +36,7 @@ function request(text = 'p', signal = new AbortController().signal) {
 /** Mount the SDK backend pointed at the fake runtime, scripted by `fakeEnv`. */
 async function setup(fakeEnv: Record<string, string> = {}, config: Partial<sdk.Config> = {}) {
   const ctx = new Context()
-  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentRuntime)
   // The Config type models the post-validation shape, so the default registry
   // name is stated here; the Loader-composition fixture omits providerName and
   // exercises the schemastery default end to end.
@@ -361,7 +361,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
 
   it('registers under the configured provider name and unregisters on fiber dispose (HMR safety)', async () => {
     const ctx = new Context()
-    await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentRuntime)
     const fiber = await ctx.plugin(sdk, {
       providerName: 'sdk-hmr',
       command: process.execPath,
@@ -385,7 +385,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
 
   it('rejects non-positive timing bounds at load', async () => {
     const ctx = new Context()
-    await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentRuntime)
     const base = { providerName: 'sdk', command: 'true', args: [], provider: 'p', model: 'm', env: {} }
     await expect(ctx.plugin(sdk, { ...base, shutdownTimeoutMs: 0 })).rejects.toThrow('shutdownTimeoutMs must be a positive finite number')
     await expect(ctx.plugin(sdk, { ...base, disposeEofGraceMs: -1 })).rejects.toThrow('disposeEofGraceMs must be a positive finite number')
@@ -397,7 +397,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     'rejects invalid maxTokens %s at load',
     async (maxTokens) => {
       const ctx = new Context()
-      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentRuntime)
       await expect(ctx.plugin(sdk, {
         providerName: 'sdk',
         command: 'true',
@@ -415,7 +415,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     'defensively rejects invalid maxTokens %s when apply is called directly',
     async (maxTokens) => {
       const ctx = new Context()
-      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentRuntime)
       expect(() => { sdk.apply(ctx, {
         providerName: 'sdk',
         command: 'true',
@@ -434,7 +434,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
 
   it('rejects an empty config cwd at load', async () => {
     const ctx = new Context()
-    await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentRuntime)
     await expect(ctx.plugin(sdk, {
       providerName: 'sdk',
       command: 'true',

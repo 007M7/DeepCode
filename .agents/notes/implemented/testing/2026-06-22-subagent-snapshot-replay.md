@@ -6,7 +6,7 @@ English | [中文](2026-06-22-subagent-snapshot-replay.zh.md)
 
 ## Problem
 
-The snapshot tier (`pnpm run test:snapshot`) boots the real `acp-agent` subprocess, replays a recorded session through [`dsh-llm-replay`](../../../../packages/support/llm-replay), and diffs the normalized automation wire + re-persisted session log against committed expected outputs. Most scenarios exercise assembled backend behavior through that real process boundary.
+The snapshot tier (`pnpm run test:snapshot`) boots the real `acp-agent` subprocess, replays a recorded session through [`dsh-llm-replay`](../../../../packages/test-support/llm-replay), and diffs the normalized automation wire + re-persisted session log against committed expected outputs. Most scenarios exercise assembled backend behavior through that real process boundary.
 
 It was built for ONE session per process, and that assumption is wired into two places:
 
@@ -45,7 +45,7 @@ The alternative considered and rejected was a **call-ordered merge of the parent
 
 Two nested scenarios were added and recorded against the real API:
 
-- **`subagent-spawn`** — the parent delegates one subtask via the `subagent` tool to a fresh spawn child (2 sessions).
+- **`subagent-spawn-in-process`** — the parent delegates one subtask via the `subagent` tool to a fresh spawn child (2 sessions).
 - **`subagent-multi`** — the parent delegates two subtasks, each to its own spawn child (3 sessions), stressing the per-session keying with three concurrent scripts and the `createdAt` ordering of two children under one parent.
 
 Both replay keyless in the default gate.

@@ -21,7 +21,7 @@ The tool surface already solved this shape. `ToolCallView` has three cards, not 
 
 The vocabulary is semantic, never visual. A value states that the content is a file's instructions or a catalog of available items; colors, icons, ordering, and collapse defaults are the consumer's business and must not enter the union. It grows one value at a time, as producers gain the structured fields their form needs. The declared forms:
 
-**`instructions`** — instructions read out of workspace files. `workspace-context` declares it on both the startup baseline and later deltas; its existing `changes[]` already carried the paths, actions, and digests the presentation needs, so no field was added. The body lists the reconciled files above the text, and keeps the `<system-reminder>` framing verbatim: the framing is part of what the model read, so hiding it would misreport the request.
+**`instructions`** — instructions read out of workspace files. `agent-instructions` declares it on both the startup baseline and later deltas; its existing `changes[]` already carried the paths, actions, and digests the presentation needs, so no field was added. The body lists the reconciled files above the text, and keeps the `<system-reminder>` framing verbatim: the framing is part of what the model read, so hiding it would misreport the request.
 
 **`catalog`** — a catalog of items available this session, republished as it changes. `dsh-tool-skill` moves off the shared `plugin` kind to its own `skill-catalog` source carrying `entries` (the exact `name`/`description` pairs published) and `update` on a replacement, which the body renders as a replacement notice. The body lists those entries instead of re-parsing the `<available_skills>` block out of the prose.
 
@@ -31,7 +31,7 @@ That move also relocates catalog **identity**: the republish digest now covers t
 
 **`snapshot`** — current state that a later snapshot from the same producer supersedes. The runtime-context snapshot, `time-context`, and `tmux-context` declare it. `renderContextSections()` exposes the assembly's named contributions, which `renderContextSnapshot()` already joined for the model, so the body attributes each part to the subsystem that produced it without re-splitting joined prose. The two single-contribution producers record one section each. The cleared runtime-context marker has no contributions left and declares no form.
 
-**`notice`** — a one-off account of something that just happened. `tool-tasks`, `tool-goal` wrap-up, `plan-mode` switches, and `repeat-tool-guard` reminders declare it with a `summary`, which rides the **collapsed** row: a notice is meant to be read without expanding at all. The summary is bounded where its inputs are caller text (a task's label and status detail have no length of their own). Goal state changes remain domain-owned `goal/change` events rather than model context, so they declare no form.
+**`notice`** — a one-off account of something that just happened. `tool-jobs`, `tool-goal` wrap-up, `plan-mode` switches, and `repeat-tool-reminder` reminders declare it with a `summary`, which rides the **collapsed** row: a notice is meant to be read without expanding at all. The summary is bounded where its inputs are caller text (a task's label and status detail have no length of their own). Goal state changes remain domain-owned `goal/change` events rather than model context, so they declare no form.
 
 **`relay`** — a message another agent addressed to this one. Both subagent-addressed sources declare it; the sender is shown as the opaque session id the source already records, because this client cannot resolve it to a title.
 
@@ -51,7 +51,7 @@ The tool presentation contract pairs its vocabulary with `presentCall(args)`, a 
 
 **Map source kinds to renderers in the client.** Cheapest to write and requires no format change, but it puts producer knowledge back in the client: every new kind then needs a client release to render as anything but opaque, and a foreign log cannot be classified at all. It also reintroduces exactly the coupling the [source and steer marks decision](2026-08-04-web-context-source-and-steer-marks.md) removed for labels.
 
-**Reuse `kind` as the form.** One discriminant is simpler, and `workspace-instructions` is already 1:1 with its form. This design loses information when several producers share one form: three producers emit runtime snapshots today, and combining them into one kind would make it impossible to tell which producer supplied each message. Separate `kind` and `form` fields record the producer while allowing several producers to share one presentation.
+**Reuse `kind` as the form.** One discriminant is simpler, and `agent-instructions` is already 1:1 with its form. This design loses information when several producers share one form: three producers emit runtime snapshots today, and combining them into one kind would make it impossible to tell which producer supplied each message. Separate `kind` and `form` fields record the producer while allowing several producers to share one presentation.
 
 **Let the client parse the model-facing prose.** The entries and file sections are visibly structured in the text. Parsing them couples the presentation to prompt wording, so every reword silently breaks a card — the same reason catalog identity moved off the text.
 

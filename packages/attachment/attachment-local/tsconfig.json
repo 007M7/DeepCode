@@ -6,7 +6,7 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../attachment" },
-    { "path": "../../util/paths" },
-    { "path": "../../support/invariants" }
+    { "path": "../../util/home-paths" },
+    { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

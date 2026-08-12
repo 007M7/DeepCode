@@ -18,7 +18,7 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationService, UnsupportedImageMediaTypeError } from './service.ts'
+import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './input/blocks.ts'
@@ -98,8 +98,8 @@ function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
 }
 
 /** Resolve package-internal attachment operations from the public service registration. */
-function concreteConversation(ctx: Context): ConversationService {
-  const conversation = ctx.get('conversation') as ConversationService | undefined
+function concreteConversation(ctx: Context): ConversationController {
+  const conversation = ctx.get('conversation') as ConversationController | undefined
   if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
   return conversation
 }
@@ -165,12 +165,12 @@ export function apply(ctx: Context): void {
     version: () => slots.getVersion('conversation.view'),
   }
 
-  // The per-session input machine registry (InputService face; published as
+  // The per-session input machine registry (SessionInputResolver face; published as
   // ctx.conversation.input by the service below sharing this one instance).
   const inputHub = new InputHub(ctx, t)
 
   // The composer-block registry: a plugin that knows a session cannot send —
-  // ui-model, when no adapter serves the session's route — raises a block
+  // ui-model-selection, when no adapter serves the session's route — raises a block
   // here, and the bar reads its own session's store. It cannot flow the other
   // way: this package must not import the plugins that would know.
   const composerBlocks = new ComposerBlockRegistry()
@@ -302,7 +302,7 @@ export function apply(ctx: Context): void {
       }
       const conversation = concreteConversation(ctx)
       const shell = inputHub.shell(sessionId)
-      const slash = inputHub.slash(sessionId)
+      const inputTriggers = inputHub.inputTriggers(sessionId)
       return {
         keyboard: shell,
         addImages: (files) => {
@@ -328,12 +328,12 @@ export function apply(ctx: Context): void {
         draftImages: ids => conversation.draftImages(ids),
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
-        toggleCommandMenu: slash === undefined
+        toggleCommandMenu: inputTriggers === undefined
           ? undefined
           : (selection) => {
             shell.dismissPopup()
             const snapshot = shell.snapshot
-            slash.toggleSource('command', {
+            inputTriggers.toggleSource('command', {
               trigger: '/',
               query: '',
               position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
@@ -354,14 +354,14 @@ export function apply(ctx: Context): void {
         hooks: {
           notices: shell.notices,
           lexicon: shell.lexicon,
-          menuLauncher: slash?.launcher ?? ABSENT_MENU_LAUNCHER,
+          menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
         },
       }
     },
   }, InputBar)
 
   // The approval takeover: a selector-routed entry of the chain this package
-  // just declared (the ui-question registration pattern; the entry lives here
+  // just declared (the ui-user-questions registration pattern; the entry lives here
   // because approval answering is core conversation UX, not an optional tool).
   // Zero business face — data and verbs both ride the matched carrier.
   // priority 1: question takeovers (default 0) win when both kinds are
@@ -432,7 +432,7 @@ export function apply(ctx: Context): void {
   // registers itself as `conversation` and lives on its own child fiber.
   // Presentation registrants depend directly on their slot declarations;
   // this service remains only where conversation actions are required.
-  ctx.plugin(ConversationService, { input: inputHub, blocks: composerBlocks })
+  ctx.plugin(ConversationController, { input: inputHub, blocks: composerBlocks })
 
   // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)

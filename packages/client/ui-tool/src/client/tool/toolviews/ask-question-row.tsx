@@ -46,7 +46,7 @@ type AskQuestionRowProps = ToolCallViewProps & PropsLocale<'conversation'>
  *  Input/Output sections, ToolRow's unified expand). */
 export function AskQuestionRow({ toolName, block, inspect, t }: AskQuestionRowProps) {
   const model = toolRowModel(toolName, block)
-  // Composer verdicts settle the call as specific UserInteractionErrors
+  // Composer verdicts settle the call as specific UserQuestionErrors
   // (apiproxy ask_user_question handler): 'ASK_CANCELLED' is the user's own
   // dismissal of the set, 'ASK_ABORTED' is a turn interrupt landing while the
   // question was pending. Both name their verdict instead of the generic

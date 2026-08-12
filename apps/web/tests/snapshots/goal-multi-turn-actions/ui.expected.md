@@ -175,7 +175,7 @@
   - text: 、
   - code: token-meter
   - text: 、
-  - code: skill-local
+  - code: skill-filesystem
   - text: ），文件结构则用
   - code: find
   - text: 实际列出文件后整理输出，均已排除
@@ -190,7 +190,7 @@
   - text: 如果你还想看剩下两个包（
   - code: ui-conversation
   - text: 、
-  - code: skill-local
+  - code: skill-filesystem
   - text: ）的结构，或者其他格式的输出（比如带文件大小的树形图），随时告诉我。
 - button "Copy":
   - img

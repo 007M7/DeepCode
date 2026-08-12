@@ -16,7 +16,7 @@ import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
  * `pnpm run test:snapshot:record` re-records model transcripts against the real
  * API; `pnpm run test:snapshot:refresh` rewrites current replay expected outputs keyless.
- * See the package README (packages/support/acp-snapshot) and the snapshot Agent Note,
+ * See the package README (packages/test-support/acp-snapshot) and the snapshot Agent Note,
  * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
@@ -34,7 +34,7 @@ const AGENT = {
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const CODE_MODE_WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../code-mode-workspace-context.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
-const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
+const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../agent-instructions.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
@@ -61,7 +61,7 @@ const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const BACKGROUND_TASK_ADMISSION_CONFIG = fileURLToPath(
-  new URL('../background-task-admission.cordis.yml', import.meta.url),
+  new URL('../background-job-admission.cordis.yml', import.meta.url),
 )
 const PRODUCT_SUBAGENT_CODEX_CONFIG = fileURLToPath(new URL('../product-subagent-codex.cordis.yml', import.meta.url))
 const PRODUCT_SUBAGENT_BOTH_CONFIG = fileURLToPath(new URL('../product-subagent-both.cordis.yml', import.meta.url))
@@ -222,7 +222,7 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
   {
-    name: 'background-task-admission',
+    name: 'background-job-admission',
     hasModelTurn: true,
     recorded: false,
     overridden: true,
@@ -258,7 +258,7 @@ const SCENARIOS: Scenario[] = [
     posixOnly: true,
   },
   // A valid cwd plus a missing provider executable exercises the assembled
-  // foreground error and background task marker without a platform runner.
+  // foreground error and background job marker without a platform runner.
   {
     name: 'missing-sandbox-runner',
     hasModelTurn: true,
@@ -352,7 +352,7 @@ const SCENARIOS: Scenario[] = [
   // LIVE model to repeat one call three times is not a stable recording, so
   // the fixture scripts five identical todo_write calls and pins BOTH reminder
   // tiers (gentle at 3, detailed at 5) as injected user/message in transcript and log.
-  { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
+  { name: 'repeat-tool-reminder', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
   // injected user/message. Both portable AGENTS.md fixtures are symlinks to a sibling
@@ -365,12 +365,12 @@ const SCENARIOS: Scenario[] = [
   // The scenario-specific config keeps home/root discovery hermetic, and the
   // resulting prefix needs its own pinned header class.
   {
-    name: 'workspace-context',
+    name: 'agent-instructions',
     hasModelTurn: true,
     recorded: false,
     overridden: true,
     pinsHeader: true,
-    headerClass: 'workspace-context',
+    headerClass: 'agent-instructions',
     toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
     prepareWorkspace: prepareDelimiterPathWorkspace,
@@ -380,7 +380,7 @@ const SCENARIOS: Scenario[] = [
   // Cancelling a live bash call relies on POSIX process-group termination;
   // Windows bash process-tree kill is deferred with the Bash execution domain.
   { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
-  { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  { name: 'subagent-spawn-in-process', hasModelTurn: true, recorded: true },
   // Keyless authored scenario: the child ends at max-tokens with an empty
   // usage-only assistant/message after earlier text and a tool call. The
   // parent's tool result must retain that assistant output and stop reason.
@@ -392,7 +392,7 @@ const SCENARIOS: Scenario[] = [
   // scripts and harvest order nondeterministically across concurrent children
   // (XXX(concurrent-subagents) in dsh-llm-replay).
   { name: 'subagent-parallel', hasModelTurn: true, recorded: false },
-  { name: 'subagent-fork', hasModelTurn: true, recorded: true },
+  { name: 'subagent-fork-in-process', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // Authored continuable-subagent transcript: a background delegation returns
   // only the durable subagent id, two send_message calls queue as later FIFO

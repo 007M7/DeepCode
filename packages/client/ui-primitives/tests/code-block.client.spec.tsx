@@ -33,7 +33,7 @@ describe('highlightToHtml', () => {
   })
 
   // Every read-tool language hint whose grammar loads lazily (the boot set —
-  // ts/js/bash/sh/json — is covered above). Touching each one drives its own
+  // ts/js/shell/sh/json — is covered above). Touching each one drives its own
   // dynamic import thunk, so the whole LAZY_GRAMMARS table is exercised.
   const LAZY_ALIASES = [
     'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'cs', 'kotlin', 'swift', 'php',
