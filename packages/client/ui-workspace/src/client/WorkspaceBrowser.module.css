@@ -240,11 +240,13 @@
 
 /* Rail variant (own .rail class from the wide owner prop — the region never
    reads the shell's class names): the two icon controls stack as 36x36
-   circles matching the shell's rail rhythm. */
+   circles matching the shell's rail rhythm. Both use the rail's shared base
+   left anchor so the outer shell can translate the whole region uniformly. */
 .rail .sectionHeader {
   gap: 0;
   padding-left: 0;
   margin-bottom: 12px;
+  justify-content: flex-start;
 }
 
 .rail .headerActions {

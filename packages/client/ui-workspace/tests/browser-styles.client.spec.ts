@@ -107,4 +107,10 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(rowDeclarations('.sessionRow.selected')?.get('background'))
       .toBe('var(--dsw-alias-interactive-bg-hover)')
   })
+
+  it('pins both rail controls to the shared left anchor during the column slide', () => {
+    expect(declarations('.rail .sectionHeader')?.get('justify-content')).toBe('flex-start')
+    expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
+    expect(declarations('.rail .search')?.get('width')).toBe('36px')
+  })
 })

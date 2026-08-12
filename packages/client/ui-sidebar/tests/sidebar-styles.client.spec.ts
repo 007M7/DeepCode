@@ -1,4 +1,4 @@
-/** Sidebar shell inset contract shared with the nested workspace browser. */
+/** Sidebar shell style contracts shared with its slot-owned controls. */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -25,7 +25,7 @@ function declarations(selector: string): Map<string, string> | undefined {
   return undefined
 }
 
-describe('SidebarRoot.module.css inset', () => {
+describe('SidebarRoot.module.css', () => {
   it('shares and cancels the wide shell trailing padding structurally', () => {
     const root = declarations('.root')
     expect(root?.get('--dsh-sidebar-inline-padding')).toBe('12px')
@@ -38,5 +38,29 @@ describe('SidebarRoot.module.css inset', () => {
     expect(declarations('.collapsed .regionArea')?.get('margin-left')).toBe('0')
     expect(declarations('.collapsed .regionArea')?.get('padding-left')).toBe('0')
     expect(declarations('.collapsed .regionArea')?.get('margin-right')).toBe('0')
+  })
+
+  it('moves the four upper controls while the settings seat only fades', () => {
+    const animation = 'rail-in 150ms var(--ds-ease-in-out) backwards'
+    for (const selector of [
+      '.railIn .iconButton',
+      '.railIn .newSession',
+      '.railIn .regionArea',
+    ]) {
+      expect(declarations(selector)?.get('animation')).toBe(animation)
+    }
+    expect(declarations('.railIn .footArea')?.get('animation')).toBe(
+      'rail-fade-in 150ms var(--ds-ease-in-out) backwards',
+    )
+    expect(css).toMatch(
+      /@keyframes rail-in\s*\{\s*from\s*\{\s*opacity: 0;\s*transform: translateX\(49px\);\s*}\s*}/,
+    )
+    expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
+  })
+
+  it('gives shell rail controls the same base anchor for their shared translation', () => {
+    expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
+    expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
+    expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
 })
