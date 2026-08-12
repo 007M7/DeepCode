@@ -208,7 +208,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `AgentDefaultModelService` | `AgentDefaultModelConfig` | 该对象存储一项默认模型选择。它不运行服务，也不是通用注册表。保留其包、键、设置命名空间和类型。 |
 | `SessionReferenceService`, `ctx.sessionReferences` | `SessionReferenceResolver`, `ctx.sessionReferenceResolver` | 它从 URI 或输入解析一个会话引用，并不拥有引用集合。 |
 | `SessionQueryService`, `SessionQuerySqlite` | `SessionQueryEngine`, `SqliteSessionQueryEngine` | 这些类执行查询模型及其 SQLite 实现。保留包名、键和工具。 |
-| `@deepseek-ai/dsh-session-export`, `session-export/`, Loader id `session-export`, `ctx.sessionExport` | `@deepseek-ai/dsh-session-log-download`, `session-log-download/`, Loader id `session-log-download`, `ctx.sessionLogDownload` | 该包不实现通用 Session 导出。它控制 Web 下载一个由 Host 流式输出的 Session 日志 ZIP。名称必须说明对象和浏览器副作用。 |
+| `@deepseek-ai/dsh-session-export`, `session-export/`, Loader id `session-export`, `ctx.sessionExport` | `@deepseek-ai/dsh-session-log-export`, `session-log-export/`, Loader id `session-log-download`, `ctx.sessionLogDownload` | npm 包名使用 Session 日志导出语义，因为 npm 禁止包名包含 `download`。Loader id 与浏览器 API 保留 `download`，因为它们描述浏览器副作用。 |
 | `SessionExportDownloadController`, 其他 `SessionExport*` 浏览器类型、`useSessionExport`、`SessionExportHeader` | `SessionLogDownloadController`, 对应的 `SessionLogDownload*` 类型、`useSessionLogDownload`、`SessionLogDownloadHeaderAction` | 该 controller 拥有预检、重复请求合并、弹窗状态和浏览器保存。`ExportDownload` 重复表达同一动作，该组件贡献的是一个 Header action，不是整个 Header。 |
 | 宿主命令包中的 `CommandService` | `CommandRuntime` | 该对象跨实时调用注册并执行宿主命令。保留其包、键、类型和事件。 |
 | `TokenMeterService` | `TokenMeter` | 该对象测量 token 用量。`Service` 没有补充作用域信息。 |

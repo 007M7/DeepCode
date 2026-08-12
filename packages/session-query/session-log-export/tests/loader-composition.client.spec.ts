@@ -9,7 +9,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import * as SessionLogDownload from '@deepseek-ai/dsh-session-log-download'
+import * as SessionLogDownload from '@deepseek-ai/dsh-session-log-export'
 
 let root: string | undefined
 let context: Context | undefined
@@ -28,7 +28,7 @@ describe('session-log-download real Loader composition', () => {
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-commands'",
-      "- name: '@deepseek-ai/dsh-session-log-download'",
+      "- name: '@deepseek-ai/dsh-session-log-export'",
       '',
     ].join('\n'))
 
@@ -39,7 +39,7 @@ describe('session-log-download real Loader composition', () => {
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-session', SessionStore],
       ['@deepseek-ai/dsh-commands', CommandRuntime],
-      ['@deepseek-ai/dsh-session-log-download', SessionLogDownload],
+      ['@deepseek-ai/dsh-session-log-export', SessionLogDownload],
     ])
     context.loader.internal = {
       version: 'v2',

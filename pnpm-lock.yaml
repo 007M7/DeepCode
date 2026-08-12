@@ -1411,9 +1411,9 @@ importers:
       '@deepseek-ai/dsh-message-feedback':
         specifier: workspace:^
         version: link:../../feedback/message-feedback
-      '@deepseek-ai/dsh-session-log-download':
+      '@deepseek-ai/dsh-session-log-export':
         specifier: workspace:^
-        version: link:../../session-query/session-log-download
+        version: link:../../session-query/session-log-export
       '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
         version: link:../../session/session-projection-cache
@@ -5848,7 +5848,7 @@ importers:
         specifier: workspace:^
         version: link:../../subagent/subagent
 
-  packages/session-query/session-log-download:
+  packages/session-query/session-log-export:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
