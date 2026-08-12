@@ -2,7 +2,13 @@
 
 English | [中文](README.zh.md)
 
-Process-local implementation of the [`@deepseek-ai/dsh-tasks`](../tasks/README.md) registry contract: `LocalTaskService` keeps every record in memory, issues per-kind `<kind>-N` ids, and hands out fresh snapshots, never live state. It has no config; load it as a plugin and it registers as `ctx.tasks`.
+Process-local implementation of the [`@deepseek-ai/dsh-tasks`](../tasks/README.md) registry contract: `LocalTaskService` keeps every record in memory, issues per-kind `<kind>-N` ids, and hands out fresh snapshots, never live state. Load it as a plugin and it registers as `ctx.tasks`.
+
+## Admission
+
+`maxConcurrentTasksPerOwner` is a positive safe integer and defaults to `10`. Before invoking a producer, `start()` counts the exact owner's `running` and `stopping` records; all unowned tasks share one separate service bucket. Terminal history does not occupy capacity, and only producer `done` settlement releases a stopping task's place.
+
+At capacity, `start()` fails before producer execution and id allocation with an error that names the limit and tells the model to use `task_kill`, wait for the task to finish stopping, and retry. The registry does not queue, preempt, or maintain a second mutable counter.
 
 ## Lifecycle
 
@@ -25,4 +31,4 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **Tasks are process-local** — records die with the harness process; durable or cross-restart execution needs a separate backend implementing the seam.
-- **A silently ineffective cancel can stall teardown** — only an explicit throw can be force-failed safely.
+- **A silently ineffective cancel can stall teardown and hold capacity** — if `cancel` returns without settling `done`, the registry cannot distinguish it from a slow stop; the task keeps one bucket slot for the rest of the service lifetime, and only an explicit throw can be force-failed safely.

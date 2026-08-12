@@ -74,6 +74,7 @@ class FakeInspector implements ProcessInspector {
   }
   signalProcess(identity: ProcessIdentity, signal: 'SIGTERM' | 'SIGKILL') {
     if (this.throwProcess) throw new Error('process raced')
+    if (!this.isAlive(identity)) return
     this.processes.push([identity.pid, signal])
     if (this.removeOnSignal) this.alive.delete(identity.pid)
   }
@@ -82,6 +83,85 @@ class FakeInspector implements ProcessInspector {
 afterEach(() => { vi.useRealTimers() })
 
 describe('LocalTerminalHandle', () => {
+  it('force-kills descendants around the shell during synchronous host exit', () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const first = { pid: 124, started: 'first' }
+    const late = { pid: 125, started: 'late' }
+    inspector.members = [first]
+    inspector.alive.add(pty.pid)
+    inspector.alive.add(first.pid)
+    const signalProcess = inspector.signalProcess.bind(inspector)
+    inspector.signalProcess = (identity, signal) => {
+      signalProcess(identity, signal)
+      if (identity.pid === pty.pid) {
+        inspector.members = [first, late]
+        inspector.alive.add(late.pid)
+      }
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    handle.terminateForHostExit()
+    expect(inspector.processes).toEqual([
+      [first.pid, 'SIGKILL'],
+      [pty.pid, 'SIGKILL'],
+      [late.pid, 'SIGKILL'],
+    ])
+    expect(pty.kills).toEqual([])
+
+    pty.emitExit()
+    handle.terminateForHostExit()
+    expect(pty.kills).toEqual([])
+  })
+
+  it('uses captured identities and contains shell races when final inspection fails', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const captured = { pid: 124, started: 'captured' }
+    inspector.members = [captured]
+    inspector.alive.add(pty.pid)
+    inspector.alive.add(captured.pid)
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+    await handle.inspectForeground()
+    inspector.processTree = () => { throw new Error('process table unavailable') }
+    inspector.throwProcess = true
+
+    expect(() => { handle.terminateForHostExit() }).not.toThrow()
+    expect(inspector.processes).toEqual([])
+    expect(pty.kills).toEqual([])
+  })
+
+  it('uses node-pty only when the shell start identity was unavailable', () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    inspector.root = undefined
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    handle.terminateForHostExit()
+    expect(pty.kills).toEqual(['SIGKILL'])
+
+    const racingPty = new FakePty()
+    const racingInspector = new FakeInspector()
+    racingInspector.root = undefined
+    racingPty.throwKill = true
+    const racingHandle = new LocalTerminalHandle(racingPty.asPty(), racingInspector, 10)
+    expect(() => { racingHandle.terminateForHostExit() }).not.toThrow()
+  })
+
+  it('does not signal a recycled terminal root before its delayed exit callback', () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    inspector.alive.add(pty.pid)
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+    inspector.root = { pid: pty.pid, started: 'recycled' }
+    inspector.isAlive = identity => identity.started === 'recycled'
+
+    handle.terminateForHostExit()
+
+    expect(inspector.processes).toEqual([])
+    expect(pty.kills).toEqual([])
+  })
+
   it('bridges terminal bytes, foreground control, and signalled exit facts', async () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()

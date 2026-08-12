@@ -10,7 +10,7 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化。
 
-为帮助诊断上报的问题，内测版本默认上传所有会话日志。设置 `DSH_TELEMETRY_DISABLED=1` 可关闭遥测。请通过内部企业微信群反馈问题和建议。
+Session Log 默认留在本地。设置 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 可仅在提交反馈时共享 Session Log，设置 `DSH_TELEMETRY_MODE=FULL` 可持续上传；`FULL` 同时会启用 dsh-sdk 命令遥测，上报匿名 ID、命令结果以及脱敏后的项目配置。请通过内部企业微信群反馈问题和建议。
 
 ## 运行
 
@@ -22,7 +22,7 @@ npx @deepseek-ai/dsh web
 
 该命令会初始化 Web profile 并打印 Web UI 地址，默认地址为 `http://127.0.0.1:3080`。打开该地址，在**设置 → 模型**中添加 DeepSeek API 密钥，然后启动一个会话。调用目录是默认工作区；你可以尝试输入 `Summarize this repository and identify its main packages.`。
 
-下一步请阅读 [Web UI 指南](docs/user/guide/)。
+下一步请阅读 [Web UI 指南](docs/user/guide/index.md)。
 
 ### 从源码运行
 
@@ -32,10 +32,11 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 pnpm dsh web
 ```
 
-最后一条命令会构建仓库，并进入相同的 Web UI 路径。
+`pnpm run build` 准备仓库产物。`pnpm dsh web` 启动 Web UI，不会重新构建，并进入相同的路径。
 
 ## Profile 与插件
 

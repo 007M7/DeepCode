@@ -65,6 +65,10 @@
       config:
         maxNoteBytes: 8192
 
+    # Browser Session export: `/export` command plus the shared download dialog.
+    - id: session-export
+      name: '@deepseek-ai/dsh-session-export'
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
@@ -84,6 +88,10 @@
     # an overlay to pin the interaction.
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
+
+    # Read-only projection of current Loader entries for trusted client RPCs.
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
 
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
@@ -177,6 +185,9 @@
     - id: ui-models
       name: '@deepseek-ai/dsh-client-ui-models'
 
+    - id: ui-plugins
+      name: '@deepseek-ai/dsh-client-ui-plugins'
+
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 
@@ -219,6 +230,11 @@
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'
+
+    # Per-message feedback: Like/Dislike plus an optional note in the
+    # assistant-message action strip, over the messageFeedback Remote.
+    - id: ui-feedback
+      name: '@deepseek-ai/dsh-client-ui-feedback'
 
     # Model selection: the /model popupSelect + composer seat over session.models.
     - id: ui-model

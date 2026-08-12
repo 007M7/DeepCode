@@ -259,6 +259,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+      'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     },
     store: chatStore,
     inject: (): ConversationSessionHeaderInjected => ({
@@ -313,9 +314,9 @@ export function apply(ctx: Context): void {
             return null
           } catch (error: unknown) {
             if (error instanceof UnsupportedImageMediaTypeError) {
-              return t('image.unsupportedType', {
-                type: error.mediaType || t('image.unknownType'),
-              })
+              // Positive copy: the supported list is fixed in imageMediaType,
+              // and naming it beats echoing the rejected MIME type back.
+              return t('image.unsupportedType')
             }
             return error instanceof Error ? error.message : String(error)
           }

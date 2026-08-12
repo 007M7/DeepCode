@@ -77,7 +77,8 @@ export type {
   CommandNode, CompactionSummaryNode, ComposerPhase,
   ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
   LegacyConversationSlice, PartialAssistant, RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolCallBlock, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolCallBlock, ToolResultNode, TurnErrorNode, TurnMaxTokensNode,
+  UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export {
   EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, toAssistantBlock, toAssistantBlocks,

@@ -3,6 +3,9 @@
     - button "Reply with the single word" [disabled]
   - img
   - text: Standard mode
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -19,6 +22,10 @@
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

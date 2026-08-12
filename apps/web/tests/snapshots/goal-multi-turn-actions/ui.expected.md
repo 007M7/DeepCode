@@ -3,6 +3,9 @@
     - button "workspace" [disabled]
   - img
   - text: Standard mode
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -77,6 +80,10 @@
 - code: "session-reference/ ├── README.md # 包说明文档 ├── package.json # 包元数据与依赖声明 ├── src/ │ ├── index.ts # 入口，导出公共 API │ └── uri.ts # 会话引用 URI 相关实现 └── tests/ └── session-reference.spec.ts # 单元测试"
 - paragraph: 这是一个很典型的轻量 TypeScript 包结构：入口 + 实现 + 测试。这一轮到此结束，等系统开启下一个 turn。
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -186,6 +193,10 @@
   - code: skill-local
   - text: ）的结构，或者其他格式的输出（比如带文件大小的树形图），随时告诉我。
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

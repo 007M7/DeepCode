@@ -2,7 +2,7 @@
 // Assembled todo snapshot: boots the real built `packages/client/*/lib/
 // client.js` bundles through AppWebEntry's ModuleLoader path against the
 // keyless FixtureApiClient transport, opens the fixture session, and pins the
-// two surfaces the fixture's parallel plan (turn 73, two items `in_progress`)
+// two surfaces the fixture's parallel plan (turn 74, two items `in_progress`)
 // reaches — the `todo_write` tool row and the dock's plan strip.
 //
 // The row is pinned as three separate fields on purpose. `summary=` is the

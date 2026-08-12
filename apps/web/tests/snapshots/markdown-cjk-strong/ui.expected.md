@@ -1,6 +1,9 @@
 - banner:
   - navigation "Session hierarchy":
     - button "CJK strong emphasis" [disabled]
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -34,6 +37,10 @@
   - text: 继续
 - paragraph: CJK_STRONG_DONE
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

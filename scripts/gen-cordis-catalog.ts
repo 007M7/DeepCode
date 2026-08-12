@@ -133,6 +133,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   models: 'client-side interface-typed browser service — packages/client/ui-model/README.md owns the API',
   modules: 'client-side interface-typed browser service — packages/client/modules/README.md owns the API',
   remote: 'client-side interface-typed gateway accessor (ClientRemote) — packages/api/gateway/README.md owns the API',
+  sessionExport: 'client-side browser download controller — packages/session-query/session-export/README.md owns the API',
   slash: 'client-side interface-typed browser service — packages/client/ui-slash/README.md owns the API',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
@@ -178,6 +179,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
  * exemption cannot mask another declaration in that scope.
  */
 export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
+  'command/executed': 'client-face local command acknowledgment — packages/client/ui-command/README.md owns the API',
   'connection/reset': 'client-face transport signal — packages/client/runtime/README.md owns the API',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',

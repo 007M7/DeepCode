@@ -353,7 +353,7 @@ function fixtureUsage(turn: number, step: number): TokenUsage {
   }
 }
 
-/** fx-alpha history script: 74 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
+/** fx-alpha history script: 75 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
  *  mixing reasoning blocks / tool call+result / context. */
 function buildAlphaLog(): SessionEvent[] {
   const events: Record<string, unknown>[] = []
@@ -489,7 +489,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 73: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 74: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -548,20 +548,35 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
   toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
-  // Turn 72: user and assistant images share one durable fixture object.
-  // The todo turn remains last so its standing projection stays visible.
+  // Turn 72: max-tokens sample — the provider ends the turn at its output cap
+  // mid-sentence, so the chat flow must render the turn-max-tokens notice
+  // instead of ending silently. Ordered before the todo turn for the same
+  // standing-plan reason the bash turn is.
   push({ type: 'turn/start', data: { turn: 72 } })
+  push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text('问题 72：请完整列出全部一百条条目。')) })
+  push({ type: 'step/start', data: { turn: 72, step: 0 } })
+  push({
+    type: 'assistant/message',
+    surfaceOp: 'append',
+    data: { turn: 72, step: 0, message: assistantMessage(text('条目 1：第一条。条目 2：第二条。条目 3：这一条写到一半被')) },
+  })
+  push({ type: 'step/end', data: { turn: 72, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 72, reason: { kind: 'max-tokens' } } })
+
+  // Turn 73: user and assistant images share one durable fixture object.
+  // The todo turn remains last so its standing projection stays visible.
+  push({ type: 'turn/start', data: { turn: 73 } })
   push({
     type: 'user/message',
     surfaceOp: 'append',
     data: userMessage([{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')]),
   })
-  push({ type: 'step/start', data: { turn: 72, step: 0 } })
+  push({ type: 'step/start', data: { turn: 73, step: 0 } })
   push({
     type: 'assistant/message',
     surfaceOp: 'append',
     data: {
-      turn: 72,
+      turn: 73,
       step: 0,
       message: assistantMessage(
         [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }],
@@ -569,11 +584,11 @@ function buildAlphaLog(): SessionEvent[] {
       ),
     },
   })
-  push({ type: 'step/end', data: { turn: 72, step: 0 } })
-  push({ type: 'turn/end', data: { turn: 72, reason: { kind: 'completed' } } })
+  push({ type: 'step/end', data: { turn: 73, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 73, reason: { kind: 'completed' } } })
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(73, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(74, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -1052,6 +1067,18 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['contextBreakdown'] = contextBreakdownOf(log)
   // Always present (session-stats unit composed): whole-log turn/step counts.
   values['sessionStats'] = sessionStatsOf(log)
+  // Always present (attachment service composed): the deployment image
+  // limits, constant per boot (mirrors the attachment-local defaults).
+  // Deliberate host divergence: the real gateway never pushes an imageLimits
+  // change frame (constant unit), but the fixture's uniform baseline replay
+  // frames every key here, incidentally exercising higher-seq-wins.
+  values['imageLimits'] = {
+    maxImageBytes: 5 * 1024 * 1024,
+    maxImagesPerMessage: 20,
+    maxMessageImageBytes: 100 * 1024 * 1024,
+    maxImagePixels: 40_000_000,
+    mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+  }
   return values
 }
 
@@ -1516,7 +1543,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
   ])
   let fixtureDefaultPreset = 'standard'
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 74]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 75]])
   let nextSession = 1
   let nextRpc = 1
   let attachedSessions = options.empty ? 0 : 1

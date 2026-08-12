@@ -3,6 +3,9 @@
     - button "Use the ask_user_question tool to" [disabled]
   - img
   - text: Standard mode
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -30,6 +33,10 @@
   - text: Think The user selected "Yes" and wants me to include the word "BANANA" in my final reply. Let me acknowledge their answer.
 - paragraph: Great, let's move forward. BANANA!
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

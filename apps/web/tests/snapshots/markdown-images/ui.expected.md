@@ -1,6 +1,9 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Markdown image policy" [disabled]
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -13,6 +16,10 @@
 - paragraph: Local test image
 - paragraph: REMOTE_IMAGE_DONE
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

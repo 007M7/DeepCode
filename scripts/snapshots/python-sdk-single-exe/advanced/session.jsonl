@@ -47,25 +47,29 @@
 {"type":"assistant/chunk","seq":45,"time":0,"data":{"turn":1,"step":4,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
 {"type":"assistant/message","seq":46,"time":0,"data":{"turn":1,"step":4,"message":{"role":"assistant","content":[{"type":"tool-call","id":"advanced-workflow","name":"workflow","arguments":"{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"}],"source":{"kind":"model","provider":"deepseek-official","model":"smoke-model"},"id":"{{messageId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[41,42,43,44,45],"surfaceOp":"append"}
 {"type":"tool/call","seq":47,"time":0,"data":{"turn":1,"step":4,"callId":"advanced-workflow","name":"workflow","arguments":"{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"}}
-{"type":"tool/result","seq":48,"time":0,"data":{"turn":1,"step":4,"message":{"source":{"kind":"tool","callId":"advanced-workflow"},"content":[{"type":"tool-result","toolCallId":"advanced-workflow","content":[{"type":"text","text":"workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"}],"isError":false}],"role":"user","id":"{{messageId}}"}},"sourceEventSeqs":[47],"surfaceOp":"append"}
-{"type":"step/end","seq":49,"time":0,"data":{"turn":1,"step":4}}
-{"type":"step/start","seq":50,"time":0,"data":{"turn":1,"step":5}}
-{"type":"assistant/chunk","seq":51,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
-{"type":"assistant/chunk","seq":52,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"tool-call-delta","index":0,"id":"advanced-unmount","name":"cordis_unmount","argumentsDelta":"{\"id\": \"dyn-1\"}"}}}
-{"type":"assistant/chunk","seq":53,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}}}}
-{"type":"assistant/chunk","seq":54,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"usage","usage":{"inputTokens":3,"outputTokens":3}}}}
-{"type":"assistant/chunk","seq":55,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
-{"type":"assistant/message","seq":56,"time":0,"data":{"turn":1,"step":5,"message":{"role":"assistant","content":[{"type":"tool-call","id":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}],"source":{"kind":"model","provider":"deepseek-official","model":"smoke-model"},"id":"{{messageId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[51,52,53,54,55],"surfaceOp":"append"}
-{"type":"tool/call","seq":57,"time":0,"data":{"turn":1,"step":5,"callId":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}}
-{"type":"tool/result","seq":58,"time":0,"data":{"turn":1,"step":5,"message":{"source":{"kind":"tool","callId":"advanced-unmount"},"content":[{"type":"tool-result","toolCallId":"advanced-unmount","content":[{"type":"text","text":"Temporary Plugin dyn-1 was unmounted and removed."}],"isError":false}],"role":"user","id":"{{messageId}}"}},"sourceEventSeqs":[57],"surfaceOp":"append"}
-{"type":"step/end","seq":59,"time":0,"data":{"turn":1,"step":5}}
-{"type":"step/start","seq":60,"time":0,"data":{"turn":1,"step":6}}
-{"type":"request/header","seq":61,"time":0,"data":{"header":{"config":{"provider":"deepseek-official","model":"smoke-model","maxTokens":256000,"reasoningEffort":"high"},"adapterDefaults":{"reasoningEffort":true,"maxTokens":true},"system":"{{system}}","tools":["cordis_inspect","cordis_mount","cordis_unmount","run_code","subagent","task_kill","task_list","task_output","workflow"]},"reason":"change"}}
-{"type":"assistant/chunk","seq":62,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":63,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"text-delta","index":0,"text":"ADVANCED_EXECUTABLE_OK"}}}
-{"type":"assistant/chunk","seq":64,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"ADVANCED_EXECUTABLE_OK"}}}}
-{"type":"assistant/chunk","seq":65,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"usage","usage":{"inputTokens":3,"outputTokens":3}}}}
-{"type":"assistant/chunk","seq":66,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":67,"time":0,"data":{"turn":1,"step":6,"message":{"role":"assistant","content":[{"type":"text","text":"ADVANCED_EXECUTABLE_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"smoke-model"},"id":"{{messageId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[62,63,64,65,66],"surfaceOp":"append"}
-{"type":"step/end","seq":68,"time":0,"data":{"turn":1,"step":6}}
-{"type":"turn/end","seq":69,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"tool-workflow/run-start","seq":48,"time":0,"data":{"runId":"{{workflow-run}}","name":"advanced-exe-snapshot"}}
+{"type":"tool-workflow/agent-start","seq":49,"time":0,"data":{"runId":"{{workflow-run}}","seq":1,"label":"workflow-child","phase":"Delegate","childId":"{{child-2}}"}}
+{"type":"tool-workflow/agent-end","seq":50,"time":0,"data":{"runId":"{{workflow-run}}","seq":1,"outcome":"completed"}}
+{"type":"tool-workflow/run-end","seq":51,"time":0,"data":{"runId":"{{workflow-run}}","stopReason":"completed"}}
+{"type":"tool/result","seq":52,"time":0,"data":{"turn":1,"step":4,"message":{"source":{"kind":"tool","callId":"advanced-workflow"},"content":[{"type":"tool-result","toolCallId":"advanced-workflow","content":[{"type":"text","text":"workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"}],"isError":false}],"role":"user","id":"{{messageId}}"}},"sourceEventSeqs":[47],"surfaceOp":"append"}
+{"type":"step/end","seq":53,"time":0,"data":{"turn":1,"step":4}}
+{"type":"step/start","seq":54,"time":0,"data":{"turn":1,"step":5}}
+{"type":"assistant/chunk","seq":55,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","seq":56,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"tool-call-delta","index":0,"id":"advanced-unmount","name":"cordis_unmount","argumentsDelta":"{\"id\": \"dyn-1\"}"}}}
+{"type":"assistant/chunk","seq":57,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}}}}
+{"type":"assistant/chunk","seq":58,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"usage","usage":{"inputTokens":3,"outputTokens":3}}}}
+{"type":"assistant/chunk","seq":59,"time":0,"data":{"turn":1,"step":5,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/message","seq":60,"time":0,"data":{"turn":1,"step":5,"message":{"role":"assistant","content":[{"type":"tool-call","id":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}],"source":{"kind":"model","provider":"deepseek-official","model":"smoke-model"},"id":"{{messageId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[55,56,57,58,59],"surfaceOp":"append"}
+{"type":"tool/call","seq":61,"time":0,"data":{"turn":1,"step":5,"callId":"advanced-unmount","name":"cordis_unmount","arguments":"{\"id\": \"dyn-1\"}"}}
+{"type":"tool/result","seq":62,"time":0,"data":{"turn":1,"step":5,"message":{"source":{"kind":"tool","callId":"advanced-unmount"},"content":[{"type":"tool-result","toolCallId":"advanced-unmount","content":[{"type":"text","text":"Temporary Plugin dyn-1 was unmounted and removed."}],"isError":false}],"role":"user","id":"{{messageId}}"}},"sourceEventSeqs":[61],"surfaceOp":"append"}
+{"type":"step/end","seq":63,"time":0,"data":{"turn":1,"step":5}}
+{"type":"step/start","seq":64,"time":0,"data":{"turn":1,"step":6}}
+{"type":"request/header","seq":65,"time":0,"data":{"header":{"config":{"provider":"deepseek-official","model":"smoke-model","maxTokens":256000,"reasoningEffort":"high"},"adapterDefaults":{"reasoningEffort":true,"maxTokens":true},"system":"{{system}}","tools":["cordis_inspect","cordis_mount","cordis_unmount","run_code","subagent","task_kill","task_list","task_output","workflow"]},"reason":"change"}}
+{"type":"assistant/chunk","seq":66,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":67,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"text-delta","index":0,"text":"ADVANCED_EXECUTABLE_OK"}}}
+{"type":"assistant/chunk","seq":68,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"ADVANCED_EXECUTABLE_OK"}}}}
+{"type":"assistant/chunk","seq":69,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"usage","usage":{"inputTokens":3,"outputTokens":3}}}}
+{"type":"assistant/chunk","seq":70,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":71,"time":0,"data":{"turn":1,"step":6,"message":{"role":"assistant","content":[{"type":"text","text":"ADVANCED_EXECUTABLE_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"smoke-model"},"id":"{{messageId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[66,67,68,69,70],"surfaceOp":"append"}
+{"type":"step/end","seq":72,"time":0,"data":{"turn":1,"step":6}}
+{"type":"turn/end","seq":73,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}

@@ -3,6 +3,9 @@
     - button "Use the ask_user_question tool to" [disabled]
   - img
   - text: Standard mode
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -29,6 +32,10 @@
   - img
 - paragraph: "Got it: BANANA and ORANGE."
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

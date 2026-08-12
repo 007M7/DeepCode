@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './ImageLightbox.module.css'
 
 /** Lightbox strings the owner resolves from its own locale namespace. */
@@ -51,10 +52,12 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
       role="dialog"
       aria-modal="true"
       aria-label={labels.dialog}
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
     >
+      <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
       <img className={css.image} src={src} alt={alt} />
-      <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>×</button>
+      <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
+        <IconCloseOutline16 size={16} />
+      </button>
     </div>,
     document.body,
   )

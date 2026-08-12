@@ -1,6 +1,9 @@
 - banner:
   - navigation "Session hierarchy":
     - button "{{workspace}}" [disabled]
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -10,6 +13,10 @@
 - paragraph: r1
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m2 7/25 {{clock}}
@@ -17,6 +24,10 @@
   - img
 - paragraph: r2
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -26,6 +37,10 @@
 - paragraph: r3
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m4 7/25 {{clock}}
@@ -33,6 +48,10 @@
   - img
 - paragraph: r4
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -42,6 +61,10 @@
 - paragraph: r5
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m6 7/25 {{clock}}
@@ -49,6 +72,10 @@
   - img
 - paragraph: r6
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -58,6 +85,10 @@
 - paragraph: r7
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m8 7/25 {{clock}}
@@ -65,6 +96,10 @@
   - img
 - paragraph: r8
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -74,6 +109,10 @@
 - paragraph: r9
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m10 7/25 {{clock}}
@@ -81,6 +120,10 @@
   - img
 - paragraph: r10
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -90,6 +133,10 @@
 - paragraph: r11
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m12 7/25 {{clock}}
@@ -97,6 +144,10 @@
   - img
 - paragraph: r12
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -106,6 +157,10 @@
 - paragraph: r13
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m14 7/25 {{clock}}
@@ -113,6 +168,10 @@
   - img
 - paragraph: r14
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -122,6 +181,10 @@
 - paragraph: r15
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m16 7/25 {{clock}}
@@ -129,6 +192,10 @@
   - img
 - paragraph: r16
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -138,6 +205,10 @@
 - paragraph: r17
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m18 7/25 {{clock}}
@@ -145,6 +216,10 @@
   - img
 - paragraph: r18
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -154,6 +229,10 @@
 - paragraph: r19
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m20 7/25 {{clock}}
@@ -161,6 +240,10 @@
   - img
 - paragraph: r20
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -170,6 +253,10 @@
 - paragraph: r21
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m22 7/25 {{clock}}
@@ -177,6 +264,10 @@
   - img
 - paragraph: r22
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -186,6 +277,10 @@
 - paragraph: r23
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m24 7/25 {{clock}}
@@ -193,6 +288,10 @@
   - img
 - paragraph: r24
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -202,6 +301,10 @@
 - paragraph: r25
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m26 7/25 {{clock}}
@@ -209,6 +312,10 @@
   - img
 - paragraph: r26
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -218,6 +325,10 @@
 - paragraph: r27
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} m28 7/25 {{clock}}
@@ -225,6 +336,10 @@
   - img
 - paragraph: r28
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

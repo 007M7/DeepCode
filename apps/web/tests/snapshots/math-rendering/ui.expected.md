@@ -1,6 +1,9 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Math rendering" [disabled]
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -29,6 +32,10 @@
         - math: 1 5
 - paragraph: MATH_RENDERING_DONE
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

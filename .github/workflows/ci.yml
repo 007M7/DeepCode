@@ -300,6 +300,18 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
+  # One native target makes the complete release-shaped Python path required
+  # without duplicating platform-independent behavior across the release matrix.
+  # The reusable builder owns the executable, snapshot, wheel, clean-install,
+  # GLIBC, and manylinux checks; release validation retains all native targets.
+  python-runtime:
+    if: github.event_name == 'pull_request'
+    name: python runtime / release-shaped Linux x64
+    uses: ./.github/workflows/build-exe-for-python-sdk.yml
+    with:
+      targets: node24-linux-x64
+      ci: true
+
   # The required pull-request Windows signal: the two blocking win32 surfaces
   # (workspace build, production site) execute with real, checksum-verified
   # Windows Node under Wine on standard hosted Linux. The independent
@@ -895,7 +907,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
-    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
+    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed
