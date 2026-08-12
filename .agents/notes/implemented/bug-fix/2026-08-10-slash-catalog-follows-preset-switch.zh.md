@@ -1,10 +1,10 @@
-# Agent Note：斜杠目录跟随空会话的 preset 切换
+# Agent Note: 斜杠目录跟随空会话的 preset 切换
 
 Status: implemented
 
 [English](2026-08-10-slash-catalog-follows-preset-switch.md) | 中文
 
-## Problem
+## 问题
 
 preset 把决定 `/` 菜单内容的那些行搬走了。Web 组装禁用了宿主面的 `skill-local`、`tool-skill`、`plan-mode` 和 `command-compact`，改由 preset 提供，因此一个会话有哪些命令和技能，是它自身组成的属性，而不是部署的属性。
 
@@ -12,7 +12,7 @@ preset 把决定 `/` 菜单内容的那些行搬走了。Web 组装禁用了宿�
 
 于是菜单继续提供会话已经不再运行的那套组成。向下切换后 `compact`、`plan` 和全部项目技能仍列在菜单里；向上切换后留在原地的是更窄的目录——四条宿主面行加客户端自己的 `model` 贡献——而且完全没有技能，这正是 bug 报告描述的现象。只有当某个无关的注册表变化或一次重连恰好使其失效时，目录才会自愈。
 
-## Decision
+## 决策
 
 这次切换的提交点是落账的 `agent-preset/selected` 事件。preset owner 将该提交重新发为 client-safe 的 cordis owner 事件 `agent-preset/selected(sessionId, agentPreset)`，宿主流原样转发它，两份目录各自通过 `ctx.remote.$on` 直接订阅：`ui-command` 软刷新该键（新快照落地前，旧快照继续服务已打开的菜单），`ui-skill` 让它失效（并中止在途的预热，使一次与切换赛跑的 warm 无法发布过期目录）。
 
@@ -20,7 +20,7 @@ preset 把决定 `/` 菜单内容的那些行搬走了。Web 组装禁用了宿�
 
 从落账事件而不是 RPC 处理器的返回值派生 owner 事件，使「这个会话的组成变了」只有一个权威来源：每个已连接的客户端都能观察到这次切换，而不只是发起它的那个标签页；不是发起方的客户端也无需从一个根本不会到来的注册表信号里去推断。
 
-## Alternatives considered
+## 考虑过的替代方案
 
 **在客户端自己的 `agentPresets.select` 回调里就地失效。** 改动最小，而且第一轮之后 preset 就锁定，hero 上的 chip 是切换唯一可能的发起处。否决理由是失效逻辑会落在恰好发起 RPC 的那个界面上，而不是提交点：同一个空会话在第二个标签页里仍是过期菜单，将来任何宿主侧的重组也完全没有信号。
 
@@ -28,11 +28,11 @@ preset 把决定 `/` 菜单内容的那些行搬走了。Web 组装禁用了宿�
 
 **复用转发的 `commands/change`。** 它是既有的目录失效事件，但它是注册表级的、不带会话、也与技能无关；客户端会把每个会话的命令都重拉一遍，却依然永远刷不新技能目录。
 
-## Consequences
+## 后果
 
 转发名单加入了 preset owner 的类型化事件，而每一份由 preset 决定的目录从此有了统一的订阅点：将来任何从组成派生的按会话界面，都在同一个信号上失效，而不必再发明一个。owner 事件仍是落账事实的第二次发布，因此将来若出现一条不落账就重组的切换路径，它将无人宣告。`ui-command` 保持软失效（已打开的菜单不会变空），而 `ui-skill` 直接丢弃该项，因为技能目录没有「部分可服务」的状态；在重拉窗口内打开的菜单，那一瞬间显示的是没有技能，而不是错误的技能。
 
-## Testing
+## 测试
 
 `api-proxy-agent-preset.spec.ts` 断言已提交的切换恰好转发一次，并带上会话与新 preset；`ui-agent-preset`、`ui-command` 与 `ui-skill` 的 spec 断言直接 Remote 订阅会合并会话行或只重拉被重组的会话。`agent-preset-selection` web e2e 播种一个项目技能，并在 hero chip 应用 `minimal` 之后断言 `/` 菜单丢掉了 `compact`、`plan` 和该技能，同时保留宿主面的那几行——这是面板跟随组成的整装应用证据。
 

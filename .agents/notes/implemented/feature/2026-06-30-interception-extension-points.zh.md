@@ -1,4 +1,4 @@
-# Agent Note: 拦截扩展点——钩子编程所面对的类型化 Decision 表面
+# Agent Note: 拦截扩展点——钩子编程所面对的类型化 Decision 接口
 
 Status: implemented
 
@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那样在生命周期节点扩展或管控 agent（智能体）。驱动本设计的关键视角转换是：**「原生钩子」不是一个包**——原生钩子只是一个普通的 Cordis 插件，订阅规范的生命周期事件。因此真正的产品是一个*强大、类型完备的规范事件表面*；CC/Codex 桥接（`dsh-hooks-claude` / `dsh-hooks-codex` 包）只是将外部 shell 钩子协议映射到同一表面的翻译层。桥接能做的事，普通插件可以直接做——而且更强大（无序列化边界、完整 `ctx`、类型化返回值）。
+harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那样在生命周期节点扩展或管控 agent（智能体）。驱动本设计的关键视角转换是：**「原生钩子」不是一个包**——原生钩子只是一个普通的 Cordis 插件，订阅规范的生命周期事件。因此真正的产品是一个*强大、类型完备的规范事件接口*；CC/Codex 桥接（`dsh-hooks-claude` / `dsh-hooks-codex` 包）只是将外部 shell 钩子协议映射到同一接口的翻译层。桥接能做的事，普通插件可以直接做——而且更强大（无序列化边界、完整 `ctx`、类型化返回值）。
 
-该表面需要为以下场景提供各自独立的约定：逐提示词策略（CC 的 `UserPromptSubmit`）、会话启动观测（CC 的 `SessionStart`）、工具执行前策略、环绕调度控制、工具执行后变换、最终结果观测，以及携带面向模型的原因的继续执行。如果把这些阶段混为一谈，插件就会获得不需要的 mutation 通道，而终结性将依赖监听器的注册顺序。[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 提供了三域规则与类型化 Decision 惯用法；本 Agent Note 将其应用于生命周期扩展点。
+该接口需要为以下场景提供各自独立的约定：逐提示词策略（CC 的 `UserPromptSubmit`）、会话启动观测（CC 的 `SessionStart`）、工具执行前策略、环绕调度控制、工具执行后变换、最终结果观测，以及携带面向模型的原因的继续执行。如果把这些阶段混为一谈，插件就会获得不需要的 mutation 通道，而终结性将依赖监听器的注册顺序。[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 提供了三域规则与类型化 Decision 惯用法；本 Agent Note 将其应用于生命周期扩展点。
 
 ## 决策
 
-规范表面将可变换策略、环绕调度控制与仅观测通知分离。策略 waterfall（瀑布式事件）返回小型的、扩展点专属的**类型化 Decision 联合类型**；包装层返回规范化结果；通知接收不可变快照，无法影响结果。覆盖的钩子点包括 `session-start`、`prompt-submit`、`pre-tool`、`post-tool`、通过 continuation 实现的 `stop`，同时将非钩子的执行策略留作独立可组合。
+规范接口将可变换策略、环绕调度控制与仅观测通知分离。策略 waterfall（瀑布式事件）返回小型的、扩展点专属的**类型化 Decision 联合类型**；包装层返回规范化结果；通知接收不可变快照，无法影响结果。覆盖的钩子点包括 `session-start`、`prompt-submit`、`pre-tool`、`post-tool`、通过 continuation 实现的 `stop`，同时将非钩子的执行策略留作独立可组合。
 
 **Agent 事件**（`dsh-agent`）：
 - `agent/session-start({ agent, source })` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
@@ -52,8 +52,8 @@ Service Definition 包**不**声明 `hook/*` 会话事件（持久的钩子调�
 ## 曾考虑的替代方案
 
 - **将工具执行前输入重写作为本扩展点集合的一部分发布**：推迟，视为越界信号；上文已阐述一致性问题（审计、历史和展示都读取执行前记录的 `tool/call.arguments`），[工具执行前输入重写提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)负责该设计。
-- **将持久的 `hook/*` SessionEvents 与扩展点一起声明**：否决。原生插件使用类型化 Decision 而完全不需要钩子日志（实际示例已证明），因此持久日志属于[钩子协议库](2026-06-30-hook-protocol-lib.md)，而非扩展表面。
+- **将持久的 `hook/*` SessionEvents 与扩展点一起声明**：否决。原生插件使用类型化 Decision 而完全不需要钩子日志（实际示例已证明），因此持久日志属于[钩子协议库](2026-06-30-hook-protocol-lib.md)，而非扩展接口。
 
 ## 后果
 
-规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的约定记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/subsystems/core.md#interception-decisions) 与[工具结构](../../../../docs/subsystems/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。
+规范拦截接口具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的约定记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/subsystems/core.md#interception-decisions) 与[工具结构](../../../../docs/subsystems/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。

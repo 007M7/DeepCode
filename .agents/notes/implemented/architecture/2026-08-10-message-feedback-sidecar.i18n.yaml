@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-10-message-feedback-sidecar.md
 2026-08-10-message-feedback-sidecar.md: 83465dfb3b3fa5f14d38eb6cbeeb68bda828f827
-2026-08-10-message-feedback-sidecar.zh.md: 901842768f8f45ef13c97083eae0eb55a0692d3f
+2026-08-10-message-feedback-sidecar.zh.md: dcb977182f8d8c631e6c01731324102537a33872

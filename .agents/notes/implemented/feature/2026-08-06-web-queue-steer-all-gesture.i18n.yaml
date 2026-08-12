@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-06-web-queue-steer-all-gesture.md
 2026-08-06-web-queue-steer-all-gesture.md: e546f68647dfc9b91ce4699cef4a64694ebc4f76
-2026-08-06-web-queue-steer-all-gesture.zh.md: fb36852f66a86408af12df59001230b2024eccaf
+2026-08-06-web-queue-steer-all-gesture.zh.md: 20dc5d31b72d7ea0cbbbc4adafa2bc03d58d959e

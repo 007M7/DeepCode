@@ -56,7 +56,7 @@ preset 自行发布描述，长度不限，而网格让每一行卡片等高—�
 
 未组装任何 preset 的部署返回空名单，本行、chip、标签与分区都不渲染任何内容——此时每个会话共用宿主组装，也就无从选择或管理。未配置可写根目录的部署返回 `authorable: false`，分区随之退化为只读浏览：随附组装仍可在查看器中打开，但每个复制操作都被禁用并以原因作提示，而不是给出一个创建必然失败的对话框。
 
-## Model Experience
+## 模型体验
 
 Indirectly, through the preset a later session is composed from; [`dsh-agent-presets`](../../preset/agent-presets/README.md) owns what that composition puts in front of the model.
 
@@ -64,7 +64,7 @@ Indirectly, through the preset a later session is composed from; [`dsh-agent-pre
 
 没有直接的失效影响。更改默认值绝不触及运行中会话的前缀；此后创建的会话依据它自己的组装建立自己的前缀。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - **没有元数据的 preset 按 id 列出** —— 展示文本是可选的，未取名的副本刻意回退到目录名，而不是与其来源呈现得一模一样。
 - **展示的路径是文本，不是链接** —— 宿主没有桌面打开器时，卡片显示目录供手工复制；浏览器自身无法打开宿主文件系统上的位置。

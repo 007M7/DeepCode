@@ -38,7 +38,7 @@
 
 ## 模型体验
 
-通过 [`dsh-tool-web`](../tool-web/README.md) 间接影响；该工具把此提供方经 `maxBodyChars` 限制的解码文本或 markdown 形状 HTML 置于抓取结果包装层中，并保留提供方失败；重定向、标头与传输机制保持隐藏。
+通过 [`dsh-tool-web`](../tool-web/README.md) 间接影响；该工具把此提供方经 `maxBodyChars` 限制的解码文本或由 HTML 转换得到的 markdown 置于抓取结果包装层中，并保留提供方失败；重定向、标头与传输机制保持隐藏。
 
 #### KV Cache 影响
 

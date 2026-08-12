@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-plan-review-presentation-intent.md
 2026-07-30-plan-review-presentation-intent.md: 62e1c24aba7a2901a46da4e6ace9707814472974
-2026-07-30-plan-review-presentation-intent.zh.md: 8415b94cab697e0fa9c4094b938d8ceb99107c7f
+2026-07-30-plan-review-presentation-intent.zh.md: 3416269d27140aeb3ecffd2273da28721d215c49

@@ -9,7 +9,7 @@ import { useEffect } from 'react'
 import type {
   AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
   ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolCallBlock, ToolResultNode, TurnErrorNode,
-  UserMessageNode, WorkspaceListState,
+  TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
@@ -28,7 +28,7 @@ import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
   CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
-  UnknownNodeView, UserMessageNodeView,
+  TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
@@ -107,6 +107,9 @@ const turnError = (seq: number, code?: string): TurnErrorNode => ({
   kind: 'turn-error', seq, time: seq * 1_000, turn: 1, step: 0,
   message: seq === 2 ? 'API key is invalid' : 'plugin exploded',
   ...(code === undefined ? {} : { code }),
+})
+const turnMaxTokens = (seq: number): TurnMaxTokensNode => ({
+  kind: 'turn-max-tokens', seq, time: seq * 1_000, turn: 1, step: 0,
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
@@ -217,6 +220,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
         return <RetryNodeView {...nodeProps<'model-retry'>()} />
       case 'turn-error':
         return <TurnErrorNodeView {...nodeProps<'turn-error'>()} />
+      case 'turn-max-tokens':
+        return <TurnMaxTokensNodeView {...nodeProps<'turn-max-tokens'>()} />
       case 'turn-tail':
         return (
           <TurnTailNodeView
@@ -583,6 +588,16 @@ describe('ChatView', () => {
       '本轮运行失败API key is invalidAUTH',
       '本轮运行失败plugin exploded',
     ])
+  })
+
+  it('renders the max-tokens notice with localized guidance, distinct from turn errors', () => {
+    const h = makeHarness({ nodes: [user(1, 'try'), assistant(2, 'truncated'), turnMaxTokens(3)] })
+    const view = render(<h.ChatView {...h.props} />)
+    const statuses = view.getAllByRole('status')
+    expect(statuses.map(status => status.textContent)).toEqual([
+      '已达到输出 token 上限回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。',
+    ])
+    expect(view.queryByText('本轮运行失败')).toBeNull()
   })
 
   it('hands the trajectory callback to the Tool seat', () => {

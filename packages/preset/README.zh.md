@@ -6,7 +6,7 @@
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| `agent-presets/` | preset 词汇、在受信任目录与用户自建目录上的文件系统发现，以及带校验的按 agent 挂载 | `ctx.agentPresets` |
+| `agent-presets/` | preset 词汇体系、对受信任根目录和用户自定义根目录的文件系统发现，以及受防护的按 agent 挂载 | `ctx.agentPresets` |
 | `persona/` | 把 agent 人设做成可组装的行，使 preset 不止能改工具、也能改身份 | — |
 
 部署交付哪些 preset，看 [`apps/cli/config/agent-presets/`](../../apps/cli/config/agent-presets)——一个 preset 一个目录，那份目录列表就是清单。在这里再列一遍只会多出一份需要同步的名单，而且总是它先过时。

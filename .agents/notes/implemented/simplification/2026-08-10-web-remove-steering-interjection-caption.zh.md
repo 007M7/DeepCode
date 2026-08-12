@@ -1,4 +1,4 @@
-# Agent Note: 移除 steering 插话标注
+# Agent Note: 移除 steering（中途引导）插话标注
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)给每个持久与待处理的 steering 气泡加上了 `插话` / `Interjection` 标注，让 transcript 能说明哪条右对齐气泡打断了正在运行的轮次。这个标注重复了消息流已经呈现的事实：steering 气泡位于轮次中途、夹在被它打断的助手内容之间，而开轮提示位于轮次边界。在每个 steer 气泡上方常驻一行三级文字，并没有让一个能看到位置的读者多读出任何信息，而且它是所有用户样式气泡中唯一带装饰的，还破坏了原本统一的右对齐节奏。
+[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)给每个持久与待处理的 steering 气泡加上了 `插话` / `Interjection` 标注，让 transcript（文本记录）能说明哪条右对齐气泡打断了正在运行的轮次。这个标注重复了消息流已经呈现的事实：steering 气泡位于轮次中途、夹在被它打断的助手内容之间，而开轮提示位于轮次边界。在每个 steer 气泡上方常驻一行三级文字，并没有让一个能看到位置的读者多读出任何信息，而且它是所有用户样式气泡中唯一带装饰的，还破坏了原本统一的右对齐节奏。
 
 ## 决策
 
@@ -32,5 +32,5 @@ steering 完全按用户气泡渲染。`UserStyleBubble` 不再有 steering 标�
 ## 后果
 
 - 回放的 transcript 不再为 steering 命名：读者靠消息在轮次中的位置推断这是一次中途插话。对快速扫读轮次边界的读者，这个推断弱于显式标签；本决策接受这一代价。
-- 待处理的 steer 气泡在被准入前与普通已发送气泡在视觉上完全一致，仅缺少时钟时间。
+- 待处理的 steer 气泡在被准入前与普通已发送气泡在视觉上完全一致，仅缺少时间戳。
 - 重新引入任何形式的 steering 装饰都需要一个取代本 note 的新产品决策。

@@ -4,7 +4,7 @@
 
 一个 Cordis 插件，在 harness 的规范拦截点上运行用户现有 **Codex** hook 配置的受支持子集。它是 hooks 子系统中采用 **Codex 方言** 的一侧。方言无关原语来自 [`@deepseek-ai/dsh-hook-protocol`](../hook-protocol/README.md)；该桥接负责处理 Codex 形状的 payload、matcher 模式和决策映射。
 
-该桥接实现 Codex 当前 hook 协议的一个明确子集：
+该桥接实现 Codex 当前 hook 协议的一个有意选取的子集：
 
 - **10 个 hook 点中的 5 个：** `PreToolUse`、`PostToolUse`、`SessionStart`、`UserPromptSubmit` 和 `Stop`。
 - **仅使用正则的 matcher**（没有字面量快速路径；matcher 始终是未锚定正则）。
@@ -50,7 +50,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 
 工具调用的 payload 携带真实 `tool_name`（matcher 测试的相同值）与 Codex `tool_input: { command }` 形状（存在 `command` arg 时使用该值，否则使用 `''`）。matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）或会话源（`SessionStart`）；`UserPromptSubmit`／`Stop` 忽略 matcher。
 
-每个 agent scope stdin payload 都携带 `session_id` 和 `transcript_path`。可用时，桥接通过 `ctx.sessionPersistence.locate(session.header)` 解析后者，否则发送 `null`，保留 Codex `string | null` 形状。查找不会创建或 flush 产物，因此在第一个轮次结束检查点之前，路径可能尚不存在，或其指向的 transcript 可能尚未包含当前未结束的轮次。
+每个 agent scope stdin payload 都携带 `session_id` 和 `transcript_path`。可用时，桥接通过 `ctx.sessionPersistence.locate(session.header)` 解析后者，否则发送 `null`，保留 Codex `string | null` 形状。查找不会创建或 flush 产物，因此在第一个轮次结束检查点之前，路径可能尚不存在，或其指向的 transcript（文本记录）可能尚未包含当前未结束的轮次。
 
 `SessionStart` 是唯一的 emit 点，它会脱离运行。每条运行链都会被跟踪；对桥接执行 dispose（资源释放）会中止仍在运行的 hook 进程，再排空 continuation，之后 dispose 才会完成（`createDetachedRuns`，位于 `dsh-hook-protocol`）。
 
@@ -82,7 +82,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### Token 影响
 
-阻塞提示词会移除其请求 token；拒绝或反馈会添加保留的回退或提供方文本；强制 continuation 需要另一个完整请求。
+阻塞提示词不会产生该提示词对应的模型请求 token；拒绝或反馈会添加保留的回退或提供方文本；强制 continuation 需要另一个完整请求。
 
 #### KV Cache 影响
 

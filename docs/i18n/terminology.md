@@ -37,6 +37,7 @@
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
+| coding agent | coding agent | coding agent（编程智能体） | | agent 组合词，正文保留英文 |
 | Cordis | Cordis | | | |
 | dispose | dispose | dispose（资源释放） | | |
 | doc-sync | doc-sync | doc-sync（文档同步门禁） | | |

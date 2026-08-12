@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-取消是一种生命周期短于 Agent（智能体）驱动器的控制能力。自由文本字符串无法穷尽地区分调用方，步骤级控制器也无法中断提示词提交、提示词组装、继续决策或轮次终止策略。持久化 `Error`、`AbortSignal.reason` 或后端私有对象还会向持久化回放暴露不稳定的运行时细节。
+取消是一种生命周期短于 Agent（智能体）驱动器的控制能力。自由文本字符串无法完整区分所有调用方，步骤级控制器也无法中断提示词提交、提示词组装、继续决策或轮次终止策略。持久化 `Error`、`AbortSignal.reason` 或后端私有对象还会向持久化回放暴露不稳定的运行时细节。
 
 [发起 Agent 作用域决策](2026-07-15-agent-initiator-scope.md)有意让 AsyncLocalStorage 只携带同一个 Agent。若把轮次、步骤或 signal 状态加入这个与驱动器同生命周期的边界，陈旧的异步后代就会看似仍对后续轮次拥有权限。因此，取消需要一个轮次归属方并显式传播，且不创建另一套环境上下文或公开的轮次包装层。
 
@@ -20,7 +20,7 @@ AgentLoop 为每个待启动轮次私有地持有一个 `TurnCancellation`。它
 
 对于轮次被认领前已取消的排队工作，驱动器只保留一个不携带取消原因的运行前标记。实际生效的 `cancel()` 会先发出仅供观察的 `agent/cancel-requested` 通知并携带最终确定的类型化取消原因，然后才清除排队工作和 steering（中途引导）工作或中止持有者；通知失败不能阻止此次停止，空闲状态下调用则不发出任何通知。通知观察者同步加入队列的工作也会被这次清除，而稍后由 signal 中止观察者加入队列的工作会被锁存，并在被中止的活动收敛到空闲时执行——`disposed` 取消则将其停放（[取消收敛窗口唤醒锁存](../bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。若 `running` 监听器同步取消旧工作并发送替代提示词，驱动器会丢弃已中止的持有者，并为替代提示词创建全新的持有者。同一活跃持有者上的重复取消遵循首次请求优先，后续调用仍可清除新入队的待处理工作。
 
-显式事件签名传递单个 payload 对象：agent 作用域事件在 payload 中携带 `agent` 和 `signal`，`next` 位于最后；其余 API 保持 `signal` 紧邻 waterfall（瀑布式事件）的最终 `next` 之前。`PreStepContext` 与 `RequestFailureContext` 已退役，其字段并入 `agent/pre-step` 与 `agent/request-error` 的 payload（[payload-object 事件](2026-08-06-agent-event-payload-objects.md)）。pre-step 进入决策、请求配置、请求错误恢复、模型生成、工具执行、审批、轮次停止以及 subagent 或工作流请求都会收到当前 signal。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
+显式事件签名传递单个 payload 对象：agent 作用域事件在 payload 中携带 `agent` 和 `signal`，`next` 位于最后；其余 API 保持 `signal` 紧邻 waterfall（瀑布式事件）的最终 `next` 之前。`PreStepContext` 与 `RequestFailureContext` 已退役，其字段并入 `agent/pre-step` 与 `agent/request-error` 的 payload（[payload-object 事件](2026-08-06-agent-event-payload-objects.md)）。进入 pre-step 时、请求配置、请求错误恢复、模型生成、工具执行、审批、轮次停止以及 subagent 或工作流请求都会收到当前 signal。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
 
 `ctx.agents` 仍只携带发起 Agent。环境中的 Agent 并不代表存活、当前轮次或取消权限。cause 读取器是 loop 私有的，它直接陈述机器私有的 slot 不变量（只有 `cancel()` 会中止轮次控制器，且总是携带规范的冻结 cause），而不是对 reason 做结构化再校验；不存在从任意 signal 读取 cause 的公开辅助函数。并发 Agent 会同时隔离各自的发起方身份和轮次 signal；子驱动会遮蔽父发起方，而父请求 signal 仍通过 subagent seam 传递。
 
@@ -40,7 +40,7 @@ Agent dispose（资源释放）会在活跃持有者上请求仅用于运行时�
 
 **持久化自由文本原因。** 字符串允许拼写漂移、阻碍穷尽分支判断，还会鼓励消费方解析展示文本。运行时使用封闭的可辨识联合类型，终态记录只需要稳定的中止结果。
 
-**在 `turn/end` 中持久化类型化调用方取消原因。** 当前没有任何生产环境中的回放、UI、ACP、遥测或工作流消费方区分 `user` 与 `parent`。把请求来源复制到终态结果会混淆两项事实，还会在没有消费方的情况下引入会话特有校验；未来的审计接口可以记录独立的取消请求事件。
+**在 `turn/end` 中持久化类型化调用方取消原因。** 当前没有任何生产环境中的回放、UI、ACP、遥测或工作流消费方区分 `user` 与 `parent`。把请求来源复制到终态结果会混淆两项事实，还会在没有消费方的情况下引入会话特有校验；未来的审计记录可以包含独立的取消请求事件。
 
 **现在就定义推测性的 `superseded`、`timeout` 和 `shutdown` 变体。** 当前没有 Agent 取消生产方实现这些语义。`shutdown` 已经属于生命周期 dispose；超时或替代只有在拥有明确归属策略和唯一终态含义时才应进入联合类型。
 

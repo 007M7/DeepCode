@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-04-web-composer-shared-width-axis.md
 2026-08-04-web-composer-shared-width-axis.md: f667363fb26297046b373779e1755928d328ec96
-2026-08-04-web-composer-shared-width-axis.zh.md: 94db330b34ff719eafa9e0018f2f06099c24030c
+2026-08-04-web-composer-shared-width-axis.zh.md: 6268cfb198e2136afe48a5feed552dda7f87252d

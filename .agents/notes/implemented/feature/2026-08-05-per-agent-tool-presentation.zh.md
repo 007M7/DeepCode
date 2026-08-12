@@ -4,13 +4,13 @@ Status: implemented
 
 [English](2026-08-05-per-agent-tool-presentation.md) | 中文
 
-## Problem
+## 问题
 
 agent preset 已经能按会话组装一个 agent 的工具，却管不了这些工具以何种**形态**抵达模型。Code Mode——一个 `run_code` 工具加一份生成的 TypeScript SDK，用一段程序替代一串调用——此前是宿主 `dsh-tools` 那一行上的部署级 `mode` 字段。一个部署要么所有会话都跑 Code Mode，要么一个都不跑，于是那个显而易见的产品形态（预设选择器里「代码模式」与标准/极简/创造并列）无处安放。
 
 「把 tools 下沉到 agent 平面」这个字面读法行不通。`ctx.tools` 有一批跟不下来的宿主平面消费者：`dsh-agent-loop` 读它私有的调度器 seam，`dsh-apiproxy` 读它的 presenter 来渲染工具卡，每个工具插件都往里注册。按本 stack 自己的规则——只有**所有**消费者一起下沉，服务才能下沉——注册表必须留在原地。
 
-## Decision
+## 决策
 
 把注册表和它的投影拆开。注册表留在宿主平面；**呈现方式**变成它内部按 scope 的状态，与已经住在那里的作用域限制和守卫并列。
 
@@ -25,7 +25,7 @@ SDK 提示词段由 code 模式的部署全局注册（不变），并由 `prese
 
 preset 用一行来表达这个选择：`@deepseek-ai/dsh-agent-tool-mode`，其全部内容就是一次 `presentAs` 调用。code 类模式通过 `ctx.inject` 等待 `ctx.codeRuntime` 而非假定它存在：运行时在宿主平面，而一个 pending 的行正是 `dsh-agent-presets` 已经会报告的「不可用挂载」并会指名该行——于是在无运行时的部署上选择 Code Mode 的 preset，会在操作者能够动手的地方失败。
 
-## Alternatives considered
+## 考虑过的替代方案
 
 **在 preset 的 isolate realm 里再起一个 `ToolRegistry`。** 否决：`dsh-agent-loop` 通过一个私有 symbol 从宿主上下文一次性解析注册表，因此按 agent 的注册表对调度器不可见。把 loop 改成按 agent 解析注册表，远比把一个字段变成 scope 感知的改动大。
 
@@ -37,7 +37,7 @@ preset 用一行来表达这个选择：`@deepseek-ai/dsh-agent-tool-mode`，其
 
 **用 include 共享 `standard` 的组装。** 按本 stack 自己的惯例否决：`cordis` 已经复制了一份 `standard`，而 preset 的价值恰在于整份组装能在一个文件里读完。代价——第三份约 240 行、且必须同步演进的副本——是真实的，也正是未来引入 include 机制最有力的论据。
 
-## Consequences
+## 后果
 
 同一进程内的两个会话现在可以有不同的呈现方式，因此「模型看到哪些工具」不再能只凭部署配置回答，必须给出 agent。凡是引用模式的诊断信息，现在引用的都是该 scope 的，而不是服务的。
 

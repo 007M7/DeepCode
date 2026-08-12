@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md
 2026-07-28-continuable-subagent-conversations.md: 8408cf27003c011e140c3f426d81f3ba5af76b06
-2026-07-28-continuable-subagent-conversations.zh.md: e6f7bcc7d4f70edb8cbbe1ac88b9bdd7ac2e11a5
+2026-07-28-continuable-subagent-conversations.zh.md: dc294e15a20db5fab1b3190b19a3e68788b845a3

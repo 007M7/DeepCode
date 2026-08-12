@@ -258,7 +258,7 @@ type SessionLineageTrace = {
 
 ## 有界事件读取
 
-请求指定一个原始 seq 及可选的邻近数量。结果携带 `SessionHeader` 而非可用性标志，使已知的实时目标可以独立于持久化健康状态。
+请求指定一个原始 seq 及可选的邻近数量。结果携带 `SessionHeader` 而非可用性标志，使已知的 live 目标可以独立于持久化健康状态。
 
 ```ts type-equiv
 /** Request for one event plus raw neighboring log context. */

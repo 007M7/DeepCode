@@ -56,4 +56,4 @@ pnpm run typecheck
 pnpm run build && pnpm run constraints
 ```
 
-请运行[测试政策](../testing.md)所选择的行为检查。源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.md#typescript-project-layout)）。
+请运行[测试政策](../testing.md)所选择的行为检查。源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合项目启用严格检查的 TypeScript 程序中（[布局](../development.md#typescript-project-layout)）。

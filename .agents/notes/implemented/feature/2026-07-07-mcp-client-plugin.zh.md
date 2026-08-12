@@ -200,7 +200,7 @@ v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 ha
 ## 后果
 
 - 每个 MCP 服务器只需 `cordis.yml` 中的一条配置即完成集成：`serverName: filesystem` 加一条 stdio 命令（或一个 Streamable HTTP URL），就能将 `mcp__filesystem__read_file` 放入模型的工具列表，可调用，协议上使用原始的 `read_file`。
-- 公开名称是会话历史和权限/配置表面的一部分；命名算法是由测试固定的 v1 约定，发布后变更即为破坏性变更。
+- 公开名称是会话历史和权限/配置 API 的一部分；命名算法是由测试固定的 v1 约定，发布后变更即为破坏性变更。
 - `mcp__<serverName>__` 限定符在每个名称上消耗 token。已接受：描述和 JSON Schema 在工具定义 token 中占主导，而限定符换来了稳定标识、冲突隔离和 MCP 全局策略匹配模式（`mcp__*`、`mcp__github__*`）。
 - **MCP SDK 稳定性**：`@modelcontextprotocol/sdk` 仍在演进中；破坏性变更需要更新桥接。版本已固定，且该 SDK 被广泛采用（Claude Desktop、Cursor、VS Code），因此破坏性变更不太可能悄然发生。
 - **工具 schema 质量**：MCP 服务器可能暴露描述不佳的工具（模糊的描述、不完整的 JSON Schema）。harness 原样透传——垃圾进垃圾出；这是服务器作者的责任，不是桥接的。

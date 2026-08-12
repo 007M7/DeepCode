@@ -3,6 +3,9 @@
     - 'button "Plan a small change: add" [disabled]'
   - img
   - text: Standard mode
+  - button "Session log":
+    - text: Session log
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -28,7 +28,7 @@ interface ContentBlockMap {
 }
 ```
 
-各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.md)）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
+各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.md)）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩（compaction）和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
 
 源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
 
@@ -209,7 +209,7 @@ interface LlmFailure {
 
 - **`usage` 在 `finish` 之前，`finish` 之后不再有任何分片。** 将两者都推迟到提供方的流结束标记，这样尾部的 usage-only 分片就不会违反顺序。
 - **工具调用的 `arguments` 全程保持原始 JSON 字符串。** 部分片段通过 `argumentsDelta` 流式传输；如果提供方返回的是已解析的对象，适配器在 `block-end` 时重新序列化为字符串。
-- **两条受支持的错误路径，共用一个 `LlmFailure` 类型。** 失败可以从 `stream()` 抛出（传输/协议错误），**或者**以 `finish {kind:'error'|'aborted', failure}` 结束流（无法在流中途抛异常的适配器用它表示提供方带内错误）。`LlmError.failure` 携带同一个 `LlmFailure`。调用选定适配器后，流会保留被抛出的确切 `Error` 对象，并将不可变事实以及实际服务注册所对应的不可变重试策略关联到该调用；agent loop（智能体循环）关闭失败步骤，再把错误、事实、不可变的先前已重试失败事实、实际服务策略和轮次信号提供给 `agent/request-error`。处理该错误的 listener 在其 await 的修复完成后返回 `{ kind: 'retry' }`；若未恢复，结构化失败会成为轮次错误，并且该次尝试不会提交正常 assistant 消息或工具副作用。
+- **两条受支持的错误路径，共用一个 `LlmFailure` 类型。** 失败可以从 `stream()` 抛出（传输／协议错误），**或者**以 `finish {kind:'error'|'aborted', failure}` 结束流（无法在流中途抛异常的适配器用它表示提供方带内错误）。`LlmError.failure` 携带同一个 `LlmFailure`。调用选定适配器后，流会保留被抛出的确切 `Error` 对象，并将不可变事实以及实际服务注册所对应的不可变重试策略关联到该调用；agent loop（智能体循环）关闭失败步骤，再把错误、事实、不可变的先前已重试失败事实、实际服务策略和轮次信号提供给 `agent/request-error`。处理该错误的 listener 在其 await 的修复完成后返回 `{ kind: 'retry' }`；若未恢复，结构化失败会成为轮次错误，并且该次尝试不会提交正常 assistant 消息或工具副作用。
 - **一次适配器调用就是一次提供方尝试。** 适配器禁用库重试。agent 层恢复会打开另一个持久、带编号的轮次；直接调用 `ctx.llm.stream()` 的调用方仍然只尝试一次。
 - **提供方停顿在传输层受到时限约束。** 两个已交付的远程适配器都暴露正数且有限的 `streamIdleTimeoutMs`，默认五分钟。watchdog 只在 iterator `next()` 尚未完成时启动，整个请求使用同一个稳定 signal，把自身到期映射为 `TIMEOUT`，并把更早发生的调用方中止保留为 `ABORTED`。
 - **上下文溢出只有一个规范 code。** 两个 DeepSeek 适配器都通过 `isContextWindowExceededError()` 对提供方的显式细节分类并暴露 `CONTEXT_WINDOW_EXCEEDED`，无论失败以抛出的 HTTP `LlmError` 还是带内 finish error 到达。消费方按 code 路由，绝不依赖提供方文本。
@@ -223,7 +223,7 @@ interface LlmFailure {
 
 ## `AppIdentity`：应用归属
 
-每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该约定有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包（package） manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该约定有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包 manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
 
 ```ts type-equiv
 /**
@@ -594,11 +594,11 @@ interface LlmDiscoveredModel {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录状态构建每个请求。`EpochHeader` 记录调用配置，标记由适配器默认值提供的字段，并通过完整的 `request/header` 快照记录渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 记录调用配置，标记由适配器默认值提供的字段，并通过完整的 `request/header` 快照记录渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置以及由适配器默认值提供的字段。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall（瀑布式事件）开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置以及由适配器默认值提供的字段。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
-在协议中，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史。已记录的请求快照会以最新的 `user/message`（轮次首步）或上一步的工具结果（后续步骤）结尾。开发不变式针对每个循环构建的请求精确重算此等式。
+在协议中，循环构建的请求先读取 `system` slot（渲染后的提示词组装），再读取派生历史。已记录的请求快照会以最新的 `user/message`（轮次首步）或上一步的工具结果（后续步骤）结尾。开发不变式针对每个循环构建的请求精确重算此等式。
 
 FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确实属于 epoch 层级（`model` 和模型持有的推理强度已明确属于；采样标量目前出于谨慎保留在此）。
 
@@ -632,7 +632,7 @@ interface LlmCallConfigAdapterDefaults {
 
 ## 服务与提供方约定
 
-`LlmAdapter` 是提供方约定：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmService.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmService.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall（瀑布式事件）的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。消费方 surface（`ctx.llm.stream()`）与 `llm/stream` waterfall 见 [architecture.md § 内容块与流式传输](../architecture.md#model-content)。
+`LlmAdapter` 是提供方约定：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmService.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和可选的部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmService.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall 的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。`ctx.llm.stream()` 与 `llm/stream` waterfall 在一个轮次中的位置见 [architecture.md](../architecture.md#turn-flow)。
 
 ```ts type-equiv
 /** One model call whose config and adapter registration were resolved together. */

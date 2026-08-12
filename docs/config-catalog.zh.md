@@ -126,7 +126,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
-来源：[`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
+来源：[`packages/core/agent-loop/src/index.ts:255`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-presets`
 
@@ -327,7 +327,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/bash/bash-local/src/index.ts:40`](../packages/bash/bash-local/src/index.ts)
+来源：[`packages/bash/bash-local/src/index.ts:41`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -545,7 +545,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/fs/fs-local/src/index.ts:40`](../packages/fs/fs-local/src/index.ts)
+来源：[`packages/fs/fs-local/src/index.ts:41`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -1060,7 +1060,7 @@ export interface ReplayModelConfig {
 export type Config = Readonly<Record<string, never>>
 ```
 
-来源：[`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src/index.ts)
+来源：[`packages/llm/llm-retry/src/index.ts:24`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -1171,7 +1171,7 @@ export interface ReconnectConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:94`](../packages/mcp/mcp-client/src/index.ts)
+来源：[`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-message-feedback`
 
@@ -1330,7 +1330,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/bash/pwsh-local/src/index.ts:54`](../packages/bash/pwsh-local/src/index.ts)
+来源：[`packages/bash/pwsh-local/src/index.ts:58`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-pwsh-sandbox`
 
@@ -1474,7 +1474,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:59`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:60`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -1638,7 +1638,7 @@ export enum TelemetryMode {
 
 依赖：`BatchLogRecordProcessorOptions`（`@opentelemetry/sdk-logs`）· `OTLPExporterNodeConfigBase`（`@opentelemetry/otlp-exporter-base`）
 
-来源：[`packages/session/session-telemetry-otel/src/index.ts:79`](../packages/session/session-telemetry-otel/src/index.ts)
+来源：[`packages/session/session-telemetry-otel/src/index.ts:91`](../packages/session/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
@@ -2190,7 +2190,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts:24`](../packages/fs/tool-fs/src/index.ts)
+来源：[`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs-search`
 
@@ -2692,7 +2692,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/web/web-search-deepseek/src/index.ts:44`](../packages/web/web-search-deepseek/src/index.ts)
+来源：[`packages/web/web-search-deepseek/src/index.ts:46`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
@@ -2847,6 +2847,7 @@ export interface Config {
 - `@deepseek-ai/dsh-pty`（[`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts)）
 - `@deepseek-ai/dsh-session`（[`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts)）
 - `@deepseek-ai/dsh-session-checkpoint-policy` — 需要 `llm` · `sessionPersistence` · `sessions` · `tools`（[`packages/session/session-checkpoint-policy/src/index.ts`](../packages/session/session-checkpoint-policy/src/index.ts)）
+- `@deepseek-ai/dsh-session-export` — 需要 `commands`（[`packages/session-query/session-export/src/index.ts`](../packages/session-query/session-export/src/index.ts)）
 - `@deepseek-ai/dsh-session-projection`（[`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts)）
 - `@deepseek-ai/dsh-skill-badge` — 需要 `skills`（[`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts)）
 - `@deepseek-ai/dsh-storage`（[`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts)）

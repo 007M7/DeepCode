@@ -89,7 +89,7 @@ export function apply(ctx: Context) {
 | bail | `ctx.bail(name, ...args)` | serial 的同步版本。 |
 | waterfall（瀑布式事件） | `ctx.waterfall(name, ...args, next)` | 环绕中间件，见下文。 |
 
-每个 harness 事件都会在其所属[子系统页面](../subsystems/core.md)的生成参考中记录其模式。
+每个 harness 事件都会在其所属[子系统页面](../subsystems/core.md)自动生成的参考文档中记录其模式。
 
 ## waterfall：转换或短路
 

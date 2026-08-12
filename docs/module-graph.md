@@ -108,6 +108,7 @@ flowchart TD
     pkg_hooks_codex["hooks-codex"]
   end
   subgraph group_session_query["packages/session-query"]
+    pkg_session_export["session-export"]
     pkg_session_query["session-query"]
     pkg_session_query_sqlite["session-query-sqlite"]
     pkg_tool_session_query["tool-session-query"]
@@ -1326,6 +1327,14 @@ flowchart TD
   pkg_host_directory_picker_auto --> pkg_host_directory_picker_native
   pkg_host_directory_picker_auto --> pkg_host_webserver
   pkg_host_directory_picker_auto --> pkg_invariants
+  pkg_session_export --> pkg_client_locale
+  pkg_session_export --> pkg_client_runtime
+  pkg_session_export --> pkg_client_ui_command
+  pkg_session_export --> pkg_client_ui_conversation
+  pkg_session_export --> pkg_client_ui_primitives
+  pkg_session_export --> pkg_client_ui_slots
+  pkg_session_export --> pkg_commands
+  pkg_session_export --> pkg_invariants
   pkg_client_ui_model --> pkg_api_remotes
   pkg_client_ui_model --> pkg_client_connection
   pkg_client_ui_model --> pkg_client_locale
@@ -1572,6 +1581,7 @@ flowchart TD
 | [`client-ui-tool`](../packages/client/ui-tool) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-workflow-run`](../packages/client/ui-workflow-run) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`tool-workflow`](../packages/workflow/tool-workflow), [`workflow`](../packages/workflow/workflow) |
 | [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`client-ui-directory-picker`](../packages/client/ui-directory-picker), [`client-ui-directory-picker-native`](../packages/client/ui-directory-picker-native), [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
+| [`session-export`](../packages/session-query/session-export) | `session-query` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-command`](../packages/client/ui-command), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`commands`](../packages/interaction/commands), [`invariants`](../packages/support/invariants) |
 | [`client-ui-model`](../packages/client/ui-model) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-command`](../packages/client/ui-command), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-permission`](../packages/client/ui-permission) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-command`](../packages/client/ui-command), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`permission`](../packages/interaction/permission) |
 | [`client-ui-skill`](../packages/client/ui-skill) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-tool`](../packages/client/ui-tool), [`invariants`](../packages/support/invariants) |

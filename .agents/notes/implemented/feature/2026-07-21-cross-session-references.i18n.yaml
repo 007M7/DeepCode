@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-21-cross-session-references.md
 2026-07-21-cross-session-references.md: 46424e12949697054da2f920fbe55ca9dcbaf075
-2026-07-21-cross-session-references.zh.md: 7956dbef79aa77ab9d2be810420ae8c1b4e82a8d
+2026-07-21-cross-session-references.zh.md: 0e43c452de53c2da26551166bf2925b78b839ce5

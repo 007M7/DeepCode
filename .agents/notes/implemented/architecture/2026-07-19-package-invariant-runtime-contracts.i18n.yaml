@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-19-package-invariant-runtime-contracts.md
 2026-07-19-package-invariant-runtime-contracts.md: 6e6516c2fa629aa736c178be4acbc8b42fd9a0b9
-2026-07-19-package-invariant-runtime-contracts.zh.md: a7432ca0320646c57b29fbfd64c679b94c9861af
+2026-07-19-package-invariant-runtime-contracts.zh.md: 6e6da337d811a25f073b424af8dc3bbc483520a6

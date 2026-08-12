@@ -1,5 +1,5 @@
 /**
- * downloads domain zod schemas. The GET download surface has no wire
+ * downloads domain zod schemas. The download surface has no wire
  * envelope: the request arrives as query parameters (all strings), so its
  * request schema parses the raw query-parameter object into the method's
  * exact request shape. SessionId brand cast point: sessionIdSchema, and only

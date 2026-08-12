@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/token-meter.md
 token-meter.md: d0066485e58b1e9ff60543111f186c0a2a69348d
-token-meter.zh.md: d92bc797d28d6dafd3cd5d2ca00577684b248ce5
+token-meter.zh.md: 8fd9ab2e6ffee8865c0a89a11576b85f72cb9f42

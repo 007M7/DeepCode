@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-26-pnpm-action-setup-for-symmetric-ci-caching.md
 2026-07-26-pnpm-action-setup-for-symmetric-ci-caching.md: 499141ca6a3703a12d10c195b732441d49419599
-2026-07-26-pnpm-action-setup-for-symmetric-ci-caching.zh.md: c57b7d32cd7204a845ab1884e9ae0b9045749a1c
+2026-07-26-pnpm-action-setup-for-symmetric-ci-caching.zh.md: 0b1e280db6e4e04cc4a210203e97026174fc02f6

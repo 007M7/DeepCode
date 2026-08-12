@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-25-web-command-surfaces-and-assembly.md) | 中文
 
-> 范围：命令目录缓存与三型派发（ui-command）、popup 选择流、skill（技能） / subagent 两个引用源、fixture（测试前置数据）命令路由与装配验收（slash-flow 快照）。承载 wire 见[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.md)；触发/菜单/输入机器见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)。
+> 范围：命令目录缓存与三型派发（ui-command）、popup 选择流、skill（技能） / subagent 两个引用源、fixture（测试前置数据）命令路由与装配验收（slash-flow 快照）。承载 wire 见[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.md)；触发、菜单和输入机器见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)。
 
 ## 问题
 
@@ -12,7 +12,7 @@ Status: implemented
 
 - 命令 UI 不止一种形态（当场执行、弹选择框、回填后继续打参数）——业务包如何零骨架改动上架；
 - 目录何时拉取：每次开菜单现拉太慢，常驻缓存就要有失效与重连故事；
-- 会话恒 agent-backed（Session+Agent 同瞬出生），client 命令面通过什么地址访问 host 的逐 agent 有效目录；
+- 会话始终由 agent（智能体）支撑（Session+Agent 同瞬出生），client 命令面通过什么地址访问 host 的逐 agent 有效目录；
 - 装配级验收：拆开的各层合起来，用户可见主链如何钉住。
 
 ## 决策
@@ -38,9 +38,9 @@ Status: implemented
 
 ### 装配级验收：slash-flow 快照
 
-`apps/web/tests/slash-flow.snapshot.ts` 钉住用户可见主链（assembled keyless，包 mock 不替代装配后的 transcript（文本记录））：无会话时 composer 禁用 → 创建 Workspace 并进入已实体化的 blank 会话 → `/` 菜单选 `/echo` leadingInput → 命令执行但 blank 位不翻转、列表仍显示 `New Session` → 首条普通提示词成功受理后同一行转正；同一个会话绑定的 textarea 在 blank → active 转换期间保持不变。`workspace-flow.snapshot.ts` 另钉住 blank 行创建/复用、首讯拒绝回填，以及首讯前切换 Workspace 时 draft 跨 input machine 搬运且旧 blank 行隐藏。
+`apps/web/tests/slash-flow.snapshot.ts` 钉住用户可见主链（assembled keyless，包 mock 不替代装配后的 transcript（文本记录））：无会话时 composer 禁用 → 创建 Workspace 并进入已实体化的 blank 会话 → `/` 菜单选 `/echo` leadingInput → 命令执行但 blank 位不翻转、列表仍显示 `New Session` → 首条普通提示词成功受理后同一行转正；同一个会话绑定的 textarea 在 blank → active 转换期间保持不变。`workspace-flow.snapshot.ts` 另钉住 blank 行创建/复用、首条提示词遭拒后的回填，以及在发出首条提示词前切换 Workspace 时 draft 跨 input machine 搬运且旧 blank 行隐藏。
 
-## Alternatives considered
+## 曾考虑的替代方案
 
 | 弃案 | 一行理由 |
 |---|---|

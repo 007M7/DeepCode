@@ -33,21 +33,21 @@ await ctx.plugin(FsPolicy)
 
 | 事件 | 本插件的监听器 |
 |---|---|
-| `fs/write-intent` | 未见或已观测为缺失 → `{ kind: 'createIfAbsent' }`；已观测为存在 → `{ kind: 'replaceIfVersion', version: vObserved }`。单槽决策；不调用 `next()`。 |
-| `fs/edit-intent` | 未见 → `FS_NOT_OBSERVED`；已观测为缺失 → `FS_NOT_FOUND`；已观测为存在 → 返回 `{ version: vObserved }` 作为 CAS 基础。单槽决策；不调用 `next()`。 |
+| `fs/write-intent` | 未见或已观测为缺失 → `{ kind: 'createIfAbsent' }`；已观测为存在 → `{ kind: 'replaceIfVersion', version: vObserved }`。单 slot 决策；不调用 `next()`。 |
+| `fs/edit-intent` | 未见 → `FS_NOT_OBSERVED`；已观测为缺失 → `FS_NOT_FOUND`；已观测为存在 → 返回 `{ version: vObserved }` 作为 CAS 基础。单 slot 决策；不调用 `next()`。 |
 | `fs/observed` | 为该所有者与目标记录 `{ kind: 'present', version }` 或 `{ kind: 'absent' }`。同步、只有副作用的 `WeakMap.set`。 |
 
 ## 已观察状态是先前观察记录；新鲜度由提供方 CAS 保证
 
 观测状态是一张以所有者为弱键、记录各目标的映射表，具有三种逻辑状态：未见、确认缺失、存在于某个版本。成功读取文件或变更会记录存在；`read` 的元数据未命中，或 `str_replace_editor` 的 `view`、`str_replace`、`insert` 命令发生元数据未命中时，都会在返回 `FS_NOT_FOUND` 前记录缺失。插件不执行文件系统 I/O：它把该状态转换为提供方防护。存在状态提供观测到的版本；缺失状态只允许 `createIfAbsent` 写入继续，edit 因没有版本基准而返回 `FS_NOT_FOUND`。窗口读取会观察整个文件的版本，因此只有文件保持不变时才允许后续的定向编辑。插件 dispose（资源释放）时会丢弃状态，并且不会跨会话持久化。
 
-## 单槽、先到者胜
+## 单 slot、先到者胜
 
-`fs/write-intent`/`fs/edit-intent` 槽位只容纳一个决策器；本插件会完整决策，不调用 `next()`。槽位按注册顺序先到者胜；由本插件拥有槽位只是默认部署约定，不是事件强制的不变式（更早注册或通过 `prepend` 注册的决策器会胜出）。这不是可组合的授权链；分层权限/审计/沙箱拦截属于 `tools/execute`。
+`fs/write-intent`/`fs/edit-intent` slot 只容纳一个决策器；本插件会完整决策，不调用 `next()`。slot 按注册顺序先到者胜；由本插件拥有 slot 只是默认部署约定，不是事件强制的不变式（更早注册或通过 `prepend` 注册的决策器会胜出）。这不是可组合的授权链；分层权限/审计/沙箱拦截属于 `tools/execute`。
 
 ## 不与方法耦合
 
-由于插件只通过事件影响外部世界，移除它不会在服务注入边界破坏 `@deepseek-ai/dsh-tool-fs`：工具会直接落到裸 `ctx.fs` 提供方（无条件写入/编辑，无已观察状态）。重新加载则会再次叠加策略。相比必需的方法服务，这种可平稳增删的性质正是事件门禁的全部目的。
+由于插件只通过事件影响外部世界，移除它不会在服务注入边界破坏 `@deepseek-ai/dsh-tool-fs`：工具会直接落到裸 `ctx.fs` 提供方（无条件写入/编辑，无已观察状态）。重新加载插件后，策略会重新生效。相比必需的方法服务，这种可平稳增删的性质正是事件门禁的全部目的。
 
 ## 模型体验
 
@@ -55,7 +55,7 @@ await ctx.plugin(FsPolicy)
 
 #### 模型看到的内容
 
-该插件不添加提示词或 schema。没有先前观测时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝编辑；编辑刚被观测为缺失的目标会返回 `FS_NOT_FOUND`。正向观测陈旧时，带防护的变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md)拥有面向模型的错误包装，会为 `FS_STALE_VERSION` 消息追加恢复指令（`— re-read the file, then retry`）、为 `FS_NOT_OBSERVED` 消息追加恢复指令（`— read the file, then retry`），同时保留错误码。外部删除目标后，遵循陈旧恢复指令会记录缺失：下一次带防护的写入可以通过 `createIfAbsent` 重新创建该目标，而提供方会以原子方式保留任何并发创建者写入的文件。
+该插件不添加提示词或 schema。没有先前观测时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝编辑；编辑刚被观测为缺失的目标会返回 `FS_NOT_FOUND`。正向观测陈旧时，带防护的变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md) 拥有面向模型的错误包装，会为 `FS_STALE_VERSION` 消息追加恢复指令（`— re-read the file, then retry`）、为 `FS_NOT_OBSERVED` 消息追加恢复指令（`— read the file, then retry`），同时保留错误码。外部删除目标后，遵循陈旧恢复指令会记录缺失：下一次带防护的写入可以通过 `createIfAbsent` 重新创建该目标，而提供方会以原子方式保留任何并发创建者写入的文件。
 
 #### Token 影响
 

@@ -14,7 +14,7 @@ Status: implemented
 
 面板的理由与命令移入同一个滚动区域（`data-approval-scroll`），其高度上限与 composer 的草稿区完全相同；琥珀色状态条与操作按钮行位于该区域之外，因此无论内容多长，两个按钮都留在卡片内。
 
-这个上限是一个值、两个消费者，以 `--dsh-composer-text-max-height: 336px` 声明在 `ConversationRoot` 的 `.composerSeat` 上——它是 composer 链唯一的共同祖先，因为兜底的 InputBar 与被选中的接管面板是兄弟节点。`InputBar` 的草稿滚动容器与面板的滚动区域都读取它，于是同一个容器不可能给它的两种状态设出不同上限：设计同学要求的「可以跟输入框最大高度统一」，如今是样式表中的一个事实，而不是抄在两个文件里的一个数字。该区域取 `box-sizing: border-box`，因此上限指的是它的外框高度，与 composer 草稿区占据的是同一个盒子。
+这个上限是一个值、两个消费方，以 `--dsh-composer-text-max-height: 336px` 声明在 `ConversationRoot` 的 `.composerSeat` 上——它是 composer 链唯一的共同祖先，因为兜底的 InputBar 与被选中的接管面板是兄弟节点。`InputBar` 的草稿滚动容器与面板的滚动区域都读取它，于是同一个容器不可能给它的两种状态设出不同上限：设计同学要求的「可以跟输入框最大高度统一」，如今是样式表中的一个事实，而不是抄在两个文件里的一个数字。该区域取 `box-sizing: border-box`，因此上限指的是它的外框高度，与 composer 草稿区占据的是同一个盒子。
 
 该区域自身是一个 Tab 停靠点（`tabIndex={0}`，带名称的 `role="group"`）。提问 composer 的滚动体不需要这样做——它的选项行本身可聚焦，会把容器一起带过去；而这里除文本之外别无内容：没有自己的停靠点，仅用键盘的用户能走到按钮却走不到命令尾部，于是可能批准了自己没读完的东西。
 
@@ -47,6 +47,6 @@ Status: implemented
 
 几何断言块与 golden 仅在回放模式下执行，这样录制模式才能走到写入 fixture（测试前置数据）那一步，而不是在布局检查处中断。
 
-该场景只保留一份 golden——等待中的面板；回应之后的状态改为对世界作断言（决策结果、越权命令写出的那个文件、`DONE`、面板消失、输入框重新可用）。一份"已回应 transcript"的 golden 立不住：第一次被拒绝的尝试渲染的是操作系统自己的拒绝文本，而这段文本因平台而异（macOS 为 `bash: notes.txt: Operation not permitted`，Linux 为 `bash: line 1: notes.txt: Read-only file system`）。任何 transcript 中含有被沙箱拒绝命令的场景都会继承这一点，因此这类拒绝只能进断言，绝不能进 golden。
+该场景只保留一份 golden——等待中的面板；回应之后的状态改为对世界作断言（决策结果、越权命令写出的那个文件、`DONE`、面板消失、输入框重新可用）。一份「已回应 transcript」的 golden 立不住：第一次被拒绝的尝试渲染的是操作系统自己的拒绝文本，而这段文本因平台而异（macOS 为 `bash: notes.txt: Operation not permitted`，Linux 为 `bash: line 1: notes.txt: Read-only file system`）。任何 transcript 中含有被沙箱拒绝命令的场景都会继承这一点，因此这类拒绝只能进断言，绝不能进 golden。
 
-该面板以客户端模组包的形式发布：单跑 `pnpm run build:web` 不会带上对 `ApprovalPanel.module.css` 的改动，也不会带上 `ApprovalPanel.tsx` 中新增的 `data-` 钩子——必须先执行包构建，否则浏览器测试通道会对着一个比工作树更旧的客户端做断言。
+该面板以客户端模块包的形式发布：单跑 `pnpm run build:web` 不会带上对 `ApprovalPanel.module.css` 的改动，也不会带上 `ApprovalPanel.tsx` 中新增的 `data-` 钩子——必须先执行包构建，否则浏览器测试通道会对着一个比工作树更旧的客户端做断言。

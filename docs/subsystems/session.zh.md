@@ -308,7 +308,7 @@ interface SurfaceIntent {
 }
 ```
 
-对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的记录（transcript）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
+对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的 transcript（文本记录）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
 
 只有 `assistant/message` 可以携带存在但为空的 `sourceEventSeqs`；字段不存在时，该事件没有记录这条消息由哪些早期事件产生，但提供方仍可能发出过分片。
 
@@ -527,7 +527,7 @@ declare class Session {
 - `tool/result` → 一条携带 `tool-result` 块的 user 消息。
 - `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`；其类型化 source 标明生产方，并携带所有生产方专用数据。
 
-其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝没有提供方／模型的请求头和 assistant 消息，而不会猜测历史数据应走的提供方路由。
+其余所有事件（`turn/*`、`step/*`、插件所属的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝没有提供方／模型的请求头和 assistant 消息，而不会猜测历史数据应走的提供方路由。
 
 ## 活跃会话 fork API
 
@@ -541,7 +541,7 @@ declare class Session {
 
 ## 轮次的结束原因：`TurnEndReasonMap`
 
-`turn/start` 没有 trigger 字段。返回 enter 的 pre-step 所产生的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到唤醒交付抵达后续 pre-step。实时轮次会保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)；只有在导入受支持的粗粒度取消记录且记录未保存调用方时，持久化才使用额外的 `{ kind: 'legacy' }` 原因。
+`turn/start` 没有 trigger 字段。已进入的 `user/message` 批次记录进入每个步骤的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到唤醒交付抵达后续 pre-step。实时轮次会保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)；只有在导入受支持的粗粒度取消记录且记录未保存调用方时，持久化才使用额外的 `{ kind: 'legacy' }` 原因。
 
 ```ts type-equiv
 /** Durable cancellation cause, including imports whose original coarse record carried no cause. */
@@ -578,7 +578,7 @@ interface TurnEndReasonMap {
 
 ## 执行封闭与独立事件
 
-一个轮次包围一次模型循环执行，而不是整个会话日志。AgentLoop 只会从轮次内返回 enter 的 pre-step 批次记录注入的 `user/message` 事件；插件所属的纯日志事件仍可出现在 `turn/end` 与下一个 `turn/start` 之间，占用事件 seq 但不递增轮次编号。持久化会将每个连续且已接受的事件纳入有界持久化批次，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要即时持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
+一个轮次包围一次模型循环执行，而不是整个会话日志。AgentLoop 只会在轮次内进入 pre-step 批次时记录注入的 `user/message` 事件；插件所属的纯日志事件仍可出现在 `turn/end` 与下一个 `turn/start` 之间，占用事件 seq 但不递增轮次编号。持久化会将每个连续且已接受的事件纳入有界持久化批次，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要即时持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
 
 可选的 `dsh-session/invariant` 配套插件会强制核心拥有的关系：轮次与步骤编号、执行事件封闭，以及同一步骤内的工具调用／结果配对。可合并扩展事件的关系由声明它的插件拥有，因此核心不会仅因没有开放轮次就拒绝未知事件。见[独立事件决策](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md)。
 

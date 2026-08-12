@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-21-bounded-llm-request-recovery.md) | 中文
 
-[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。[LLM 流的终止失败](2026-07-29-terminal-llm-stream-failures.md)取代了其中关于抛出错误身份和流伴随状态的机制。
+[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。[LLM（大语言模型）流的终止失败](2026-07-29-terminal-llm-stream-failures.md)取代了其中关于抛出错误身份和流 sidecar 的机制。
 
 ## 问题
 
@@ -52,13 +52,13 @@ agent loop（智能体循环）会将终止 finish 的 `LlmFailure` 传给 `agen
 
 `@deepseek-ai/dsh-llm-retry` 是监听 `agent/request-error` 的函数插件。它不引入服务或新的循环分支；agent-loop 包仅会更改通过现有失败步骤恢复控制流携带的数据。
 
-`agent/request-error` waterfall 携带当前 `LlmFailure`、在连续恢复序列中授权重试轮次的不可变先前失败列表，以及实际服务注册所对应的不可变重试策略。循环只传递而不解释该策略；它拥有连续失败历史，并在模型请求成功后清除。`dsh-llm-retry` 的 normal 策略统计由同一项确切提供方策略安排的持久重试记录，`dsh-compact-basic` 则维护自己的上下文溢出预算。因此，暂时性失败与上下文溢出交替出现时，会各自独立消耗其有限预算；最大请求数等于 1 加上所有已加载有限预算之和。
+`agent/request-error` waterfall 携带当前 `LlmFailure`、在连续恢复序列中授权重试轮次的不可变先前失败列表，以及提供服务的注册项所携带的不可变重试策略。循环只传递而不解释该策略；它拥有连续失败历史，并在模型请求成功后清除。`dsh-llm-retry` 的 normal 策略统计由同一项确切提供方策略安排的持久重试记录，`dsh-compact-basic` 则维护自己的上下文溢出预算。因此，暂时性失败与上下文溢出交替出现时，会各自独立消耗其有限预算；最大请求数等于 1 加上所有已加载有限预算之和。
 
 当前配置形状由[提供方策略决策](../feature/2026-07-24-provider-retry-policies.md)规定。提供方适配器会注册嵌套的 `retryPolicy`；省略时使用 normal 默认值：两次暂时性重试、500 毫秒初始延迟、10 秒延迟上限、10% 抖动，以及上述五个暂时性 code。计数与延迟边界参考了所调查实现中较保守的一端：[OpenCode 使用两次请求重试，延迟边界为 500 毫秒／10 秒](https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/%70ackages/llm/src/route/executor.ts#L36-L39)；[Pi 将三次 agent 级重试与提供方重试分开，且提供方重试默认为零](https://github.com/earendil-works/pi/blob/3da591ab74ab9ab407e72ed882600b2c851fae21/%70ackages/coding-agent/docs/settings.md#L139-L147)；[Codex 使用有限请求／流预算以及五分钟空闲超时](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/model-provider-info/src/lib.rs#L25-L33)。10% 抖动参考 [Codex 的有界抖动](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/codex-client/src/retry.rs#L40-L47)。
 
 对于预算未耗尽的合格失败，从 1 开始的暂时性重试计数使用有界指数退避。有效的 `providerRetryAfterMs` 只有在不超过 `maxDelayMs` 时才会取代指数退避；提供方延迟更长时，系统会委托给下一监听器，而不会违反提供方指令提前重试。本地退避乘以 `[1 - jitterRatio, 1 + jitterRatio]` 内的注入随机因子，并将最终值限制到 `maxDelayMs`；提供方延迟不加抖动。
 
-插件拥有一个全生命期 `AbortController`，并跟踪每个活跃的恢复回调，包括委托的 waterfall 工作与退避。effect 的 dispose（资源释放）会先注销监听器，再中止并等待活跃回调；中止会胜过较晚到达的委托重试决策，被捕获的回调在插件 dispose 后既不能重试，也不能进入其 waterfall 的剩余部分。尽管 Cordis 已捕获该监听器，此设计仍能使 HMR（热模块替换）的 dispose 达到完全停稳。
+插件拥有一个覆盖其整个生命周期的 `AbortController`，并跟踪每个活跃的恢复回调，包括委托的 waterfall 工作与退避。effect 的 dispose（资源释放）会先注销监听器，再中止并等待活跃回调；中止会胜过较晚到达的委托重试决策，被捕获的回调在插件 dispose 后既不能重试，也不能进入其 waterfall 的剩余部分。尽管 Cordis 已捕获该监听器，此设计仍能使 HMR（热模块替换）的 dispose 达到完全停稳。
 
 休眠前，`dsh-llm-retry` 会追加一条不进入表层的 `llm/retry` 会话事件，其中包含轮次、失败步骤、提供方、策略 mode、完整的解析后策略 key、提供方策略重试编号、特定于 mode 的有限上限（如有）、计划延迟和 `LlmFailure`。该 key 会对 code 集排序，并在提供方路由被行为不同但 mode 相同的策略替换时分隔重试历史。该插件拥有 `SessionEventMap` 声明合并，并通过其浏览器安全的 `./types` 子路径导出载荷；`dsh-session` 继续负责通用持久化，不会吸收可选策略的词汇。事件记录已安排的内容，而不是下一个请求已完成；延迟期间取消随后会在 `turn/end` 中可见。因为该事件的目的是表示运行状态，而不是收集跟踪数据，所以它会与生产渲染器及回放／快照覆盖一起交付。
 
@@ -110,7 +110,7 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 - 适配器抛出值会在抵达消费方前成为终止失败分片；middleware 与消费方异常仍在模型请求恢复之外抛出。
 - DeepSeek 和 pi-ai 适配器测试覆盖具有代表性的 400、401/403、429、5xx、连接、格式错误／截断流、超时、中止、Retry-After 秒数／日期、请求 id 和未知 SDK 错误路径，恢复策略无需解析消息文本。
 - pi-ai 将 SDK 选项固定为零次重试，并针对可重试的提供方响应执行一次可观测的线路请求尝试；独立测试确保移除任一边界都会失败。
-- `agent/request-error` 携带当前失败事实、不可变的先前已重试失败事实，以及实际服务注册所对应的不可变重试策略；成功会清除历史，暂时性失败／上下文溢出交替发生的集成测试证明两种策略只消耗各自的有限预算。
+- `agent/request-error` 携带当前失败事实、不可变的先前已重试失败事实，以及提供服务的注册项所携带的不可变重试策略；成功会清除历史，暂时性失败／上下文溢出交替发生的集成测试证明两种策略只消耗各自的有限预算。
 - 每个提供方适配器都在 Loader 启动时验证其嵌套重试策略，`ctx.llm` 则将该策略与路由一同捕获；normal mode 会委托不合格路径，而且在没有其他策略时最多发起 `maxRetries + 1` 次提供方请求。
 - 退避期间执行 HMR 的测试证明：dispose 过程会注销监听器、中止并等待其捕获的回调，dispose 后不发出重试决策，也不留下存活的定时器或 promise。
 - 纯单元测试覆盖暂时性 code 选择、指数退避和抖动边界、有效及超出上限的 `Retry-After`、耗尽的预算、确定性定时器／随机数钩子，以及退避期间中止。
@@ -135,4 +135,4 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 - [可重建请求](../../implemented/architecture/2026-07-05-reconstructable-requests.md)使提供方／模型和完整请求输入在分发前持久化。
 - [超时 deadline 库](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)将共享的 deadline 分类与能力自身拥有的终止操作分开。
 - [调用后压缩压力与上下文溢出恢复](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)负责当前已关闭步骤的请求恢复扩展点与有界溢出重试。
-- [提供方路由的 LLM（大语言模型）适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。
+- [提供方路由的 LLM 适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。

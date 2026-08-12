@@ -2,7 +2,7 @@
 
 [English](subprocess.md) | 中文
 
-进程管理器 seam 分为 Service Definition（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与 Service provider（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的 Consumer 是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用管道化 ndjson 加 inherit 的 stderr。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
+子进程 seam 分为 Service Definition（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与 Service provider（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的 Consumer 是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用通过管道传输的 ndjson，并让 stderr 采用 inherit。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
 
 源码：[`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts) 与 [`packages/subprocess/subprocess/src/index.ts`](../../packages/subprocess/subprocess/src/index.ts)
 
@@ -131,7 +131,7 @@ interface SubprocessSpawnSpec {
 
 ## 句柄：流、读取器与以进程树为范围的终止
 
-spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树。这足以让消费方构建自己的拆卸阶梯；ACP 后端的 `disposeAcpChild` 以 stdin EOF 开始，即为仓库内模板。
+spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树。这足以让消费方构建自己的分级清理流程；ACP 后端的 `disposeAcpChild` 会先关闭 stdin，让子进程收到 EOF，是仓库内的参考实现。
 
 ```ts type-equiv
 /**

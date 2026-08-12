@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-29-simplify-web-image-input-v1.md
 2026-07-29-simplify-web-image-input-v1.md: e7847dc2ae18f48146cb2b686dcda64beebf2350
-2026-07-29-simplify-web-image-input-v1.zh.md: c9e0a3cc5dc07b70be4b0c1244921ccac567d9af
+2026-07-29-simplify-web-image-input-v1.zh.md: 47f6bb5face5b896b5184f7198eef7d99ee25afe

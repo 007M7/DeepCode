@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-构成 harness 默认控制主干的会话日志、系统提示词组装、工具注册表、agent（智能体）词汇、部署默认模型选择和具体循环。这些是**产品**包，即插件和消费方构建所依赖的稳定 surface。
+构成 harness 默认控制主干的会话日志、系统提示词组装、工具注册表、agent（智能体）词汇、部署默认模型选择和具体循环。这些是**产品**包，即插件和消费方构建所依赖的稳定接口。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
@@ -18,4 +18,4 @@
 
 可运行组合属于 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)；该分组只负责可替换的主干组件。
 
-子系统参考——逐包循环地图、`Agent` 句柄及其投递/拦截约定——见 [docs/subsystems/core.md](../../docs/subsystems/core.md)；默认可运行组合是 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)。
+子系统参考——逐包循环图、`Agent` 句柄及其投递／拦截约定——见 [docs/subsystems/core.md](../../docs/subsystems/core.md)；默认可运行组合是 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)。

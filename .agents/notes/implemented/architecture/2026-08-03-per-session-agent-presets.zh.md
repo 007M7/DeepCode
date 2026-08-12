@@ -1,4 +1,4 @@
-# Agent Note：会话的 agent 由一份 preset cordis.yml 组装而成
+# Agent Note: 会话的 agent 由一份 preset cordis.yml 组装而成
 
 Status: implemented
 
@@ -31,7 +31,7 @@ Status: implemented
 
 ## 后果
 
-**有效默认值在每次解析时读取，从不快照。** 缓存下来就需要一个 `watch` 订阅和一条重载路径才能保持诚实，而解析后的 scope 本来就会重读热重载过的文档。读穿也不只是省事，它让边界本身是对的：新值作用于**下一个新建的会话**，每个运行中的会话保持它被构建时的那份组装。这条不变量正是 session 日志从另一侧执行的同一条——header 记录会话**创建时**的 id，此后空白期的任何切换由 `agent-preset/selected` 事件记录，因此读取方解析的是两者之和（`resolveSessionPreset`）、绝不单看 header：恢复重建的是其历史所产出的那份组装而不是当下的默认值，冷读记录的 presenter 在那份组装的层里解析，网关也会拒绝把一个活着的会话收编到它当前运行的 preset 以外的 preset 之下。快照会让两者恰好在设置改变的那一刻各说各话。
+**有效默认值在每次解析时读取，绝不保存快照。** 缓存下来就需要一个 `watch` 订阅和一条重载路径才能保持诚实，而解析后的 scope 本来就会重读热重载过的文档。读穿也不只是省事，它让边界本身是对的：新值作用于**下一个新建的会话**，每个运行中的会话保持它被构建时的那份组装。这条不变量正是 session 日志从另一侧执行的同一条——header 记录会话**创建时**的 id，此后空白期的任何切换由 `agent-preset/selected` 事件记录，因此读取方解析的是两者之和（`resolveSessionPreset`）、绝不单看 header：恢复重建的是其历史所产出的那份组装而不是当下的默认值，冷读记录的 presenter 在那份组装的层里解析，网关也会拒绝把一个活着的会话收编到它当前运行的 preset 以外的 preset 之下。快照会让两者恰好在设置改变的那一刻各说各话。
 
 
 **直接挂载的子树对启动审计不可见。** 它不会把自己关联到 `Entry`，因此不在 `ctx.loader.entries()` 中，`assertEntriesActivated` 也看不到它。改由挂载过程自行校验各行，通过一个会公开自身 tree 的 `Include` 子类读取。
@@ -50,7 +50,7 @@ Status: implemented
 
 **按自身名字回查全局注册表的插件，在 preset 里必然失效。** `ctx.tools.register()` 归档进**调用方**上下文的 scope，因此挂在 preset 里的插件只为一个 agent 注册，而不带 scope 的 `ctx.tools.get(name)` 理所当然查不到。`dsh-tool-skill` 正是这样写的，于是每次 preset 挂载都抛错；现在它与自己注册的那个定义比对。任何希望可被 preset 挂载的插件，都必须持有自己的注册对象，而不是按名字重新读取。
 
-**entry 本地 `isolate` realm 不仅对宿主不可见，对 agent 自身的 scope 同样不可见。** 只有该组内部的行能解析到该服务。这正是让 preset 的 `skills` 注册表归属单个 agent 而非共享的原因——同时也意味着：被留在提供方组之外的消费方会静默解析到宿主注册表，然后什么都不贡献。
+**entry 本地 `isolate` realm 不仅对宿主不可见，对 agent 自身的 scope 同样不可见。** 只有该组内部的行能解析到该服务。这正是让 preset 的 `skills` 注册表归属单个 agent 而非共享的原因——同时也意味着：留在提供方组之外的消费方会悄然解析到宿主注册表，然后什么都不贡献。
 
 **只有空白会话才允许切换。** 一旦跑过任何轮次，那段历史就是在该 preset 的工具下产生的，替换会留下无法执行的已记录 tool call，因此 `agentPreset.select` 返回 `agent-preset-locked`。空白期的切换保留 agent 与 session，只替换子树——因为宿主丢弃了它创建的 `AgentHandle`，也没有 delete RPC；而保留它们本身就是更好的结果，会话 id、workspace 挂接与 projections 都原地不动。该替换是"先卸后装"（两份组装会把同名工具注册进同一分层），因此它在拆除任何东西之前先解析新 preset，并在新组装装载失败时恢复原来的那一份。
 

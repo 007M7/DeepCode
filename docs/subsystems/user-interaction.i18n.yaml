@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/user-interaction.md
 user-interaction.md: 1f7ab09970f131928ada6e4014468b3d9fad64cf
-user-interaction.zh.md: 293b7fb391d8e6b2ec4179011437b4442b7fa5e4
+user-interaction.zh.md: eaaec2c399456193c30906fd1a7850ded0e32844

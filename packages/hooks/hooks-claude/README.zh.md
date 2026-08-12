@@ -37,7 +37,7 @@ hook **本身**会在 agent 的会话工作区中运行：对 agent scope 点，
 | CC hook | Harness 点 | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | additionalContext → `agent.inject()` 到新会话（无法阻塞） |
-| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `deny` → `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息（后续外层 listener 仍可 reject／改写） |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall（瀑布式事件）） | `deny` → `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息（后续外层 listener 仍可 reject／改写） |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `deny` → `PreToolDecision.deny`；`ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `deny` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -46,7 +46,7 @@ hook **本身**会在 agent 的会话工作区中运行：对 agent scope 点，
 
 三个 emit 点都以分离方式运行：没有扩展点会等待 `SessionStart`／`SubagentStart`／`SubagentStop` hook。每条运行链都会被跟踪；对桥接执行 dispose（资源释放）时，会中止仍在运行的 hook 进程，并在 dispose 完成前排空 continuation（`createDetachedRuns`，位于 `dsh-hook-protocol`）。
 
-matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（`SessionStart`），或常量 `agent_type`，其值为 `general-purpose`（`SubagentStart`／`SubagentStop`）。harness subagent seam 不携带每 kind label，因此桥接报告 Claude Code 自身 Task 工具默认值；默认／`*`／空 `agent_type` matcher 会触发，特定 kind matcher 不会触发。`UserPromptSubmit`／`Stop` 忽略 matcher。一个点上文件配置的多个 hook 会**按配置顺序串行运行**，并按最严格方式折叠（`deny > ask > allow`，见 `dsh-hook-protocol`）。串行使每个 hook 的 `hook/invoked`／`hook/result` 对在日志中相邻，决策折叠与顺序无关（见 Agent Note 的「run serially, not concurrently」说明）。
+matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（`SessionStart`），或常量 `agent_type`，其值为 `general-purpose`（`SubagentStart`／`SubagentStop`）。harness subagent seam 不携带每 kind label，因此桥接报告 Claude Code 自身 Task 工具默认值；默认／`*`／空 `agent_type` matcher 会触发，特定 kind matcher 不会触发。`UserPromptSubmit`／`Stop` 忽略 matcher。一个点上文件配置的多个 hook 会**按配置顺序串行运行**，并按最严格方式折叠（`deny > ask > allow`，见 `dsh-hook-protocol`）。串行使每个 hook 的 `hook/invoked`／`hook/result` 对在日志中相邻，权限决策的折叠结果与顺序无关（见 Agent Note 的「run serially, not concurrently」说明）。
 
 每个 agent scope stdin payload 都携带 `session_id` 与字符串形式的 `transcript_path`。可用时，桥接通过 `ctx.sessionPersistence.locate(session.header)` 解析后者，否则发送 `''`。查找不会创建或 flush 产物，因此第一个轮次结束检查点之前路径可能不存在，也可能省略当前开启轮次。
 
@@ -78,7 +78,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### Token 影响
 
-阻塞提示词会移除该提示词的请求 token；拒绝或反馈会添加保留的回退或提供方文本；强制 continuation 需要另一个完整请求。
+阻塞提示词不会产生该提示词对应的模型请求 token；拒绝或反馈会添加保留的回退或提供方文本；强制 continuation 需要另一个完整请求。
 
 #### KV Cache 影响
 

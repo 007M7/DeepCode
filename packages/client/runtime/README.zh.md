@@ -24,7 +24,7 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 `WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个按 Host 顺序的 `readonly SessionId[]`，仅在成员变化时才替换；需要 O(1) 查询的消费方自建临时 Set）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspacesService.archiveSession(sessionId)` 通过 wire 归档；投影层在当前 selection 落入归档集合时统一清空为 New Session 视图状态——一条规则同时覆盖本地回声、其他标签页的帧、以及重连基线恢复出一个离线期间被归档的 selection。在 `workspace.list` 请求进行中安装的集合还会取代该过期基线携带的集合。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。
 
-SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
+SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或条目 store。
 
 `indexSubagentDescendants()` 从保留的列表镜像中派生每个 parent 的后代总数与运行中后代数。它只沿不间断的 `origin: 'subagent'` 祖先链追踪，因此普通 fork 会开启独立的归属子树；遇到环时，追踪会停止但不会抛出异常，缺失的 parent 则会保留为无害的键，直至其摘要到达。
 
@@ -40,7 +40,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 待处理队列投影
 
-`ConversationSnapshot.queue` 是 Host 提供的 `agent.inbox.nextTurn` 权威瞬态快照；待处理的 next-step steering（中途引导）不进入此投影。每行携带其 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。Host 根据持久 `agent/inbox/spliced` 变更派生完整 `session/queue` 快照，并在重连时发送基线；面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知不用于重建该投影。`Session.updateQueue()` 经 Host 侧 `Inbox.splice()` 发送编辑／移除操作，客户端不做乐观变更，因此下一份 Host 快照是唯一可见的提交结果，claim 竞态则会返回 `queue-item-not-found`。
+`ConversationSnapshot.queue` 是 Host 提供的 `agent.inbox.nextTurn` 权威瞬态快照；待处理的 next-step steering（中途引导）不进入此投影。每行携带其 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。Host 根据持久 `agent/inbox/spliced` 变更派生完整 `session/queue` 快照，并在重连时发送基线；面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知不用于重建该投影。`Session.updateQueue()` 经 Host 侧 `Inbox.splice()` 发送编辑／移除操作，客户端不做乐观变更，因此下一份 Host 快照是唯一可见的提交结果，claim 竞态则可能呈现 `queue-item-not-found`。
 
 ## Conversation 组装
 
@@ -66,26 +66,28 @@ Trajectory Definition 组装出一条按时间顺序排列、以用途为判别�
 
 ## 模型重试投影
 
-Host 所属的 LLM retry invariant 会在持久追加边界验证按提供方路由的 `llm/retry` 与 `llm/retry-started` 记录，包括标识、顺序、计时器、整数、状态、提供方延迟和非空诊断字段约定。客户端的 Retry、Assistant 与 Turn Error Definition 把这些记录和 Assistant、Turn／Step 事件一起折叠：失败步骤的流式输出片段会被移除，并在 retry 事件的序列位置插入一条持久重试提示。该提示在匹配的 started 记录到达前为 `scheduled`；如果所属 Step 或 Turn 先关闭，则标记为 `cancelled`，started 记录到达后则标记为 `started`。normal mode 提示携带其有限上限；always mode 提示保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败只保留该次尝试的重试提示。窗口重建与历史回放使用同一组 Definition，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 Assistant 节点。
+Host 所属的 LLM（大语言模型）retry invariant 会在持久追加边界验证按提供方路由的 `llm/retry` 与 `llm/retry-started` 记录，包括标识、顺序、计时器、整数、状态、提供方延迟和非空诊断字段约定。客户端的 Retry、Assistant 与 Turn Error Definition 把这些记录和 Assistant、Turn／Step 事件一起折叠：失败步骤的流式输出片段会被移除，并在 retry 事件的序列位置插入一条持久重试提示。该提示在匹配的 started 记录到达前为 `scheduled`；如果所属 Step 或 Turn 先关闭，则标记为 `cancelled`，started 记录到达后则标记为 `started`。normal mode 提示携带其有限上限；always mode 提示保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败只保留该次尝试的重试提示。窗口重建与历史回放使用同一组 Definition，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 Assistant 节点。
+
+reason 为 `max-tokens` 的 `turn/end` 会在该轮位置投影出一个 `turn-max-tokens` 节点：一条 warning 样式的本地化提示，说明回答在单次请求的输出 token 上限处停止，已截断的输出保留在对话流中，并提示发送“继续”可在新一轮接着输出。事件本身不携带 token 数量，提示因此不显示任何数字。窗口重建与历史回放使用同一 Definition 重建该节点，刷新和恢复后结束原因保持一致。
 
 ## 会话 fork
 
-`ISessions.fork({sessionId, atSeq?, increaseTitle?})` 只在子会话摘要已能在本地寻址后才完成；该摘要携带源会话的谱系和 cwd，且 `blank: false`，由调用方决定是否打开。`increaseTitle: true` 会在 client 端把源会话的持久化标题改名到子会话：尾部 `(N)` 或 `（N）` 递增并保留括号样式，其余标题追加 ` (1)`；源会话没有持久化标题时跳过改名，改名失败时拒绝 promise 但保留已创建的子会话。该选项不会进入 Host fork 请求。即使响应为 `workspace-attach-failed`，其中仍会标识 Host 已发布的子会话，因此 `SessionManager` 会先将这一部分成功对账，再让 `SessionForkError` 到达调用方，避免重试创建重复的子会话。
+`ISessions.fork({sessionId, atSeq?, increaseTitle?})` 只在子会话摘要已能在本地寻址后才完成；该摘要携带源会话的谱系和 cwd，且 `blank: false`，由调用方决定是否打开。`increaseTitle: true` 会在 client 端根据源会话的持久化标题重命名子会话：尾部 `(N)` 或 `（N）` 递增并保留括号样式，其余标题追加 ` (1)`；源会话没有持久化标题时跳过改名，改名失败时拒绝 promise 但保留已创建的子会话。该选项不会进入 Host fork 请求。即使响应为 `workspace-attach-failed`，其中仍会标识 Host 已发布的子会话，因此 `SessionManager` 会先将这一部分成功对账，再让 `SessionForkError` 到达调用方，避免重试创建重复的子会话。
 
 ## 会话模型选择
 
-每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前提供方/模型目标、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前目标，打开选择器会刷新目录；选择失败会保留上一个目标和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的选择。重连重建会恢复 Host 报告的目标，同时不替换未变化的选择子结构。
+每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前模型选择、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前模型选择，打开选择器会刷新目录；选择失败会保留上一次模型选择和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的模型选择。重连重建会恢复 Host 报告的模型选择，同时不替换未变化的选择子结构。
 
 ## 模型体验
 
-无，因为会话对象层会选择后续 Host 请求使用的提供方/模型路由，但不添加任何模型可见内容。
+无，因为会话对象层会选择后续 Host 请求使用的提供方／模型路由，但不添加任何模型可见内容。
 
 #### KV Cache 影响
 
-更改目标可能改变提供方侧的缓存复用，或使其失效；该包本身不会改变提示词前缀。
+更改模型选择可能改变提供方侧的缓存复用，或使其失效；该包本身不会改变提示词前缀。
 
 ## 已知限制与暂缓事项
 
 - **`loader.unload` 是 stub**：它会抛出 not-implemented；客户端没有从 fiber dispose 到注册与样式移除的卸载链。
 - **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
-- **插件组合包从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。
+- **插件 bundle 从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。

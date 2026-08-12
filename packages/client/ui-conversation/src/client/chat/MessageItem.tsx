@@ -130,6 +130,21 @@ function TurnErrorItem({ node, t }: {
   )
 }
 
+/** Persistent, turn-positioned notice for a turn ended at the output-token cap. */
+function TurnMaxTokensItem({ t }: {
+  t: ChatViewSlotProps['t']
+}) {
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="warning" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.maxTokensTitle}>{t('message.maxTokens')}</span>
+        <span className={css.turnErrorMessage}>{t('message.maxTokens.hint')}</span>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
@@ -270,6 +285,11 @@ export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeVi
 /** Terminal turn-error keyed Chat renderer. */
 export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: ChatNodeViewProps<'turn-error'>) {
   return <TurnErrorItem node={node.data} t={t} />
+})
+
+/** Max-tokens turn-end notice keyed Chat renderer. */
+export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: ChatNodeViewProps<'turn-max-tokens'>) {
+  return <TurnMaxTokensItem t={t} />
 })
 
 /** Explicit unknown-surface keyed Chat renderer. */

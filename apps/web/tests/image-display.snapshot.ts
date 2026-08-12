@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Multimodal image surfaces over the BUILT client graph (the code-mode-fixture
 // idiom: real bundles via AppWebEntry, keyless FixtureApiClient transport).
-// Opens the fixture history session whose turn 72 carries an image in BOTH a
+// Opens the fixture history session whose turn 73 carries an image in BOTH a
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
 // sessions.attachment route, the single-click ImageLightbox, and the composer

@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-`dsh-llm-pi-ai` 把 pi-ai 包生成的 catalog 当成了可配置范围的边界。路由键必须点名一个已安装提供方（`resolveProfiles` 拒绝其余一切），模型列举原样返回 `getBuiltinModels(provider)`，请求期的模型解析又在同一份 catalog 里查这个 id、且只覆盖 `baseURL`。由此产生三个后果，而且三个都是死路而非缺口：OpenAI 兼容网关、自建服务，或比已安装 catalog 更新的提供方，根本无法配置；catalog 尚未跟上的模型即便端点正确也会以 `UNKNOWN_MODEL` 失败；模型的上下文窗口与输出上限完全由锁定的 pi-ai 版本决定，部署既无法更正过期值，也无法为 pi-ai 从未描述过的模型补上。要动其中任何一条，只能升级依赖。
+`dsh-llm-pi-ai` 把 pi-ai 包生成的 catalog 当成了可配置范围的边界。路由键必须点名一个已安装提供方（`resolveProfiles` 拒绝其余一切），模型列举原样返回 `getBuiltinModels(provider)`，请求期的模型解析又在同一份 catalog 里查这个 id、且只覆盖 `baseURL`。由此产生三个后果，而且三个都是死路而非缺口：OpenAI 兼容网关、自建服务，或比已安装 catalog 更新的提供方，根本无法配置；catalog 尚未跟上的模型即便端点正确也会以 `UNKNOWN_MODEL` 失败；模型的上下文窗口与输出上限完全由锁定的 pi-ai 版本决定，部署既无法更正陈旧值，也无法为 pi-ai 从未描述过的模型补上。要动其中任何一条，只能升级依赖。
 
 适配器还经 `@earendil-works/pi-ai/compat` 的 `streamSimple` 发起流式请求，而该入口自己的模块文档声明它是临时兼容面——其 catalog 读取标了 `@deprecated`，并会在 pi-ai 完成 `ModelManager` 迁移时被删除。这三条配置限制与这个废弃依赖的解法是同一个，因为 pi-ai 受支持的运行时（`createModels()` / `createProvider()`）正是围绕「提供方是被*声明*出来的，而非查出来的」建立的。
 
@@ -17,11 +17,12 @@ Status: implemented
 - `catalog.ts` 把已安装 catalog 合并到 profile 自身条目之下。profile 的 `models` 列表*替换*该路由的 catalog（列表缺席或为空则原样服务），每个条目从同 `id` 的已安装模型继承自身未设置的字段。只有 harness 会消费的字段可配置——`id`、`name`、`contextWindow`、`maxTokens`；[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 之后加入了 `reasoningEfforts` 与 `compat`，当初「推理（reasoning）沿用已安装条目或直接缺席」的立场也在那里被重新审视（孤立的能力布尔量仍被拒绝；带 wire 拼写的逐档位完整声明没有它那个问题）。输入模态后来被开放，形态是条目上的 `input` 加路由级 `defaultInput`——图片准入点使得「未被报告的模态」变成部署无法解除的拒绝之后（[[2026-08-12-pi-ai-route-default-input-modalities]]）；当初「没有任何读取方」那句论证描述的其实是 `llm-deepseek` 的序列化器，而不是这条路由，它的转换器能携带图片。定价仍因原有理由不出现在配置面：`replay.ts` 把 pi-ai 的成本元数据清零，且没有任何消费方报告开销。物化时以已安装条目铺底、再覆盖已配置的字段，而不是逐字段枚举结果：枚举式重建会静默丢弃本包未建模的每一个 `Model` 字段——`headers` 就是这样从某条 nvidia 路由上消失过一次。
 - `provider.ts` 构造路由的 `Provider`。保持 catalog 协议不变的 catalog 路由会**复用**已安装提供方，只替换 `getModels()`；其余路由都由 `createProvider()` 基于一张协议表构造，表中条目正是 pi-ai 自己的提供方工厂所用的 `@earendil-works/pi-ai/api/*.lazy` factory。该表刻意窄于 pi-ai 的完整 API 集合——只保留 profile 能用密钥、端点与标头完整描述的协议，因此 Bedrock（SigV4 加 region）、Vertex（project、location、ADC）、Azure（提供方环境加 api-version）与 Codex（OAuth）不在其中，而不是被当作无法认证的路由提供出去。catalog 路由仍可经自己的 provider 抵达它们；被拒的只有显式覆盖。
 - `adapter.ts` 把每次解析变成一份**不可变快照**——profiles 加上持有这些 provider 的 `createModels()` 集合——每个操作都在自己第一个 `await` 之前整体捕获一份。
+
 - 模型**显式配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`；从已安装 catalog 继承来的那份不会：pi-ai 要求 `Model.maxTokens` 表示模型的输出*能力*，而 `defaultMaxTokens` 是部署选定、发给未点名上限的请求的那个值，把前者物化成后者会让每个请求都被一个无人选择的数字封顶。
 
 ### 快照，而不是共享集合
 
-`Models.streamSimple()` 惰性解析 provider——在返回的流首次被消费时，而那已在适配器 await 路由凭据之后。因此就地改动的单一集合，会让一个在旧配置下开始的请求在新配置下结束，或者撞上一个已不存在的 provider，尽管 `llm.prepareCall()` 早已冻结了该步的 config 并捕获了其适配器注册。配置变化改为构造*新*集合，正在被使用的那个原封不动，于是 seam 的每步冻结得以贯通到底：回复途中切换模型在下一步生效，绝不影响在途的那一步。
+`Models.streamSimple()` 惰性解析提供方——在返回的流首次被消费时，而那已在适配器 await 路由凭据之后。因此就地改动的单一集合，会让一个在旧配置下开始的请求在新配置下结束，或者撞上一个已不存在的提供方，尽管 `llm.prepareCall()` 早已冻结了该步的 config 并捕获了其适配器注册。配置变化改为构造*新*集合，正在被使用的那个原封不动，于是 seam 的每步冻结得以贯通到底：回复途中切换模型在下一步生效，绝不影响在途的那一步。
 
 ### 目录原子替换
 
@@ -33,13 +34,13 @@ Status: implemented
 
 ### 唯一档位什么也做不到的能力，报告为不可用
 
-pi-ai 把没有推理元数据的模型报告为只支持 `off` 一档，而适配器此前原样透传。它抵达 seam 时是一个单元素的 effort 列表，任何界面都会把它渲染成一个只有一项可选控件的选择器——而这个控件在撒谎：`off` 在派发时变成被*省略*的 reasoning 选项，与「不点名任何档位」产出的请求逐字节相同。自身默认就在思考的提供方会继续思考，界面却显示 `off` 已选中。
+pi-ai 把没有推理元数据的模型报告为只支持 `off` 一档，而适配器此前原样透传。它抵达 seam 时是一个单元素的 effort 列表，任何界面都会把它渲染成一个只有一项可选控件的选择器——而这个控件在撒谎：`off` 在派发时变成被*省略*的推理选项，与「不点名任何档位」产出的请求逐字节相同。自身默认就在思考的提供方会继续思考，界面却显示 `off` 已选中。
 
 因此只要 `model.reasoning` 为假，`reasoningInfo` 就省略 Service Definition 的 `reasoning` 字段。判据是模型自身的元数据，而非模型的来源，所以它覆盖条目未声明 `reasoningEfforts` 的每一个手工声明模型（[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 让声明的档位携带这份元数据）**以及** pi-ai 标记为不具备推理能力的那 251 个已安装 catalog 模型。它们此前提供那个孤零零的 `off`，现在什么也不提供，界面只剩提供方默认。携带推理元数据的模型不受影响——其档位列表仍不经筛选地穿过 seam、`off` 也在内，因为在那里它是在真实备选之间做选择。
 
 ### 凭据留在 pi-ai 之外
 
-pi-ai 的 `Models` 自带一套凭据概念——按提供方 id 索引的 `CredentialStore`，配合 `envApiKeyAuth` 解析 `credential.key ?? env(VAR)`。采用它会在 `ctx.credentials` 之外制造第二个凭据真源，更糟的是会把 harness 明确禁止的环境回落重新引进来：点名了却取不到的 `apiKeyEnv` 必须以 `MISSING_CREDENTIAL` 失败，而不是用环境里恰好持有的某个无关密钥完成认证。
+pi-ai 的 `Models` 自带一套凭据概念——按提供方 ID 索引的 `CredentialStore`，配合 `envApiKeyAuth` 解析 `credential.key ?? env(VAR)`。采用它会在 `ctx.credentials` 之外制造第二个凭据真源，更糟的是会把 harness 明确禁止的环境回落重新引进来：点名了却取不到的 `apiKeyEnv` 必须以 `MISSING_CREDENTIAL` 失败，而不是用环境里恰好持有的某个无关密钥完成认证。
 
 `ModelsImpl.applyAuth` 会把 `options.apiKey` 当作该请求的密钥，但这条路必须经由一个声明了 api-key 方法的提供方：`resolveProviderAuth` 在覆盖存在时短路到该方法，否则依次落到凭据存储与环境发现；若提供方压根没有 api-key 方法，它返回空，请求随即以 `Provider is not configured` 失败。因此 harness 一如既往经自身 seam 解析路由密钥，并把结果作为请求的 `apiKey` 传入；该集合构造时不带任何凭据存储。
 
@@ -58,7 +59,7 @@ pi-ai 的 `Models` 自带一套凭据概念——按提供方 id 索引的 `Cred
 
 ## Consequences
 
-配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，过期的上下文窗口也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。`defaultMaxTokens` 现在会在部署明确给出时从配置中传入，不会从 catalog 元数据里发明一个上限。
+配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，陈旧的上下文窗口也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。`defaultMaxTokens` 现在会在部署明确给出时从配置中传入，不会从 catalog 元数据里发明一个上限。
 
 代价是：声明式路由会让 `settings.yaml` 变长，因为它必须自报端点、协议与模型 id。`api` 作用于整条路由，因此混合协议的 catalog 路由无法承载另一种协议的模型——把它拆成两个路由键是变通办法。没有任何环节查询提供方的 `/models`，因此模型列表的新鲜度只到最近一次编辑为止。有一种情形下报错形状发生变化：auth 解析不出任何值的路由，现在会在任何网络调用之前把 pi-ai 自己的诊断作为错误 `finish` 分片呈现，而此前的适配器会发出无密钥请求并呈现提供方的 401。
 
