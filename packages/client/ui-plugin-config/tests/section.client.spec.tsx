@@ -105,6 +105,10 @@ describe('PluginConfigSection', () => {
     expect(all.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('all')).toBeTruthy()
     expect(screen.getByText('configurable').closest('[role="tabpanel"]')).toHaveProperty('hidden', true)
+
+    fireEvent.click(configurable)
+    expect(configurable.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('all').closest('[role="tabpanel"]')).toHaveProperty('hidden', true)
   })
 
   it('leads with its own heading and intro', () => {

@@ -27,6 +27,7 @@ const SNAPSHOT = {
     { entryId: 'loading', moduleName: '@fixture/loading-name', enabled: true, fiberPhase: 'loading' },
     { entryId: 'failed', moduleName: '@fixture/failed-name', enabled: true, fiberPhase: 'failed' },
     { entryId: 'unloading', moduleName: '@fixture/unloading-name', enabled: true, fiberPhase: 'unloading' },
+    { entryId: 'unobserved', moduleName: '@fixture/unobserved-name', enabled: true, fiberPhase: null },
     { entryId: 'disabled-entry', moduleName: '@deepseek-ai/dsh-host-directory-picker-native', enabled: false, fiberPhase: null },
   ],
 } as unknown as Snapshot
@@ -42,9 +43,9 @@ describe('PluginSettingsSection', () => {
     expect(list).toHaveBeenCalledOnce()
     expect(screen.getByRole('searchbox', { name: en.search })).toBeTruthy()
     expect(screen.getByRole('heading', { name: en.catalog })).toBeTruthy()
-    expect(view.container.querySelector('[data-plugin-count]')?.textContent).toBe('6')
-    expect(screen.getAllByRole('listitem')).toHaveLength(6)
-    expect(screen.getAllByText(en.enabledTag)).toHaveLength(5)
+    expect(view.container.querySelector('[data-plugin-count]')?.textContent).toBe('7')
+    expect(screen.getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.getAllByText(en.enabledTag)).toHaveLength(6)
     expect(screen.getByText(en.disabledTag)).toBeTruthy()
     for (const value of [
       'Mounted',
@@ -52,10 +53,10 @@ describe('PluginSettingsSection', () => {
       'Loading',
       'Mount failed',
       'Unloading',
+      'Not mounted',
     ]) {
       expect(screen.getByRole('img', { name: value })).toBeTruthy()
     }
-    expect(screen.queryByRole('img', { name: 'Not mounted' })).toBeNull()
     const active = screen.getByRole('button', { name: 'hmr, Mounted, Enabled' })
     expect(active.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(active)

@@ -83,9 +83,21 @@ describe('ui-plugin-config apply', () => {
 
     const section = slots.entries('settings.section')[0]!
     const sectionFace = (section.inject as unknown as () => PluginConfigSectionInjected)()
-    expect(sectionFace.hooks.tabs.getSnapshot()).toEqual([
+    const initialTabs = sectionFace.hooks.tabs.getSnapshot()
+    expect(initialTabs).toEqual([
       { id: 'configurable', order: 0, label: '插件配置' },
     ])
+    expect(sectionFace.hooks.tabs.getSnapshot()).toBe(initialTabs)
+
+    const listener = vi.fn()
+    const unsubscribe = sectionFace.hooks.tabs.subscribe(listener)
+    slots.register({ name: 'settings.plugins.tab', id: 'plain' } as never, () => null)
+    expect(sectionFace.hooks.tabs.getSnapshot()).toEqual([
+      { id: 'configurable', order: 0, label: '插件配置' },
+      { id: 'plain', order: 0, label: '' },
+    ])
+    unsubscribe()
+
     const tab = slots.entries('settings.plugins.tab')[0]!
     expect((tab.inject as unknown as () => ConfigurablePluginsTabInjected)()).toEqual({ cardCount: 3 })
     for (const entry of slots.entries('settings.plugin.item')) {
