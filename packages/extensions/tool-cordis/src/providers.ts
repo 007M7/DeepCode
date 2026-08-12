@@ -18,7 +18,11 @@ const EVENT_OUTPUT = {
 } as const
 const HOST_EVENTS = EVENT_API.filter(event => !event.name.startsWith('cordis/'))
 
-/** Construct Host providers over generated Catalogs, evaluator declarations, and live Tool scope. */
+/**
+ * Construct Host providers over generated Catalogs, evaluator declarations, and live Tool scope.
+ * @param ctx - Host context used for Agent-scoped live Tool queries.
+ * @returns registrations for static catalogs and live Host capabilities.
+ */
 export function hostInspectProviders(ctx: Context): HostCordisInspectProviderRegistration[] {
   return [
     registration(

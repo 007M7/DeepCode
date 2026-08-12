@@ -67,7 +67,11 @@ export const CLIENT_BUILTIN_INSPECTION: readonly JsonValue[] = [
   },
 ]
 
-/** Construct the first-party Client provider registrations. */
+/**
+ * Construct the first-party Client provider registrations.
+ * @param ctx - Client context used for live Service-backed queries.
+ * @returns registrations for static catalogs and live Client capabilities.
+ */
 export function clientInspectProviders(ctx: Context): ClientCordisInspectProviderRegistration[] {
   return [
     registration(

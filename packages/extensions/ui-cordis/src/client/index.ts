@@ -126,7 +126,7 @@ export function apply(ctx: ClientContext): void {
       const store = runCards.forSession(sessionId)
       return {
         hooks: { inventory, loaded, runCards: store, activeRuns: runner.activeRuns },
-        onObserveRunCard: pointer => { store.observe(pointer) },
+        onObserveRunCard: (pointer) => { store.observe(pointer) },
       }
     },
   }, CordisRunRow))
@@ -139,7 +139,7 @@ export function apply(ctx: ClientContext): void {
     order: 1,
     candidates(session, { query }) {
       const rows = rowsOf(session.sessionId, query)
-      return Promise.resolve(rows.map(row => {
+      return Promise.resolve(rows.map((row) => {
         const packageId = row.nextPackageId ?? row.currentPackageId ?? row.packages.at(-1)?.packageId
         const pkg = packageId === undefined ? undefined : row.packages.find(candidate => candidate.packageId === packageId)
         return {

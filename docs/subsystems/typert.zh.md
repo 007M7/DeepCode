@@ -233,6 +233,23 @@ interface TypertClientRemote extends TypertRemoteNamespaceMap {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxapiproxy--apiproxy"></a>
+
+### `ctx.apiProxy` — `ApiProxy`
+
+Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row.
+
+```ts cordis-catalog
+/**
+ * Response entry for server requests; not a domain method.
+ * @param message - Client response carrying the server request's rpcId.
+ * @returns Transport receipt for the response delivery.
+ */
+respond(message: ClientResponse): Promise<RpcReceipt>
+```
+
+Source: [`packages/host/apiproxy/src/api/index.ts:22`](../../packages/host/apiproxy/src/api/index.ts)
+
 <a id="ctxtypert--typertregistry"></a>
 
 ### `ctx.typert` — `TypertRegistry`

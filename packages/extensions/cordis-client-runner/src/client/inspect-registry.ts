@@ -140,7 +140,11 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Provide the registry as a normal Client service. */
+/**
+ * Provide the registry as a normal Client service.
+ * @param ctx - Client Cordis context receiving the service.
+ * @param registry - page-local inspect registry to publish.
+ */
 export function provideClientCordisInspect(ctx: Context, registry: ClientCordisInspectRegistry): void {
   ctx.provide('cordisInspect', registry)
 }

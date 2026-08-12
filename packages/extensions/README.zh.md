@@ -10,4 +10,3 @@ agent 修改自身运行时：检查已加载的插件与服务接口、定义�
 | [`cordis-host-runner/`](cordis-host-runner/README.md) | 定义注册表、host 半的 `node:vm` 沙箱，以及 request-run 往返 | 提供 `ctx.dynamicCordisRunner` |
 | [`cordis-client-runner/`](cordis-client-runner/README.md) | 双半包的浏览器半：把定义求值成活的浏览器插件，并应答运行请求 | client 面；提供浏览器侧 `ctx.dynamicCordisRunner` |
 | [`ui-cordis/`](ui-cordis/README.md) | 浏览器面：操作全部定义的全局面板，与只读的 define 卡片 | client 面；注册 slot |
-| [`repository-plugin/`](repository-plugin/README.md) | 通过 DSH 自有子 Plugin 准备并挂载静态 repository skills 与通用 `.mcp.json` server | 注册一个 Loader builtin |

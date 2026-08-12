@@ -74,6 +74,8 @@ export interface EventEntry {
 
 /** One public service method and the source contract attached to it. */
 export interface ServiceMethodEntry {
+  /** Compiler member category; policy-supplied methods may omit it. */
+  kind?: 'method' | 'property'
   /** Public method signature (body stripped). */
   signature: string
   /** Original method JSDoc, dedented from its containing class. */
@@ -293,7 +295,7 @@ export class CordisCatalogProjector {
         if (parsed.deprecated) continue
         if (member.kind === 'property') {
           if (member.jsDoc === undefined) continue
-          methods.push({ signature: member.text, jsDoc: member.jsDoc })
+          methods.push({ kind: 'property', signature: member.text, jsDoc: member.jsDoc })
           continue
         }
         if (member.kind !== 'method') continue
@@ -301,7 +303,7 @@ export class CordisCatalogProjector {
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
         }
-        methods.push({ signature: member.text, jsDoc: member.jsDoc ?? '' })
+        methods.push({ kind: 'method', signature: member.text, jsDoc: member.jsDoc ?? '' })
         if (member.jsDoc === undefined) {
           violations.push(`${where} has no JSDoc.`)
           continue
@@ -357,6 +359,7 @@ export class CordisCatalogProjector {
  * Analyze the host project once and return both the model and its projection.
  * @param scanRoot - workspace root containing `tsconfig.host.json`.
  * @param policy - caller-owned type classifications and inherited Cordis data.
+ * @param targetFace - Host or Client Typert face to project.
  * @returns the configured projector and its validated catalog model.
  */
 export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPolicy, targetFace: TypertFace = 'host'): {
@@ -617,6 +620,19 @@ function quote(value: string): string {
   return `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n')}'`
 }
 
+/** Render a compact TypeScript string-array literal. */
+function quoteList(values: readonly string[]): string {
+  return `[${values.map(quote).join(', ')}]`
+}
+
+/** Render structured parameter documentation as a compact TypeScript literal. */
+function renderParameters(parameters: ReadonlyMap<string, string>): string {
+  const values = [...parameters].map(([name, description]) => (
+    `{ name: ${quote(name)}, description: ${quote(description)} }`
+  ))
+  return `[${values.join(', ')}]`
+}
+
 /** Resolve and sort the word-bounded transitive type closure referenced by seed text. */
 function referencedTypes(
   seeds: readonly string[],
@@ -752,9 +768,9 @@ function renderRuntimeApi(
         lines.push('      {')
         lines.push(`        signature: ${quote(method.signature)},`)
         lines.push(`        description: ${quote(contract.doc)},`)
-        lines.push(`        parameters: ${JSON.stringify([...contract.params].map(([name, description]) => ({ name, description })))},`)
+        lines.push(`        parameters: ${renderParameters(contract.params)},`)
         if (contract.returns !== null) lines.push(`        returns: ${quote(contract.returns)},`)
-        if (contract.throws.length > 0) lines.push(`        throws: ${JSON.stringify(contract.throws)},`)
+        if (contract.throws.length > 0) lines.push(`        throws: ${quoteList(contract.throws)},`)
         lines.push('      },')
       }
       lines.push('    ],')
@@ -775,7 +791,7 @@ function renderRuntimeApi(
     lines.push(`    signature: ${quote(event.signature)},`)
     lines.push(`    summary: ${quote(firstSentence(event.doc))},`)
     lines.push(`    description: ${quote(event.doc)},`)
-    lines.push(`    parameters: ${JSON.stringify([...contract.params].map(([name, description]) => ({ name, description })))},`)
+    lines.push(`    parameters: ${renderParameters(contract.params)},`)
     lines.push('  },')
   }
   lines.push(
@@ -949,14 +965,15 @@ function renderService(s: ServiceEntry, onPage: string, linkedTypePages: Readonl
   const kind = s.abstract ? ' (abstract seam)' : ''
   const out = [...anchorFor(`ctx.${s.key} — ${s.type}${kind}`), `### \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
   if (s.doc) out.push(s.doc, '')
-  if (s.methods.length) {
-    const declarations = s.methods.flatMap((method, index) => [
+  const methods = s.methods.filter(member => member.kind !== 'property')
+  if (methods.length) {
+    const declarations = methods.flatMap((method, index) => [
       ...(index > 0 ? [''] : []),
       method.jsDoc,
       method.signature,
     ])
     out.push('```' + FENCE, ...declarations, '```', '')
-    const links = typeLinks(s.methods.map(method => method.signature).join('\n'), onPage, linkedTypePages)
+    const links = typeLinks(methods.map(method => method.signature).join('\n'), onPage, linkedTypePages)
     if (links) out.push(links, '')
   }
   out.push(`Source: [\`${s.source}\`](../../${s.source.split(':')[0]})`, '')

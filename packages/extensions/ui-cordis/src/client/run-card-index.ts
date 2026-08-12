@@ -47,7 +47,11 @@ function createStore(): CordisRunCardStore {
 export class CordisRunCardRegistry {
   private readonly sessions = new Map<SessionId, CordisRunCardStore>()
 
-  /** Return the persistent page-local Store for a session. */
+  /**
+   * Return the persistent page-local Store for a session.
+   * @param sessionId - session whose cards share supersession state.
+   * @returns the page-local Store retained for that session.
+   */
   forSession(sessionId: SessionId): CordisRunCardStore {
     let store = this.sessions.get(sessionId)
     if (store === undefined) {
@@ -58,7 +62,12 @@ export class CordisRunCardRegistry {
   }
 }
 
-/** Build the Package business-view key shared by registrations and Run cards. */
+/**
+ * Build the Package business-view key shared by registrations and Run cards.
+ * @param pluginId - stable Plugin identity.
+ * @param packageId - immutable Package identity.
+ * @returns the shared business-view key.
+ */
 export function cordisToolViewKey(
   pluginId: CordisDynamicPluginId,
   packageId: CordisDynamicPackageId,

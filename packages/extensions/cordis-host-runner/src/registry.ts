@@ -146,7 +146,11 @@ export class DynamicCordisRegistry {
   private nextRun = 1
   private nextApproval = 1
 
-  /** Mint a semantic plugin ID without reusing a prior suffix. */
+  /**
+   * Mint a semantic plugin ID without reusing a prior suffix.
+   * @param prefix - validated lowercase semantic prefix proposed by the model.
+   * @returns a process-unique Plugin ID.
+   */
   mintPluginId(prefix: string): string {
     let id: CordisDynamicPluginId
     do id = `${prefix}-${this.nextPlugin++}` as CordisDynamicPluginId
@@ -154,69 +158,115 @@ export class DynamicCordisRegistry {
     return id
   }
 
-  /** Mint an immutable package ID. */
+  /**
+   * Mint an immutable package ID.
+   * @returns a process-unique Package ID.
+   */
   mintPackageId(): string {
     return `pkg-${this.nextPackage++}`
   }
 
-  /** Mint an activation ID. */
+  /**
+   * Mint an activation ID.
+   * @returns a process-unique Plugin Run ID.
+   */
   mintPluginRunId(): string {
     return `run-${this.nextRun++}`
   }
 
-  /** Mint an approval ID. */
+  /**
+   * Mint an approval ID.
+   * @returns a process-unique approval request ID.
+   */
   mintApprovalRequestId(): string {
     return `approval-${this.nextApproval++}`
   }
 
-  /** Add one stable plugin. */
+  /**
+   * Add one stable plugin.
+   * @param plugin - Plugin record to retain under its stable ID.
+   */
   add(plugin: DynamicCordisPlugin): void {
     this.plugins.set(plugin.pluginId, plugin)
   }
 
-  /** Read one plugin. */
+  /**
+   * Read one plugin.
+   * @param id - stable Plugin ID.
+   * @returns the Plugin record, or `undefined` when absent.
+   */
   get(id: CordisDynamicPluginId): DynamicCordisPlugin | undefined {
     return this.plugins.get(id)
   }
 
-  /** Delete one plugin and all package versions. */
+  /**
+   * Delete one plugin and all package versions.
+   * @param id - stable Plugin ID to remove.
+   * @returns whether a Plugin record was removed.
+   */
   delete(id: CordisDynamicPluginId): boolean {
     return this.plugins.delete(id)
   }
 
-  /** All plugins in creation order. */
+  /**
+   * Read all plugins in creation order.
+   * @returns a snapshot of every Plugin record.
+   */
   all(): DynamicCordisPlugin[] {
     return [...this.plugins.values()]
   }
 
-  /** One session's plugins in creation order. */
+  /**
+   * Read one session's plugins in creation order.
+   * @param sessionId - owning session to filter by.
+   * @returns a snapshot of matching Plugin records.
+   */
   ofSession(sessionId: SessionId): DynamicCordisPlugin[] {
     return this.all().filter(plugin => plugin.sessionId === sessionId)
   }
 
-  /** Publish one pending approval. */
+  /**
+   * Publish one pending approval.
+   * @param id - approval request ID.
+   * @param pending - resolver and Plugin metadata retained until settlement.
+   */
   armRequest(id: ApprovalRequestId, pending: DynamicCordisPendingRequest): void {
     this.pendingRequests.set(id, pending)
   }
 
-  /** Read one pending approval without claiming it. */
+  /**
+   * Read one pending approval without claiming it.
+   * @param id - approval request ID.
+   * @returns the pending request, or `undefined` when absent.
+   */
   peekRequest(id: ApprovalRequestId): DynamicCordisPendingRequest | undefined {
     return this.pendingRequests.get(id)
   }
 
-  /** Claim one pending approval; first answer wins. */
+  /**
+   * Claim one pending approval; first answer wins.
+   * @param id - approval request ID.
+   * @returns the claimed request, or `undefined` when already settled.
+   */
   claimRequest(id: ApprovalRequestId): DynamicCordisPendingRequest | undefined {
     const pending = this.pendingRequests.get(id)
     if (pending !== undefined) this.pendingRequests.delete(id)
     return pending
   }
 
-  /** Cancel one pending approval. */
+  /**
+   * Cancel one pending approval.
+   * @param id - approval request ID to remove.
+   */
   disarmRequest(id: ApprovalRequestId): void {
     this.pendingRequests.delete(id)
   }
 
-  /** Pending approval for one plugin, if any. */
+  /**
+   * Find a pending approval for one Plugin.
+   * @param pluginId - stable Plugin ID.
+   * @returns its approval request ID, or `undefined` when none is pending.
+   */
   pendingRequestFor(pluginId: CordisDynamicPluginId): ApprovalRequestId | undefined {
     for (const [requestId, request] of this.pendingRequests) {
       if (request.pluginId === pluginId) return requestId

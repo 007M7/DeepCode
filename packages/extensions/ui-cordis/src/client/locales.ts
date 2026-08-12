@@ -2,6 +2,7 @@
 
 export const NS = 'cordis'
 
+/** Simplified Chinese Cordis UI messages. */
 export const zh = {
   'row.defineTitle': '注册 Cordis 插件',
   'row.runTitle': '运行 Cordis 插件',
@@ -52,6 +53,7 @@ export const zh = {
   'body.copied': '已复制',
 } satisfies Record<string, string>
 
+/** Translation keys owned by the Cordis UI namespace. */
 export type CordisKey = keyof typeof zh
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -61,6 +63,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
+/** English Cordis UI messages. */
 export const en = {
   'row.defineTitle': 'Define Cordis Plugin',
   'row.runTitle': 'Run Cordis Plugin',

@@ -41,17 +41,17 @@ export function CordisRunRow({
   const loaded = useLoaded(snapshot => snapshot)
   const latest = useRunCards(snapshot => snapshot)
   const activeRuns = useActiveRuns(snapshot => snapshot)
-  const successful = card.state === 'ok'
+  const key = card.state === 'ok'
     && card.pluginId !== null
     && card.packageId !== null
     && card.pluginRunId !== null
     && card.seq !== null
-  const key = successful ? cordisToolViewKey(card.pluginId!, card.packageId!) : null
-
+    ? cordisToolViewKey(card.pluginId, card.packageId)
+    : null
   useEffect(() => {
-    if (!successful || key === null) return
-    onObserveRunCard({ key, callId, seq: card.seq!, pluginRunId: card.pluginRunId! })
-  }, [callId, card.pluginRunId, card.seq, key, onObserveRunCard, successful])
+    if (key === null || card.seq === null || card.pluginRunId === null) return
+    onObserveRunCard({ key, callId, seq: card.seq, pluginRunId: card.pluginRunId })
+  }, [callId, card.pluginRunId, card.seq, key, onObserveRunCard])
 
   const row = card.pluginId === null
     ? undefined
@@ -72,15 +72,15 @@ export function CordisRunRow({
       ? 'superseded'
       : awaitingApproval
         ? 'awaiting-approval'
-      : attempt?.status === 'failed'
-        ? 'failed'
-      : row !== undefined && card.packageId !== null
-        ? cordisVisibleStatus(row, card.packageId, loaded)
-        : 'idle'
+        : attempt?.status === 'failed'
+          ? 'failed'
+          : row !== undefined && card.packageId !== null
+            ? cordisVisibleStatus(row, card.packageId, loaded)
+            : 'idle'
   const status = t(READING_LABELS[reading])
   const summary = card.errorSummary
     ?? (card.pluginId === null ? callId : `${card.pluginId}${card.packageId === null ? '' : ` · ${card.packageId}`}`)
-  const showBusiness = successful && reading === 'running' && key !== null
+  const showBusiness = reading === 'running' && key !== null
 
   return (
     <div
@@ -116,13 +116,13 @@ export function CordisRunRow({
         <div className={css.message}>{attempt.error.message}</div>
       )}
       {showBusiness && card.pluginId !== null && card.packageId !== null && card.pluginRunId !== null && (
-        <div className={css.business} data-cordis-business-view={key ?? undefined}>
+        <div className={css.business} data-cordis-business-view={key}>
           {renderSlot('tool.view.cordis', {
             pluginId: card.pluginId,
             packageId: card.packageId,
             pluginRunId: card.pluginRunId,
           }, {
-            entryKey: key ?? undefined,
+            entryKey: key,
             fallback: card.output === null ? null : <pre className={css.output}>{card.output}</pre>,
           })}
         </div>

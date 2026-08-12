@@ -79,7 +79,11 @@ function metaObject(block: Block): Record<string, unknown> | null {
   return block.meta as Record<string, unknown>
 }
 
-/** Derive one Define card from its frozen call/result slice. */
+/**
+ * Derive one Define card from its frozen call/result slice.
+ * @param block - active or settled tool-call block.
+ * @returns normalized Define card fields.
+ */
 export function cordisDefineCard(block: Block): CordisDefineCard {
   const settled = 'kind' in block
   const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
@@ -102,7 +106,11 @@ export function cordisDefineCard(block: Block): CordisDefineCard {
   }
 }
 
-/** Derive one Run card and its successful activation metadata. */
+/**
+ * Derive one Run card and its successful activation metadata.
+ * @param block - active or settled tool-call block.
+ * @returns normalized Run card fields.
+ */
 export function cordisRunCard(block: Block): CordisRunCard {
   const settled = 'kind' in block
   const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''

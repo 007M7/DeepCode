@@ -142,7 +142,10 @@ export class CordisRunOrchestrator {
     subscribe: fn => this.observe(fn),
   }
 
-  /** Register a Client activation request, starting it immediately when the Plugin is already authorized. */
+  /**
+   * Register a Client activation request, starting it immediately when the Plugin is already authorized.
+   * @param request - forwarded approval and activation metadata.
+   */
   open(request: CordisRunRequest): void {
     this.requests.set(request.requestId, request)
     if (!request.requiresApproval) {
@@ -238,7 +241,10 @@ export class CordisRunOrchestrator {
     if (changed) this.commit()
   }
 
-  /** Close an approval settled by another page or by cancellation. */
+  /**
+   * Close an approval settled by another page or by cancellation.
+   * @param requestId - approval request that can no longer be answered here.
+   */
   close(requestId: ApprovalRequestId): void {
     const request = this.requests.get(requestId)
     if (request === undefined) return
@@ -250,7 +256,11 @@ export class CordisRunOrchestrator {
     this.commit()
   }
 
-  /** Approve and execute one still-open model request. */
+  /**
+   * Approve and execute one still-open model request.
+   * @param requestId - approval request to execute.
+   * @param approveFutureVersions - whether this approval covers later Packages for the same Plugin.
+   */
   approve(requestId: ApprovalRequestId, approveFutureVersions: boolean): Promise<void> {
     const request = this.requests.get(requestId)
     if (request === undefined || !request.requiresApproval) return Promise.resolve()
@@ -265,7 +275,10 @@ export class CordisRunOrchestrator {
     })
   }
 
-  /** Reject one still-open model request without executing either half. */
+  /**
+   * Reject one still-open model request without executing either half.
+   * @param requestId - approval request to reject.
+   */
   async decline(requestId: ApprovalRequestId): Promise<void> {
     const request = this.requests.get(requestId)
     if (request === undefined || !request.requiresApproval) return
@@ -277,7 +290,10 @@ export class CordisRunOrchestrator {
     await this.answer(requestId, { ok: false, reason: 'rejected' })
   }
 
-  /** Execute a direct panel run; the user gesture itself authorizes it. */
+  /**
+   * Execute a direct panel run; the user gesture itself authorizes it.
+   * @param request - exact Package activation selected by the user.
+   */
   startUserRun(request: CordisUserRunRequest): Promise<void> {
     return this.orchestrate(request)
   }

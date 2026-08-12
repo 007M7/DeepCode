@@ -122,36 +122,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'subscribe(fn: () => void): () => void',
         description: 'LocaleFace subscribe: notified on every snapshot change (locale switch or dictionary registration — registrations bump the revision so already rendered outlets pick up late-arriving dictionaries).',
-        parameters: [{"name":"fn","description":"change callback."}],
+        parameters: [{ name: 'fn', description: 'change callback.' }],
         returns: 'unsubscribe.',
       },
       {
         signature: 'setLocale(id: string): void',
         description: 'Switch the active locale — the only user preference write entry.',
-        parameters: [{"name":"id","description":"a registered locale id; unknown ids throw."}],
+        parameters: [{ name: 'id', description: 'a registered locale id; unknown ids throw.' }],
       },
       {
         signature: 'register<N extends keyof LocaleNamespaceMap & string>(ns: N, dicts: Record<LocaleId, LocaleDictOf<N>>): () => void',
         description: 'Register a declared namespace\'s dictionaries, all locales in one call — the typed form: each dictionary is checked against the namespace\'s LocaleNamespaceMap key union (a missing or extra key is a compile error), and every shipped locale is required (bilingual balance enforced at registration). Duplicate (ns, locale) throws (single occupant; a namespace\'s texts have one owner). Registration bumps the revision so mounted outlets pick up late-arriving dictionaries.',
-        parameters: [{"name":"ns","description":"a namespace merged into LocaleNamespaceMap."},{"name":"dicts","description":"complete dictionaries keyed by locale id."}],
+        parameters: [{ name: 'ns', description: 'a namespace merged into LocaleNamespaceMap.' }, { name: 'dicts', description: 'complete dictionaries keyed by locale id.' }],
         returns: 'disposer removing every locale registered by this call (idempotent).',
       },
       {
         signature: 'register(ns: string, locale: string, dict: LocaleDict): () => void',
         description: 'Single-locale untyped form for namespaces outside the merge table (dynamic composition, tests).',
-        parameters: [{"name":"ns","description":"namespace."},{"name":"locale","description":"locale tag."},{"name":"dict","description":"dictionary."}],
+        parameters: [{ name: 'ns', description: 'namespace.' }, { name: 'locale', description: 'locale tag.' }, { name: 'dict', description: 'dictionary.' }],
         returns: 'disposer (idempotent).',
       },
       {
         signature: 'bind<N extends keyof LocaleNamespaceMap & string>(ns: N): TranslateNS<N>',
         description: 'Bind a declared namespace to a translate function typed to its dictionary key union (plus the shared common vocabulary) — the same key domain the framework-injected `t` seat carries. The returned reference is stable per namespace (repeat binds return the same function), so it can ride inject surfaces without breaking memoization.',
-        parameters: [{"name":"ns","description":"a namespace merged into LocaleNamespaceMap."}],
+        parameters: [{ name: 'ns', description: 'a namespace merged into LocaleNamespaceMap.' }],
         returns: 'the typed translate function (reads the active locale at call time).',
       },
       {
         signature: 'bind(ns: string): Translate',
         description: 'Untyped form for namespaces outside the merge table (dynamic composition, tests).',
-        parameters: [{"name":"ns","description":"namespace."}],
+        parameters: [{ name: 'ns', description: 'namespace.' }],
         returns: 'the translate function.',
       },
     ],
@@ -164,47 +164,47 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'open(id: SessionId): void',
         description: 'Select a session as current.',
-        parameters: [{"name":"id","description":"session id (must exist in the list; unknown ids fail loud)."}],
+        parameters: [{ name: 'id', description: 'session id (must exist in the list; unknown ids fail loud).' }],
       },
       {
         signature: 'openSubagent(address: SubagentAddress): void',
         description: 'Open a healthy catalog child through its exact direct-parent address.',
-        parameters: [{"name":"address","description":"catalog-derived parent and child ids."}],
+        parameters: [{ name: 'address', description: 'catalog-derived parent and child ids.' }],
       },
       {
         signature: 'setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void',
         description: 'Mark whether a catalog menu is consuming live membership updates.',
-        parameters: [{"name":"parentSessionId","description":"catalog owner."},{"name":"open","description":"current menu state."}],
+        parameters: [{ name: 'parentSessionId', description: 'catalog owner.' }, { name: 'open', description: 'current menu state.' }],
       },
       {
         signature: 'refreshSubagents(parentSessionId: SessionId): Promise<void>',
         description: 'Refresh one direct-child catalog.',
-        parameters: [{"name":"parentSessionId","description":"catalog owner."}],
+        parameters: [{ name: 'parentSessionId', description: 'catalog owner.' }],
         returns: 'completion of the current or newly started refresh.',
       },
       {
         signature: 'search( query: string, signal: AbortSignal, ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>>',
         description: 'Search the Host\'s visible message-content index. Results stay request-local; the list snapshot remains the metadata authority.',
-        parameters: [{"name":"query","description":"non-blank literal phrase."},{"name":"signal","description":"cancellation for a superseded search."}],
+        parameters: [{ name: 'query', description: 'non-blank literal phrase.' }, { name: 'signal', description: 'cancellation for a superseded search.' }],
         returns: 'bounded results, or a business/transport error.',
       },
       {
         signature: 'fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>',
         description: 'Fork a session from a completed-turn prefix of the source; on resolution the child is in the list store and `open()` can target it.',
-        parameters: [{"name":"opts","description":"source session id, the optional event seq anchoring the cut (the boundary is the first turn/end at or after it; an in-log anchor in an open turn is unavailable rather than clipped backward), and whether to increment an inherited durable title before resolving."}],
+        parameters: [{ name: 'opts', description: 'source session id, the optional event seq anchoring the cut (the boundary is the first turn/end at or after it; an in-log anchor in an open turn is unavailable rather than clipped backward), and whether to increment an inherited durable title before resolving.' }],
         returns: 'the child session id.',
-        throws: ["when the fork fails, or when a requested child-title rename fails after creation."],
+        throws: ['when the fork fails, or when a requested child-title rename fails after creation.'],
       },
       {
         signature: 'scope(id: SessionId): AgentContext | undefined',
         description: 'Resolve an Agent-scoped context view (use-and-discard).',
-        parameters: [{"name":"id","description":"session id."}],
+        parameters: [{ name: 'id', description: 'session id.' }],
         returns: 'scoped ctx, or undefined for a session neither listed nor already scoped.',
       },
       {
         signature: 'binding(id: SessionId): SessionBinding | undefined',
         description: 'Resolve the stable session binding (scope-addressed assembly feed).',
-        parameters: [{"name":"id","description":"session id."}],
+        parameters: [{ name: 'id', description: 'session id.' }],
         returns: 'binding, or undefined for a session neither listed nor already scoped.',
       },
     ],
@@ -222,9 +222,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'inject(key: keyof SlotMap & string, callback: () => SlotInjectionEffect): () => void',
         description: 'Install an effect for each declaration lifetime of a slot. The callback runs synchronously when the declaration already exists; otherwise it runs inside the declaring `register()` call after the declaration is committed. Collapse disposes the effect and a later declaration runs it again. Callback effects are synchronous disposers; iterable effects install transactionally and dispose in reverse order. The controller belongs to the caller\'s fiber, so plugin unload cancels a pending wait and removes any active contribution.',
-        parameters: [{"name":"key","description":"declared SlotMap key to depend on."},{"name":"callback","description":"creates one disposer or an iterable of disposers."}],
+        parameters: [{ name: 'key', description: 'declared SlotMap key to depend on.' }, { name: 'callback', description: 'creates one disposer or an iterable of disposers.' }],
         returns: 'idempotent disposer for the wait and active effect.',
-        throws: ["callback setup failures synchronously when the slot is already declared."],
+        throws: ['callback setup failures synchronously when the slot is already declared.'],
       },
     ],
   },
@@ -242,18 +242,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'setTheme(id: string): void',
         description: 'Switch the theme preference — the only user preference write entry. Built-in preferences are written through the settings scope and every accepted value emits `theme/change`.',
-        parameters: [{"name":"id","description":"a registered theme id or `system`; unknown ids throw."}],
+        parameters: [{ name: 'id', description: 'a registered theme id or `system`; unknown ids throw.' }],
       },
       {
         signature: 'register(definition: ThemeDefinition): () => void',
         description: 'Register a theme. Duplicate id throws (single occupant per id; the built-in pair counts; `system` is a preference, not a registrable id).',
-        parameters: [{"name":"definition","description":"theme id, colorScheme, and alias-token overrides."}],
+        parameters: [{ name: 'definition', description: 'theme id, colorScheme, and alias-token overrides.' }],
         returns: 'disposer. Disposing the theme backing the active preference resets the preference to the default so the UI never keeps tokens of an unregistered theme.',
       },
       {
         signature: 'overrideTokens(source: string, tokens: ThemeTokenOverrides): () => void',
         description: 'Stack a token override layer on top of the active theme — the token-level analogue of slot shading: the base theme stays untouched, layers compose in seq order with later layers winning per-token, and removing a layer restores whatever it covered. Calling again with the same source replaces that source\'s whole layer and restacks it on top (effect re-registration semantics). Emits `theme/change` with the recomposed snapshot.',
-        parameters: [{"name":"source","description":"layer identity; one layer per source (dynamic packages pass their package id — the façade pins it, so it also names the layer's origin for inspection)."},{"name":"tokens","description":"token-name → `{ light, dark }` value pairs. Validated at runtime (model-authored callers reach this boundary with untyped JS); a bare string value throws a teaching error."}],
+        parameters: [{ name: 'source', description: 'layer identity; one layer per source (dynamic packages pass their package id — the façade pins it, so it also names the layer\'s origin for inspection).' }, { name: 'tokens', description: 'token-name → `{ light, dark }` value pairs. Validated at runtime (model-authored callers reach this boundary with untyped JS); a bare string value throws a teaching error.' }],
         returns: 'disposer removing exactly the layer this call created; a no-op once the source has re-overridden (the newer layer is not torn down).',
       },
     ],
@@ -303,18 +303,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>',
         description: 'Connect a Workspace to its reusable or freshly created blank session.',
-        parameters: [{"name":"workspaceId","description":"target workspace."}],
+        parameters: [{ name: 'workspaceId', description: 'target workspace.' }],
         returns: 'the connected session id.',
       },
       {
         signature: 'startSession(workspaceId?: WorkspaceId): void',
-        description: 'The New Session flow: connect the target (or recent) Workspace and open the resulting session; failures surface on the session list state.',
-        parameters: [{"name":"workspaceId","description":"explicit target; omitted uses the recency projection."}],
+        description: 'The New Session flow: connect the explicit, current-Session, or recent Workspace and open the resulting session; failures surface on the session list state.',
+        parameters: [{ name: 'workspaceId', description: 'explicit target; omitted inherits the current Session\'s Workspace before falling back to the recency projection.' }],
       },
       {
         signature: 'create(input: { path: string }): Promise<WorkspaceView>',
         description: 'Register an existing path as a Workspace.',
-        parameters: [{"name":"input","description":"the Host create payload."}],
+        parameters: [{ name: 'input', description: 'the Host create payload.' }],
         returns: 'the created or idempotently resolved Workspace.',
       },
       {
@@ -326,41 +326,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing>',
         description: 'List one directory level through the Host\'s `browse` capability.',
-        parameters: [{"name":"path","description":"absolute directory to list; absent lists the Host home directory."},{"name":"signal","description":"aborts the wire request (and the Host's scan) when the caller supersedes it."}],
+        parameters: [{ name: 'path', description: 'absolute directory to list; absent lists the Host home directory.' }, { name: 'signal', description: 'aborts the wire request (and the Host\'s scan) when the caller supersedes it.' }],
         returns: 'the level\'s listing with breadcrumb ancestry.',
       },
       {
         signature: 'createDirectory(path: string, name: string): Promise<string>',
         description: 'Create one child directory through the Host\'s `browse` capability.',
-        parameters: [{"name":"path","description":"absolute existing parent directory."},{"name":"name","description":"single non-blank path segment."}],
+        parameters: [{ name: 'path', description: 'absolute existing parent directory.' }, { name: 'name', description: 'single non-blank path segment.' }],
         returns: 'the created directory\'s absolute path.',
       },
       {
         signature: 'openPath(path: string): Promise<void>',
         description: 'Open a filesystem path with the Host operating system\'s default application.',
-        parameters: [{"name":"path","description":"absolute or host-resolvable path."}],
+        parameters: [{ name: 'path', description: 'absolute or host-resolvable path.' }],
       },
       {
         signature: 'rename(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView>',
         description: 'Rename a Workspace.',
-        parameters: [{"name":"workspaceId","description":"target workspace."},{"name":"title","description":"the new display title."}],
+        parameters: [{ name: 'workspaceId', description: 'target workspace.' }, { name: 'title', description: 'the new display title.' }],
         returns: 'the updated Workspace view.',
       },
       {
         signature: 'delete(workspaceId: WorkspaceId): Promise<void>',
         description: 'Delete a Workspace (its sessions fall back to the unaccounted group).',
-        parameters: [{"name":"workspaceId","description":"target workspace."}],
+        parameters: [{ name: 'workspaceId', description: 'target workspace.' }],
       },
       {
         signature: 'insertSessionBefore(workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId): Promise<WorkspaceView>',
         description: 'Move an accounted session within/into a Workspace\'s ordered list.',
-        parameters: [{"name":"workspaceId","description":"target workspace."},{"name":"sessionId","description":"accounted session to move."},{"name":"beforeSessionId","description":"accounted anchor to insert before; omitted appends."}],
+        parameters: [{ name: 'workspaceId', description: 'target workspace.' }, { name: 'sessionId', description: 'accounted session to move.' }, { name: 'beforeSessionId', description: 'accounted anchor to insert before; omitted appends.' }],
         returns: 'the updated Workspace view.',
       },
       {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         description: 'Archive a session into the registry-global set (hidden from grouping surfaces; session log and accounting slot remain). Archiving the current session clears the selection into the New Session view state.',
-        parameters: [{"name":"sessionId","description":"session to archive."}],
+        parameters: [{ name: 'sessionId', description: 'session to archive.' }],
       },
     ],
   },
@@ -382,7 +382,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'locale/change\'(snapshot: LocaleSnapshot): void',
     summary: 'The active locale switched.',
     description: 'The active locale switched. Dictionary registrations do NOT emit this event (listeners may re-register slots in response, and boot registers one namespace per package); continuous render refresh rides the LocaleFace revision instead.',
-    parameters: [{"name":"snapshot","description":"Current immutable locale snapshot."}],
+    parameters: [{ name: 'snapshot', description: 'Current immutable locale snapshot.' }],
   },
   {
     name: 'slots/changed',
@@ -390,7 +390,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'slots/changed\'(key: string): void',
     summary: 'A slot\'s definition or registration set changed.',
     description: 'A slot\'s definition or registration set changed.',
-    parameters: [{"name":"key","description":"the mutated SlotMap key."}],
+    parameters: [{ name: 'key', description: 'the mutated SlotMap key.' }],
   },
   {
     name: 'theme/change',
@@ -398,7 +398,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'theme/change\'(snapshot: ThemeSnapshot): void',
     summary: 'Theme state changed (preference switched, registry updated, or the OS color scheme changed while the preference is `system`).',
     description: 'Theme state changed (preference switched, registry updated, or the OS color scheme changed while the preference is `system`).',
-    parameters: [{"name":"snapshot","description":"Current immutable theme snapshot."}],
+    parameters: [{ name: 'snapshot', description: 'Current immutable theme snapshot.' }],
   },
 ]
 
@@ -418,7 +418,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AssistantMessageNode',
-    declaration: 'export interface AssistantMessageNode {\n    kind: \'assistant\';\n    seq: number;\n    time: number;\n    turn: number;\n    step: number;\n    blocks: readonly AssistantBlock[];\n    usage?: unknown;\n    provenance?: AssistantProvenanceView;\n    requestConfig?: AssistantRequestConfig;\n    timing?: AssistantTiming;\n    interrupted?: true;\n}',
+    declaration: 'export interface AssistantMessageNode {\n    kind: \'assistant\';\n    seq: number;\n    messageId?: MessageId;\n    time: number;\n    turn: number;\n    step: number;\n    blocks: readonly AssistantBlock[];\n    usage?: unknown;\n    provenance?: AssistantProvenanceView;\n    requestConfig?: AssistantRequestConfig;\n    timing?: AssistantTiming;\n    interrupted?: true;\n}',
   },
   {
     name: 'AssistantProvenanceView',
@@ -510,7 +510,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConversationNode',
-    declaration: 'export type ConversationNode = UserMessageNode | AssistantMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | TurnErrorNode | ToolResultNode | CommandNode | CompactionSummaryNode | UnknownSurfaceNode;',
+    declaration: 'export type ConversationNode = UserMessageNode | AssistantMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | TurnErrorNode | TurnMaxTokensNode | ToolResultNode | CommandNode | CompactionSummaryNode | UnknownSurfaceNode;',
   },
   {
     name: 'ConversationSnapshot',
@@ -851,6 +851,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TurnLocation',
     declaration: 'export interface TurnLocation {\n    readonly turn: number;\n    readonly start: SessionEvent<\'turn/start\'> | undefined;\n    readonly end: SessionEvent<\'turn/end\'> | undefined;\n    readonly status: \'open\' | \'closed\' | \'unknown\';\n    readonly steps: readonly StepLocation[];\n    readonly data: ConversationLocationDataStore<ConversationTurnDataMap>;\n}',
+  },
+  {
+    name: 'TurnMaxTokensNode',
+    declaration: 'export interface TurnMaxTokensNode {\n    kind: \'turn-max-tokens\';\n    seq: number;\n    time: number;\n    turn: number;\n    step: number;\n}',
   },
   {
     name: 'UnknownSurfaceNode',

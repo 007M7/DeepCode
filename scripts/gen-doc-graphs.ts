@@ -555,6 +555,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace.',
   },
+  {
+    key: 'cordisInspect',
+    pkg: 'cordis-host-runner',
+    title: 'Dynamic Cordis inspect registry',
+    mode: 'core',
+    consumers: ['tool-cordis'],
+    note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

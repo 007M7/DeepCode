@@ -28,5 +28,7 @@
       - insert:
           - id: code-runtime
             name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+          - id: cordis-host-runner
+            name: '@deepseek-ai/dsh-cordis-host-runner'
           - id: tool-cordis
             name: '@deepseek-ai/dsh-tool-cordis'

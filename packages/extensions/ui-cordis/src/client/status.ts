@@ -8,8 +8,16 @@ import type {
 /** The three product-visible lifecycle readings. */
 export type CordisVisibleStatus = 'idle' | 'client-pending' | 'running'
 
-/** Locate one immutable Package inside a Plugin row. */
-export function packageOf(row: DynamicCordisInventoryRow, packageId: CordisDynamicPackageId) {
+/**
+ * Locate one immutable Package inside a Plugin row.
+ * @param row - owning Plugin inventory row.
+ * @param packageId - immutable Package identity to locate.
+ * @returns the matching Package metadata, or `undefined` when absent.
+ */
+export function packageOf(
+  row: DynamicCordisInventoryRow,
+  packageId: CordisDynamicPackageId,
+): DynamicCordisInventoryRow['packages'][number] | undefined {
   return row.packages.find(pkg => pkg.packageId === packageId)
 }
 
