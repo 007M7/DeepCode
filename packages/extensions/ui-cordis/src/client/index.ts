@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { InputTriggerService, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from './events.ts'
 import { CordisDefineRow } from './CordisDefineRow.tsx'
 import { CordisRunRow } from './CordisRunRow.tsx'
@@ -133,7 +133,7 @@ export function apply(ctx: ClientContext): void {
 
   const rowsOf = (sessionId: SessionId, query: string) => inventory.getSnapshot().rows
     .filter(row => row.agentId === sessionId && String(row.pluginId).includes(query))
-  const source: SlashSource = {
+  const source: InputTriggerSource = {
     trigger: '@',
     name: 'cordis',
     order: 1,
@@ -153,7 +153,7 @@ export function apply(ctx: ClientContext): void {
     subscribeLexicon(_session, listener) { return inventory.subscribe(listener) },
     onPick({ candidate }) { return { text: `@${candidate.name} ` } },
   }
-  const slash = ctx.get('slash') as SlashServiceContract
+  const slash = ctx.get('slash') as InputTriggerService
   ctx.effect(() => slash.registerSource(source), 'ui-cordis: @pluginId source')
 
   inventory.refresh()

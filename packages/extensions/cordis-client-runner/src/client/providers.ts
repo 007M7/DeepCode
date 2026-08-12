@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { queryEventApi, queryServiceApi } from './api-catalog.ts'
 import type { ClientCordisInspectProviderRegistration } from './inspect-registry.ts'
@@ -169,7 +169,7 @@ function readExact(input: JsonValue | undefined, field: string): string | undefi
 }
 /* jscpd:ignore-end */
 
-type LiveSlotNode = ReturnType<SlotsService['snapshot']>[number]
+type LiveSlotNode = ReturnType<SlotRegistry['snapshot']>[number]
 
 const SLOT_CATALOG = new Map(CLIENT_SLOT_API.map(entry => [entry.key, entry]))
 

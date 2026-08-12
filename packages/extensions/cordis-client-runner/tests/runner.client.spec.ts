@@ -19,7 +19,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientModuleSystem } from '@deepseek-ai/dsh-client-modules/client'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { DYNAMIC_CLIENT_REDIRECTS } from '../src/client/evaluator.ts'
 import { DynamicCordisPackageRunner } from '../src/client/runtime.ts'
 import type { DynamicCordisClientHalf, DynamicCordisRenderFailure } from '../src/client/runtime.ts'
@@ -48,7 +48,7 @@ function half(overrides: Partial<DynamicCordisClientHalf> = {}): DynamicCordisCl
 
 interface Bench {
   ctx: Context
-  slots: SlotsService
+  slots: SlotRegistry
   runner: DynamicCordisPackageRunner
   invalidated: string[]
   removed: string[]
@@ -83,7 +83,7 @@ function seated<T>(fiber: T): T {
 
 async function boot(): Promise<Bench> {
   const ctx = new Context()
-  await ctx.plugin(SlotsService)
+  await ctx.plugin(SlotRegistry)
   const invalidated: string[] = []
   const removed: string[] = []
   const created: string[] = []
@@ -128,7 +128,7 @@ async function boot(): Promise<Bench> {
         listener = fn
         return () => { listener = undefined }
       },
-    } as unknown as SlotsService,
+    } as unknown as SlotRegistry,
     invoke,
     reportGuardFailure: () => {},
     reportRenderFailure: (agentId, pluginId, pluginRunId, failure) => {

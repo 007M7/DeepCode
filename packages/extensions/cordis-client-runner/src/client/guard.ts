@@ -6,7 +6,7 @@
  * carry extra machinery: `slots`, where the register proxy assigns the
  * shadowing priority and ledgers the registration — invoking the service with
  * the traced receiver so the effect lands on the CALLING plugin's fiber
- * (SlotsService.register must stay a prototype method for exactly that
+ * (SlotRegistry.register must stay a prototype method for exactly that
  * reason) — and `theme`, whose override source is pinned to the package id.
  *
  * This is API discipline, not a security boundary: a dynamic package's code is
@@ -15,8 +15,8 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import type { DynamicCordisPackage } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 
 /** Facade verbs beyond declared services (host CTX_VERBS twin). */
 const CTX_VERBS = new Set([
@@ -93,7 +93,7 @@ interface ErasedSlotOptions {
  * The slots seat: automatic shadowing priority and ledger recording around the
  * traced service's own register.
  */
-function guardedSlots(slots: SlotsService, env: DynamicCordisGuardEnv): unknown {
+function guardedSlots(slots: SlotRegistry, env: DynamicCordisGuardEnv): unknown {
   return new Proxy(slots, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target) as unknown
@@ -145,7 +145,7 @@ function guardedSlots(slots: SlotsService, env: DynamicCordisGuardEnv): unknown 
  * keep the returned handle (slots parity — register hangs its own cleanup).
  * Everything else forwards through the generic guard.
  */
-function guardedTheme(theme: ThemeService, env: DynamicCordisGuardEnv, ctx: Context): unknown {
+function guardedTheme(theme: ThemeRuntime, env: DynamicCordisGuardEnv, ctx: Context): unknown {
   return new Proxy(theme, {
     get(target, prop) {
       if (prop !== 'overrideTokens') {
@@ -205,8 +205,8 @@ export function dynamicCordisContext(ctx: Context, env: DynamicCordisGuardEnv): 
     if (requireDeclaration && !declared.has(name)) return denyRead(name)
     const service = denyContext(ctx.get(name), name, env)
     if (service === null || (typeof service !== 'object' && typeof service !== 'function')) return service
-    if (name === 'slots') return guardedSlots(service as SlotsService, env)
-    if (name === 'theme') return guardedTheme(service as ThemeService, env, ctx)
+    if (name === 'slots') return guardedSlots(service as SlotRegistry, env)
+    if (name === 'theme') return guardedTheme(service as ThemeRuntime, env, ctx)
     return guardedService(service, name, env)
   }
   return new Proxy({}, {

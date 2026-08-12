@@ -33,7 +33,7 @@
       "path": "../../client/ui-theme"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

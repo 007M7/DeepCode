@@ -27,7 +27,7 @@
       "path": "../../client/ui-sidebar"
     },
     {
-      "path": "../../client/ui-slash"
+      "path": "../../client/ui-input-trigger"
     },
     {
       "path": "../../client/ui-primitives"
@@ -39,7 +39,7 @@
       "path": "../../client/ui-tool"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

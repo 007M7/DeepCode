@@ -25,7 +25,7 @@
 
     },
     {
-      "path": "../../self-modification/cordis-host-runner"
+      "path": "../../extensions/cordis-host-runner"
     },
     {
       "path": "../../goal/goal"

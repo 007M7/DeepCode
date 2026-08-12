@@ -10,7 +10,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
-import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
+import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { isPlugin, normalizeHandler } from './guard.ts'
 import { CordisInspectRegistryService } from './inspect-registry.ts'
 import { missingServices, startHostHalf } from './lifecycle.ts'
@@ -121,7 +121,7 @@ interface ActivationPlan {
 }
 
 /** Dynamic Plugin registry and Host-half lifecycle. */
-export class DynamicCordisRunnerService extends GatewayService {
+export class DynamicCordisRunnerService extends TypertRemoteService {
   static inject = ['tools']
 
   static Config: z<Config> = z.object({

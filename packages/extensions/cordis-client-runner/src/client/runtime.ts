@@ -21,7 +21,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientModuleSystem } from '@deepseek-ai/dsh-client-modules/client'
-import type { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { DynamicCordisStyles, evaluateClientHalf, DYNAMIC_CLIENT_REDIRECTS } from './evaluator.ts'
 import type { DynamicCordisEvaluatedPlugin } from './evaluator.ts'
 import { dynamicCordisContext } from './guard.ts'
@@ -121,7 +121,7 @@ export interface DynamicCordisRunnerEnv {
   /** Module table, for factory invalidation before every (re-)registration. */
   modules: ClientModuleSystem
   /** Slot registry, for the entry-crash supervision seam. */
-  slots: SlotsService
+  slots: SlotRegistry
   /** Route one `host.call` to the package's host half through the Remote namespace. */
   invoke(
     pluginId: CordisDynamicPluginId,

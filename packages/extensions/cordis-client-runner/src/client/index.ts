@@ -16,7 +16,7 @@ import type {
   DynamicCordisInventoryRow,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientModuleSystem } from '@deepseek-ai/dsh-client-modules/client'
-import type { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 // The Client Remote assembly is the one place the two planes meet: it mounts the
 // `dynamicCordisRunner` namespace and re-exports its payload vocabulary, so this
 // package names what it sends without importing a Host package.
@@ -206,7 +206,7 @@ export function apply(ctx: Context): void {
     ctx,
     loader: ctx.loader,
     modules: ctx.get('modules') as ClientModuleSystem,
-    slots: ctx.get('slots') as SlotsService,
+    slots: ctx.get('slots') as SlotRegistry,
     invoke: async (pluginId, pluginRunId, method, args) => {
       // Model-authored arguments reach this boundary untyped; the namespace's
       // generated codec is what validates them as JSON, and its rejection is a
