@@ -1,13 +1,12 @@
 /**
- * Plugin configuration surface, browser half — one settings section holding
- * an expandable card per Host plugin whose configuration a user owns.
+ * Plugins settings surface, browser half — one section whose feature-owned
+ * tabs include configurable Host plugin cards and read-only inventory.
  *
- * The section owns no knowledge of any namespace: it declares the
- * `settings.plugin.item` slot and renders whatever cards were registered into
- * it, so a plugin that ships a browser half contributes its own card and its
- * own controls. The three cards this package registers are the host-plane
- * sections the deployment already exposes; each binds its namespace through
- * the client settings scope, which keeps them unaware of one another.
+ * The section declares `settings.plugins.tab`; its own `configurable` tab then
+ * declares `settings.plugin.item` and renders whatever cards were registered
+ * into it. The three cards this package ships are the host-plane sections the
+ * deployment already exposes; each binds its namespace through the client
+ * settings scope, which keeps them unaware of one another and of other tabs.
  */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -18,11 +17,15 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // through the service, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ctx.remote Context merge and the forwarded-event key face.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentLoopCard } from './AgentLoopCard.tsx'
 import { BashCard } from './BashCard.tsx'
+import { ConfigurablePluginsTab } from './ConfigurablePluginsTab.tsx'
+import type { ConfigurablePluginsTabInjected } from './ConfigurablePluginsTab.tsx'
 import { PluginConfigSection } from './PluginConfigSection.tsx'
+import type { PluginConfigSectionInjected, PluginSettingsTabRow } from './PluginConfigSection.tsx'
 import { WebSearchCard } from './WebSearchCard.tsx'
 import { AGENT_LOOP_NS, AgentLoopCardController } from './agent-loop-store.ts'
 import { BASH_NS, BashCardController } from './bash-store.ts'
@@ -30,6 +33,7 @@ import { WEB_SEARCH_NS, WebSearchCardController } from './web-search-store.ts'
 import { en, zh } from './locales.ts'
 
 export type { PluginConfigSectionInjected, PluginConfigSectionProps } from './PluginConfigSection.tsx'
+export type { ConfigurablePluginsTabInjected, ConfigurablePluginsTabProps } from './ConfigurablePluginsTab.tsx'
 export type { PluginCardProps } from './PluginCard.tsx'
 export type { SettingsPluginItemOwnerProps } from './slot-contract.ts'
 export type { FieldProps } from './fields.tsx'
@@ -67,22 +71,66 @@ export function apply(ctx: ClientContext): void {
     'ui-plugin-config: credential invalidations',
   )
 
-  // The section renders the empty line rather than an empty list when no plugin
-  // contributed a card. The count is read once: the renderer caches a root
-  // entry's inject face per registration, so this reports what was registered
-  // when the section mounted, not what is visible now. Both gaps are bounded by
-  // this deployment always registering the three cards below — a card that
-  // arrives later would not raise the count, and a namespace this deployment
-  // does not expose leaves its card rendering nothing inside a non-empty list.
+  let tabsVersion = -1
+  let tabsRevision = -1
+  let tabs: readonly PluginSettingsTabRow[] = []
+  const sectionInjected = (): PluginConfigSectionInjected => ({
+    hooks: {
+      tabs: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.plugins.tab')
+          const revision = ctx.locale.getSnapshot().revision
+          if (version !== tabsVersion || revision !== tabsRevision) {
+            tabsVersion = version
+            tabsRevision = revision
+            tabs = ctx.slots.entries('settings.plugins.tab')
+              .map(entry => ({
+                /* v8 ignore next -- list-slot registration requires id */
+                id: entry.options.id ?? '',
+                order: entry.options.order ?? 0,
+                label: resolveSlotLabel(entry.options.label) ?? '',
+              }))
+              .sort((a, b) => a.order - b.order)
+          }
+          return tabs
+        },
+        subscribe: (listener) => {
+          const offLedger = ctx.slots.subscribe('settings.plugins.tab', listener)
+          const offLocale = ctx.locale.subscribe(listener)
+          return () => {
+            offLedger()
+            offLocale()
+          }
+        },
+      },
+    },
+  })
+
+  // This package owns the one Plugins navigation entry and the tab chrome;
+  // feature plugins contribute pages without competing for Settings nav rows.
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'plugins',
-    order: 30,
+    order: 15,
     label: () => t('nav'),
     locale: NS,
-    inject: () => ({ cardCount: ctx.slots.entries('settings.plugin.item').length }),
-    children: { 'settings.plugin.item': { kind: 'list', scope: 'root' } },
+    inject: sectionInjected,
+    children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
   }, PluginConfigSection))
+
+  // The existing configuration page is one ordinary tab. It keeps ownership
+  // of the card slot and the three shipped card contributions below.
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+    name: 'settings.plugins.tab',
+    id: 'configurable',
+    order: 0,
+    label: () => t('configurableTab'),
+    locale: NS,
+    inject: (): ConfigurablePluginsTabInjected => ({
+      cardCount: ctx.slots.entries('settings.plugin.item').length,
+    }),
+    children: { 'settings.plugin.item': { kind: 'list', scope: 'root' } },
+  }, ConfigurablePluginsTab))
 
   ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({

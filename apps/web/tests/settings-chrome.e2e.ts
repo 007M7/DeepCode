@@ -99,6 +99,7 @@ describe('web e2e: settings modal and General preferences', () => {
     // an unrelated plugin does not rewrite this surface's golden.
     await dialog.getByRole('button', { name: '插件', exact: true }).click()
     await dialog.getByRole('heading', { name: '插件', exact: true }).waitFor({ timeout: 10_000 })
+    await dialog.getByRole('tab', { name: '插件列表', exact: true }).click()
     const pluginRow = dialog.locator(PLUGIN_ROW_SELECTOR)
     await pluginRow.waitFor({ timeout: 10_000 })
     const expectedPluginCount = [...scaffold.ctx.loader.entries()]
@@ -109,6 +110,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(await dialog.locator('[data-plugin-count]').getAttribute('data-plugin-count'))
       .toBe(String(expectedPluginCount))
     expect(await dialog.getByRole('button', { name: '插件', exact: true }).getAttribute('aria-current')).toBe('true')
+    expect(await dialog.getByRole('tab', { name: '插件列表', exact: true }).getAttribute('aria-selected')).toBe('true')
     expect(await dialog.getByRole('button', { name: '模型' }).getAttribute('aria-current')).toBeNull()
     const pluginsSnapshot = await captureStableAria(
       page,
