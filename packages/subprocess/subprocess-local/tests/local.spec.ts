@@ -21,6 +21,94 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
 }
 
 describe('LocalSubprocessService', () => {
+  it('places the host-exit finalizer before listeners that predate the service', async () => {
+    const baseline = new Set(process.listeners('exit'))
+    const prior = vi.fn()
+    process.on('exit', prior)
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    try {
+      const listeners = process.listeners('exit')
+      const finalizer = listeners.find(candidate => !baseline.has(candidate) && candidate !== prior)
+      expect(finalizer).toBeTypeOf('function')
+      expect(listeners.indexOf(finalizer!)).toBeLessThan(listeners.indexOf(prior))
+    } finally {
+      process.off('exit', prior)
+      await fiber.dispose()
+    }
+  })
+
+  it('keeps the host-exit finalizer active until normal disposal reaches quiescence', async () => {
+    const before = new Set(process.listeners('exit'))
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    expect(listener).toBeTypeOf('function')
+
+    let finishExit!: () => void
+    const exited = new Promise<void>((resolve) => { finishExit = resolve })
+    const terminate = vi.fn()
+    const terminateForHostExit = vi.fn()
+    const live = (ctx.subprocess as unknown as {
+      live: Set<{
+        done: Promise<{ exitCode: number; signal: null }>
+        terminate(): void
+        terminateForHostExit(): void
+        waitForExit(): Promise<boolean>
+      }>
+    }).live
+    live.add({
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      terminate,
+      terminateForHostExit,
+      waitForExit: async () => { await exited; return true },
+    })
+
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await new Promise(resolve => setImmediate(resolve))
+    expect(disposed).toBe(false)
+    expect(live.size).toBe(1)
+    listener?.(0)
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(terminateForHostExit).toHaveBeenCalledOnce()
+
+    finishExit()
+    await disposing
+    expect(live.size).toBe(0)
+    expect(process.listeners('exit')).not.toContain(listener)
+  })
+
+  it('contains each host-exit termination failure and continues with the other targets', async () => {
+    const before = new Set(process.listeners('exit'))
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    expect(listener).toBeTypeOf('function')
+    const ordinaryFailure = vi.fn(() => { throw new Error('ordinary failed') })
+    const ordinarySuccess = vi.fn()
+    const terminalFailure = vi.fn(() => { throw new Error('terminal failed') })
+    const terminalSuccess = vi.fn()
+    const service = ctx.subprocess as unknown as {
+      live: Set<{ terminateForHostExit(): void }>
+      terminals: Set<{ terminateForHostExit(): void }>
+    }
+    service.live.add({ terminateForHostExit: ordinaryFailure })
+    service.live.add({ terminateForHostExit: ordinarySuccess })
+    service.terminals.add({ terminateForHostExit: terminalFailure })
+    service.terminals.add({ terminateForHostExit: terminalSuccess })
+
+    expect(() => { listener?.(0) }).not.toThrow()
+    expect(ordinaryFailure).toHaveBeenCalledOnce()
+    expect(ordinarySuccess).toHaveBeenCalledOnce()
+    expect(terminalFailure).toHaveBeenCalledOnce()
+    expect(terminalSuccess).toHaveBeenCalledOnce()
+
+    service.live.clear()
+    service.terminals.clear()
+    await fiber.dispose()
+  })
+
   it('resolves absolute and PATH executables and honors lookup cancellation', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
@@ -175,6 +263,30 @@ describe('LocalSubprocessService', () => {
     await fiber.dispose()
 
     expect(disposalErrors).toEqual([failure])
+  })
+
+  it('force-terminates remaining targets before releasing a failed disposal', async () => {
+    const before = new Set(process.listeners('exit'))
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    expect(listener).toBeTypeOf('function')
+    const failure = new Error('cleanup failed')
+    const terminateForHostExit = vi.fn(() => {
+      expect(process.listeners('exit')).toContain(listener)
+    })
+    const terminal = {
+      terminate: vi.fn(async () => { throw failure }),
+      terminateForHostExit,
+    }
+    const terminals = (ctx.subprocess as unknown as { terminals: Set<typeof terminal> }).terminals
+    terminals.add(terminal)
+
+    await fiber.dispose()
+
+    expect(terminateForHostExit).toHaveBeenCalledOnce()
+    expect(terminals.size).toBe(0)
+    expect(process.listeners('exit')).not.toContain(listener)
   })
 
   it('releases a terminal after top-level exit reaches quiescence', async () => {

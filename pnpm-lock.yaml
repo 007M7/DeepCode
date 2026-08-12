@@ -7282,6 +7282,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:^
+        version: link:../../support/loader-smoke
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:^
         version: link:../subprocess

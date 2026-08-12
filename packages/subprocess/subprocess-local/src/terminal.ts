@@ -110,6 +110,33 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     return cleanup
   }
 
+  /**
+   * Force-terminate the observable session synchronously during Node's exit
+   * event. This does not claim quiescence and does not replace terminate().
+   */
+  terminateForHostExit(): void {
+    this.forceStopDescendants()
+    this.forceStopShell()
+    this.forceStopDescendants()
+  }
+
+  private forceStopShell(): void {
+    if (this.exited) return
+    if (this.rootIdentity !== undefined) {
+      try {
+        this.inspector.signalProcess(this.rootIdentity, 'SIGKILL')
+      } catch (_rootExitedDuringHostExit) {
+        // Exact identity signalling contains both exit races and PID reuse.
+      }
+      return
+    }
+    try {
+      this.terminal.kill('SIGKILL')
+    } catch (_unidentifiedShellExitedDuringHostExit) {
+      // Without a captured identity, node-pty is the only root kill primitive.
+    }
+  }
+
   private survivors(members: ProcessIdentity[]): ProcessIdentity[] {
     return members.filter(member => this.inspector.isAlive(member))
   }
@@ -150,6 +177,16 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
         // The exact process identity is rechecked; a same-tick exit is success.
       }
     }
+  }
+
+  private forceStopDescendants(): void {
+    let members = this.trackedDescendants
+    try {
+      members = this.descendants()
+    } catch (_processTableUnavailableDuringHostExit) {
+      // Preserve already-captured identities when a final process-table scan fails.
+    }
+    this.signalMembers(members, 'SIGKILL')
   }
 
   private unionMembers(...groups: ProcessIdentity[][]): ProcessIdentity[] {
