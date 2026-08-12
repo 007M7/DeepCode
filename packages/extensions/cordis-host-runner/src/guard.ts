@@ -1,15 +1,16 @@
 /**
- * The registration boundary between sandboxed mount code and the real runtime: ParameterSchemaSpec
+ * The registration boundary between a sandboxed host half and the real runtime: ParameterSchemaSpec
  * normalization + validation with teaching errors, the marker-guarded `harness.defineTool` /
- * `harness.registerTool` pair, the SANDBOX CONTEXT FAÇADE a mounted plugin's `apply` receives
- * in place of the real `ctx`, and the plugin-shape helpers the mount lifecycle narrows sandbox
- * return values with. The façade is a whitelist of lifecycle-safe verbs and declared services;
- * framework internals and context-valued service returns are denied.
+ * `harness.registerTool` pair, the `harness.handle` invoke-handler normalizer, the SANDBOX CONTEXT
+ * FAÇADE a running plugin's `apply` receives in place of the real `ctx`, and the plugin-shape
+ * helpers the run lifecycle narrows sandbox return values with. The façade is a whitelist of
+ * lifecycle-safe verbs and declared services; framework internals and context-valued service
+ * returns are denied.
  *
  * VM-realm schemas and canonical values are rebuilt as host objects, while rendered content and
  * presentation metadata are shape-checked before entering the registry. Common JSON-Schema spellings are normalized when they
  * have one meaning; invalid vocabulary fails during registration with a teaching error.
- * @module @deepseek-ai/dsh-tool-cordis/guard
+ * @module @deepseek-ai/dsh-cordis-host-runner/guard
  */
 
 import { Context } from '@deepseek-ai/cordis'
@@ -20,7 +21,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 
-const DYNAMIC_TOOL = Symbol('tool-cordis.dynamic-tool')
+const DYNAMIC_TOOL = Symbol('cordis-host-runner.dynamic-tool')
 const SCHEMA_TYPES = new Set<unknown>(['string', 'number', 'integer', 'boolean', 'null', 'object', 'array', 'json'])
 const VALID_TYPES = '\'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\' | \'object\' | \'array\' | \'json\''
 const ANNOTATION_KEYS = ['description', 'title', 'default', 'examples'] as const
@@ -94,7 +95,7 @@ type CloneTask =
   | { kind: 'array-item'; source: unknown[]; index: number; path: string; target: unknown[] }
   | { kind: 'leave'; source: object }
 
-/** Materialize realm-foreign lossless JSON without allowing JSON.stringify coercions. */
+/** Materialize realm-foreign lossless JSON without allowing JSON.stringify coercions; `path` carries the caller's own error prefix. */
 function cloneJson(value: unknown, path: string): unknown {
   const ancestors = new Set<object>()
   let root: unknown
@@ -115,7 +116,12 @@ function cloneJson(value: unknown, path: string): unknown {
     })
   }
   const reject = (at: string): never => {
-    throw new Error(`harness.defineTool ${at} must be lossless JSON data`)
+    // Naming the executable next step matters more than naming the rule: the
+    // usual cause is a handler that returns whatever its last call produced,
+    // and the fix is one keyword.
+    throw new Error(`${at} must be lossless JSON data (objects, arrays, strings, numbers, booleans, null) — `
+      + 'not a class instance, function, Map/Set, Date, or undefined. Return a plain object built from the '
+      + 'values you need, or `return null` when the caller needs no value back.')
   }
 
   const tasks: CloneTask[] = [{ kind: 'visit', value, path, destination: { kind: 'root' } }]
@@ -187,8 +193,8 @@ function cloneJson(value: unknown, path: string): unknown {
 function copyAnnotations(value: Record<string, unknown>, output: Record<string, unknown>, path: string): void {
   if (Object.hasOwn(value, 'description')) output.description = value.description
   if (Object.hasOwn(value, 'title')) output.title = value.title
-  if (Object.hasOwn(value, 'default')) output.default = cloneJson(value.default, `${path}.default`)
-  if (Object.hasOwn(value, 'examples')) output.examples = cloneJson(value.examples, `${path}.examples`)
+  if (Object.hasOwn(value, 'default')) output.default = cloneJson(value.default, `harness.defineTool ${path}.default`)
+  if (Object.hasOwn(value, 'examples')) output.examples = cloneJson(value.examples, `harness.defineTool ${path}.examples`)
 }
 
 /** Reject sandbox schema keys that the unified DSL would otherwise ignore. */
@@ -465,9 +471,9 @@ function normalizePropertyMap(
           if (!isDensePlainArray(value.enum) || value.enum.length === 0) {
             throw new Error(`harness.defineTool ${path}.enum must be a non-empty array`)
           }
-          prop.enum = cloneJson(value.enum, `${path}.enum`)
+          prop.enum = cloneJson(value.enum, `harness.defineTool ${path}.enum`)
         }
-        if (Object.hasOwn(value, 'const')) prop.const = cloneJson(value.const, `${path}.const`)
+        if (Object.hasOwn(value, 'const')) prop.const = cloneJson(value.const, `harness.defineTool ${path}.const`)
         break
       case 'json':
         assertSchemaKeys(value, path, ['type', ...requiredKey, ...ANNOTATION_KEYS])
@@ -554,7 +560,7 @@ export function sandboxDefineTool(options: unknown): ToolDefinition {
     throw new Error('harness.defineTool output.presentationMeta must be a function when present')
   }
   if (typeof options.execute !== 'function') throw new Error('harness.defineTool execute must be a function')
-  const schema = cloneJson(output.schema, 'output.schema')
+  const schema = cloneJson(output.schema, 'harness.defineTool output.schema')
   const rawExecute = options.execute as (args: unknown, exec: unknown) => Promise<unknown>
   const rawRender = output.render as (args: unknown, value: unknown) => unknown
   const rawPresentationMeta = output.presentationMeta as ((args: unknown, value: unknown) => unknown) | undefined
@@ -565,16 +571,16 @@ export function sandboxDefineTool(options: unknown): ToolDefinition {
     output: {
       schema,
       render(args: unknown, value: unknown): ContentBlock[] {
-        return assertRenderedContent(cloneJson(rawRender(args, value), 'output.render result') as JsonValue)
+        return assertRenderedContent(cloneJson(rawRender(args, value), 'harness.defineTool output.render result') as JsonValue)
       },
       ...rawPresentationMeta !== undefined ? {
         presentationMeta(args: unknown, value: unknown): JsonValue {
-          return cloneJson(rawPresentationMeta(args, value), 'output.presentationMeta result') as JsonValue
+          return cloneJson(rawPresentationMeta(args, value), 'harness.defineTool output.presentationMeta result') as JsonValue
         },
       } : {},
     },
     async execute(args: unknown, exec: unknown): Promise<JsonValue> {
-      return cloneJson(await rawExecute(args, exec), 'execute result') as JsonValue
+      return cloneJson(await rawExecute(args, exec), 'harness.defineTool execute result') as JsonValue
     },
   })
   const parameters = { ...tool.parameters, ...normalized.rootAnnotations }
@@ -583,6 +589,31 @@ export function sandboxDefineTool(options: unknown): ToolDefinition {
     ...tool,
     parameters,
   })
+}
+
+/**
+ * Normalize one `harness.handle` registration at the sandbox boundary: the
+ * method name must be a non-empty string and the handler a function whose
+ * result is host-materialized through the same cross-realm JSON clone as tool
+ * `execute` returns (a VM-realm object would otherwise escape the wire's
+ * plain-object contract).
+ * @param method - handler name the package's browser half calls through `host.call`.
+ * @param fn - sandbox handler receiving the wire-decoded JSON arguments.
+ * @returns the validated name and the clone-wrapped handler.
+ */
+export function normalizeHandler(method: unknown, fn: unknown): { method: string; handler: (args: unknown) => Promise<unknown> } {
+  if (typeof method !== 'string' || method.length === 0) {
+    throw new Error('harness.handle(method, fn) needs a non-empty string method name')
+  }
+  if (typeof fn !== 'function') {
+    throw new Error(`harness.handle("${method}") needs a handler function as its second argument`)
+  }
+  const rawHandler = fn as (args: unknown) => unknown
+  return {
+    method,
+    handler: async (args: unknown): Promise<unknown> =>
+      cloneJson(await rawHandler(args), `harness.handle("${method}") result`),
+  }
 }
 
 /**
@@ -598,23 +629,24 @@ export function sandboxRegisterTool(ctx: Context, tool: unknown): () => void {
 }
 
 /**
- * The verbs a mounted plugin may reach through the sandbox `ctx` façade, beyond its injected
- * services. `on`/`once` observe events, `provide` exposes a service to other mounts, and the
- * timer helpers schedule work — each a fiber effect that unwinds on unmount.
+ * The verbs a running host half may reach through the sandbox `ctx` façade, beyond its injected
+ * services. `on`/`once` observe events, `provide` exposes a service to other packages, and the
+ * timer helpers schedule work — each a fiber effect that unwinds when the package stops.
  */
-const CTX_VERBS = new Set(['on', 'once', 'provide', 'timeout', 'interval', 'setTimeout', 'setInterval', 'throttle', 'debounce'])
+const CTX_VERBS = new Set(['effect', 'on', 'once', 'provide', 'timeout', 'interval', 'setTimeout', 'setInterval', 'throttle', 'debounce'])
+const TIMER_VERBS = new Set(['timeout', 'interval', 'setTimeout', 'setInterval', 'throttle', 'debounce'])
 
 /**
  * The tool-registry façade: `register` (marker-guarded) plus READ-ONLY
  * metadata (`schemas`, and `get` returning a schema view, never the live
- * `ToolDefinition`). Exposing the raw definition would hand mount code the
+ * `ToolDefinition`). Exposing the raw definition would hand package code the
  * tool's `execute` function, letting it call another tool directly and bypass
  * `ToolRuntime.execute` — identity protection, pre-policy, monotonic guards,
  * around dispatch, post-policy, final observation, and result normalization. So `get` returns the same
  * name/description/parameters view as `schemas()`, and nothing invocable.
  */
 function sandboxTools(ctx: Context): Record<string, unknown> {
-  // Resolve reads and writes through the mount's own scope.
+  // Resolve reads and writes through the package's own scope.
   return {
     register: (tool: unknown): (() => void) => sandboxRegisterTool(ctx, tool),
     schemas: () => ctx.tools.schemas(scopeOf(ctx)),
@@ -628,9 +660,15 @@ function sandboxTools(ctx: Context): Record<string, unknown> {
  * fresh, unguarded handle back into the runtime — the exact escape the façade
  * exists to close — so it fails loud instead of reaching sandbox code.
  */
-function denyContext(value: unknown, service: string): unknown {
+// Twinned with the browser half's guard for the same reason as the ctx façade
+// below: this is the rule "a service must never hand sandboxed code a Context",
+// and each half must test against the Context class of ITS OWN face. Moving the
+// rule into a shared package would move a security invariant out of the halves
+// that enforce it, which is a design decision rather than a duplication fix.
+/* jscpd:ignore-start */
+function denyContext(value: unknown, service: string, reportFailure: (error: Error) => void): unknown {
   if (value instanceof Context) {
-    throw new Error(
+    return rejectGuard(reportFailure,
       `service "${service}" returned a cordis Context, which the sandbox does not expose. `
       + 'Operate through your own plugin ctx (ctx.on / ctx.provide / ctx.tools.register) '
       + 'and the services you inject — never another context.',
@@ -644,99 +682,110 @@ function denyContext(value: unknown, service: string): unknown {
  * their return values pass through {@link denyContext}. Non-function members
  * (plain data) pass through as-is; a returned Promise is guarded on resolve.
  */
-function guardedService(service: object, name: string): unknown {
+function guardedService(service: object, name: string, reportFailure: (error: Error) => void): unknown {
   return new Proxy(service, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target) as unknown
-      if (typeof value !== 'function') return denyContext(value, name)
+      if (typeof value !== 'function') return denyContext(value, name, reportFailure)
       return (...args: unknown[]): unknown => {
         const result = Reflect.apply(value, target, args) as unknown
-        if (result instanceof Promise) return result.then(v => denyContext(v, name))
-        return denyContext(result, name)
+        if (result instanceof Promise) return result.then(v => denyContext(v, name, reportFailure))
+        return denyContext(result, name, reportFailure)
       }
     },
   })
 }
+/* jscpd:ignore-end */
 
 /**
  * The service names a plugin declared in `inject`, as a lookup set. Whatever
  * declaration style the plugin used — an `inject: ['bash', 'tools']` array or
  * the `{ required, optional }` object form — cordis resolves it into a single
  * name-keyed map on the fiber before `apply` runs (`{ bash: null, tools: null }`),
- * so the gate just reads that map's keys. A mount may reach only the services
- * it declared — that is what lets cordis park the mount when a declared
- * provider unmounts.
+ * so the gate just reads that map's keys. A host half may reach only the services
+ * it declared — that is what lets cordis park it when a declared provider
+ * goes away.
  */
 function declaredInjects(ctx: Context): Set<string> {
   return new Set(Object.keys(ctx.fiber.inject))
 }
 
 /**
- * Whitelist context for mounted plugins: lifecycle-safe verbs, guarded tools, and only declared
- * injected services. Framework plumbing is denied, and service methods cannot return a Context.
+ * Whitelist context for running host halves: lifecycle-safe verbs, guarded
+ * tools, optional `ctx.get()` lookup, and declared-service property access.
+ * Framework plumbing is denied, and service methods cannot return a Context.
  */
-function sandboxContext(ctx: Context): Context {
+function sandboxContext(ctx: Context, reportFailure: (error: Error) => void): Context {
   const tools = sandboxTools(ctx)
   const declared = declaredInjects(ctx)
   // A framework member or an undeclared service — distinguish the two so the
   // error teaches the right fix (declare it in inject vs it is withheld).
   const denyRead = (prop: string): never => {
     if (ctx.get(prop) !== undefined) {
-      throw new Error(
+      return rejectGuard(reportFailure,
         `service "${prop}" is not injected. Declare it: inject: ['${prop}', …] on your plugin, `
-        + 'so cordis parks this temporary Plugin if the provider is later unmounted.',
+        + 'so cordis parks this dynamic package if the provider later goes away.',
       )
     }
-    throw new Error(
+    return rejectGuard(reportFailure,
       `sandbox ctx does not expose "${prop}". Available: ctx.tools.register / ctx.on / ctx.provide / `
-      + 'the timer helpers (ctx.setTimeout, ctx.interval, …) and any service you declared in inject. '
+      + 'the timer helpers after injecting timer, and any service you declared in inject. '
       + 'Framework internals (root, fiber, registry, extend, plugin, …) are withheld by design.',
     )
   }
-  // Read a service for either access path (property or `get`). `tools` is the façade's own
-  // API.
-  const readService = (name: string): unknown => {
+  // `get` is optional lookup; property access requires a declaration. `tools`
+  // is the façade's own API on either path.
+  const readService = (name: string, requireDeclaration: boolean): unknown => {
     if (name === 'tools') return tools
-    if (!declared.has(name)) return denyRead(name)
-    const service = denyContext(ctx.get(name), name)
+    if (requireDeclaration && !declared.has(name)) return denyRead(name)
+    const service = denyContext(ctx.get(name), name, reportFailure)
     if (service === null || (typeof service !== 'object' && typeof service !== 'function')) return service
-    return guardedService(service, name)
+    return guardedService(service, name, reportFailure)
   }
-  const get = (name: string): unknown => readService(name)
+  const get = (name: string): unknown => readService(name, false)
+  // The browser half builds the same façade over its own Context
+  // (`@deepseek-ai/dsh-cordis-client-runner`, whose CTX_VERBS names this one its
+  // twin), and the sameness is the point: a package author meets ONE contract on
+  // both halves. Folding them together is not available — the two halves compile
+  // in separate programs where `Context` merges different service keys — so the
+  // duplication is declared here instead of hidden behind a config exception.
+  /* jscpd:ignore-start */
   return new Proxy({}, {
     get(_target, prop) {
       if (prop === 'tools') return tools
       if (prop === 'get') return get
       if (typeof prop !== 'string') return undefined
-      // Lazy verb forwarder — reads `ctx[verb]` only when called, so a plugin
-      // that never uses a timer never triggers the timer mixin's inject check
-      // (cordis raises its own "without inject" error there for undeclared timer use).
+      // Lazy verb forwarder — reads `ctx[verb]` only when called. Timer mixins
+      // additionally require the Service declaration before Cordis resolves them.
       if (CTX_VERBS.has(prop)) {
         return (...args: unknown[]): unknown => {
+          if (TIMER_VERBS.has(prop) && !declared.has('timer')) return denyRead('timer')
           const method = ctx[prop as keyof Context]
           return Reflect.apply(method as (...a: unknown[]) => unknown, ctx, args)
         }
       }
-      return readService(prop)
+      return readService(prop, true)
     },
-    // A façade is not the real ctx; block writes rather than let mount code
+    // A façade is not the real ctx; block writes rather than let package code
     // stash state on a throwaway object and think it persisted.
     set(_target, prop) {
-      throw new Error(`sandbox ctx is read-only; cannot assign "${String(prop)}"`)
+      return rejectGuard(reportFailure, `sandbox ctx is read-only; cannot assign "${String(prop)}"`)
     },
     // `in` reflects reachability: the façade API plus DECLARED services
     // (whether or not currently live). Does not resolve/wrap — no throw.
     has: (_target, prop) => prop === 'tools' || prop === 'get'
-      || (typeof prop === 'string' && (CTX_VERBS.has(prop) || declared.has(prop))),
+      || (typeof prop === 'string'
+        && ((CTX_VERBS.has(prop) && (!TIMER_VERBS.has(prop) || declared.has('timer'))) || declared.has(prop))),
   }) as unknown as Context
+  /* jscpd:ignore-end */
 }
 
 /**
- * Narrow an arbitrary sandbox return value to a mountable cordis plugin: a
+ * Narrow an arbitrary sandbox return value to a runnable cordis plugin: a
  * function, or an object with an `apply` function. (A bare function passes the
  * first arm, so the object arm never sees `Function.prototype.apply`.)
- * @param value - whatever the mount code returned.
- * @returns whether the value is mountable via `ctx.plugin`.
+ * @param value - whatever the host half returned.
+ * @returns whether the value can be started via `ctx.plugin`.
  */
 export function isPlugin(value: unknown): value is Plugin {
   if (typeof value === 'function') return true
@@ -746,16 +795,17 @@ export function isPlugin(value: unknown): value is Plugin {
 
 /**
  * Wrap a plugin so `apply` receives the sandbox context while preserving injection metadata.
- * @param plugin - the plugin the mount code returned.
+ * @param plugin - the plugin the host half returned.
+ * @param reportFailure - reports a guard rejection to the owning Agent.
  * @returns an equivalent plugin whose `apply` sees the sandbox context façade.
  */
-export function guardedPlugin(plugin: Plugin): Plugin {
+export function guardedPlugin(plugin: Plugin, reportFailure: (error: Error) => void): Plugin {
   if (typeof plugin === 'function') {
     const functionPlugin = plugin as (ctx: Context, config?: unknown) => unknown
     return {
       name: pluginName(plugin),
       apply(ctx: Context, config?: unknown) {
-        return functionPlugin(sandboxContext(ctx), config)
+        return functionPlugin(sandboxContext(ctx, reportFailure), config)
       },
     }
   }
@@ -763,15 +813,21 @@ export function guardedPlugin(plugin: Plugin): Plugin {
   return {
     ...plugin,
     apply(ctx: Context, config?: unknown) {
-      return objectPlugin.apply(sandboxContext(ctx), config)
+      return objectPlugin.apply(sandboxContext(ctx, reportFailure), config)
     },
   }
 }
 
+function rejectGuard(reportFailure: (error: Error) => void, message: string): never {
+  const error = new Error(message)
+  reportFailure(error)
+  throw error
+}
+
 /**
- * Display name for a mounted plugin: its `name` property, else anonymous.
- * @param plugin - the plugin the mount code returned.
- * @returns the human-readable name used in mount results and inspect output.
+ * Display name for a running plugin: its `name` property, else anonymous.
+ * @param plugin - the plugin the host half returned.
+ * @returns the human-readable name used in run results and inspect output.
  */
 export function pluginName(plugin: Plugin): string {
   const named = (plugin as { name?: unknown }).name

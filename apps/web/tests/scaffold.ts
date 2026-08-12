@@ -70,6 +70,7 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -460,8 +461,19 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       // be able to change a golden, whatever roots a scenario asks for.
       : [{ id: 'agent-presets', config: { ...options.agentPresets, includeUserRoot: false } }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
+    // The host halves ride Loader builtins (below) so the shipped CLI keeps no
+    // dependency on this opt-in package, but the two browser rows must carry
+    // their real package names: the modules node half reads `dshClient` from a
+    // row's resolved package root, and a `cordis:` builtin has none — it is
+    // permanently not a client row, so a builtin here would silently drop the
+    // browser half from the roster.
     ...options.cordisTools === true
-      ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
+      ? [{ insert: [
+        { id: 'cordis-host-runner', name: 'cordis:cordis-host-runner' },
+        { id: 'tool-cordis', name: 'cordis:tool-cordis' },
+        { id: 'cordis-client-runner', name: '@deepseek-ai/dsh-cordis-client-runner' },
+        { id: 'ui-cordis', name: '@deepseek-ai/dsh-client-ui-cordis' },
+      ] }]
       : [],
     ...options.deepSeekSearch === undefined
       ? []
@@ -515,7 +527,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.loader.builtins.group = Group
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
-    if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
+    if (options.cordisTools === true) {
+      ctx.loader.builtins['cordis-host-runner'] = CordisHostRunner
+      ctx.loader.builtins['tool-cordis'] = ToolCordis
+    }
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(rootConfig).href, patches },

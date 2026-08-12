@@ -530,6 +530,31 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-workflow', 'tool-ralph'],
     note: 'One engine per context, as in bash, with no named-provider registry; the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents.',
   },
+  {
+    key: 'lsp',
+    pkg: 'lsp',
+    title: 'Language-server navigation seam',
+    mode: 'seam',
+    implementations: ['lsp-local'],
+    consumers: ['tool-lsp'],
+    note: 'Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result.',
+  },
+  {
+    key: 'apiProxy',
+    pkg: 'apiproxy',
+    title: 'Host API dispatch',
+    mode: 'core',
+    consumers: ['connection'],
+    note: 'The transport-agnostic host gateway face: it dispatches browser API calls, and each open host stream subscribes to the events it forwards rather than being pushed to through a broadcast verb.',
+  },
+  {
+    key: 'dynamicCordisRunner',
+    pkg: 'cordis-host-runner',
+    title: 'Dynamic Cordis package host runner',
+    mode: 'core',
+    consumers: ['tool-cordis'],
+    note: 'Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

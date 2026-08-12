@@ -227,39 +227,34 @@
   padding-left: 0;
 }
 
-/* Footer seats: Settings fills the left side and additive actions sit on the
-   right. Each occupant owns its button geometry and hover chrome. */
+/* Footer seats: additive actions stack above Settings. Each occupant owns its
+   button geometry and hover chrome. */
 .footArea {
   flex: none;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
 }
 
-.settingsArea {
-  flex: 1;
+.settingsArea,
+.footerActions {
+  flex: none;
   min-width: 0;
+  width: 100%;
 }
 
 .footerActions {
-  flex: none;
   display: flex;
-  align-items: flex-end;
 }
 
-/* The 56px rail cannot hold two controls side by side. Keep both reachable in
-   the same footer, stacked in their original order. */
 .collapsed .footArea {
-  flex-direction: column;
   align-items: center;
-  gap: 0;
 }
 
 .collapsed .settingsArea,
 .collapsed .footerActions {
-  flex: none;
   display: flex;
   justify-content: center;
+  width: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,49 +1,56 @@
 import { describe, expect, it } from 'vitest'
-import { presentInspectCall, presentMountCall, presentUnmountCall } from '../src/present.ts'
+import {
+  presentDefineCall, presentPackageInspectCall, presentRunCall, presentRuntimeInspectCall,
+  presentStopCall, presentUndefineCall,
+} from '../src/present.ts'
 import { setup } from './helpers.ts'
 
-/**
- * Render-intent presenters: pure functions of the call args (no I/O, no
- * session state — they run on replay too), wired onto the registered tools.
- */
-
-describe('presenters', () => {
-  it('cordis_inspect renders a generic read card titled with the section', () => {
-    expect(presentInspectCall({})).toEqual({ card: 'generic', kind: 'read', title: 'Inspect cordis runtime' })
-    expect(presentInspectCall({ what: 'api' })).toEqual({ card: 'generic', kind: 'read', title: 'Inspect cordis runtime: api' })
-    expect(presentInspectCall({ what: 'events', name: 'tools/change' })).toEqual({
+describe('Cordis tool presenters', () => {
+  it('renders runtime and Package inspection as read calls', () => {
+    expect(presentRuntimeInspectCall({ what: 'api', name: 'tools' })).toEqual({
       card: 'generic',
       kind: 'read',
-      title: 'Inspect cordis runtime: events: tools/change',
-    })
-  })
-
-  it('cordis_mount renders a generic execute card carrying the code as raw input', () => {
-    expect(presentMountCall({ code: 'return (ctx) => {}' })).toEqual({
-      card: 'generic',
-      kind: 'execute',
-      title: 'Mount temporary Cordis Plugin',
-      rawInput: { code: 'return (ctx) => {}' },
-    })
-  })
-
-  it('cordis_unmount renders a generic delete card titled with the id', () => {
-    expect(presentUnmountCall({ id: 'dyn-1' })).toEqual({ card: 'generic', kind: 'delete', title: 'Unmount temporary Cordis Plugin dyn-1' })
-  })
-
-  it('is wired onto the registered definitions through the defineTool soft-validation path', async () => {
-    const ctx = await setup()
-    expect(ctx.tools.get('cordis_inspect')!.presentCall!({ what: 'tools' })).toEqual({
-      card: 'generic',
-      kind: 'read',
-      title: 'Inspect cordis runtime: tools',
-    })
-    expect(ctx.tools.get('cordis_inspect')!.presentCall!({ what: 'api', name: 'tools' })).toMatchObject({
       title: 'Inspect cordis runtime: api: tools',
     })
-    expect(ctx.tools.get('cordis_mount')!.presentCall!({ code: 'return 1' })).toMatchObject({ kind: 'execute' })
-    expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 'dyn-2' })).toMatchObject({ title: 'Unmount temporary Cordis Plugin dyn-2' })
-    // Soft validation: presenter args that fail the schema render as no card, never a throw.
-    expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 42 })).toBeUndefined()
+    expect(presentPackageInspectCall({ pluginId: 'clock-1', packageId: 'pkg-2' })).toEqual({
+      card: 'generic',
+      kind: 'read',
+      title: 'Inspect Cordis package clock-1/pkg-2',
+    })
+  })
+
+  it('renders versioned define and lifecycle calls', () => {
+    expect(presentDefineCall({
+      plugin: { kind: 'existing', pluginId: 'clock-1' },
+      name: 'Clock v2',
+      purpose: 'show seconds',
+      code: { host: 'HOST', client: 'CLIENT' },
+    })).toEqual({
+      card: 'generic',
+      kind: 'execute',
+      title: 'Define clock-1 package "Clock v2": show seconds',
+      rawInput: { host: 'HOST', client: 'CLIENT' },
+    })
+    expect(presentRunCall({ pluginId: 'clock-1', packageId: 'pkg-2', mode: 'update' })).toEqual({
+      card: 'generic', kind: 'execute', title: 'Update clock-1 with pkg-2',
+    })
+    expect(presentStopCall({ pluginId: 'clock-1' })).toEqual({
+      card: 'generic', kind: 'execute', title: 'Stop dynamic plugin clock-1',
+    })
+    expect(presentUndefineCall({ pluginId: 'clock-1' })).toEqual({
+      card: 'generic', kind: 'delete', title: 'Remove dynamic plugin clock-1',
+    })
+  })
+
+  it('wires the split inspection presenters onto their tools', async () => {
+    const ctx = await setup()
+    expect(ctx.tools.get('cordis_runtime_inspect')!.presentCall!({ what: 'tools' })).toMatchObject({
+      kind: 'read', title: 'Inspect cordis runtime: tools',
+    })
+    expect(ctx.tools.get('cordis_package_inspect')!.presentCall!({
+      pluginId: 'clock-1', packageId: 'pkg-1',
+    })).toMatchObject({
+      kind: 'read', title: 'Inspect Cordis package clock-1/pkg-1',
+    })
   })
 })

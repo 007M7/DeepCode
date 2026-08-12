@@ -21,13 +21,25 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
       "path": "../../core/scope"
     },
     {
       "path": "../../core/tools"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../cordis-host-runner"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

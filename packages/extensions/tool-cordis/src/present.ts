@@ -1,52 +1,67 @@
-/**
- * UI render intents for the three cordis tools — all `generic` cards, decided
- * up front as part of the tool design. Presenters are pure functions of the
- * call arguments (they run on replay too): no I/O, no session state, no clock.
- * No `presentResult` overrides exist — the tools' text results are their
- * correct completed rendering.
- *
- * @module @deepseek-ai/dsh-tool-cordis/present
- */
+/** Pure replay-safe render intents for Cordis tools. */
 
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 
-/**
- * The `cordis_inspect` call card: a read, titled with the requested section.
- * @param args - the validated call arguments.
- * @returns the generic call card.
- */
-export function presentInspectCall(args: { what?: string; name?: string }): GenericCallView {
+/** Render a runtime-inspection call. */
+export function presentRuntimeInspectCall(args: { what?: string; name?: string }): GenericCallView {
   const target = args.name === undefined ? args.what : `${args.what}: ${args.name}`
-  return {
-    card: 'generic',
-    kind: 'read',
-    title: target === undefined ? 'Inspect cordis runtime' : `Inspect cordis runtime: ${target}`,
-  }
+  return { card: 'generic', kind: 'read', title: target === undefined ? 'Inspect Cordis runtime' : `Inspect Cordis runtime: ${target}` }
 }
 
-/**
- * The `cordis_mount` call card: an execute carrying the temporary-plugin code as raw input.
- * @param args - the validated call arguments.
- * @returns the generic call card.
- */
-export function presentMountCall(args: { code: string }): GenericCallView {
+/** Render provider-directory inspection. */
+export function presentInspectListCall(): GenericCallView {
+  return { card: 'generic', kind: 'read', title: 'List Cordis Inspect Providers' }
+}
+
+/** Render one provider query. */
+export function presentInspectQueryCall(args: { platform: string; provider: string; method: string }): GenericCallView {
+  return { card: 'generic', kind: 'read', title: `Query Cordis ${args.platform} ${args.provider}.${args.method}` }
+}
+
+/** Render layered self-inspection. */
+export function presentInspectSelfCall(args: { pluginId?: string; packageId?: string }): GenericCallView {
+  const target = args.pluginId === undefined
+    ? 'dynamic Cordis Plugins'
+    : args.packageId === undefined ? args.pluginId : `${args.pluginId}/${args.packageId}`
+  return { card: 'generic', kind: 'read', title: `Inspect ${target}` }
+}
+
+/** Render an immutable Package source-inspection call. */
+export function presentPackageInspectCall(args: { pluginId: string; packageId: string }): GenericCallView {
+  return { card: 'generic', kind: 'read', title: `Inspect Cordis Package ${args.pluginId}/${args.packageId}` }
+}
+
+/** Render a new or appended Package definition. */
+export function presentDefineCall(args: {
+  plugin: { kind: 'new'; idPrefix: string } | { kind: 'existing'; pluginId: string }
+  name: string
+  purpose: string
+  code: { host?: string; client?: string }
+}): GenericCallView {
+  const target = args.plugin.kind === 'new' ? `new ${args.plugin.idPrefix}-*` : args.plugin.pluginId
   return {
     card: 'generic',
     kind: 'execute',
-    title: 'Mount temporary Cordis Plugin',
-    rawInput: { code: args.code },
+    title: `Define Package "${args.name}" for ${target}: ${args.purpose}`,
+    rawInput: args.code,
   }
 }
 
-/**
- * The `cordis_unmount` call card: a delete, titled with the temporary-plugin id.
- * @param args - the validated call arguments.
- * @returns the generic call card.
- */
-export function presentUnmountCall(args: { id: string }): GenericCallView {
+/** Render Plugin removal. */
+export function presentUndefineCall(args: { pluginId: string }): GenericCallView {
+  return { card: 'generic', kind: 'delete', title: `Remove dynamic Plugin ${args.pluginId}` }
+}
+
+/** Render one exact Package activation. */
+export function presentRunCall(args: { pluginId: string; packageId: string; mode: 'run' | 'update' }): GenericCallView {
   return {
     card: 'generic',
-    kind: 'delete',
-    title: `Unmount temporary Cordis Plugin ${args.id}`,
+    kind: 'execute',
+    title: `${args.mode === 'update' ? 'Update' : 'Run'} ${args.pluginId} · ${args.packageId}`,
   }
+}
+
+/** Render Plugin stop. */
+export function presentStopCall(args: { pluginId: string }): GenericCallView {
+  return { card: 'generic', kind: 'execute', title: `Stop dynamic Plugin ${args.pluginId}` }
 }

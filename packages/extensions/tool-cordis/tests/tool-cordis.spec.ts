@@ -20,32 +20,31 @@ describe('export shape', () => {
     const unwrapped = loader.unwrapExports(tool) as Record<string, unknown>
     expect(unwrapped).toBe(tool)
     expect(unwrapped.name).toBe('tool-cordis')
-    expect(unwrapped.inject).toEqual(['tools'])
+    expect(unwrapped.inject).toEqual(['tools', 'dynamicCordisRunner'])
     expect(typeof unwrapped.apply).toBe('function')
-    expect(typeof unwrapped.Config).toBe('function')
+    // The vm bound moved to the runner service with the sandbox it bounds, so
+    // this toolset has no config of its own.
+    expect('Config' in tool).toBe(false)
   })
 })
 
 describe('tool registration', () => {
-  it('registers the three cordis tools with the documented schemas', async () => {
+  it('registers the six cordis tools with split inspection schemas', async () => {
     const ctx = await setup()
     const names = ctx.tools.schemas().map(schema => schema.name)
-    expect(names).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
-    expect(names).not.toEqual(expect.arrayContaining(['cordis_try', 'cordis_stop']))
-    const inspect = ctx.tools.schemas().find(schema => schema.name === 'cordis_inspect')!
+    expect(names).toEqual(expect.arrayContaining([
+      'cordis_runtime_inspect', 'cordis_package_inspect', 'cordis_define',
+      'cordis_run', 'cordis_stop', 'cordis_undefine',
+    ]))
+    // The one-shot mount pair retired with the two-step verbs.
+    expect(names).not.toEqual(expect.arrayContaining(['cordis_mount']))
+    expect(names).not.toEqual(expect.arrayContaining(['cordis_unmount']))
+    const inspect = ctx.tools.schemas().find(schema => schema.name === 'cordis_runtime_inspect')!
     const props = (inspect.parameters as { properties: Record<string, { enum?: string[]; type?: string }> }).properties
-    expect(props.what?.enum).toEqual(['services', 'plugins', 'tools', 'temporary', 'api', 'events'])
+    expect(props.what?.enum).toEqual(['services', 'plugins', 'tools', 'temporary', 'api', 'events', 'client'])
     expect(props.name?.type).toBe('string')
-  })
-})
-
-describe('Config', () => {
-  it('defaults vmTimeoutMs to 5000', () => {
-    expect(new tool.Config()).toEqual({ vmTimeoutMs: 5000 })
-  })
-
-  it('rejects a non-positive vmTimeoutMs at validation time (misconfiguration fails loud)', () => {
-    expect(() => new tool.Config({ vmTimeoutMs: 0 })).toThrow()
-    expect(() => new tool.Config({ vmTimeoutMs: -1 })).toThrow()
+    const packageInspect = ctx.tools.schemas().find(schema => schema.name === 'cordis_package_inspect')!
+    const packageProps = (packageInspect.parameters as { properties: Record<string, { type?: string }> }).properties
+    expect(packageProps).toMatchObject({ pluginId: { type: 'string' }, packageId: { type: 'string' } })
   })
 })

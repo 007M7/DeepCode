@@ -170,7 +170,7 @@ export class CordisCatalogProjector {
     return renderRuntimeApi(
       services,
       model.events,
-      this.runtimeTypes(services),
+      this.runtimeTypes(services, model.events),
       this.policy.inheritedServices,
     )
   }
@@ -325,7 +325,10 @@ export class CordisCatalogProjector {
     return entries.sort((left, right) => left.key.localeCompare(right.key))
   }
 
-  private runtimeTypes(services: readonly ServiceEntry[]): { name: string; declaration: string }[] {
+  private runtimeTypes(
+    services: readonly ServiceEntry[],
+    events: readonly EventEntry[],
+  ): { name: string; declaration: string }[] {
     const declarations = new Map<string, string>()
     const ambiguous = new Set<string>()
     for (const declaration of this.sourceDeclarations) {
@@ -343,7 +346,10 @@ export class CordisCatalogProjector {
       )
     }
     for (const name of ambiguous) declarations.delete(name)
-    return referencedTypes(services.flatMap(service => service.methods.map(method => method.signature)), declarations)
+    return referencedTypes([
+      ...services.flatMap(service => service.methods.map(method => method.signature)),
+      ...events.map(event => event.signature),
+    ], declarations)
   }
 }
 
@@ -409,6 +415,7 @@ interface ParsedJsDoc {
   readonly doc: string
   readonly params: ReadonlyMap<string, string>
   readonly returns: string | null
+  readonly throws: readonly string[]
   readonly deprecated: boolean
 }
 
@@ -466,6 +473,7 @@ function parseJsDoc(raw: string): ParsedJsDoc {
 
   const params = new Map<string, string>()
   let returns: string | null = null
+  const throws: string[] = []
   let deprecated = false
   let sink: ((text: string) => void) | undefined
   for (const line of lines) {
@@ -495,6 +503,17 @@ function parseJsDoc(raw: string): ParsedJsDoc {
       }
       continue
     }
+    const throwsTag = /^@throws?(?:\s+[-—–]?\s*(.*))?$/.exec(line)
+    if (throwsTag !== null) {
+      let value = throwsTag[1] ?? ''
+      throws.push(value)
+      const index = throws.length - 1
+      sink = (text) => {
+        value = value === '' ? text : `${value} ${text}`
+        throws[index] = value
+      }
+      continue
+    }
     if (line.startsWith('@') || line.trim() === '') sink = undefined
     else sink?.(line.trim())
   }
@@ -502,6 +521,7 @@ function parseJsDoc(raw: string): ParsedJsDoc {
     doc: blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim(),
     params,
     returns,
+    throws,
     deprecated,
   }
 }
@@ -641,33 +661,49 @@ function renderRuntimeApi(
     ' * `pnpm run verify-cordis-api` in doc-sync).',
     ' *',
     ' * The machine-readable cordis API catalog `cordis_inspect` serves to the',
-    ' * model: harness services (summary + public method signatures/JSDoc),',
-    ' * harness events (mode + signature/JSDoc), and the inherited `ctx` API. Produced by',
+    ' * model: harness services (summary + structured public method contracts),',
+    ' * harness events (mode + structured listener contracts), and the inherited `ctx` API. Produced by',
     ' * the same AST walk as docs/cordis-catalog, so this data and the rendered',
     ' * docs cannot diverge.',
     ' *',
     ' * @module @deepseek-ai/dsh-tool-cordis/api-catalog',
     ' */',
     '',
-    '/** One public service method and its source-owned contract. */',
+    '/** One named parameter in a Service method or Event listener. */',
+    'export interface ApiParameter {',
+    '  /** Parameter name from the exact signature. */',
+    '  name: string',
+    '  /** Source-owned parameter contract. */',
+    '  description: string',
+    '}',
+    '',
+    '/** One public service member and its source-owned contract. */',
     'export interface ServiceApiMethod {',
     '  /** Public method signature with its body stripped. */',
     '  signature: string',
-    '  /** Original method JSDoc, with only container indentation removed. */',
-    '  jsDoc: string',
+    '  /** Method purpose and behavior. */',
+    '  description: string',
+    '  /** Named parameters in signature order. */',
+    '  parameters: readonly ApiParameter[]',
+    '  /** Non-void result contract when documented. */',
+    '  returns?: string',
+    '  /** Documented failure conditions. */',
+    '  throws?: readonly string[]',
     '}',
     '',
-    '/** One harness `ctx.<key>` service: its one-line summary and public methods. */',
+    '/** One harness `ctx.<key>` service and its public methods. */',
     'export interface ServiceApiEntry {',
     '  /** The `ctx.<key>` name, e.g. `tools`. */',
     '  key: string',
     '  /** First sentence of the service class JSDoc. */',
     '  summary: string',
+    '  /** Complete service description. */',
+    '  description: string',
     '  /** Public methods, bodies stripped, in source order. */',
     '  methods: readonly ServiceApiMethod[]',
     '}',
     '',
-    '/** One harness event: its dispatch mode, exact signature, and one-line summary. */',
+    '/** One harness event: its dispatch mode, exact signature, and listener contract. */',
     'export interface EventApiEntry {',
     '  /** The scoped event name, e.g. `agent/status`. */',
     '  name: string',
@@ -675,10 +711,12 @@ function renderRuntimeApi(
     '  mode: string',
     '  /** The exact listener signature, whitespace-normalized. */',
     '  signature: string',
-    '  /** Original event JSDoc, with only container indentation removed. */',
-    '  jsDoc: string',
     '  /** First sentence of the event JSDoc. */',
     '  summary: string',
+    '  /** Complete event description. */',
+    '  description: string',
+    '  /** Named listener parameters in signature order. */',
+    '  parameters: readonly ApiParameter[]',
     '}',
     '',
     '/** One inherited (cordis core + loader/hmr/timer) `ctx` member group with its summary. */',
@@ -689,7 +727,7 @@ function renderRuntimeApi(
     '  summary: string',
     '}',
     '',
-    '/** One named type shape the service signatures reference. */',
+    '/** One named type declaration referenced by a Service or Event signature. */',
     'export interface TypeApiEntry {',
     '  /** The exported type/interface name, e.g. `ShellRunResult`. */',
     '  name: string',
@@ -704,14 +742,19 @@ function renderRuntimeApi(
     lines.push('  {')
     lines.push(`    key: ${quote(service.key)},`)
     lines.push(`    summary: ${quote(firstSentence(service.doc))},`)
+    lines.push(`    description: ${quote(service.doc)},`)
     if (service.methods.length === 0) {
       lines.push('    methods: [],')
     } else {
       lines.push('    methods: [')
       for (const method of service.methods) {
+        const contract = parseJsDoc(method.jsDoc)
         lines.push('      {')
         lines.push(`        signature: ${quote(method.signature)},`)
-        lines.push(`        jsDoc: ${quote(method.jsDoc)},`)
+        lines.push(`        description: ${quote(contract.doc)},`)
+        lines.push(`        parameters: ${JSON.stringify([...contract.params].map(([name, description]) => ({ name, description })))},`)
+        if (contract.returns !== null) lines.push(`        returns: ${quote(contract.returns)},`)
+        if (contract.throws.length > 0) lines.push(`        throws: ${JSON.stringify(contract.throws)},`)
         lines.push('      },')
       }
       lines.push('    ],')
@@ -725,18 +768,20 @@ function renderRuntimeApi(
     'export const EVENT_API: readonly EventApiEntry[] = [',
   )
   for (const event of [...events].sort((left, right) => left.name.localeCompare(right.name))) {
+    const contract = parseJsDoc(event.jsDoc)
     lines.push('  {')
     lines.push(`    name: ${quote(event.name)},`)
     lines.push(`    mode: ${quote(event.mode)},`)
     lines.push(`    signature: ${quote(event.signature)},`)
-    lines.push(`    jsDoc: ${quote(event.jsDoc)},`)
     lines.push(`    summary: ${quote(firstSentence(event.doc))},`)
+    lines.push(`    description: ${quote(event.doc)},`)
+    lines.push(`    parameters: ${JSON.stringify([...contract.params].map(([name, description]) => ({ name, description })))},`)
     lines.push('  },')
   }
   lines.push(
     ']',
     '',
-    '/** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */',
+    '/** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */',
     'export const TYPE_API: readonly TypeApiEntry[] = [',
   )
   for (const type of types) {
@@ -754,7 +799,98 @@ function renderRuntimeApi(
   for (const inherited of inheritedServices) {
     lines.push(`  { name: ${quote(inherited.name)}, summary: ${quote(inherited.summary)} },`)
   }
-  lines.push(']', '')
+  lines.push(
+    ']',
+    '',
+    'function referencedTypeClosure(seeds: readonly string[]): TypeApiEntry[] {',
+    '  const included = new Set<string>()',
+    '  let frontier = [...seeds]',
+    '  while (frontier.length > 0) {',
+    '    const next: string[] = []',
+    '    for (const entry of TYPE_API) {',
+    '      if (included.has(entry.name)) continue',
+    '      const pattern = new RegExp(`\\b${entry.name}\\b`)',
+    '      if (!frontier.some(text => pattern.test(text))) continue',
+    '      included.add(entry.name)',
+    '      next.push(entry.declaration)',
+    '    }',
+    '    frontier = next',
+    '  }',
+    '  return TYPE_API.filter(entry => included.has(entry.name))',
+    '}',
+    '',
+    'function contextProperty(key: string): string {',
+    '  return /^[A-Za-z_$][\\w$]*$/.test(key) ? `ctx.${key}` : `ctx[${JSON.stringify(key)}]`',
+    '}',
+    '',
+    '/**',
+    ' * Project the Service Catalog as a compact directory or one exact coding contract.',
+    ' * @param key - exact Service key; omit it to list all Services and method signatures.',
+    ' * @param services - platform-specific visible Service entries.',
+    ' * @returns compact navigation data or one detailed Service with its referenced type closure.',
+    ' */',
+    'export function queryServiceApi(key?: string, services: readonly ServiceApiEntry[] = SERVICE_API): object {',
+    '  if (key === undefined) {',
+    '    return {',
+    "      mode: 'catalog',",
+    '      services: services.map(service => ({',
+    '        key: service.key,',
+    '        description: service.summary,',
+    '        methods: service.methods.map(method => ({ signature: method.signature })),',
+    '      })),',
+    '    }',
+    '  }',
+    '  const service = services.find(candidate => candidate.key === key)',
+    '  if (service === undefined) throw new Error(`no catalogued Service named "${key}"`)',
+    '  return {',
+    "    mode: 'service',",
+    '    service: {',
+    '      key: service.key,',
+    '      description: service.description,',
+    '      access: {',
+    '        optional: { expression: `ctx.get(${JSON.stringify(service.key)})`, requiresUndefinedCheck: true },',
+    '        hardDependency: { inject: [service.key], expression: contextProperty(service.key) },',
+    '      },',
+    '      methods: service.methods,',
+    '    },',
+    '    referencedTypes: referencedTypeClosure(service.methods.map(method => method.signature)),',
+    '  }',
+    '}',
+    '',
+    '/**',
+    ' * Project the Event Catalog as a compact directory or one exact listener contract.',
+    ' * @param name - exact Event name; omit it to list all Events and listener signatures.',
+    ' * @param events - platform-specific visible Event entries.',
+    ' * @returns compact navigation data or one detailed Event with its referenced type closure.',
+    ' */',
+    'export function queryEventApi(name?: string, events: readonly EventApiEntry[] = EVENT_API): object {',
+    '  if (name === undefined) {',
+    '    return {',
+    "      mode: 'catalog',",
+    '      events: events.map(event => ({',
+    '        name: event.name,',
+    '        description: event.summary,',
+    '        mode: event.mode,',
+    '        signature: event.signature,',
+    '      })),',
+    '    }',
+    '  }',
+    '  const event = events.find(candidate => candidate.name === name)',
+    '  if (event === undefined) throw new Error(`no catalogued Event named "${name}"`)',
+    '  return {',
+    "    mode: 'event',",
+    '    event: {',
+    '      name: event.name,',
+    '      description: event.description,',
+    '      mode: event.mode,',
+    '      signature: event.signature,',
+    '      parameters: event.parameters,',
+    '    },',
+    '    referencedTypes: referencedTypeClosure([event.signature]),',
+    '  }',
+    '}',
+    '',
+  )
   return lines.join('\n')
 }
 /** Opening region delimiter; injected content lives between the pair and the page owns everything outside. */

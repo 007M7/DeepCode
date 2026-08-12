@@ -244,6 +244,10 @@
 # trust boundary, not a sandbox — see this file's header.
 - id: tool-cordis
   name: '@deepseek-ai/dsh-tool-cordis'
+- id: cordis-client-runner
+  name: '@deepseek-ai/dsh-cordis-client-runner'
+- id: ui-cordis
+  name: '@deepseek-ai/dsh-client-ui-cordis'
 
 # The composition-authoring skill travels with this preset rather than living
 # in the user's skill root: it documents THIS deployment's two planes, and a

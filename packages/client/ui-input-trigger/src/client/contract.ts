@@ -10,8 +10,16 @@ import type { InputTriggerController } from './controller.ts'
 
 /** The `ctx.inputTriggers` service face. */
 export interface InputTriggerServiceContract {
-  /** Register one trigger source; effect disposer. Duplicate (trigger, name) throws. */
+  /**
+   * Register one trigger source; duplicate trigger/name pairs throw.
+   * @param src - source that discovers and resolves slash or reference candidates.
+   * @returns effect disposer removing this source.
+   */
   registerSource(src: InputTriggerSource): () => void
-  /** Resolve the per-session controller for one session scope (lazy; dies with the scope). */
+  /**
+   * Resolve the lazy controller owned by one session scope.
+   * @param actx - session-scoped Client context.
+   * @returns controller that dies with that scope.
+   */
   sessionOf(actx: ClientContext): InputTriggerController
 }

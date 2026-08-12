@@ -33,16 +33,32 @@ export interface ComposerAttachment {
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * Strict-session body inside the resident conversation scrollport. It
-     * owns the per-session draft mirror and active view ring.
+     * The entire body of one session: taking this seat means rendering that
+     * session's conversation yourself. The occupant also owns the per-session
+     * draft mirror and the active view ring, so a replacement inherits both
+     * duties and an empty one leaves a blank session pane — nothing here
+     * degrades gracefully. To ADD rather than replace, take a seat inside the
+     * flow instead: `conversation.view` for a whole tab, the input regions for
+     * composer chrome.
      */
     'conversation.session': { kind: 'single'; scope: 'session' }
-    /** Strict-session header above the resident conversation scrollport. */
+    /**
+     * The strip above the session's scrollport: title, view tabs, and the
+     * action row. Taking this seat means rendering all three yourself, and it
+     * also collapses `conversation.session.header.actions` — that additive
+     * seat is declared by whoever occupies this one, so replacing the header
+     * takes every action entry down with it.
+     */
     'conversation.session.header': { kind: 'single'; scope: 'session' }
     /**
-     * Session-header actions contributed by feature plugins. Entries render
-     * by ascending `order`; negative values are reserved for static session
-     * context that precedes interactive actions.
+     * One button in the session header's action row — the additive way to put
+     * a per-session control beside the title without replacing the header.
+     * Entries render by ascending `order`; negative values are reserved for
+     * static session context that precedes interactive actions. The owner
+     * passes nothing: everything a control needs comes from the framework
+     * session kit (`sessionId`, `useSession`, `useInput`, `inputActions`) and
+     * from the registrant's own inject face, so an empty owner share means
+     * self-sufficient, not starved.
      */
     'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
@@ -95,7 +111,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       scope: 'session'
       owner: AssistantActionOwnerProps
     }
-    /** Selected Tool call output inside the details panel. */
+    /**
+     * The body of the details panel for the tool call the user selected —
+     * one occupant, so taking it means rendering every tool's output, not just
+     * the ones you know. The owner passes a frozen `block` whose two lifecycle
+     * forms must both be handled: branch on `'kind' in block` (a settled
+     * `ToolResultNode` has it, a still-running call does not), and treat
+     * `cwd` as display-only, for shortening workspace-rooted paths.
+     * A per-tool renderer belongs in the keyed `tool.call.toolview` seat
+     * instead; this one is the whole panel.
+     */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
@@ -124,15 +149,41 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     // ui-input-trigger, so the type arrives transitively). The runtime declaration
     // (children table in apply.ts) stays here with the other input slots.
     /**
-     * Stacked strip above the input (queue rows / GoalBar / attachments;
-     * entries coexist in fixed order).
+     * A full-width row of its own, stacked above the composer card — the seat
+     * for anything that needs a line to itself (queue rows, a todo strip, a
+     * goal bar). Pick this over the three seats below when your content wraps
+     * or carries prose; pick `conversation.composer.dock` for an ambient
+     * readout under the card, and `conversation.input.left` /
+     * `.right` for a small control INSIDE the card's tool row.
+     * Read only `session`/`input` off the owner share ({@link InputZone}) —
+     * both are point-in-time snapshots re-rendered for you, never subscribe.
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** The band under the composer card (stats line family), rendered inside the bar's width column via the `footer` owner prop. */
+    /**
+     * The band under the composer card, inside the bar's width column — the
+     * seat for an ambient readout about the conversation (the shipped stats
+     * line lives here). Same {@link InputZone} owner share as the other
+     * regions. Anything the user must click belongs in the tool row instead
+     * (`conversation.input.left` / `.right`); anything needing its own line
+     * above the card belongs in `conversation.input.dock`.
+     */
     'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** Tool-row left region inside the input card (existing chrome stays in place beside entries). */
+    /**
+     * The left end of the tool row INSIDE the composer card, after the
+     * resident chrome (access mode, plan, attach) — the seat for a small
+     * always-visible control. Entries sit beside that chrome, never replace
+     * it. Same {@link InputZone} owner share; use `.right` for a control that
+     * belongs next to the send button, and the docks for anything taller than
+     * one row.
+     */
     'conversation.input.left': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** Tool-row right region inside the input card. */
+    /**
+     * The right end of the same tool row, before the primary send button —
+     * the seat for a control the user reaches on the way to sending (the
+     * model select sits in its own named seat just left of here). Same
+     * {@link InputZone} owner share and the same one-row height budget as
+     * `conversation.input.left`.
+     */
     'conversation.input.right': { kind: 'list'; scope: 'session'; owner: InputZone }
     /**
      * The default composer body: a single slot rendered as the composer
@@ -149,15 +200,23 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
     /**
-     * The Plan-mode status seat in the composer tool row (left group,
-     * right of the access-mode control). Declared by the composer-bar
-     * entry; empty until a plan plugin registers (no placeholder
-     * fallback).
+     * The named plan-status seat in the composer tool row, immediately right
+     * of the access-mode control — one occupant, so taking it means rendering
+     * the plan affordance yourself. The owner passes only `locked` (see
+     * {@link InputControlOwnerProps}): honour it by refusing interaction, and
+     * take everything else from the framework session kit or your own inject.
+     * Unoccupied, the seat renders nothing at all — the bar paints no
+     * placeholder, so an absent plan plugin costs no layout.
      */
     'conversation.input.plan': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
     /**
-     * The model-select seat in the composer tool row (right group). Same
-     * empty-until-registered contract as the plan seat.
+     * The named model-select seat at the right end of the composer tool row,
+     * left of the send button — one occupant, so taking it means rendering the
+     * whole model affordance yourself. Same `locked`-only owner share and same
+     * renders-nothing-while-empty contract as the plan seat. Note the composer
+     * deliberately keeps this seat LIVE while it refuses text for a
+     * model-related block: every such block is one the user clears by picking
+     * a model here.
      */
     'conversation.input.model': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
   }

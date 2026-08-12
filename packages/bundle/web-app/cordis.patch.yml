@@ -98,6 +98,9 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
 
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
+
     # Ordinary provider for the parsed Web flags. Its plugin-level injection
     # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
     - id: web-startup
@@ -164,6 +167,9 @@
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'
 
+    - id: cordis-client-runner
+      name: '@deepseek-ai/dsh-cordis-client-runner'
+
     - id: ui-theme
       name: '@deepseek-ai/dsh-client-ui-theme'
 
@@ -194,6 +200,9 @@
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
+
+    - id: ui-cordis
+      name: '@deepseek-ai/dsh-client-ui-cordis'
 
     # Durable workflow lifecycle as an independent Chat node after the
     # existing generic workflow tool row.
