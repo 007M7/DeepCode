@@ -14,7 +14,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import type {} from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
@@ -86,7 +86,10 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
     // host and so waits for the webserver disabled above; the browse variant
     // supplies `directoryPicker` without one.
     { id: 'directory-picker', disabled: true },
-    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    { insert: [
+      { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
+      { id: 'ui-directory-picker', name: '@deepseek-ai/dsh-client-ui-directory-picker' },
+    ] },
     // The roster AppCLIEntry would patch in; only the shipped root, so a
     // developer's own `~/.dsh/.preset` cannot change this test's outcome.
     // `default` here is the COMPOSITION default — the base layer the settings
@@ -220,16 +223,8 @@ describe('the shipped Web composition', () => {
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
-      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
-      expect(compact).toBeDefined()
-      expect((compact as BasicCompactService).config).toMatchObject({
-        thresholdRatio: 0.8,
-        retainTokens: 20480,
-        summarizationProvider: '',
-        summarizationModel: '',
-        maxTokens: 8192,
-        compactionRetries: 1,
-      })
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compact')).toBeUndefined()
+      expect(handle.agent.ctx.get('compact')).toBeUndefined()
     } finally {
       await handle.dispose()
     }

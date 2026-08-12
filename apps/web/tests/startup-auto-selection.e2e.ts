@@ -68,6 +68,13 @@ describe('web e2e: startup auto-selection', () => {
   it('keeps the resident Hero and composer nodes when the first Workspace session appears', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-first-workspace-stable-tree'))
     await page.locator(`${ROOT_PHASE}[data-phase="hero"]`).waitFor({ timeout: 15_000 })
+    const headline = page.getByText('Into the Unknown', { exact: true })
+    const fish = headline.locator('xpath=preceding-sibling::span[1]/*[name()="svg"]')
+    const fishHitbox = fish.locator('..')
+    expect(await fish.evaluate(node => getComputedStyle(node).color))
+      .toBe(await headline.evaluate(node => getComputedStyle(node).color))
+    await fishHitbox.hover()
+    expect(await fish.evaluate(node => getComputedStyle(node).animationName)).not.toBe('none')
     await page.evaluate(() => {
       const refs = {
         root: document.querySelector('div[data-phase="hero"]'),

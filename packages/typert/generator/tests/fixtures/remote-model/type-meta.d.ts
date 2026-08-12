@@ -13,6 +13,16 @@ declare module '@deepseek-ai/dsh-type-meta' {
   export interface TypeRTRemoteMap {}
   export interface TypeRTRemoteScopeMap {}
 
+  export interface RemoteFailure {
+    readonly code: string
+    readonly message: string
+    readonly details: object
+  }
+
+  export type RemoteResult<T> =
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: RemoteFailure }
+
   export type TypeRTRemoteNamespace<Namespace extends string> = {
     [Endpoint in keyof TypeRTRemoteMap as Endpoint extends `${Namespace}/${infer Method}`
       ? Method

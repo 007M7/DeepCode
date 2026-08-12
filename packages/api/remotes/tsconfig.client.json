@@ -15,7 +15,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../gateway"
+      "path": "../gateway/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/connection/tsconfig.client.json"
     },
     {
       "path": "../../credentials/credentials"

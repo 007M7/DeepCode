@@ -55,6 +55,10 @@ describe('minimal agent preset', () => {
 
     const requestHeader = agentHandle.agent.session.requestHeader()
     if (requestHeader === undefined) throw new Error('the minimal agent issued no model request')
+    const presetFileSystem = scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'fs')
+    expect(presetFileSystem).toBeDefined()
+    expect(presetFileSystem?.sandboxMode).toBeUndefined()
+    expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compact')).toBeUndefined()
 
     const stateDir = join(scaffold.workspaceCwd, 'persistent-state')
     await mkdir(stateDir)

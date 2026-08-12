@@ -2306,7 +2306,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-需要：`tools` · `subagents`
+需要：`tools` · `subagents` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -2324,9 +2324,10 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires a
-   * provider with the `prepareContinuable` capability and returns the durable
-   * child id; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `one-shot` defaults calls
+   * to foreground; `continuable` defaults them to background, requires a provider
+   * with the `prepareContinuable` capability, and returns the durable child id.
+   * Follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -2364,7 +2365,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.md)
 
-来源：[`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
+来源：[`packages/subagent/tool-subagent/src/index.ts:29`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
@@ -2486,16 +2487,14 @@ export interface Config {
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation for agents that declare none of their own. `native`
-   * (default) sends every visible schema; `code` sends only `run_code` plus a
-   * generated SDK prompt; `both` sends both forms. Code modes require a
-   * `ctx.codeRuntime` whose `language` has a registered SDK renderer
-   * (TypeScript or Python) and fail prompt assembly when it is absent or has
-   * no renderer. Under `code`, native names in `toolOrder` are invalid.
-   *
-   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
-   * which is how an agent preset composes a Code Mode agent beside native
-   * ones in the same process.
+   * Model presentation. `native` (default) sends every visible schema; `code`
+   * sends only `run_code` plus a generated SDK prompt and collapses the
+   * executor to the same surface (a model-direct call may only name
+   * `run_code`; `run_code` SDK sub-dispatches keep every visible tool); `both`
+   * sends both forms. Code modes require a `ctx.codeRuntime` whose `language`
+   * has a registered SDK renderer (TypeScript or Python) and fail prompt
+   * assembly when it is absent or has no renderer. Under `code`, native names
+   * in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
   /**
@@ -2512,7 +2511,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:617`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
@@ -2763,6 +2762,8 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-command`（[`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-conversation`（[`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-deliverables`（[`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-directory-picker`（[`packages/client/ui-directory-picker/src/index.ts`](../packages/client/ui-directory-picker/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-directory-picker-native`（[`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-goal`（[`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-layout`（[`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-model`（[`packages/client/ui-model/src/index.ts`](../packages/client/ui-model/src/index.ts)）

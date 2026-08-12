@@ -20,7 +20,7 @@ One agent declares one presentation. A second declaration in the same compositio
 
 ## Model Experience
 
-Indirectly, through the projection it selects in `dsh-tools`: `code` presents `run_code` plus a generated SDK section, `native` presents every tool schema.
+Indirectly, through the projection it selects in `dsh-tools`: `code` presents `run_code` plus a generated SDK section and the rule that only `run_code` may be called directly, `native` presents every tool schema. The selection also decides what may EXECUTE: under `code` the registry resolves a model-direct call naming any other tool to `UNKNOWN_TOOL`, so this row is what keeps the announced surface and the callable surface the same for every agent it covers ([executor-collapse note](../../../.agents/notes/implemented/bug-fix/2026-08-07-code-mode-executor-collapse.md)).
 
 #### KV Cache effect
 

@@ -67,7 +67,7 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
-// Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
+// Type-only edges: resolve the command-change stream and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
 // The settings/credentials seams: brand guards run at this wire boundary; the
@@ -2813,6 +2813,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           provider: selection.provider,
           model: selection.model,
           attachedSessions: ctx.agents.list().length,
+          canOpenPath: canOpenPaths(),
         }))
       },
 
@@ -2885,49 +2886,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async openPath(request, signal) {
         return openPath(request, request.payload.path, signal)
-      },
-    },
-
-    commands: {
-      // Both methods address one session's agent. agentFor resumes on miss
-      // and fences every subagent-owned identity with `agent-busy`; the
-      // api/commands.ts module contract owns that fence's wording, so this
-      // comment only notes the routing shape: clients send a sessionId for a
-      // published session, and resume restores an existing entity.
-      async list(request) {
-        // Missing service = the deployment omitted dsh-commands from its
-        // composition, not an empty catalog: fail loud instead of serving [].
-        const commands = ctx.get('commands')
-        if (commands === undefined) {
-          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
-        }
-        const found = await agentFor(request.payload.sessionId)
-        if ('error' in found) return err(request, found.error)
-        return ok(request, { commands: commands.list(found.agent) })
-      },
-
-      async execute(request, signal) {
-        const commands = ctx.get('commands')
-        if (commands === undefined) {
-          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
-        }
-        const { sessionId, line } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          // Pure admission: the executor's durable command/run + command/done
-          // pair (broadcast on the mux stream) carries the outcome; the
-          // response reports whether the line resolved to a handler, plus the
-          // minted pairing id so the issuing client can correlate its request
-          // with the flow node the lifecycle events produce.
-          const execution = await commands.execute(found.agent, line, signal)
-          return ok(request, execution === undefined
-            ? { matched: false }
-            : { matched: true, commandId: execution.commandId })
-        } catch (error: unknown) {
-          if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
-          return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
-        }
       },
     },
 

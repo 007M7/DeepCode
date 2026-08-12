@@ -19,24 +19,22 @@
     "packages/client/*/src/css-modules.d.ts",
     "packages/client/*/tests/**/*.ts",
     "packages/client/*/tests/**/*.tsx",
-    "packages/host/directory-picker-browse/tests/**/*.ts",
-    "packages/host/directory-picker-browse/tests/**/*.tsx",
-    "packages/host/directory-picker-native/tests/**/*.ts",
-    "packages/host/directory-picker-native/tests/**/*.tsx",
+    "packages/api/gateway/tests/client.spec.ts",
     "packages/client/tsdown.client.ts",
     "scripts/client-bundle-css.spec.ts",
     "scripts/client-bundle-purity.spec.ts"
+  ],
+  // A `*.host.spec.ts` covers the Host half of a split client package and
+  // belongs to the host aggregate, which excludes this program's `*.client.*`
+  // in turn. `exclude` wins over `include`, so the test glob above stays broad.
+  "exclude": [
+    "packages/client/*/tests/**/*.host.spec.ts"
   ],
   "references": [
     // Shared leaf: web e2e boots the real host webserver (fixture + real-host
     // smoke policy). webserver has zero workspace deps and no cordis merge,
     // so it cannot drag host-side Context augmentation into this program.
     { "path": "./packages/host/webserver" },
-    // Dual-face host leaf: the node half is the native picking backend, the
-    // browser half registers the picking flow into ui-workspace's slot —
-    // client-side Context merges keep it out of the host program.
-    { "path": "./packages/host/directory-picker-native" },
-    { "path": "./packages/host/directory-picker-browse" },
     // Compaction seam: the client-runtime pin test value-imports the canonical
     // checkpoint const from the cordis-free dsh-compact/checkpoint leaf and
     // deliberately never loads the dsh-compact package root or the host-side
@@ -51,9 +49,9 @@
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },
     { "path": "./packages/client/hmr" },
-    { "path": "./packages/client/connection" },
+    { "path": "./packages/client/connection/tsconfig.client.json" },
     { "path": "./packages/typert/registry" },
-    { "path": "./packages/api/gateway" },
+    { "path": "./packages/api/gateway/tsconfig.client.json" },
     { "path": "./packages/api/remotes/tsconfig.client.json" },
     { "path": "./packages/client/runtime" },
     { "path": "./packages/client/test-runtime" },
@@ -69,6 +67,8 @@
     { "path": "./packages/client/ui-skill" },
     { "path": "./packages/client/ui-subagent" },
     { "path": "./packages/client/ui-task" },
+    { "path": "./packages/client/ui-directory-picker" },
+    { "path": "./packages/client/ui-directory-picker-native" },
     { "path": "./packages/client/ui-goal" },
     { "path": "./packages/client/ui-model" },
     { "path": "./packages/client/ui-agent-preset" },

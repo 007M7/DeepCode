@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from deepseek_harness import DeepSeekHarness
@@ -20,7 +21,7 @@ def main() -> None:
     parser.add_argument("--session-root", type=Path, default=Path(".dsh-sessions"))
     parser.add_argument("--session-id")
     parser.add_argument("--provider", default="deepseek-official")
-    parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--model", default=os.environ.get("DSH_MODEL", "deepseek-v4-flash"))
     parser.add_argument("--max-tokens", type=int)
     args = parser.parse_args()
 

@@ -27,10 +27,6 @@ import {
   workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
 } from '../src/api/workspace.schema.ts'
-import {
-  commandDescriptorSchema, commandExecuteRequestSchema, commandExecuteValueSchema,
-  commandListRequestSchema, commandListValueSchema,
-} from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import {
   agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -80,6 +76,8 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
+    // The credentials producer still emits this code, so the branch has to stay.
+    expect(rpcErrorSchema.parse({ code: 'credential-rejected', message: 'm', details: { ref: 'r' } }).code).toBe('credential-rejected')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -115,9 +113,14 @@ describe('wire full-form schemas', () => {
     expect(() => rpcMessageSchema.parse({ type: 'other', rpcId: 'x' })).toThrow()
   })
 
-  it('rejects a quadrant missing its members', () => {
+  it('rejects a quadrant missing its members but accepts a valueless success result', () => {
     expect(() => clientRequestSchema.parse({ type: 'client-request', rpcId: 'r1' })).toThrow()
-    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1' })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: {} })).toThrow()
+    // A void business result carries no value field; the endpoint's own second
+    // parse is what requires a value for methods that return data.
+    expect(serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } }).rpcId)
+      .toBe('r1')
   })
 })
 
@@ -308,10 +311,15 @@ describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
     const value = hostDescribeValueSchema.parse({
-      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true,
     })
-    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true })
+    expect(hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', attachedSessions: 0, canOpenPath: false,
+    }).provider).toBeUndefined()
+    expect(() => hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', attachedSessions: 0,
+    })).toThrow()
   })
 
   it('validates the browse listing/creation payloads', () => {
@@ -359,6 +367,13 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
+  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
+    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
+    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+
   it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
     expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
@@ -378,45 +393,6 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceDeleteRequestSchema.parse({})).toThrow()
     expect(workspaceDeleteValueSchema.parse({ deleted: true })).toEqual({ deleted: true })
     expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
-  })
-
-  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
-    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
-    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
-  })
-})
-
-describe('commands domain schemas', () => {
-  it('validates the catalog request/value pair', () => {
-    expect(commandListRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
-    // The wire is session-addressed only: a sessionId-less payload fails.
-    expect(() => commandListRequestSchema.parse({})).toThrow()
-    expect(commandListValueSchema.parse({ commands: [] }).commands).toEqual([])
-    const value = commandListValueSchema.parse({ commands: [
-      { name: 'plan', description: 'Toggle plan mode' },
-      { name: 'goal', description: 'Set the goal', input: { hint: '<goal>' } },
-    ] })
-    expect(value.commands[1]?.input?.hint).toBe('<goal>')
-    expect(commandDescriptorSchema.parse({ name: 'x', description: 'd' }).input).toBeUndefined()
-    expect(() => commandDescriptorSchema.parse({ name: '', description: 'd' })).toThrow()
-    expect(() => commandDescriptorSchema.parse({ name: 'x', description: 'd', input: {} })).toThrow()
-  })
-
-  it('validates the execute request/value pair with both matched branches', () => {
-    expect(commandExecuteRequestSchema.parse({ sessionId: 's1', line: '/plan off' }).line).toBe('/plan off')
-    // Both members are mandatory: dropping either fails the parse.
-    expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
-    expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
-    expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    // Pure admission: matched plus the optional lifecycle pairing id
-    // (outcomes ride the logged lifecycle events, never this response).
-    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
-      .toEqual({ matched: true, commandId: 'cmd-1' })
-    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
-    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
-    expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })
 
