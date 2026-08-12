@@ -58,14 +58,16 @@ Never silently create another Plugin for @pluginId. If the reference is unavaila
 - Declare inject: ['serviceName'] on the returned Plugin object only when the Service is a hard dependency and the Plugin must enter waiting until Cordis reactivates it after the Service appears.
 - Read ctx.serviceName only after declaring that Service in inject. Never access an undeclared Service as a ctx property.
 
-    return {
-      inject: ['requiredService'],
-      apply(ctx) {
-        ctx.requiredService.someMethod()
-        const optionalService = ctx.get('optionalService')
-        if (optionalService !== undefined) optionalService.someMethod()
-      },
-    }
+\`\`\`js
+return {
+  inject: ['requiredService'],
+  apply(ctx) {
+    ctx.requiredService.someMethod()
+    const optionalService = ctx.get('optionalService')
+    if (optionalService !== undefined) optionalService.someMethod()
+  },
+}
+\`\`\`
 
 ### Code: use plain JavaScript only
 
