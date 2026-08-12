@@ -48,7 +48,7 @@ export enum TelemetryMode {
 }
 
 /** Default session-sharing policy for schema and direct construction. */
-export const DEFAULT_TELEMETRY_MODE = TelemetryMode.FULL
+export const DEFAULT_TELEMETRY_MODE = TelemetryMode.DISABLED
 
 const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
 const NON_CANONICAL_FEEDBACK_WARNING = 'session telemetry ignored a feedback event absent from the canonical session log'
@@ -89,7 +89,7 @@ function sharingStatusFor(mode: TelemetryMode): TelemetrySharingStatus {
  * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
 export interface Config {
-  /** Sharing policy; defaults to immediate `FULL` delivery. */
+  /** Sharing policy; defaults to local-only `DISABLED` behavior. */
   mode?: TelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete

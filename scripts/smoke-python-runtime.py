@@ -792,6 +792,7 @@ def build_snapshot_files(
 ) -> dict[str, str]:
     """Render the SDK result and three persisted logs into stable expected outputs."""
     replacements = [(str(cwd), "{{cwd}}"), (SNAPSHOT_SESSION_ID, "{{parent}}")]
+    replacements.append((snapshot_workflow_run_id(result), "{{workflow-run}}"))
     for index, child_id in enumerate(child_ids, start=1):
         replacements.append((child_id, f"{{{{child-{index}}}}}"))
         agent_id = snapshot_agent_id(result, child_id)
@@ -822,6 +823,21 @@ def build_snapshot_files(
     if tuple(files) != SNAPSHOT_FILENAMES:
         raise AssertionError(f"advanced snapshot file set drifted: {tuple(files)}")
     return files
+
+
+def snapshot_workflow_run_id(result: "RunResult") -> str:
+    """Return the one workflow run id emitted by the advanced scenario."""
+    run_ids: set[str] = set()
+    for event in result.events:
+        event_type = event.get("type")
+        data = event.get("data")
+        if not isinstance(event_type, str) or not event_type.startswith("tool-workflow/"):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("runId"), str):
+            run_ids.add(data["runId"])
+    if len(run_ids) != 1:
+        raise AssertionError(f"advanced snapshot expected one workflow run id: {sorted(run_ids)}")
+    return next(iter(run_ids))
 
 
 def snapshot_agent_id(result: "RunResult", child_id: str) -> str:
