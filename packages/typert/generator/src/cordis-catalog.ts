@@ -12,13 +12,15 @@ import type {
   FaceModel,
   MemberModel,
   ParameterModel,
+  ServiceModel,
   SignatureModel,
   SourceDeclarationModel,
   SourceLocation,
+  TypertFace,
   TypeNodeId,
 } from './model.ts'
 
-type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
+type Mode = 'emit' | 'bail' | 'waterfall' | 'parallel' | 'serial'
 
 /** The fenced-block info string for generated signature blocks (skipped by
  * doc-typecheck, since a bare signature fragment is not standalone-compilable). */
@@ -112,6 +114,10 @@ export interface CordisCatalogPolicy {
   readonly foundationTypeNames: ReadonlySet<string>
   /** Repository types deliberately documented outside the linked data catalog. */
   readonly typeLinkExemptions: Readonly<Record<string, string>>
+  /** Framework Services included in the model-facing runtime catalog but not the harness documentation partition. */
+  readonly runtimeServices?: readonly ServiceEntry[]
+  /** Harness Services omitted from the model-facing runtime catalog because dynamic Plugins must not call them. */
+  readonly runtimeServiceExclusions?: ReadonlySet<string>
   /** Manually curated framework events inherited by every plugin. */
   readonly inheritedEvents: readonly InheritedEntry[]
   /** Manually curated framework context members inherited by every plugin. */
@@ -129,7 +135,7 @@ export class CordisCatalogProjector {
   private readonly renderer: TypeGraphRenderer
 
   /**
-   * @param face - analyzed host face containing package business semantics.
+   * @param face - analyzed Host or Client face containing package business semantics.
    * @param sourceDeclarations - exported declarations available to the runtime type closure.
    * @param policy - caller-owned type classifications and inherited Cordis data.
    */
@@ -138,7 +144,6 @@ export class CordisCatalogProjector {
     private readonly sourceDeclarations: readonly SourceDeclarationModel[],
     private readonly policy: CordisCatalogPolicy,
   ) {
-    if (face.face !== 'host') throw new Error(`cordis catalog requires the host face, received ${face.face}`)
     this.renderer = new TypeGraphRenderer(face.graph)
   }
 
@@ -159,10 +164,13 @@ export class CordisCatalogProjector {
    * @returns the model-facing TypeScript catalog source.
    */
   renderRuntimeApi(model: CordisCatalogModel): string {
+    const services = [...model.services, ...(this.policy.runtimeServices ?? [])]
+      .filter(service => !this.policy.runtimeServiceExclusions?.has(service.key))
+      .sort((left, right) => left.key.localeCompare(right.key))
     return renderRuntimeApi(
-      model.services,
+      services,
       model.events,
-      this.runtimeTypes(model.services),
+      this.runtimeTypes(services),
       this.policy.inheritedServices,
     )
   }
@@ -173,6 +181,8 @@ export class CordisCatalogProjector {
     const typeLinkViolations: string[] = []
     for (const packageModel of this.face.packages) {
       for (const event of packageModel.events) {
+        const parsed = parseJsDoc(event.jsDoc ?? '')
+        if (parsed.deprecated) continue
         const source = pointer(event.location)
         const where = `event '${event.name}' (${source})`
         const node = this.renderer.node(event.signature)
@@ -180,11 +190,12 @@ export class CordisCatalogProjector {
           violations.push(`${where} is not represented by a callable type.`)
           continue
         }
-        checkTypeLinks(where, signatureTypeNames(this.renderer, node.signature), this.policy, typeLinkViolations)
-        const parsed = parseJsDoc(event.jsDoc ?? '')
+        if (this.face.face === 'host') {
+          checkTypeLinks(where, signatureTypeNames(this.renderer, node.signature), this.policy, typeLinkViolations)
+        }
         const mode = event.mode
         if (!isMode(mode)) {
-          violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
+          violations.push(`${where} is missing an @mode tag. Add '@mode emit|bail|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
         }
         const last = node.signature.parameters.at(-1)
         const hasNext = last?.name === 'next'
@@ -223,47 +234,91 @@ export class CordisCatalogProjector {
     return entries
   }
 
+  /**
+   * The services this projection describes, one per `ctx.<key>`: those whose
+   * Context merge sits one level under a package's `src` and whose declaration
+   * belongs to that same package.
+   *
+   * Interfaces qualify beside classes, because an interface-typed key
+   * (`lsp: LspService`) has its Service Definition — and, by repository
+   * convention, its member documentation — on the interface; requiring a class
+   * would drop a real injectable service from every catalog. The declaration may
+   * live in any file of the package (`types.ts` is the usual home), while a
+   * declaration from ANOTHER package is not this package's surface to document.
+   *
+   * One key can have both kinds of candidate across packages: `ctx.typert` is
+   * typed by a merge-extensible interface in `type-meta` and implemented by a
+   * class in `registry`. The CLASS wins — it carries the documentation and is the
+   * object a caller meets — and picking before validating is what keeps a
+   * discarded candidate's missing JSDoc from failing the gate.
+   */
+  private renderableServices(): ServiceModel[] {
+    const chosen = new Map<string, ServiceModel>()
+    for (const packageModel of this.face.packages) {
+      for (const service of packageModel.services) {
+        const declaration = this.renderer.declaration(service.symbol)
+        const owner = /^packages\/[^/]+\/[^/]+\/src\//.exec(service.location.file)?.[0]
+        if ((declaration.kind !== 'class' && declaration.kind !== 'interface')
+          || owner === undefined
+          || (this.face.face === 'host'
+            ? !/^packages\/[^/]+\/[^/]+\/src\/[^/]+\.ts$/.test(service.location.file)
+            : !/^packages\/[^/]+\/[^/]+\/src\/client\/.+\.tsx?$/.test(service.location.file))
+          || !declaration.location.file.startsWith(owner)) continue
+        const current = chosen.get(service.key)
+        if (current !== undefined && this.renderer.declaration(current.symbol).kind === 'class') continue
+        chosen.set(service.key, service)
+      }
+    }
+    return [...chosen.values()]
+  }
+
   private collectServices(): ServiceEntry[] {
     const entries: ServiceEntry[] = []
     const violations: string[] = []
     const typeLinkViolations: string[] = []
-    for (const packageModel of this.face.packages) {
-      for (const service of packageModel.services) {
-        const declaration = this.renderer.declaration(service.symbol)
-        if (declaration.kind !== 'class'
-          || !/^packages\/[^/]+\/[^/]+\/src\/[^/]+\.ts$/.test(service.location.file)
-          || declaration.location.file !== service.location.file) continue
-        const doc = parseJsDoc(declaration.jsDoc ?? '').doc
-        const source = pointer(declaration.location)
-        if (doc === '') {
-          violations.push(`service ctx.${service.key} (${source}): class ${declaration.name} has no JSDoc.`)
-        }
-        const methods: ServiceMethodEntry[] = []
-        for (const memberId of service.members) {
-          const member = this.renderer.member(memberId)
-          if (member.kind !== 'method' || member.name.startsWith('[')) continue
-          const where = `service method ctx.${service.key}.${member.name} (${pointer(member.location)})`
-          checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
-          methods.push({ signature: member.text, jsDoc: member.jsDoc ?? '' })
-          if (member.jsDoc === undefined) {
-            violations.push(`${where} has no JSDoc.`)
-            continue
-          }
-          const parsed = parseJsDoc(member.jsDoc)
-          if (parsed.doc === '') violations.push(`${where} has no description prose above its block tags.`)
-          checkParams(where, 'service', member.signature.parameters, parsed.params,
-            parameter => parameter.receiver, violations)
-          checkReturns(where, member.signature, parsed.returns, this.renderer, violations)
-        }
-        entries.push({
-          key: service.key,
-          type: declaration.name,
-          abstract: declaration.abstract,
-          doc,
-          methods,
-          source,
-        })
+    for (const service of this.renderableServices()) {
+      const declaration = this.renderer.declaration(service.symbol)
+      const parsedDeclaration = parseJsDoc(declaration.jsDoc ?? '')
+      if (parsedDeclaration.deprecated) continue
+      const doc = parsedDeclaration.doc
+      const source = pointer(declaration.location)
+      if (doc === '') {
+        violations.push(`service ctx.${service.key} (${source}): ${declaration.kind} ${declaration.name} has no JSDoc.`)
       }
+      const methods: ServiceMethodEntry[] = []
+      for (const memberId of service.members) {
+        const member = this.renderer.member(memberId)
+        if (member.name.startsWith('[')) continue
+        const parsed = parseJsDoc(member.jsDoc ?? '')
+        if (parsed.deprecated) continue
+        if (member.kind === 'property') {
+          if (member.jsDoc === undefined) continue
+          methods.push({ signature: member.text, jsDoc: member.jsDoc })
+          continue
+        }
+        if (member.kind !== 'method') continue
+        const where = `service method ctx.${service.key}.${member.name} (${pointer(member.location)})`
+        if (this.face.face === 'host') {
+          checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
+        }
+        methods.push({ signature: member.text, jsDoc: member.jsDoc ?? '' })
+        if (member.jsDoc === undefined) {
+          violations.push(`${where} has no JSDoc.`)
+          continue
+        }
+        if (parsed.doc === '') violations.push(`${where} has no description prose above its block tags.`)
+        checkParams(where, 'service', member.signature.parameters, parsed.params,
+          parameter => parameter.receiver, violations)
+        checkReturns(where, member.signature, parsed.returns, this.renderer, violations)
+      }
+      entries.push({
+        key: service.key,
+        type: declaration.name,
+        abstract: declaration.abstract,
+        doc,
+        methods,
+        source,
+      })
     }
     reportViolations('gen-cordis-catalog', violations)
     reportTypeLinkViolations('gen-cordis-catalog', typeLinkViolations)
@@ -274,8 +329,8 @@ export class CordisCatalogProjector {
     const declarations = new Map<string, string>()
     const ambiguous = new Set<string>()
     for (const declaration of this.sourceDeclarations) {
-      if (declaration.face !== 'host' || declaration.kind === 'enum'
-        || !/^packages\/[^/]+\/[^/]+\/src\/[^/]+\.ts$/.test(declaration.location.file)) continue
+      if (declaration.face !== this.face.face || declaration.kind === 'enum'
+        || !/^packages\/[^/]+\/[^/]+\/src\/.+\.tsx?$/.test(declaration.location.file)) continue
       if (declarations.has(declaration.name)) {
         ambiguous.add(declaration.name)
         continue
@@ -298,31 +353,31 @@ export class CordisCatalogProjector {
  * @param policy - caller-owned type classifications and inherited Cordis data.
  * @returns the configured projector and its validated catalog model.
  */
-export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPolicy): {
+export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPolicy, targetFace: TypertFace = 'host'): {
   readonly projector: CordisCatalogProjector
   readonly model: CordisCatalogModel
 } {
   const caches = new WorkspaceCaches()
   const discovery = new WorkspaceAnalyzer({
     root: scanRoot,
-    faces: ['host'],
+    faces: [targetFace],
     checkDiagnostics: false,
     caches,
   }).discoverPackages()
-  const packages = discovery.filter(candidate => candidate.faces.includes('host'))
+  const packages = discovery.filter(candidate => candidate.faces.includes(targetFace))
     .map(candidate => candidate.package)
   const workspace = new WorkspaceAnalyzer({
     root: scanRoot,
-    faces: ['host'],
+    faces: [targetFace],
     packages,
     checkDiagnostics: false,
     caches,
   }).analyzeInBatches()
-  const face = workspace.faces.find(candidate => candidate.face === 'host')
-  if (face === undefined) throw new Error('gen-cordis-catalog: Typert produced no host face')
+  const face = workspace.faces.find(candidate => candidate.face === targetFace)
+  if (face === undefined) throw new Error(`gen-cordis-catalog: Typert produced no ${targetFace} face`)
   const sourceDeclarations = new WorkspaceAnalyzer({
     root: scanRoot,
-    faces: ['host'],
+    faces: [targetFace],
     checkDiagnostics: false,
     caches,
   }).indexSourceDeclarations()
@@ -354,6 +409,7 @@ interface ParsedJsDoc {
   readonly doc: string
   readonly params: ReadonlyMap<string, string>
   readonly returns: string | null
+  readonly deprecated: boolean
 }
 
 function parseJsDoc(raw: string): ParsedJsDoc {
@@ -410,8 +466,14 @@ function parseJsDoc(raw: string): ParsedJsDoc {
 
   const params = new Map<string, string>()
   let returns: string | null = null
+  let deprecated = false
   let sink: ((text: string) => void) | undefined
   for (const line of lines) {
+    if (/^@deprecated(?:\s|$)/.test(line)) {
+      deprecated = true
+      sink = undefined
+      continue
+    }
     const param = /^@param\s+(\[?[\w$]+\]?)\s*(?:[-—–]\s*)?(.*)$/.exec(line)
     if (param !== null) {
       const name = (param[1] ?? '').replace(/^\[|\]$/g, '')
@@ -440,6 +502,7 @@ function parseJsDoc(raw: string): ParsedJsDoc {
     doc: blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim(),
     params,
     returns,
+    deprecated,
   }
 }
 
@@ -494,7 +557,7 @@ function pointer(location: SourceLocation): string {
 }
 
 function isMode(mode: string | undefined): mode is Mode {
-  return mode === 'emit' || mode === 'waterfall' || mode === 'parallel' || mode === 'serial'
+  return mode === 'emit' || mode === 'bail' || mode === 'waterfall' || mode === 'parallel' || mode === 'serial'
 }
 
 function signatureTypeNames(renderer: TypeGraphRenderer, signature: SignatureModel): string[] {

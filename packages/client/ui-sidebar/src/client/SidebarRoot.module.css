@@ -227,11 +227,39 @@
   padding-left: 0;
 }
 
-/* Foot seat: a pure layout socket pinned under the region; the ui-settings
-   trigger row inside owns its own geometry (38px wide row / 36px rail
-   circle) and hover chrome. */
+/* Footer seats: Settings fills the left side and additive actions sit on the
+   right. Each occupant owns its button geometry and hover chrome. */
 .footArea {
   flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.settingsArea {
+  flex: 1;
+  min-width: 0;
+}
+
+.footerActions {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* The 56px rail cannot hold two controls side by side. Keep both reachable in
+   the same footer, stacked in their original order. */
+.collapsed .footArea {
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.collapsed .settingsArea,
+.collapsed .footerActions {
+  flex: none;
+  display: flex;
+  justify-content: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

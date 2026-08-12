@@ -35,6 +35,10 @@ function makeHost() {
     },
     getVersion: key => versions.get(key) ?? 0,
     entriesOf: key => entries.get(key) ?? [],
+    // Single-kind everywhere and no crashes in this suite: the projection is
+    // the raw view and crash reports never fire.
+    entriesOfSlot: key => entries.get(key) ?? [],
+    reportEntryError: () => {},
     specOf: () => ({ kind: 'single', scope: 'root' }),
     isLive: entry => live.has(entry),
     storeOf: () => undefined,

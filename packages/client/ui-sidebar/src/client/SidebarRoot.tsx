@@ -6,7 +6,7 @@
  * snap to the 56px rail (one icon each, same top-down order) fading in as the
  * slide ends. The workspace/session browsing region between the New Session
  * button and the foot is the `sidebar.workspaces` registrant's, and the foot
- * is the `sidebar.settings` registrant's; the shell hands them the wide flag
+ * holds `sidebar.settings` plus `sidebar.footer.action`; the shell hands them the wide flag
  * (plus an expand request callback for the browser).
  *
  * The column also owns whether the scroll regions nested in it draw a
@@ -177,9 +177,14 @@ export function SidebarRoot({
         })}
       </div>
 
-      {/* Foot seat: ui-settings registers the trigger row + panel here. */}
+      {/* Footer: Settings stays on the left; optional actions sit beside it. */}
       <div className={css.footArea}>
-        {renderSlot('sidebar.settings', { wide })}
+        <div className={css.settingsArea}>
+          {renderSlot('sidebar.settings', { wide })}
+        </div>
+        <div className={css.footerActions}>
+          {renderSlot('sidebar.footer.action', { wide })}
+        </div>
       </div>
     </div>
   )

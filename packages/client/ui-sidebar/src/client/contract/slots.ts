@@ -50,6 +50,12 @@ export interface SidebarSettingsOwnerProps {
   wide: boolean
 }
 
+/** Owner share of an action rendered beside Settings at the sidebar foot. */
+export interface SidebarFooterActionOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
 /**
  * Registrant-private injected share (arrives via the register inject
  * factory). The shell keeps only its own controls: starting a Session from
@@ -72,5 +78,6 @@ export type SidebarRootInjected = {
  * seat. No store is registered.
  */
 export type SidebarRootComponentProps =
-  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'>
+  PropsRuntime<'sidebar'>
+  & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action'>
   & SidebarRootInjected & PropsLocale<'sidebar'>

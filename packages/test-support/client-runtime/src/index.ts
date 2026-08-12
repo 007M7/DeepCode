@@ -50,12 +50,13 @@ type ErasedRegister = (options: object, component: unknown) => () => void
 
 /**
  * One rendered slot's local view, from {@link SlotTestRuntime.renderSlot}:
- * the `data-slot` wrapper is the snapshot root (`expect(view.container)
- * .toMatchSnapshot()` captures exactly this slot's output), Testing Library
- * queries are bound inside it, and `update` re-renders with new owner props.
+ * the renderer's own `[data-slot]` outlet anchor is the snapshot root
+ * (`expect(view.container).toMatchSnapshot()` captures exactly this slot's
+ * output), Testing Library queries are bound inside it, and `update`
+ * re-renders with new owner props.
  */
 export interface SlotView<K extends keyof SlotMap & string> {
-  /** The `<div data-slot="<key>">` wrapper around the slot's rendered output. */
+  /** The renderer's `<div data-slot="<key>">` anchor around the slot's rendered output. */
   readonly container: HTMLElement
   /** Testing Library queries scoped to {@link SlotView.container}. */
   readonly view: BoundFunctions<typeof queries>
@@ -286,10 +287,10 @@ export class SlotTestRuntime {
   /**
    * Declare child slots under an auto-generated root frame — the single-slot
    * mounting path for local DOM snapshots. Each key later supplied through
-   * {@link SlotTestRuntime.renderSlot} renders inside its own
-   * `<div data-slot="<key>">` wrapper (the snapshot root). Mutually exclusive
-   * with {@link TestRoot.declare} ('root' is a single slot); one call per
-   * runtime.
+   * {@link SlotTestRuntime.renderSlot} renders inside the renderer's own
+   * `<div data-slot="<key>">` outlet anchor (the snapshot root — the frame
+   * adds no wrapper of its own). Mutually exclusive with
+   * {@link TestRoot.declare} ('root' is a single slot); one call per runtime.
    * @param children - child-slot declaration table (same contract as TestRoot.declare).
    * @returns completion of the act-wrapped registration.
    */
@@ -298,8 +299,11 @@ export class SlotTestRuntime {
     const cell = this.ownerCell
     const AutoFrame = (props: { renderSlot: (key: string, owner: object) => ReactNode }) => {
       useSyncExternalStore(cell.subscribe, cell.getVersion)
+      // Keyed Fragments only: the renderer's outlet anchor is the one
+      // `[data-slot]` element — the frame adding its own would nest
+      // duplicate anchors under the same key.
       return createElement(Fragment, null, cell.entries().map(([key, owner]) =>
-        createElement('div', { 'data-slot': key, key }, props.renderSlot(key, owner))))
+        createElement(Fragment, { key }, props.renderSlot(key, owner))))
     }
     await this.root.declare(children as never, AutoFrame as never)
   }
