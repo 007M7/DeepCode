@@ -20,7 +20,7 @@
 
 本包把 Definition、locale 字典和 `workflow-run` renderer 都注册为 Cordis effect；移除客户端 entry 会撤销三者。shipped Web bundle 在 `ui-conversation` 与 `ui-tool` 之后装配该插件。
 
-## Model Experience
+## 模型体验
 
 无，因为本包只为人类展示持久 Session 事实，不增加 prompt、工具 schema、请求内容或模型可见结果。
 
@@ -28,7 +28,7 @@
 
 无。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - 只有经 `dsh-tool-workflow` 发起的顶层调用会生成这些记录；嵌套 Code Mode 调用和直接 `WorkflowService` 消费方不会生成。
 - 导航刻意只面向实时运行。终态成员继续保留供复盘，但本节点永不为其提供冷 Session 入口。

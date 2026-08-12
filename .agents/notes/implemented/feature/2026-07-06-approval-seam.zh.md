@@ -51,9 +51,9 @@ tool/result      "escalated" — this one call ran under the wider mode; the gra
 
 #### seam：机制与策略分离
 
-经过校验并成功追加 `approval/asked` 后，服务将 `approval/request` waterfall 解析为 `allowed-once`、`rejected`、`cancelled` 或 `unavailable`。服务沿用只读的请求标识和 signal，将中止视为 `cancelled`，把应答者失败和无效返回统一转换为 `unavailable`，丢弃迟到的应答，并追加配对的 `approval/decided` 事件。提交前的审计失败会拒绝；追加后的观察者失败无法撤销权威事件。`allowed-once` 仅授权所询问的操作，而 `request()` 会拒绝打开轮次之外的调用，以保证审计对留在持久提交边界内。
+经过校验并成功追加 `approval/asked` 后，服务将 `approval/request` waterfall 解析为 `allowed-once`、`rejected`、`cancelled` 或 `unavailable`。服务沿用只读的请求标识和 signal，将中止视为 `cancelled`，把应答者失败和无效返回统一转换为 `unavailable`，丢弃迟到的应答，并追加配对的 `approval/decided` 事件。提交前的审计失败会拒绝；追加后的观察者失败无法撤销权威事件。`allowed-once` 仅授权所询问的操作，而 `request()` 会拒绝进行中的轮次之外的调用，以保证审计对留在持久提交边界内。
 
-应答者是 `approval/request` waterfall 监听器。零监听器会一路委派至 `unavailable`；识别该 agent 的监听器占用先到先得的决策槽，而不识别的监听器必须调用 `next()` 委派。监听器会随其 fiber 一同 dispose（资源释放），因此卸载通道后，请求会在故障时默认被拒绝。由于兄弟插件的注册顺序不确定，部署应组合一个终端应答者，并保留 `prepend` 给「决策或委派」门禁。
+应答者是 `approval/request` waterfall 监听器。零监听器会直接落到 `unavailable`；识别该 agent 的监听器占用先到先得的决策槽，而不识别的监听器必须调用 `next()` 委派。监听器会随其 fiber 一同 dispose（资源释放），因此卸载通道后，请求会在故障时默认被拒绝。由于兄弟插件的注册顺序不确定，部署应组合一个终端应答者，并保留 `prepend` 给「决策或委派」门禁。
 
 `ApprovalRequest` 携带发起请求的 `agent`、`toolName`、可选的精确 `callId`、人类可读的 `reason` 和可选的 `signal`。它使用 `CallId` brand 而不导入依赖本 seam 的 `dsh-tools`。通道适配器可按 `callId` 关联任何更丰富的调用状态；审批请求本身不重复携带工具参数。
 
@@ -63,7 +63,7 @@ tool/result      "escalated" — this one call ran under the wider mode; the gra
 
 #### 每会话策略层
 
-seam 还拥有[沙箱 Agent Note](2026-07-06-sandbox.md) 所描述的会话级 `'ask' | 'never'` 策略。生效策略由日志中记录的切换在部署默认值之上折叠而成。`'never'` 会在任何应答者运行之前，于 `request()` 内部解析为 `rejected`；`'ask'` 则派发请求，否则一路委派至 `unavailable`。两个当前值都会在每次模型请求前加入原子化的运行时上下文快照，因此策略切换无需单独叙述；每次批准请求仍会记录审计对。
+seam 还拥有[沙箱 Agent Note](2026-07-06-sandbox.md) 所描述的会话级 `'ask' | 'never'` 策略。生效策略由日志中记录的切换在部署默认值之上折叠而成。`'never'` 会在任何应答者运行之前，于 `request()` 内部解析为 `rejected`；`'ask'` 则派发请求，否则一路委派至 `unavailable`。两个当前值都会在每次模型请求前加入原子化的运行时上下文快照，因此策略切换无需单独叙述；每次审批请求仍会记录审计对。
 
 #### ACP 应答者
 
@@ -93,7 +93,7 @@ ACP 桥只应答其会话映射所拥有的精确 agent 对象。它携带既有
 
 ## 曾考虑的替代方案
 
-- **单一注册提供方而非 waterfall 监听器**：否决。`registerProvider()` 接口迫使所有组合问题——允许列表预过滤、外部钩子决策者、脚本化测试应答、人类前面的策略门禁——都塞进一个提供方实现。waterfall 直接复用运行时已有的组合能力、缺失时默认拒绝行为和 HMR（热模块替换）资源释放机制；seam 的 JSDoc 以约定固定单决策槽语义，而非发明一个提供方注册表。
+- **单一注册提供方而非 waterfall 监听器**：否决。`registerProvider()` API 迫使所有组合问题——允许列表预过滤、外部钩子决策者、脚本化测试应答、人类前面的策略门禁——都塞进一个提供方实现。waterfall 直接复用运行时已有的组合能力、缺失时默认拒绝行为和 HMR（热模块替换）资源释放机制；seam 的 JSDoc 以约定固定单决策槽语义，而非发明一个提供方注册表。
 - **在 ACP 桥中内联 `tools/pre-execute` 权限门禁**：否决。对桥拥有的每次调用都弹出提示，会将请求策略硬编码进传输层，无法服务第二个发起方（沙箱升级发生在执行开始之后，没有 pre-execute 时刻），且钩子产生的 `ask` 决策没有共享机制。
 - **通用用户交互 seam（`ctx.userInteraction`）**：否决作为审批机制。二者骨架相似（按 agent 路由、阻塞等待人类、处理缺失），但审批的约定在每个关键维度上都更窄：封闭的结果词汇而非自由文本、附着在工具调用上的协议原生提示而非通用表单、强制的缺失时失败关闭、以及审计事件。因此审批不走已交付的 `packages/interaction/user-interaction` / `ask_user_question` 信息征集路径——信息征集表单不是权限提示，自由文本应答不是封闭结果；如果二者将来趋同，共享提供方管道仍然开放。
 - **`dsh-tools` 中的静态可选注入**：否决。vendor 的 Cordis `Inject` 类型没有 optional 标志——对象形式将服务名映射到拦截配置，声明的 inject 会阻塞 fiber。`ctx.get('approval')` 是文档化的机会性消费模式（`tool-bash` 的 owner-token 查找、loop 的持久化探测），按调用读取存在性，跨 HMR 正确降级，无需额外机制。

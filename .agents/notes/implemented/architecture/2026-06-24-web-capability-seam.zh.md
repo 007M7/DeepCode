@@ -8,7 +8,7 @@ Status: implemented
 
 harness 需要面向模型的 web 工具，但不能将模型约定绑定到某一家厂商的 API 形状上。搜索是当前的压力点：从一开始就同时支持 Exa 搜索和 Perplexity 搜索——两种刻意不同的提供方形状（Exa 返回扁平的 `results[]`，每项包含 `{title, url, highlights, publishedDate}`；Perplexity 返回一段生成式回答加引用列表）——正是用来证明归一化的 web 约定并非只是镜像某一家厂商。Fetch 是另一项独立操作：匿名公开 HTTP(S) fetch 后端涉及传输、安全、重定向、解码和大小限制等关注点，与提供方支撑的搜索并不相同。
 
-面向模型的接口必须保持稳定，而后端可以更换。更换搜索提供方不应改变模型发起查询的方式；更换 fetch 实现不应改变模型请求 URL 的方式。反过来，提供方包也不应仅仅因为自己有额外的提供方特有旋钮就暴露自己的面向模型工具 schema。
+面向模型的 API 必须保持稳定，而后端可以更换。更换搜索提供方不应改变模型发起查询的方式；更换 fetch 实现不应改变模型请求 URL 的方式。反过来，提供方包也不应仅仅因为自己有额外的提供方特有旋钮就暴露自己的面向模型工具 schema。
 
 如果把搜索和 fetch 直接放进 `dsh-tool-web`，面向模型的工具就要同时承担提供方选择、后端请求映射、传输策略、结果归一化、提示词引导、展示和 schema 注册。让每个提供方注册自己的工具则有相反的问题：工具的可用性、名称、描述和参数将取决于恰好加载了哪些提供方包，提供方特有字段会泄漏到模型约定中。
 
@@ -74,7 +74,7 @@ flowchart LR
 
 ## `ctx.web` 约定
 
-`ctx.web` 是一个提供方注册表加上一个带提供方选择的执行面。注册表部分与 `LlmService` 保持接近：每种能力类别一个 `Map<id, provider>`，`registerSearchProvider`/`registerFetchProvider` 方法返回 disposer，重复 id 抛出 `WebError`，执行时解析在选定提供方缺失或不可用时抛出异常。权威签名见 `packages/web/web/src/types.ts`；seam 的形状：
+`ctx.web` 是一个提供方注册表加上一个带提供方选择的执行 API。注册表部分与 `LlmService` 保持接近：每种能力类别一个 `Map<id, provider>`，`registerSearchProvider`/`registerFetchProvider` 方法返回 disposer，重复 id 抛出 `WebError`，执行时解析在选定提供方缺失或不可用时抛出异常。权威签名见 `packages/web/web/src/types.ts`；seam 的形状：
 
 ```ts
 import type { WebFetchRequest, WebFetchResult, WebSearchRequest, WebSearchResult } from '@deepseek-ai/dsh-web'
@@ -191,7 +191,7 @@ interface WebSearchSource {
 }
 ```
 
-`content` 是可选的提供方生成的回答文本、搜索上下文或摘要。`sources[]` 是可移植的引用面。source 必有 URL；title、snippet 和 `publishedAt` 可选，因为并非每个提供方都返回它们。`title` 不是必填：Perplexity 风格的引用可能只提供 URL，强制适配器编造标题会让 seam 说谎。`dsh-tool-web` 渲染 `title ?? hostname(url)` 风格的回退标签用于展示。`publishedAt` 是可选的发布/抓取时间戳，为 ISO-8601 字符串——Exa 在每条结果上以 `publishedDate` 返回它，Perplexity 在搜索结果上返回 `date`，因此它是真实的提供方数据而非派生值；seam 以字符串形式传递，日期解析留给消费方。
+`content` 是可选的提供方生成的回答文本、搜索上下文或摘要。`sources[]` 是可移植的引用结构。source 必有 URL；title、snippet 和 `publishedAt` 可选，因为并非每个提供方都返回它们。`title` 不是必填：Perplexity 风格的引用可能只提供 URL，强制适配器编造标题会让 seam 说谎。`dsh-tool-web` 渲染 `title ?? hostname(url)` 风格的回退标签用于展示。`publishedAt` 是可选的发布/抓取时间戳，为 ISO-8601 字符串——Exa 在每条结果上以 `publishedDate` 返回它，Perplexity 在搜索结果上返回 `date`，因此它是真实的提供方数据而非派生值；seam 以字符串形式传递，日期解析留给消费方。
 
 Exa 搜索将提供方扁平 `results[]` 的每一项映射为 `WebSearchSource`：`url` ← `url`、`title` ← `title`、`snippet` ← 第一个 `highlights[]` 条目（没有 highlight 的条目没有可移植的 snippet，被丢弃）、`publishedAt` ← `publishedDate`。Exa 不返回提供方生成的回答，因此 `content` 省略。Perplexity 搜索将 `choices[0].message.content` 映射为 `content`，并优先使用结构化的顶层 `search_results[]` 作为 `sources[]`——`url` ← `url`、`title` ← `title`、`snippet` ← `snippet`（常为空）、`publishedAt` ← `date`——仅在 `search_results` 缺失时回退到纯 URL 的 `citations[]` 数组（这些 source 只有 `url`）。如果提供方返回的结构化字段少于 seam 支持的，适配器省略那些可选字段。
 
@@ -207,7 +207,7 @@ seam 请求比 OpenCode 的面向模型工具更小：
 
 seam 请求刻意不包含逐调用超时、`format`、`prompt` 或提供方特有的提取控制。取消通过直接的可选执行信号实现，fetch 提供方拥有一个部署配置的超时兜底。`format` 是对已获取资源的展示决策；`prompt` 是更高层的 LLM 摘要指令；Firecrawl、Exa、Tavily 或 Parallel 等提取 API 可能不暴露具体的 HTTP 响应。如果产品日后需要提供方支撑的页面提取，那是一个独立的 `web_extract` 能力或对本 seam 的刻意扩展——提取语义绝不通过将每个 HTTP 字段设为可选来偷渡进 `web_fetch`。
 
-HTTP 状态码是已获取资源状态的一部分，不自动构成工具失败。成功的网络获取一个 `404` 或 `500` 响应会返回带有状态码和有界解码正文（当内容类型受支持时）的 `WebFetchResult`。`WebError` 用于无法安全获取或表示资源的失败：无效或被阻断的 URL、重定向策略违规、超时、abort、响应过大、不支持的内容类型、提供方失败或网络失败。
+HTTP 状态码是已获取资源状态的一部分，不自动构成工具失败。通过网络成功获取到 `404` 或 `500` 响应时会返回带有状态码和有界解码正文（当内容类型受支持时）的 `WebFetchResult`。`WebError` 用于无法安全获取或表示资源的失败：无效或被阻断的 URL、重定向策略违规、超时、abort、响应过大、不支持的内容类型、提供方失败或网络失败。
 
 ```ts
 export interface WebFetchRequest {
@@ -294,7 +294,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 ### 将搜索和 fetch 拆为两个 seam（`dsh-search`、`dsh-fetch`）
 
-很有吸引力，因为两半不共享请求 schema 和业务逻辑，各自能干净地映射到 bash/fs 的三包模板上，且 `WebService` 上的 `Search`/`Fetch` 方法对重复也会消失。否决，因为共享的机制——提供方 id 注册表、不依赖注册顺序的选择策略、abort 传播、`WebError` 分类体系，以及面向产品的「这个 harness 如何触达 web」配置面——是真实存在的，否则会在两个几乎相同的 seam 之间重复。一个 `ctx.web` 中间层给产品一个统一的注入和配置对象，给提供方选择一个唯一的所有者。代价是并行的 `searchX`/`fetchX` 方法对，这是有意接受的。
+很有吸引力，因为两半不共享请求 schema 和业务逻辑，各自能干净地映射到 bash/fs 的三包模板上，且 `WebService` 上的 `Search`/`Fetch` 方法对重复也会消失。否决，因为共享的机制——提供方 id 注册表、不依赖注册顺序的选择策略、abort 传播、`WebError` 分类体系，以及面向产品的「这个 harness 如何触达 web」配置 API——是真实存在的，否则会在两个几乎相同的 seam 之间重复。一个 `ctx.web` 中间层给产品一个统一的注入和配置对象，给提供方选择一个唯一的所有者。代价是并行的 `searchX`/`fetchX` 方法对，这是有意接受的。
 
 ### 选择第一个注册的提供方
 
@@ -314,7 +314,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 **Perplexity 引用可能稀疏。** 一条引用可能只有 URL。将 `title` 和 `snippet` 设为可选使 seam 保持诚实，但意味着 `tool-web` 需要渲染回退标签。
 
-**稳定的工具注册将配置错误推迟到执行时。** 当产品启用了 web 访问时，保持工具可见是正确的；但期望 web 搜索可用的产品应用应当醒目地浮出结构化的 `WEB_PROVIDER_CONFIGURED_MISSING`/`WEB_PROVIDER_CONFIGURED_UNAVAILABLE`/`WEB_PROVIDER_AMBIGUOUS` 失败，使用户不会在模型调用工具后才发现配置问题。
+**稳定的工具注册将配置错误推迟到执行时。** 当产品启用了 web 访问时，保持工具可见是正确的；但期望 web 搜索可用的产品应用应当明确暴露结构化的 `WEB_PROVIDER_CONFIGURED_MISSING`/`WEB_PROVIDER_CONFIGURED_UNAVAILABLE`/`WEB_PROVIDER_AMBIGUOUS` 失败，避免用户直到模型调用工具后才发现配置问题。
 
 **提供方状态可能在启动后变化。** 一个工具可能在步骤开始时组装的请求中可见，但在执行前失去其提供方。执行路径重新解析并以结构化错误失败。
 

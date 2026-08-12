@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-08-06-manager-owned-subagent-settlement-delivery.md) | 中文
 
-## Problem
+## 问题
 
 可继续后台委派是模型唯一一种能够发起、却无法抵达终点的异步操作。其他每一种形态都有取回原语或返回值：后台 bash 命令与一次性后台 subagent 都通过 Task 结算，`task_output(wait: true)` 可以阻塞等待；workflow 与前台 subagent 会把结果返回给调用方。可继续后台 child 只返回它持久化的 id，而父级既没有可等待的对象，也不会被交付任何东西。
 
@@ -12,7 +12,7 @@ Status: implemented
 
 信号本身早就存在。自可继续 Activation 发布以来，`subagent/end` 就一直携带 `stopReason` 与 `lastAssistantMessage`。缺的是把它变成父级模型能看到的上下文的那个消费者。
 
-## Decision
+## 决策
 
 继续执行管理器自己投递这份记账，就在结束 Activation 的那笔 dispose 事务内部完成。
 
@@ -66,7 +66,7 @@ Status: implemented
 
 拒绝与中断两种措辞在单元测试中逐字钉死，而不进入重放 transcript：触发它们需要一个会拒绝的策略插件、或一次在 step 边界被栅栏卡住的取消，而无密钥组装本身并不携带这些；通知通路本身已由整体组装场景端到端钉住。
 
-## Alternatives considered
+## 考虑过的替代方案
 
 **给可继续 child 引入 Task。** Task 是一次性契约：一个生产者、一次结算、一个结果。Activation 会执行许多轮次、比其中任何一轮活得更久，并且可以在结束后被恢复。用 Task 包装它，恰好重建了可继续 child 当初为消除而引入的生命周期错配，还会让某一个轮次看起来是终局。
 
@@ -80,7 +80,7 @@ Status: implemented
 
 **始终使用 `followup`。** 更简单也更统一，但一批同时结算的 child 会各自消耗一个父级轮次。step 边界的批量语义本来就存在，用它是免费的。
 
-## Consequences
+## 后果
 
 - 可继续 child 的父级会为每个已结算 Activation 收到一条消息。因此，做扇出的部署会增加父级轮次；steer 会把同时结算的一批压缩到一个 step。
 - `tool-subagent` 在其 schema 中承诺该通知，因为返回通道是服务行为，不是可选插件。

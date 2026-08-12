@@ -12,9 +12,9 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 1. 文件系统约定：插件可以请求哪些操作。
 2. 后端：当前是本地磁盘，未来可能是沙箱/远程/项目作用域的文件系统。
-3. 消费方接口：面向模型的 `read` / `write` / `edit` schema 与结果格式化。
+3. 消费方 API：面向模型的 `read` / `write` / `edit` schema 与结果格式化。
 
-如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的约定应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制隔离，否则它只是一个基础路径。
+如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的约定应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制路径包含约束，否则它只是一个基础路径。
 
 文件系统工具必须在成为公开包（package）接口之前，以与 bash 相同的能力 seam 形态落地。
 
@@ -139,7 +139,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 ## 曾考虑的替代方案
 
 - **面向模型的工具直接基于 `node:fs`**：工具包将同时承担执行策略、路径解析、原子写入、文本解码和编辑语义，耦合问题部分所列的三个独立变化的关注点，且任何后端替换都会搅动 schema。
-- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的 Service Definition / Service provider / Consumer 拆分理由否决，且合并名称从未成为公开接口。
+- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的 Service Definition / Service provider / Consumer 拆分理由否决，且合并名称从未成为公开 API。
 - **观测状态放在 `ctx.fs` 上**：本 Agent Note 最初落地的形态；被 [拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 和 [事件门控 Agent Note](2026-06-26-file-context-as-event-gate.md) 取代：沙箱/远程后端不应继承面向模型的观测策略，因此提供方只保留版本令牌和可选的版本守护变更。
 
 ## 后果
@@ -160,4 +160,4 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 **错误码成为 seam 的一部分。** `FsError` 错误码使陈旧版本和观测失败可通过既有的结构化错误分类体系进行机器路由。代价是 `dsh-fs` 从 `dsh-llm` 导入共享的 `HarnessError` 基类；该依赖是有意为之且限于错误词汇。
 
-**包拆分的成本前置。** 三包拆分在只有一个后端时就增加了样板代码。这是有意为之：文件系统访问是可能的沙箱/远程边界，在面向模型的工具发布后再改包接口代价更高。
+**包拆分的成本前置。** 三包拆分在只有一个后端时就增加了样板代码。这是有意为之：文件系统访问是可能的沙箱/远程边界，在面向模型的工具发布后再改包 API 代价更高。

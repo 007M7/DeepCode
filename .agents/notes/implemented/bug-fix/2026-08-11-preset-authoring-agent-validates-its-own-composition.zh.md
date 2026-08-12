@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-08-11-preset-authoring-agent-validates-its-own-composition.md) | 中文
 
-## Problem
+## 问题
 
 `cordis` preset 随包发布 `editing-cordis-compositions`，它是 agent 创作 preset 时唯一的指导来源。其中四条陈述与事实不符，而分量最重的两条恰好指向该 skill 自称「最容易让人栽跟头的规则」。
 
@@ -18,7 +18,7 @@ Status: implemented
 
 四条之下还压着一个能力断言：agent「自己起不了会话」，于是校验退化成肉眼核对 YAML 字段，再把结果经设置页的红色标记交给用户。那个标记是发现阶段的结构检查，远弱于这句话给人的印象。
 
-## Decision
+## 决策
 
 skill 教 agent 通过 `ctx.agentPresets` 自行挂载校验其组装，其余每个示例都取自同一仓库中已发布的组装。
 
@@ -51,7 +51,7 @@ agent 按 `cordis_mount` 自身文档所述的方式够到 roster 服务：挂�
 
 skill 自带的 `cordis_mount` 代码片段经工具注册表逐字执行：它成功挂载，其 `preset_check` 工具在下一次读取时出现在组装该 agent 的目录中，对有效 preset 回答 `mounted OK`，对无效 preset 回答挂载拒绝原因。
 
-## Alternatives considered
+## 考虑过的替代方案
 
 **把校验留给用户，只修四处错误。** 这些错误与那句能力断言同源——指导是按 preset 层的公开面写的，而不是按被组装出的 agent 实际够得到的东西写的——而无法自查的 agent 交出的组装，其缺陷设置页同样看不见。
 
@@ -59,7 +59,7 @@ skill 自带的 `cordis_mount` 代码片段经工具注册表逐字执行：它�
 
 **给 preset 加一个一等的 preset 校验工具。** 组合出的路径已经存在，且由 `cordis_mount` 自己的 schema 记载；专用工具会给一个「无需专用工具即可够到运行时」的 preset 再添一个面向模型的行。
 
-## Consequences
+## 后果
 
 - 校验成功会留下一个永不回收的常驻代际，这是 roster 按代际本就承担的[常驻挂载](../architecture/2026-08-08-per-preset-standing-mounts.md)代价——由 agent 在编辑收尾时付一次，而不是由用户在首次会话时付。
 - skill 现在依赖 `cordis_inspect` 生成的 API 目录对 `agentPresets` 保持最新；`doc-sync` 中的 `verify-cordis-api` 是守住这一点的门禁。

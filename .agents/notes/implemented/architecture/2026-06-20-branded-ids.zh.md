@@ -60,7 +60,7 @@ export function OwnerToken(id: string): OwnerToken {
 
 ## 验证
 
-已落地的不变式：`BashTaskId` 和 `OwnerToken` 定义在 `dsh-bash` 中，并端到端贯穿 Service Definition、`dsh-bash-local` 生成点与 `dsh-tool-bash` 面向模型的 surface，且 `dsh-bash` 未添加对 `dsh-session` 的依赖；没有任何以范围内 brand id（`CallId`/`SessionId`/`BashTaskId`）为键的集合使用裸 `string`；公开方法参数和导出签名保留 brand；每个原始 string 进入的边界（提供方 call id、ACP 会话 id、模型提供的 `task_id`）都通过 cast 工厂构造 brand，而不是散落的 `as` cast。
+已落地的不变式如下：`BashTaskId` 和 `OwnerToken` 定义在 `dsh-bash` 中，并端到端贯穿 Service Definition、`dsh-bash-local` 生成点与 `dsh-tool-bash` 面向模型的工具，且 `dsh-bash` 未添加对 `dsh-session` 的依赖；没有任何以范围内 brand id（`CallId`/`SessionId`/`BashTaskId`）为键的集合使用裸 `string`；公开方法参数和导出签名保留 brand；每个原始 string 进入的边界（提供方 call id、ACP 会话 id、模型提供的 `task_id`）都通过 cast 工厂构造 brand，而不是散落的 `as` cast。
 
 ## 后果
 

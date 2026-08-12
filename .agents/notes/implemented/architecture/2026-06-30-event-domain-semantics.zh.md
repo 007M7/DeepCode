@@ -1,4 +1,4 @@
-# Agent Note: 事件域语义——会话是事实日志，agent 是运行时表面
+# Agent Note: 事件域语义——会话是事实日志，agent 是实时事件通道
 
 Status: implemented
 

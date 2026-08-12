@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/approval.md
 approval.md: 6ade53d7755f1070a17513d9f3efd4252d6d255f
-approval.zh.md: 92138bee75369f81b69b3551ee47ea97be07441e
+approval.zh.md: 3e2ab1d5c56fbf3eeb0ae12ec3baa1e3cb3d2a71

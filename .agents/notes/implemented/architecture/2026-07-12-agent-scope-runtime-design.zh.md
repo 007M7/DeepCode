@@ -25,7 +25,7 @@ Status: implemented
 | 协调创建/恢复 | 单个 `AgentCreationTransaction` |
 | 保护持久化、队列、模型或协议格式数据 | 在该边界处一次性物化 |
 | 在同一进程内传递类型化值 | Readonly 借用约定 |
-| 组合模型可见的提示词与工具表面 | 单个共享工具视图加权威的 assembly-waterfall 结果 |
+| 组合模型可见的提示词与工具集 | 单个共享工具视图加权威的 assembly-waterfall 结果 |
 | 协调 subagent、worker 和进程关闭 | 单个取消信号加该边界独立的终止态/完全停稳态事实 |
 
 本 Agent Note 余下部分按依赖顺序展开这些选择：Cordis 机制、作用域路由、创建与会话提交、工具与提示词、subagent 与工作流，最后是可执行检查。

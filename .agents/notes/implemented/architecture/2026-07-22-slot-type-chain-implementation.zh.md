@@ -78,7 +78,7 @@ export function createChatStore() {
 
 一个工厂，三个消费点：① `register`——独占 store 直接传工厂；要共享实例，则在 `apply` 里调用一次工厂、把同一句柄传给多次 register（跨插件共享构造性不可能：句柄从不出包）；② `PropsStore<ReturnType<typeof createChatStore>>` 推导出组件的 store 份额，零手写成员；③ 测试自己调用工厂并 `.create()` 出真引擎实例，把 `useSelector`/`actions` 直接当 props 喂进去——生产 outlet 走的正是同一条 `create` 路径，不存在第二套机械。
 
-store 的 scope **从挂载 entry 的 scope 推导**（session slot →每个会话一个实例，随会话生灭；root slot →每个 entry 一个）。读 = `props.useStore`；写 = 仅 `props.actions.*`——裸实例（带 `update`/`set`）永远到不了组件，声明的 actions 就是完整且可审计的变更面。生产代码在 `apply` 之外从不调用工厂或 `create`。
+store 的 scope **从挂载 entry 的 scope 推导**（session slot →每个会话一个实例，随会话生灭；root slot →每个 entry 一个）。读 = `props.useStore`；写 = 仅 `props.actions.*`——裸实例（带 `update`/`set`）永远到不了组件，声明的 actions 就是完整且可审计的变更 API。生产代码在 `apply` 之外从不调用工厂或 `create`。
 
 ### inject：注册方通过自己的 ctx 提供业务接口
 
@@ -90,7 +90,7 @@ hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStor
 
 ### 树上语境与渲染器约定
 
-`SessionProvider` 是框架组件，**以标配 slot 形式送达**：`children` 里声明了 session scope slot 的 entry 经 prop 收到它（类型住 ui-slots，值由渲染器注入）——组件永不对它做值 import。它框架自接线（内部自读 runtime 的当前会话状态，装配方零传参），render-prop 形——`children(sessionId)` 外加 `empty` 分支，以 `key={sessionId}` 重挂。`BindingContext` 属机械内部；业务组件可见的 React Context 为零。inject 工厂有意在 outlet 内部执行（per-entry 错误边界接得住它们；崩溃的注册方只黑掉自己那一格，装配错误则重抛）；outlet 将树上下文作为仅供框架机制使用的隐式参数读取——即「身份出自 register 闭包、现场出自树位置」的分工。
+`SessionProvider` 是框架组件，**以标配席位形式送达**：`children` 里声明了 session scope slot 的 entry 经 prop 收到它（类型住 ui-slots，值由渲染器注入）——组件永不对它做值 import。它框架自接线（内部自读 runtime 的当前会话状态，装配方零传参），render-prop 形——`children(sessionId)` 外加 `empty` 分支，以 `key={sessionId}` 重挂。`BindingContext` 属机械内部；业务组件可见的 React Context 为零。inject 工厂有意在 outlet 内部执行（per-entry 错误边界接得住它们；崩溃的注册方只黑掉自己那一格，装配错误则重抛）；outlet 将树上下文作为仅供框架机制使用的隐式参数读取——即「身份出自 register 闭包、现场出自树位置」的分工。
 
 渲染位于一份安装约定之后，因此 runtime 不依赖 React：`SlotRenderer`（接口住 ui-slots，实现 `createSlotRenderer()` 住 web-react）在壳 boot 时经 `ctx.slots.install(...)` 安装一次；双重安装与安装前渲染均 throw。归属记账是服务里的单一 `Map<key, entry>`——账本、slot、贡献、渲染绑定、store 实例全部沿同一条 entry 轴生灭，跨插件重载的陈旧权威窗口由此在构造上关闭（已 dispose 的 entry 所捕获的 `renderSlot`，一进入口即抛陈旧授权（stale-authorization）错误）。
 
@@ -103,7 +103,7 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 
 ## 后果
 
-渲染权威从此可强制执行，而非仅靠约定：谁渲染什么是装载期事实，审计 UI 结构 = 通读 register 调用；对 chain slot，「谁来渲染」额外多出一层渲染期事实，但做决定的选择器全是 register 现场的声明，审计面仍是 register 调用。每个 props 面都从单一真源静态推导（SlotMap entry、children 键集、store 工厂、inject 返回值），schema 变更由编译器传播，而不靠 grep。插件不再自带任何订阅机制——store 生命周期（每会话实例、dispose、持久化）是钉在 entry 轴上的框架语义。代价：注册选项稠密（children spec 对象）；框架背上实打实的推断机械（`defineStore` 的 init/actions 同轮推断可能需要柯里化兜底）；编译期双向锁意味着原型阶段的漂移直接是硬错误，而非警告。
+渲染权威从此可强制执行，而非仅靠约定：谁渲染什么是装载期事实，审计 UI 结构 = 通读 register 调用；对 chain slot，「谁来渲染」额外多出一层渲染期事实，但做决定的选择器全是 register 现场的声明，审计范围仍是 register 调用。每个 props API 都从单一真源静态推导（SlotMap entry、children 键集、store 工厂、inject 返回值），schema 变更由编译器传播，而不靠 grep。插件不再自带任何订阅机制——store 生命周期（每会话实例、dispose、持久化）是钉在 entry 轴上的框架语义。代价：注册选项稠密（children spec 对象）；框架背上实打实的推断机械（`defineStore` 的 init/actions 同轮推断可能需要柯里化兜底）；编译期双向锁意味着原型阶段的漂移直接是硬错误，而非警告。
 
 ## 考虑过的替代方案
 

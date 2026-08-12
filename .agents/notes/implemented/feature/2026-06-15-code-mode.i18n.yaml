@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-15-code-mode.md
 2026-06-15-code-mode.md: f9bde7a85d9cf26d3d6670744c955380fa807e3b
-2026-06-15-code-mode.zh.md: dbf8d409dea152b39d215f5dd636989c3f4fa0bb
+2026-06-15-code-mode.zh.md: eeaddb9735231dd41b2723636b7e4508ee3e46a8

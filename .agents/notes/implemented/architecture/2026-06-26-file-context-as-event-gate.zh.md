@@ -1,4 +1,4 @@
-# Agent Note: 将 `dsh-fs-policy` 改为事件门控插件，而非方法接口
+# Agent Note: 将 `dsh-fs-policy` 改为事件门禁插件，而非方法接口
 
 Status: implemented
 
@@ -138,7 +138,7 @@ interface Events {
 
 一条观测状态条目是**先前观测记录**，但其可辨识字段会影响决策。成功的 read/write/edit 会记录存在状态及版本，使 create-then-edit 或 edit-then-edit 序列无需中间重新读取即可工作。确认缺失的 read/view 会用缺失状态取代旧的正向版本，因此只允许带防护的创建；随后成功的创建会再用新的存在版本取代缺失状态。只有条目不存在才表示未见，并使 edit 返回 `FS_NOT_OBSERVED`。owner 从 `{ agent?: { session? } }` 结构化推导；dispose 时丢弃所有状态（HMR 安全）。
 
-`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务面——它只通过事件门控影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
+`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务 API——它只通过事件门禁影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
 
 ## 裸提供方行为（无 `dsh-fs-policy`）
 
@@ -152,7 +152,7 @@ interface Events {
 
 ## 取代关系
 
-本 Agent Note 修正——而非推翻——[拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md)。四层拆分、提供方约定和新鲜度*策略*均保留。变更的是**工具与策略层之间的耦合方式**：强制性方法服务变为插件拥有的事件门控，fs I/O + 读取窗口从 `fileContext` 上移至 `dsh-tool-fs`。拆分文件系统 seam Agent Note 中关于 `dsh-tool-fs` 注入 `fileContext` 以及 `fileContext` 拥有 `read`/`write`/`edit` 的描述已在同一变更中更新。
+本 Agent Note 修正——而非推翻——[拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md)。四层拆分、提供方约定和新鲜度*策略*均保留。变更的是**工具与策略层之间的耦合方式**：强制性方法服务变为插件拥有的事件门禁，fs I/O + 读取窗口从 `fileContext` 上移至 `dsh-tool-fs`。拆分文件系统 seam Agent Note 中关于 `dsh-tool-fs` 注入 `fileContext` 以及 `fileContext` 拥有 `read`/`write`/`edit` 的描述已在同一变更中更新。
 
 ## 验证
 

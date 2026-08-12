@@ -16,7 +16,7 @@ Status: implemented
 
 ### 压缩是一个能力 seam，Service Definition 与 Service provider 角色分离
 
-遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使约定、算法和（后续的）消费方 surface 各自独立演进：
+遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使约定、算法和（后续的）消费方 API 各自独立演进：
 
 1. **接口** — `@deepseek-ai/dsh-compact`：抽象 `CompactService`，拥有 `ctx.compact` 键、`CompactionResult` 词汇、`compact/*` 会话事件、手动失败分类体系以及规范的检查点消息来源。它将 `compactIfNeeded()`、`compactNow()` 和 `compactRegion()` 声明为**抽象方法**——约定说明压缩*做什么*，而非*怎么做*。
 2. **实现** — `@deepseek-ai/dsh-compact-basic`：具体的 `BasicCompactService`，消费 `ctx.tokenMeter`，并拥有尾→头保留遍历、通过 `ctx.llm.stream()` 生成摘要、surface 替换、锁、步骤前压力处理和规范的上下文溢出恢复。`summarize()` 是其唯一的子类钩子；计价与回放仍归 meter 所有。
@@ -59,7 +59,7 @@ retry → next numbered step/start      ⟵ derives from the replacement surface
 
 因此失控轮次的压缩方式与其他历史完全相同：其早期*已关闭*步骤被摘要，近期步骤保持原样。当唯一可压缩的内容只剩一个不可拆分的开放尾部步骤（其工具调用尚无结果）时，压缩拒绝执行（返回 `null`）并在该步骤关闭后重试。
 
-**部分单单元溢出仍不在范围内。** 摘要范围选择无法拆分不可分割的单元。当可移除的文本型工具结果内容占据大部分空间，且修剪后的余量能够容纳时，可选修剪器可以修复一个已关闭的工具对。仅信封压力、粘贴的 `user/message` 等不可分割的超大非工具节点，以及不可修剪余量仍然过大的工具单元，依旧不属于压缩范围；限制这些单元是另一个关注点。
+**部分单元内溢出仍不在范围内。** 摘要范围选择无法拆分不可分割的单元。当可移除的文本型工具结果内容占据大部分空间，且修剪后的余量能够容纳时，可选修剪器可以修复一个已关闭的工具对。仅信封压力、粘贴的 `user/message` 等不可分割的超大非工具节点，以及不可修剪余量仍然过大的工具单元，依旧不属于压缩范围；限制这些单元是另一个关注点。
 
 ### 头部锚定：一个自动检查点，始终在头部
 
@@ -91,7 +91,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 ### 通过日志记录的锁实现阻塞，加上崩溃/可恢复失败的分类
 
-`compact/start … compact/end` 标记对承担两项职责：
+`compact/start … compact/end` 事件对承担两项职责：
 
 1. **可检测的崩溃孤儿 + 已记录的摘要输入**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
 2. **防止并发压缩。** 每个自动、手动和显式范围入口点都会拒绝活动的未匹配 `compact/start`。该标记对就是唯一的锁；没有进程本地 mutex 重复承担同一职责。
@@ -122,7 +122,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 - **自动扩展点**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
-- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、引用的来源事件是否覆盖完整，以及仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
+- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、引用的来源事件是否覆盖完整，以及仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件负责维护数字轮次 owner 与独立 `null` owner 事件对之间的关系。
 - **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune`、`dsh-compact-basic`，然后加载 `dsh-command-compact`；服务级默认值使组合无需重复数值策略即可使用。
 
 ## 测试

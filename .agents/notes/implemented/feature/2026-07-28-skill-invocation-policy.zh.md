@@ -22,7 +22,7 @@ skill 注册表最初将发现操作视为模型目录：`ctx.skills.list()` 会
 
 这些规则允许以下四种组合：
 
-| 策略 | 模型侧接口 | 用户侧接口 |
+| 策略 | 模型调用 | 用户调用 |
 |---|---|---|
 | `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
 | `{ modelInvocable: true, userInvocable: false }` | 包含 | 排除 |

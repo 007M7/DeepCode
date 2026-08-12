@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/develop/framework/service.md
 service.md: 3358f82ca5391741a7f531b7504de7335959ad03
-service.zh.md: 8fb4beeac43051c0f08483fe61e22c588127c360
+service.zh.md: c8a644b3cc53a2d05b431dfdc64aa8c15959ba55

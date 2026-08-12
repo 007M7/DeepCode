@@ -1,4 +1,4 @@
-# Agent Note：损坏的 preset 是名单行，不是空缺
+# Agent Note: 损坏的 preset 是名单行，不是空缺
 
 Status: implemented
 

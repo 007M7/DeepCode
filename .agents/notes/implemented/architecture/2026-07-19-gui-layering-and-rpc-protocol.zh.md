@@ -1,4 +1,4 @@
-# RFC: GUI 分层与 RPC 协议——host/client 按能力支持方分层、四象限消息模型与 fetch 载体
+# Agent Note: GUI 分层与 RPC 协议——host/client 按能力提供方分层、四象限消息模型与 fetch 载体
 
 Status: implemented
 
@@ -238,7 +238,7 @@ export type ResponseValue<K> =
 
 | 放弃项 | 一句话理由 |
 |---|---|
-| 按产品分包（web 一族、electron 一族） | 产品共享的是 host/client 两侧能力，而不是某个应用实现；能力支持方分层让新应用零新包 |
+| 按产品分包（web 一族、electron 一族） | 产品共享的是 host/client 两侧能力，而不是某个应用实现；能力提供方分层让新应用零新包 |
 | 混合体建包（如 headless 独立包） | 混合体只有一个消费者（它自己的 app），建包是无主抽象；拼装写在 app 里可读可弃 |
 | 消费型 client 直连 ctx（省 apiproxy 一层） | client 需要 wire 校验、观测与多 client 一致性。直接 headless 是没有 client 边界的本地入口，使用公开的 Agent／Session seam，而不是 client 命令面 |
 | webserver 依赖 runtime（省 handler 注入） | 结构 typing 注入让 webserver 可被 sidecar/测试复用且零 workspace 依赖；包依赖会把装配知识拖进承载层 |

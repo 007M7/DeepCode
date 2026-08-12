@@ -13,7 +13,7 @@ TUI 连接不可达的 DeepSeek 端点时，失败只显示一条 `fetch failed`
 
 ## 决策
 
-- `dsh-llm` 导出 `errorChain(value)`：渲染抛出值及其完整 `cause` 链（`outer: inner: …`）与 AggregateError 成员（`msg [m1; m2]`），并容错循环 cause 和恶意强制转换。它只是用于诊断界面的渲染器；路由仍然基于 `HarnessError.code`。
+- `dsh-llm` 导出 `errorChain(value)`：渲染抛出值及其完整 `cause` 链（`outer: inner: …`）与 AggregateError 成员（`msg [m1; m2]`），并容错循环 cause 和恶意强制转换。它只是用于诊断输出的渲染器；路由仍然基于 `HarnessError.code`。
 - DeepSeek 适配器把拿到响应之前的传输失败包装成 `LlmError('TRANSPORT')`，写明配置的 `baseURL` 并将原始拒绝值作为 `cause` 串入错误链。被中止的请求变为 `LlmError('ABORTED')`；由于轮次信号已处于中止状态，agent loop（智能体循环）仍将该轮次归类为取消而非恢复。
 - 每个诊断边界改用 `errorChain` 而非 `error.message`/`String(error)`：agent-loop 的持久化 `turn/end` 错误消息（`errorData`）、其日志警告、TUI 的 `agent/error` 通知与启动失败行、以及 `dsh-stdio` 的启动失败日志行。实时 `agent/error` 事件与 `SettleReason` 以 `unknown` 原样保留抛出值；各诊断 Consumer 自行渲染，而不是由循环把它包装成另一个错误。`dsh-agent-loop`、`dsh-stdio`、`dsh-tui` 里各自的 `renderThrown` 副本被删除，统一使用这一个共享渲染器。
 - `dsh-stdio` 渲染失败的 `turn/end` reason：`[turn failed <code>] <message>`、`[turn aborted] <reason>`、`[turn rejected] <reason>`、`[turn interrupted by a previous process exit]` 以及输出 token 上限通知。通过声明合并扩展出的未知 kind 按普通 turn 结束处理。
@@ -24,7 +24,7 @@ TUI 连接不可达的 DeepSeek 端点时，失败只显示一条 `fetch failed`
 
 **在每个错误的构造函数里渲染链（把 cause 写入 `message`）。** 否决：当消费方同时遍历 `cause` 时会双重渲染（适配器修复的第一版产出了 `… fetch failed: bad port: fetch failed: bad port`），并且破坏了想按内层错误路由的消费方所需的结构化链。
 
-**只做一个感知 `cause` 的日志导出器。** 否决：持久化的 `turn/end` reason 和 TUI 通知不是日志行；被掩盖的消息会留在会话日志——轮次内失败的唯一持久记录——以及主要 UI 表面里。
+**只做一个感知 `cause` 的日志导出器。** 否决：持久化的 `turn/end` reason 和 TUI 通知不是日志行；被掩盖的消息会留在会话日志——轮次内失败的唯一持久记录——以及主要 UI 中。
 
 **逐包升级 `renderThrown`。** 否决：三个包已经各自持有几乎相同的私有副本；分别升级只会固化共享渲染器所要消除的重复。
 

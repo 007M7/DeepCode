@@ -12,7 +12,7 @@ OpenTelemetry 后端已在 `$DSH_HOME/.userid` 中持久化一个匿名 UUID。`
 
 ## 决策
 
-`@deepseek-ai/dsh-user-id` 负责 `getOrCreateAnonymousUserId()` 和 `$DSH_HOME/.userid` 存储契约。`session-telemetry-otel` 将返回的 id 用作 OpenTelemetry Resource 的 `user.id`；`/feedback` 的成功确认先报告 `Feedback recorded for session {sessionId}`，再在第二行显示 `User: {userId}`；直连 DeepSeek 请求则通过 `x-deepseek-harness-user-id` 携带它。系统在获取 id 前拒绝无效反馈，DeepSeek 适配器也仅在凭据解析成功后获取 id，因此空命令和凭据失败都不会创建 `.userid`。
+`@deepseek-ai/dsh-user-id` 负责 `getOrCreateAnonymousUserId()` 和 `$DSH_HOME/.userid` 存储约定。`session-telemetry-otel` 将返回的 id 用作 OpenTelemetry Resource 的 `user.id`；`/feedback` 的成功确认先报告 `Feedback recorded for session {sessionId}`，再在第二行显示 `User: {userId}`；直连 DeepSeek 请求则通过 `x-deepseek-harness-user-id` 携带它。系统在获取 id 前拒绝无效反馈，DeepSeek 适配器也仅在凭据解析成功后获取 id，因此空命令和凭据失败都不会创建 `.userid`。
 
 此次抽取保留既有的随机 UUID、home 解析、进程内缓存、独占创建并发、损坏文件替换与 best-effort 写入语义。
 
@@ -21,7 +21,7 @@ OpenTelemetry 后端已在 `$DSH_HOME/.userid` 中持久化一个匿名 UUID。`
 | 已否决 | 原因 |
 |---|---|
 | 从 `session-telemetry-otel` 导入辅助函数 | 使反馈耦合到可选的导出后端，并在遥测导出反馈后形成反向依赖环 |
-| 在反馈中复制持久化辅助函数 | 同一文件契约的两份实现可能发生偏差，并因校验或失败语义不同而产生竞态 |
+| 在反馈中复制持久化辅助函数 | 同一文件约定的两份实现可能发生偏差，并因校验或失败语义不同而产生竞态 |
 | 生成独立的反馈用户 id | 确认文本无法与 OTel Resource 相关联，因而不能达到报告目的 |
 
 ## 后果

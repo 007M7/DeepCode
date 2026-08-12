@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md
 2026-06-17-filesystem-capability-seam.md: 63628d592c17f000ae49f9558597bf8059f04942
-2026-06-17-filesystem-capability-seam.zh.md: 02af77a3cc291eeba2be966a4bc08aa006675e7d
+2026-06-17-filesystem-capability-seam.zh.md: 9558b36eae838fec424d5ca54d136b3b34828fa0

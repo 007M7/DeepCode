@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-### 一个注册服务，贡献归包所有
+### 一个注册表服务，贡献归包所有
 
 `@deepseek-ai/dsh-invariants` 是与产品无关的 Cordis 服务插件，注册 `ctx.invariants`。它只负责配置、注册唯一性、子 fiber 生命周期和带包归属的失败；不导入 session、agent、scope 或 agent-loop 包，也不包含这些包的检查。
 
@@ -49,17 +49,17 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 公开注册边界是 `ctx.invariants.register(packageName, installer)`。即使过滤器禁止安装，它也会为每个完整 npm 包名保留唯一的活跃注册，并返回 effect disposer。卸载伴随插件或服务都会释放注册名及全部贡献状态。
 
-启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务 API；注册服务不携带产品专用依赖元数据。服务会在注册成功前等待 installer 返回的 promise，因此异步启动检查仍具有事务性。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
+启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务 API；注册表不携带产品专用依赖元数据。服务会在注册成功前等待 installer 返回的 promise，因此异步启动检查仍具有事务性。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
 
 注册启动是事务性的。如果 installer 在注册监听器后失败，子 fiber 会完整释放，并在失败向外传播前解除包名占用。被过滤的注册不创建子 fiber，但会保留占用直到 dispose。伴随插件重载时总会从干净的 installer 状态开始；有状态贡献从其所属服务重建基线。
 
-原有函数式插件入口与单参数 `InvariantError` 构造函数不作为兼容 API 保留。仓库尚未发布，所有调用方会一起迁移到服务和带包归属的错误。
+原有函数式插件入口与单参数 `InvariantError` 构造函数不作为兼容 API 保留。仓库处于预发布阶段，所有调用方会一起迁移到服务和带包归属的错误。
 
 ### 首批有状态伴随插件与完整所有权
 
 | 伴随入口 | 注册名 | 所属检查 |
 |---|---|---|
-| `@deepseek-ai/dsh-session/invariant` | `@deepseek-ai/dsh-session` | 会话序号、turn/step 包围关系和同 step 的 call/result 轨迹 |
+| `@deepseek-ai/dsh-session/invariant` | `@deepseek-ai/dsh-session` | 会话序列、turn/step 包围关系和同 step 的 call/result 轨迹 |
 | `@deepseek-ai/dsh-agent/invariant` | `@deepseek-ai/dsh-agent` | agent 状态转换 |
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped event carrier 存在性与主体一致性 |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | 模型请求重建 |
@@ -88,7 +88,7 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 
 ## 考虑过的替代方案
 
-- **把所有检查保留在 `dsh-invariants`。** 不予采纳，因为注册包仍要导入所有被检查的产品领域，所有者变更仍需中央编辑，测试也继续远离被保护的约定。
+- **把所有检查保留在 `dsh-invariants`。** 不予采纳，因为注册表仍要导入所有被检查的产品领域，所有者变更仍需中央编辑，测试也继续远离被保护的约定。
 - **当 `ctx.invariants` 恰好存在时，让根包入口隐式注册检查。** 不予采纳，因为根入口行为会依赖组合顺序与可选服务是否存在，诊断无法独立选择，而且包加载会隐藏一个不在显式伴随插件中的注册 effect。
 - **在运行时自动发现所有 `invariant.ts` 文件。** 不予采纳，因为文件系统或包发现不是运行时所有权约定，会让 bundle 发布含义不清，也无法表达显式 Cordis 加载顺序或依赖安装。构建期生成与校验以及测试 host 可以枚举源码树，因为它们验证的是仓库完整性，而不是组合已发布的部署。
 - **根据当前已加载包集合验证 allow/block 条目。** 不予采纳，因为零匹配模式可能有意指向稍后加载或 HMR 加载的贡献；当前加载顺序不能决定配置有效性。

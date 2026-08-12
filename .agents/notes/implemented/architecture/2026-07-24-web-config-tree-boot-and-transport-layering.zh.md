@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**组合结果是一棵平铺配置树。** `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同持有全部行——host 运行时（32 行）、`api-gateway` 行、`webserver` 行、`dsh.client` 行（浏览器 roster；modules 行同时是 host 行）。不做 spine bundle：每插件一行、每个 config 字段 yml 可改。这一立场后来推广到全仓：两个 surface 共享的配置项被抽取进 `apps/cli/config/base.cordis.yml`，各 surface 则收敛为一份 overlay（[共享 base overlay](../simplification/2026-07-29-shared-base-config-overlays.md)）。`dsh-client-hmr` 行是普通的常开组合包行（最初由 `--dev` 在代码中追加；该旗标已废除）。行序无装载语义；激活由服务可用性驱动。共享 audit 会拒绝没有 fiber 的 import、仅等待失败的 fiber 以恢复原始激活错误，并报告让 fiber 停在 `PENDING` 的服务；抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而无关的未处理 rejection 仍然致命。Node app-boot 产物内嵌 `@cordisjs/plugin-include`，但将 `@cordisjs/plugin-loader` 保持为外部依赖，因此 include 的 `EntryTree` 与 host 会绑定到同一个 Loader peer，而不会让一棵配置树横跨两个 Loader 实现。
+**组合结果是一棵平铺配置树。** `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同持有全部行——host 运行时（32 行）、`api-gateway` 行、`webserver` 行、`dsh.client` 行（浏览器 roster；modules 行同时是 host 行）。不做 spine bundle：每插件一行、每个 config 字段 yml 可改。这一立场后来推广到全仓：两个 surface 共享的配置项被抽取进 `apps/cli/config/base.cordis.yml`，各 surface 则收敛为一份 overlay（[共享 base overlay](../simplification/2026-07-29-shared-base-config-overlays.md)）。`dsh-client-hmr` 行是普通的始终启用的 bundle 行（最初由 `--dev` 在代码中追加；该旗标已废除）。行序无装载语义；激活由服务可用性驱动。共享 audit 会拒绝没有 fiber 的 import、仅等待失败的 fiber 以恢复原始激活错误，并报告让 fiber 停在 `PENDING` 的服务；抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而无关的未处理 rejection 仍然致命。Node app-boot 产物内嵌 `@cordisjs/plugin-include`，但将 `@cordisjs/plugin-loader` 保持为外部依赖，因此 include 的 `EntryTree` 与 host 会绑定到同一个 Loader peer，而不会让一棵配置树横跨两个 Loader 实现。
 
 **boot 胶水由两个类组成。** `AppCLIEntry`（apps/cli）与 `AppWebEntry`（壳内核）只持有那些必须独立于 cordis、提前存在的东西：argv 事实、合成的 patch 集、解析出的 boot manifest（元数据清单）、模块系统实例、loading 页句柄——其余一律进插件。`AppCLIEntry.run()` 三段：分层 env（ambient > cwd `.env` > `$DSH_HOME/.env`，顺手关掉上述缺陷）→ patch 合成 → Loader include boot 加 activation audit。`AppWebEntry.run()` 在浏览器侧镜像它：把 `window.__DSH_BOOT__` 解析成 `BootManifest`（双视角：npm 包行给模块表、cordis 插件行给 entry 组合；畸形 wire 大声抛）、建模块系统、渲染 loading 页、immediately 层预取与 Context/Loader 准备并行、**create entry 之前等预取齐**（物化是 `tree.import` 的同步 require，不受 fiber inject 等待保护；i18n → runtime/client 这类跨包 require 边要求 immediately 层工厂全部注册完——否则有实测 10–25% 的 boot 竞态）、收编 modules entry、逐一创建图行、settle、sweep。
 
@@ -33,10 +33,10 @@ Status: implemented
 | 弃案 | 一行理由 |
 |---|---|
 | 专门的 `dsh-host-profile` 受体包 | 用户模型状态归 Settings 支撑的 `ctx.agentDefaultModel` 所有；额外的 Host 受体会重复归属，并排除直接入口 |
-| 运行时里的 `assembly` 垫层插件（provide `apiHandler`） | 它的存在只因 `createApiProxy` 住运行时；本体迁入 apiproxy 后网关自持插件身份，且 `toFetchHandler` 是绑定方自己调的纯函数 |
+| 运行时里的 `assembly` 垫层插件（provide `apiHandler`） | 它的存在只因 `createApiProxy` 住运行时；本体迁入 apiproxy 后网关可自承载，且 `toFetchHandler` 是绑定方自己调的纯函数 |
 | 全量重扫与增量扫描并存 | 两条实现两份语义；单包路径足以覆盖激活初扫 |
-| modules 包特设 `./impl` 出口 | 出口面不统一；标准 `./client` 承载完整浏览器半 |
+| modules 包特设 `./impl` 出口 | 出口不统一；标准 `./client` 承载完整浏览器半 |
 | dev overlay / `cordis.dev.yml` | 一套 yml；`!!js` 无法条件化行存在性，`--dev` 追加一行就是全部差异 |
 | env 进映射表 | 同一字段将出现 env/json 双源，需再发明优先级 |
 | create 不等预取（以 `arrive()` 去重为安全依据） | 被 10–25% boot 竞态证伪：在途去重只覆盖同包双拉，不覆盖跨包同步 require 边 |
-| json 直接当 loader patches 文件 | json 键名将耦合 yml 行结构，写入方要懂 cordis |
+| json 直接当 loader patches 文件 | json 键名将耦合 yml 行结构，profile 编写者要懂 cordis |

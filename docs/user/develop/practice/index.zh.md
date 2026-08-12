@@ -30,7 +30,7 @@
 
 ### 提供方可替换
 
-同一个 Service Definition 可以有多个提供方。用户通过 `cordis.yml` 选择：
+同一个 Service Definition 可以有多个提供方，可通过 `cordis.yml` 选择：
 
 ```yaml
 # Local execution
@@ -152,4 +152,4 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [LLM 适配器](./llm-adapter.md)：实现一个 LLM 提供方
+- [LLM（大语言模型）适配器](./llm-adapter.md)：实现一个 LLM 提供方
