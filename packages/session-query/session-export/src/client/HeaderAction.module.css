@@ -1,4 +1,3 @@
-/* The 111 px design width is a floor so translated labels do not clip. */
 .sessionLogButton {
   display: inline-flex;
   align-items: center;

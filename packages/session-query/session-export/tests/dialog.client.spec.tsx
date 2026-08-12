@@ -33,7 +33,11 @@ afterEach(cleanup)
 describe('SessionExportDialog', () => {
   it('shows a controller failure and closes it without reading Session history', async () => {
     const b = bench()
-    act(() => { b.controller.fail(SID, 'toolbar failed') })
+    act(() => {
+      b.controller.store.set({
+        bySession: { [SID]: { open: true, status: 'error', error: 'toolbar failed' } },
+      })
+    })
     const dialog = await b.view.findByRole('dialog', { name: 'Session export failed' })
     expect(dialog.textContent).toContain('toolbar failed')
     const close = b.view.getAllByRole('button', { name: 'Close' })[0]
@@ -57,7 +61,11 @@ describe('SessionExportDialog', () => {
 
   it('uses fallback copy when a failure has no detail', async () => {
     const b = bench()
-    act(() => { b.controller.fail(SID, '') })
+    act(() => {
+      b.controller.store.set({
+        bySession: { [SID]: { open: true, status: 'error', error: '' } },
+      })
+    })
     const dialog = await b.view.findByRole('dialog', { name: 'Session export failed' })
     expect(dialog.textContent).toContain('Could not start the Session export.')
     const close = b.view.getAllByRole('button', { name: 'Close' }).at(-1)

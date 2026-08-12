@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  downloadBlob, SessionExportDownloadController, sessionLogZipFilename,
+  downloadUrl, SessionExportDownloadController, sessionLogZipFilename,
 } from '../src/client/controller.ts'
 
 const SID = 'session-export-controller' as SessionId
@@ -25,9 +25,12 @@ describe('SessionExportDownloadController', () => {
     expect(url.pathname).toBe('/api/session.export')
     expect(url.searchParams.get('sessionId')).toBe(SID)
     expect(url.searchParams.get('includeDescendants')).toBe('true')
+    expect(init.method).toBe('HEAD')
     expect(init.signal).toBeInstanceOf(AbortSignal)
-    expect(save).toHaveBeenCalledWith(expect.any(Object), 'dsh-session-session-export-controller.zip')
-    expect((save.mock.calls[0]?.[0] as Blob).size).toBe(3)
+    expect(save).toHaveBeenCalledWith(
+      url.toString(),
+      'dsh-session-session-export-controller.zip',
+    )
     expect(controller.store.getSnapshot().bySession[SID]).toEqual({
       open: true, status: 'success', error: null,
     })
@@ -50,7 +53,7 @@ describe('SessionExportDownloadController', () => {
     controller.dismiss(SID)
   })
 
-  it('publishes HTTP, transport, and command failures without leaking rejections', async () => {
+  it('publishes HTTP and transport failures without leaking rejections', async () => {
     const http = new SessionExportDownloadController(
       async () => new Response('backend unavailable', { status: 500 }), vi.fn(),
     )
@@ -65,8 +68,6 @@ describe('SessionExportDownloadController', () => {
     await transport.download(SID)
     expect(transport.store.getSnapshot().bySession[SID]?.error).toBe('offline')
 
-    transport.fail(SID, 'command failed')
-    expect(transport.store.getSnapshot().bySession[SID]?.error).toBe('command failed')
     transport.dismiss('absent' as SessionId)
 
     const emptyDetail = new SessionExportDownloadController(
@@ -102,14 +103,14 @@ describe('SessionExportDownloadController', () => {
     vi.stubGlobal('location', { origin: 'null' })
     const fetcher = vi.fn(async (_input: string | URL, _init?: RequestInit) => new Response('zip'))
     vi.stubGlobal('fetch', fetcher)
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:default')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const controller = new SessionExportDownloadController()
 
     await controller.download(SID)
 
     expect((fetcher.mock.calls[0]?.[0] as URL).origin).toBe('http://dsh.internal')
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'HEAD' })
+    expect(click).toHaveBeenCalledOnce()
   })
 
   it('defaults dialog openness when state is externally cleared before settlement', async () => {
@@ -132,19 +133,14 @@ describe('SessionExportDownloadController', () => {
 })
 
 describe('browser download helpers', () => {
-  it('sanitizes the archive filename and revokes the object URL after the click', () => {
-    vi.useFakeTimers()
-    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:session')
-    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  it('sanitizes the archive filename and hands the URL to a download anchor', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
 
     expect(sessionLogZipFilename('a/b' as SessionId)).toBe('dsh-session-a_b.zip')
-    downloadBlob(new Blob(['zip']), 'archive.zip')
-    expect(create).toHaveBeenCalledOnce()
+    downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')
     expect(click).toHaveBeenCalledOnce()
-    expect(revoke).not.toHaveBeenCalled()
-    vi.runAllTimers()
-    expect(revoke).toHaveBeenCalledWith('blob:session')
-    vi.useRealTimers()
+    const anchor = click.mock.instances[0] as HTMLAnchorElement
+    expect(anchor.href).toBe('http://host/api/session.export?sessionId=a')
+    expect(anchor.download).toBe('archive.zip')
   })
 })

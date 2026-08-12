@@ -18,7 +18,7 @@ export interface SessionExportDownloadState {
 }
 
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
-type Save = (blob: Blob, filename: string) => void
+type Save = (url: string, filename: string) => void
 
 const INITIAL: SessionExportDownloadState = { bySession: {} }
 
@@ -32,17 +32,15 @@ export function sessionLogZipFilename(sessionId: SessionId): string {
 }
 
 /**
- * Trigger a browser save without copying the response blob.
- * @param blob - complete ZIP response body.
+ * Hand a Host download URL to the browser download manager.
+ * @param url - same-origin Host download URL.
  * @param filename - browser download filename.
  */
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
+export function downloadUrl(url: string, filename: string): void {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  setTimeout(() => { URL.revokeObjectURL(url) }, 0)
 }
 
 /** Resolve the browser's Host base with the connection carrier's null-origin fallback. */
@@ -69,7 +67,7 @@ export class SessionExportDownloadController {
    */
   constructor(
     private readonly fetcher: Fetch = (input, init) => fetch(input, init),
-    private readonly save: Save = downloadBlob,
+    private readonly save: Save = downloadUrl,
   ) {}
 
   /**
@@ -87,15 +85,6 @@ export class SessionExportDownloadController {
     })
     this.active.set(sessionId, { abort, done })
     return done
-  }
-
-  /**
-   * Present a command failure without issuing an HTTP request.
-   * @param sessionId - Session whose modal reports the failure.
-   * @param error - stable command failure text.
-   */
-  fail(sessionId: SessionId, error: string): void {
-    this.publish(sessionId, { open: true, status: 'error', error })
   }
 
   /**
@@ -125,12 +114,12 @@ export class SessionExportDownloadController {
       const url = new URL('/api/session.export', hostBase())
       url.searchParams.set('sessionId', sessionId)
       url.searchParams.set('includeDescendants', 'true')
-      const response = await this.fetcher(url, { signal })
+      const response = await this.fetcher(url, { method: 'HEAD', signal })
       if (!response.ok) {
         const detail = await response.text().catch(() => '')
         throw new Error(`Export failed: HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
       }
-      this.save(await response.blob(), sessionLogZipFilename(sessionId))
+      this.save(url.toString(), sessionLogZipFilename(sessionId))
       const open = this.store.getSnapshot().bySession[String(sessionId)]?.open ?? true
       this.publish(sessionId, { open, status: 'success', error: null })
     } catch (error: unknown) {

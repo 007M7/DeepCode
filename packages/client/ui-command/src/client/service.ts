@@ -12,7 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (`commands/change` rides the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { CommandResult } from '@deepseek-ai/dsh-commands'
+import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
@@ -374,8 +374,31 @@ export class CommandService extends Service implements CommandServiceContract {
     const result = await this.ctx.remote.commands.execute(session.sessionId, line)
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
-    this.ctx.emit('command/executed', session.sessionId, submittedCommandName(line), result.value.result)
+    this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
     return { kind: 'success' }
+  }
+
+  /** Publish the local acknowledgment without letting an observer change command admission. */
+  private notifyExecuted(sessionId: SessionId, name: string, result: CommandResult): void {
+    const args = ['command/executed', sessionId, name, result]
+    for (const listener of this.ctx.events.dispatch('emit', args) as Array<(...listenerArgs: unknown[]) => unknown>) {
+      try {
+        const returned = listener(sessionId, name, result)
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnExecutedListenerFailure(name, error)
+          })
+        }
+      } catch (error) {
+        this.warnExecutedListenerFailure(name, error)
+      }
+    }
+  }
+
+  /** Log one contained `command/executed` observer failure. */
+  private warnExecutedListenerFailure(name: string, error: unknown): void {
+    this.ctx.logger.warn('client command: a command/executed listener for "%s" failed', name)
+    this.ctx.logger.warn(error)
   }
 
   /**

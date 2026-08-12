@@ -9,7 +9,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import type { CommandResult } from '@deepseek-ai/dsh-commands'
+import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
@@ -523,6 +523,29 @@ describe('execute payload', () => {
       name: 'goal',
       result: { kind: 'success' },
     }])
+  })
+
+  it('contains local acknowledgment listeners without changing an admitted result', async () => {
+    const b = await bench({ execute: () => Promise.resolve({ matched: true }) })
+    await b.warm(proj('s1'))
+    const outcome = b.source.matchSpace!(proj('s1'), '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
+    const syncFailure = new Error('sync observer failed')
+    const asyncFailure = new Error('async observer failed')
+    const after = vi.fn()
+    const warn = vi.spyOn(b.ctx.logger, 'warn').mockImplementation(() => undefined)
+    b.ctx.on('command/executed', () => { throw syncFailure })
+    const rejectingListener = (() => Promise.reject(asyncFailure)) as unknown as () => void
+    b.ctx.on('command/executed', rejectingListener)
+    b.ctx.on('command/executed', after)
+
+    await expect(outcome.claim.submit('ship it', new Context())).resolves.toEqual({ kind: 'success' })
+    expect(after).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(warn).toHaveBeenCalledWith('client command: a command/executed listener for "%s" failed', 'goal')
+    expect(warn).toHaveBeenCalledWith(syncFailure)
+    expect(warn).toHaveBeenCalledWith(asyncFailure)
   })
 
   it('maps matched:false to an error outcome and a matched bare result to success', async () => {

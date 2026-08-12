@@ -12,7 +12,7 @@ export interface SessionExportDialogInjected {
 }
 
 export type SessionExportDialogProps =
-  PropsRuntime<'conversation.session.header.actions'>
+  PropsRuntime<'conversation.session.header.utilities'>
   & PropsLocale<typeof NS>
   & InjectFace<SessionExportDialogInjected>
 

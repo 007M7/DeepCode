@@ -43,12 +43,10 @@ describe('session-export browser plugin', () => {
     expect(entry?.component).toBe(SessionExportHeader)
     expect(entry?.options).toMatchObject({ id: 'session-export' })
     const injected = (entry?.inject as unknown as () => import('../src/client/Dialog.tsx').SessionExportDialogInjected)()
-    b.ctx.sessionExport.fail(SID, 'failed')
+    await injected.request(SID)
     expect(b.ctx.sessionExport.store.getSnapshot().bySession[SID]?.status).toBe('error')
     injected.dismiss(SID)
     expect(b.ctx.sessionExport.store.getSnapshot().bySession[SID]?.open).toBe(false)
-    await injected.request(SID)
-    expect(b.ctx.sessionExport.store.getSnapshot().bySession[SID]?.status).toBe('error')
 
     await b.fiber.dispose()
     expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(0)

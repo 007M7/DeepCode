@@ -54,7 +54,8 @@ describe('session-export real Loader composition', () => {
     })
     await context.loader.await()
 
-    const session = context.sessions.create(SessionId('loader-session-export'), { meta: { createdAt: 1 } })
+    const session = (context.get('sessions') as unknown as SessionStore)
+      .create(SessionId('loader-session-export'), { meta: { createdAt: 1 } })
     const agent = { session, status: 'idle', options: {} } as unknown as Agent
     expect(context.commands.list(agent)).toContainEqual({
       name: 'export', description: 'Download this Session log as a ZIP archive',
