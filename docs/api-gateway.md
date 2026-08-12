@@ -138,7 +138,7 @@ SRC solves only dispatch for a Host process running from source. The Client does
 
 ## Development mode
 
-Web development prepares current Host, Client, and Web artifacts with `pnpm run build`, then runs the source Host and Client plugin watcher in separate terminals:
+Web development prepares current Host, Client, and Web artifacts with `pnpm run build`, then runs the source Host and the Client plugin watcher in separate terminals:
 
 ```sh
 pnpm dsh web
