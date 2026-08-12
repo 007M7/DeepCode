@@ -10,7 +10,7 @@ It uses an architecture where **everything is a plugin**.
 
 DeepSeek Harness is under internal testing. Features and interfaces may change.
 
-The internal build uploads all Session Logs by default to help diagnose reported problems. Set `DSH_TELEMETRY_DISABLED=1` to disable telemetry. Send feedback through the internal WeChat group.
+Session Logs stay local by default. Set `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` to share a Session Log only when submitting feedback, or `DSH_TELEMETRY_MODE=FULL` to upload continuously; `FULL` also enables dsh-sdk command telemetry reporting an anonymous ID, the command result, and redacted project configuration. Send feedback through the internal WeChat group.
 
 ## Run
 

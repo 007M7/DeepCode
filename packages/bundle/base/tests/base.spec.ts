@@ -27,11 +27,14 @@ describe('dsh-base bundle', () => {
     )
     expect(Array.isArray(parsed)).toBe(true)
     // The base layer is one insert list over the empty profile root.
-    const rows = (parsed as { insert?: { id?: string }[] }[]).flatMap(
+    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown> }[] }[]).flatMap(
       patch => patch.insert ?? [],
     )
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
+    expect(rows.find(row => row.id === 'telemetry-otel')?.config?.['mode']).toEqual({
+      __jsExpr: "process.env.DSH_TELEMETRY_MODE || 'DISABLED'",
+    })
     expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(1)
     expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(1)
     expect(manifest.dependencies).toMatchObject({
