@@ -985,7 +985,7 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   // change frame (constant unit), but the fixture's uniform baseline replay
   // frames every key here, incidentally exercising higher-seq-wins.
   values['imageLimits'] = {
-    maxImageBytes: 10 * 1024 * 1024,
+    maxImageBytes: 5 * 1024 * 1024,
     maxImagesPerMessage: 20,
     maxMessageImageBytes: 100 * 1024 * 1024,
     maxImagePixels: 40_000_000,

@@ -9,12 +9,12 @@ afterEach(cleanup)
 describe('DropOverlay', () => {
   it('portals the invitation with its title and limits desc to the body', () => {
     const view = render(
-      <DropOverlay disabled={false} labels={{ title: '图片拖动到此处即可添加', desc: '最多 20 张，每张 10MB' }} />,
+      <DropOverlay disabled={false} labels={{ title: '图片拖动到此处即可添加', desc: '最多 20 张，每张 5MB' }} />,
     )
     const overlay = view.getByRole('status')
     expect(overlay.parentElement).toBe(document.body)
     expect(overlay.textContent).toContain('图片拖动到此处即可添加')
-    expect(overlay.textContent).toContain('最多 20 张，每张 10MB')
+    expect(overlay.textContent).toContain('最多 20 张，每张 5MB')
   })
 
   it('omits the desc line when none is resolved', () => {

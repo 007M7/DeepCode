@@ -165,7 +165,7 @@ describe('createFixtureApi', () => {
           messageTokens: 0,
         },
         imageLimits: {
-          maxImageBytes: 10 * 1024 * 1024,
+          maxImageBytes: 5 * 1024 * 1024,
           maxImagesPerMessage: 20,
           maxMessageImageBytes: 100 * 1024 * 1024,
           maxImagePixels: 40_000_000,
@@ -383,7 +383,7 @@ describe('createFixtureApi', () => {
     expect((first[8]?.payload as { value: { messageTokens: number } }).value.messageTokens).toBeGreaterThan(0)
     expect(first[9]?.payload).toMatchObject({
       type: 'session/projection', sessionId: 'fx-alpha', key: 'imageLimits',
-      value: { maxImagesPerMessage: 20, maxImageBytes: 10 * 1024 * 1024 },
+      value: { maxImagesPerMessage: 20, maxImageBytes: 5 * 1024 * 1024 },
     })
     expect(first[10]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
     expect(second[10]?.rpcId).toBe(first[10]?.rpcId) // stable rpcId across replays (host replay semantics)

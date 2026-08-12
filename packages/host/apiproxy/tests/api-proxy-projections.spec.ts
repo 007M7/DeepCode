@@ -90,7 +90,7 @@ describe('session.history projections block', () => {
   it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {
     const { ctx, session } = await harness(true)
     const limits = {
-      maxImageBytes: 10 * 1024 * 1024,
+      maxImageBytes: 5 * 1024 * 1024,
       maxImagesPerMessage: 20,
       maxMessageImageBytes: 100 * 1024 * 1024,
       maxImagePixels: 40_000_000,

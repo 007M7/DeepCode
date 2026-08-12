@@ -323,7 +323,7 @@ describe('image draft rail', () => {
     const { view } = bench({
       addImages: vi.fn(() => null),
       imageLimits: {
-        maxImageBytes: 10 * 1024 * 1024,
+        maxImageBytes: 5 * 1024 * 1024,
         maxImagesPerMessage: 20,
         maxMessageImageBytes: 100 * 1024 * 1024,
         maxImagePixels: 40_000_000,
@@ -331,7 +331,7 @@ describe('image draft rail', () => {
       },
     })
     fireEvent.dragEnter(document.body, { dataTransfer: { types: ['Files'], files: [], dropEffect: 'none' } })
-    expect(view.getByRole('status').textContent).toContain('最多 20 张，每张 10MB')
+    expect(view.getByRole('status').textContent).toContain('最多 20 张，每张 5MB')
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {

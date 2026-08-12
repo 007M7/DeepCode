@@ -12,7 +12,7 @@ export { detectImage } from './image.ts'
 export { readImageFile, saveImageFile, validateImageFile } from './store.ts'
 
 /** Default maximum encoded bytes for one image. */
-export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024
+export const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 /** Default maximum images in one prompt. */
 export const DEFAULT_MAX_IMAGES_PER_MESSAGE = 20
 /** Default maximum aggregate image bytes in one prompt. */
