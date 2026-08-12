@@ -70,9 +70,11 @@ describe('render branch tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('StatsLine counts window nodes but drops every token group without a projection', () => {
-    // Node `usage` is deliberately ignored: billing rides the durable
-    // tokenUsage projection, so an absent projection leaves counts only.
+  it('StatsLine falls back to window-node counts and drops every token group without projections', () => {
+    // No sessionStats key → the window fold supplies the counts (the
+    // assembly-without-the-unit fallback). Node `usage` is deliberately
+    // ignored: billing rides the durable tokenUsage projection, so an absent
+    // projection leaves counts only.
     const nodes = [
       { kind: 'assistant', seq: 1, time: 1, turn: 1, step: 1, blocks: [] },
       { kind: 'assistant', seq: 2, time: 2, turn: 1, step: 2, blocks: [], usage: { inputTokens: 4, outputTokens: 6 } },

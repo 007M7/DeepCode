@@ -2,8 +2,13 @@
 // history fold derive AssistantTiming from the same step/start -> first token
 // delta -> assistant/message sequence.
 
+import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { AssistantTiming } from './conversation.ts'
+
+// The first-token predicate lives beside the StreamChunk type in dsh-llm;
+// re-exported here so Chat Definitions keep their client-runtime import.
+export { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 
 /** Pre-finalize timing boundaries for one assistant step (start + first token). */
 export interface AssistantStepMetadata {
@@ -19,24 +24,6 @@ export interface AssistantStepMetadata {
  */
 export function assistantStepKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
-}
-
-/**
- * Whether a chunk carries visible model output (first-token boundary). Empty
- * deltas (heartbeats, empty tool-call frames) do not count as a first token.
- * @param chunk - the assistant/chunk payload.
- * @returns true when the chunk contains a non-empty text/reasoning/tool delta.
- */
-export function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
-  }
 }
 
 /**

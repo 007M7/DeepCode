@@ -58,6 +58,8 @@
       "@deepseek-ai/dsh-tool-todo/client": ["./packages/todo/tool-todo/src/client.ts"],
       "@deepseek-ai/dsh-session-title/types": ["./packages/session/session-title/src/types.ts"],
       "@deepseek-ai/dsh-session-title/client": ["./packages/session/session-title/src/client.ts"],
+      "@deepseek-ai/dsh-session-stats/types": ["./packages/session/session-stats/src/types.ts"],
+      "@deepseek-ai/dsh-session-stats/client": ["./packages/session/session-stats/src/client.ts"],
       "@deepseek-ai/dsh-plan-mode/types": ["./packages/plan/plan-mode/src/types.ts"],
       "@deepseek-ai/dsh-plan-mode/client": ["./packages/plan/plan-mode/src/client.ts"],
       "@deepseek-ai/dsh-agent-presets/types": ["./packages/preset/agent-presets/src/types.ts"],
