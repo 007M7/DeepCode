@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING.md) | 中文
 
-感谢你有兴趣为 DeepSeek Harness 作出贡献！
+感谢你愿意为 DeepSeek Harness 作出贡献！
 
 我们深信开源社区的力量，这份信念从项目最初就塑造着 DeepSeek Harness。
 
