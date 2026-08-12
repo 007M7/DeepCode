@@ -425,6 +425,12 @@ export function InputBar({
     if (addImages === undefined || files.length === 0) return
     const rejected = ((): string | null => {
       if (imageLimits !== undefined) {
+        // Format precedes limits (DeepSeek Chat's filter order): a batch with
+        // a non-image must announce the format problem, not a count or size
+        // it could never pass anyway — addImages rejects it authoritatively.
+        if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
+          return addImages(files)
+        }
         if (attachments.length + files.length > imageLimits.maxImagesPerMessage) {
           return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
         }

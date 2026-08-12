@@ -79,7 +79,7 @@ export function MessageImage({ attachment, load, variant, labels }: {
   }, [attachment, load, attempt])
 
   const label = attachment.name ?? labels.image
-  if (error) return <button type="button" className={css.error} onClick={request}>{labels.loadFailed}</button>
+  if (error) return <button type="button" className={css.error} data-variant={variant} onClick={request}>{labels.loadFailed}</button>
   return (
     <>
       <button

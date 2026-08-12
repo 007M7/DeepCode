@@ -109,6 +109,13 @@ describe('MessageImage', () => {
     expect(frame.getAttribute('style')).toBeNull()
   })
 
+  it('keeps the tile variant on the failed-load retry control', async () => {
+    const load = vi.fn().mockRejectedValue(new Error('offline'))
+    const view = render(<MessageImage attachment={attachment} load={load} variant="tile" labels={labels} />)
+    const retry = await view.findByRole('button', { name: '图片加载失败，点击重试' })
+    expect(retry.getAttribute('data-variant')).toBe('tile')
+  })
+
   it('ignores a load settling after unmount', async () => {
     let resolve: ((url: string) => void) | undefined
     const load = vi.fn(() => new Promise<string>((r) => { resolve = r }))

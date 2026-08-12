@@ -38,6 +38,11 @@ export function attachmentErrorText(
     case 'MODEL_DOES_NOT_SUPPORT_IMAGES': return t('image.modelUnsupported')
     case 'SUBAGENT_IMAGE_UNSUPPORTED': return t('image.subagentUnsupported')
     case 'IMAGE_TOO_MANY_PIXELS': return t('image.tooManyPixels')
+    // Undecodable bytes or a declared type its bytes contradict: solvable by
+    // replacing or re-exporting the file, so it reads as a format problem.
+    case 'INVALID_IMAGE':
+    case 'IMAGE_TYPE_MISMATCH':
+      return t('image.unsupportedType')
     case 'TOO_MANY_IMAGES':
       if (limits !== undefined) return t('image.tooMany', { count: limits.maxImagesPerMessage })
       break

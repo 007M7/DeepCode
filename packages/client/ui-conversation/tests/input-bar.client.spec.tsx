@@ -297,6 +297,28 @@ describe('image draft rail', () => {
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
+  it('announces the format problem before any limit when the batch holds a non-image', () => {
+    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    const { view } = bench({
+      addImages,
+      imageLimits: {
+        maxImageBytes: 8,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 8,
+        maxImagePixels: 40_000_000,
+        mediaTypes: ['image/png'] as const,
+      },
+    })
+    // Oversized AND over-count AND wrong type: the format rejection wins.
+    const files = [
+      new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
+      new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
+    ]
+    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
+    expect(addImages).toHaveBeenCalledWith(files)
+    expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+  })
+
   it('shows the projected limits in the drop overlay desc line', () => {
     const { view } = bench({
       addImages: vi.fn(() => null),
