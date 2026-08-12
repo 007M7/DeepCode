@@ -152,6 +152,30 @@ describe('session.export download endpoint', () => {
     expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(artifact('session-root').content)
   })
 
+  it('preflights root preparation through HEAD without streaming a body', async () => {
+    const readRaw = vi.fn(async () => artifact('session-root'))
+    const api = await buildApi({}, [], { readRaw })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root', { method: 'HEAD' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('dsh-session-session-root.zip')
+    expect(response.body).toBeNull()
+    expect(readRaw).toHaveBeenCalledOnce()
+  })
+
+  it('returns a bodyless preparation error from HEAD', async () => {
+    const api = await buildApi({})
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root', { method: 'HEAD' }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.body).toBeNull()
+  })
+
   it('uses the resolved compression level for ZIP entries', async () => {
     const root = artifact('session-root', undefined, 'compressible\n'.repeat(32 * 1024))
     const storedApi = await buildApi({ 'session-root': root }, [], { compressionLevel: 0 })
