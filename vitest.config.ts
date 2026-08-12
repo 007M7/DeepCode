@@ -170,6 +170,9 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // Dynamic Host/Client composition is covered by its focused lifecycle
+        // tests and assembled application checks rather than per-file coverage.
+        'packages/self-modification/*/src/**/*.{ts,tsx}',
         // A killed executable lint-contract test can leave a non-product source probe behind.
         'packages/*/*/src/oxlint-contract-*.ts',
         // Client/web UI files whose remaining branches need a browser-grade

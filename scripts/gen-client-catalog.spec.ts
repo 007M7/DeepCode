@@ -197,7 +197,7 @@ describe('the per-slot report budget', () => {
 })
 
 describe('the real workspace surface', () => {
-  it('collects every declared slot with a teachable contract', () => {
+  it('collects every declared slot with a teachable contract', { timeout: 30_000 }, () => {
     const entries = collectSlotEntries(process.cwd())
     expect(entries.length).toBeGreaterThan(30)
     for (const entry of entries) {

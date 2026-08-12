@@ -9,10 +9,13 @@ import { describe, expect, it } from 'vitest'
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 function clientCssDeclarations(): string[] {
-  const clientRoot = resolve(root, 'packages/client')
-  return readdirSync(clientRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => resolve(clientRoot, entry.name, 'src/css-modules.d.ts'))
+  const clientGroups = ['client', 'self-modification']
+  return clientGroups.flatMap(group => {
+    const clientRoot = resolve(root, 'packages', group)
+    return readdirSync(clientRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => resolve(clientRoot, entry.name, 'src/css-modules.d.ts'))
+  })
     .filter(existsSync)
     .map(file => file.replaceAll(sep, '/'))
     .sort()
