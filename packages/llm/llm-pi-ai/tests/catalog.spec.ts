@@ -186,6 +186,108 @@ describe('hand-declared providers', () => {
     expect(resolved.get('acme-gateway')?.configuredMaxTokens.get('sized')).toBe(512)
   })
 
+  it('takes a model’s declared modalities, then the catalog’s, then the route’s', () => {
+    const vision = getBuiltinModels('anthropic').find(model => model.input.includes('image'))
+    if (vision === undefined) throw new Error('the installed catalog ships no anthropic vision model')
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        // One route, two modality sets: the entry field is what says so.
+        models: [{ id: 'bare' }, { id: 'seeing', input: ['text', 'image'] }, { id: 'deaf', input: ['text'] }],
+      },
+      'seeing-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://seeing.test',
+        // A gateway whose undescribed models all take images says so once
+        // rather than on every entry; an entry still outranks it.
+        defaultInput: ['text', 'image'],
+        models: [{ id: 'bare' }, { id: 'deaf', input: ['text'] }],
+      },
+      // The route value is a fallback, never an override: a catalog model
+      // keeps what the catalog records even under a narrower route default,
+      // exactly as it keeps its own contextWindow.
+      'anthropic': { defaultInput: ['text'] },
+    })
+    const inputOf = (route: string, id: string): readonly string[] | undefined =>
+      resolved.get(route)?.piProvider.getModels().find(model => model.id === id)?.input
+
+    expect(inputOf('acme-gateway', 'bare')).toEqual(['text'])
+    expect(inputOf('acme-gateway', 'seeing')).toEqual(['text', 'image'])
+    expect(inputOf('acme-gateway', 'deaf')).toEqual(['text'])
+    expect(inputOf('seeing-gateway', 'bare')).toEqual(['text', 'image'])
+    expect(inputOf('seeing-gateway', 'deaf')).toEqual(['text'])
+    expect(inputOf('anthropic', vision.id)).toEqual(vision.input)
+  })
+
+  it('carries a written modality declaration all the way to the seam’s model metadata', async () => {
+    // The resolver-level cases above cannot see a break between the settings
+    // document and `LlmModelInfo`, so each rung is asserted once more through
+    // a written section, the plugin's own registration, and `ctx.llm`.
+    const dir = await home()
+    const ctx = await bootWithSettings(dir, {})
+    await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
+      providers: {
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          models: [{ id: 'bare' }, { id: 'seeing', input: ['text', 'image'] }],
+        },
+        'vision-gateway': {
+          api: 'openai-completions',
+          baseURL: 'https://vision.test/v1',
+          defaultInput: ['text', 'image'],
+          models: [{ id: 'bare' }, { id: 'deaf', input: ['text'] }],
+        },
+        'anthropic': { defaultInput: ['text'] },
+      },
+    })
+
+    const listed = async (provider: string): Promise<Record<string, readonly string[] | undefined>> =>
+      Object.fromEntries((await ctx.llm.listModels(provider)).map(model => [model.id, model.inputModalities]))
+
+    expect(await listed('acme-gateway')).toEqual({ bare: ['text'], seeing: ['text', 'image'] })
+    expect(await listed('vision-gateway')).toEqual({ bare: ['text', 'image'], deaf: ['text'] })
+    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'seeing')).inputModalities).toEqual(['text', 'image'])
+
+    // A catalog vision model keeps what the catalog records even under a
+    // narrower route default: the route value is a fallback, not an override.
+    const vision = getBuiltinModels('anthropic').find(model => model.input.includes('image'))
+    if (vision === undefined) throw new Error('the installed catalog ships no anthropic vision model')
+    expect((await ctx.llm.resolveModelInfo('anthropic', vision.id)).inputModalities).toEqual(vision.input)
+  })
+
+  it('reads an entry’s empty modality list as no answer, and the route’s as unserviceable', () => {
+    // Absent and empty are the same request on an entry, exactly as they are
+    // for the route's `models` list — which matters because the config schema
+    // materializes `[]` for an absent array, so an entry naming a catalog
+    // model without declaring modalities must keep the catalog's rather than
+    // describe a model that accepts nothing.
+    const [catalogModel] = getBuiltinModels('deepseek')
+    if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
+    const resolved = resolveProfiles({
+      'deepseek': { baseURL: 'https://catalog.test', models: [{ id: catalogModel.id, input: [] }] },
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'bare', input: [] }],
+      },
+    })
+    expect(resolved.get('acme-gateway')?.piProvider.getModels()[0]?.input).toEqual(['text'])
+    expect(resolved.get('deepseek')?.piProvider.getModels()[0]?.input).toEqual(catalogModel.input)
+
+    // Nothing sits below the route value, so its empty list states no answer
+    // anything could take, and is refused where it is written.
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        defaultInput: [],
+        models: [{ id: 'bare' }],
+      },
+    })).toThrow(/defaultInput must name at least one modality/)
+  })
+
   it('rejects a model the route cannot identify', () => {
     const declare = (model: LlmPiAi.PiAiModelProfile): (() => unknown) =>
       () => resolveProfiles({ 'acme-gateway': { api: 'openai-completions', baseURL: 'https://acme.test', models: [model] } })
