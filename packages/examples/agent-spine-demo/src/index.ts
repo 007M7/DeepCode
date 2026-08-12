@@ -22,7 +22,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-goal'
 import * as goalSession from '@deepseek-ai/dsh-goal-session'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
-import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import LocalTaskService, { type Config as TasksConfig } from '@deepseek-ai/dsh-tasks-local'
 import InvariantService, { type Config as InvariantConfig } from '@deepseek-ai/dsh-invariants'
 import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
@@ -75,9 +75,10 @@ export interface GoalConfig {
  * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. Provider adapters own their `retryPolicy`; this
- * bundle always mounts its executor.
+ * workspace-context loader, `tasks` to the process-local task provider, and
+ * `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * Provider adapters own their `retryPolicy`; this bundle always mounts its
+ * executor.
  * `goals` opts into and configures the persisted goal domain plus its model tool
  * and same-session driver; `invariants` configures global and package-filtered
  * relational checks. Owner schemas supply defaults for optional input;
@@ -114,6 +115,8 @@ export interface Config {
   skills?: SkillConfig
   /** Model-facing bash tool config, or false when another plugin owns `bash`. */
   toolBash?: toolBash.Config | false
+  /** Process-local background-task admission config. */
+  tasks?: TasksConfig
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
   /** Global enablement and package-name filters for invariant companions. */
@@ -138,6 +141,9 @@ export const SessionTitleConfigSchema: z<SessionTitleConfig> = SessionTitleServi
 export const ToolBashConfigSchema: z<toolBash.Config | false> =
   z.union([z.const(false), toolBash.Config])
 
+/** The process-local task registry schema exported for app packages that forward `tasks`. */
+export const TasksConfigSchema: z<TasksConfig> = LocalTaskService.Config
+
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
 
@@ -158,10 +164,11 @@ export const Config = z.intersect([
     skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
+    tasks: TasksConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     invariants: InvariantService.Config,
     goals: z.union([z.const(false), GoalConfigSchema]),
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'tasks' | 'toolTasks' | 'invariants' | 'goals'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -181,6 +188,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     workspaceContext: config.workspaceContext,
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
+    ...config.tasks !== undefined ? { tasks: config.tasks } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
     ...config.invariants !== undefined ? { invariants: config.invariants } : {},
     ...config.goals !== undefined ? { goals: config.goals } : {},
@@ -228,7 +236,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(toolGoal, config.goals.tool ?? {})
     ctx.plugin(goalSession)
   }
-  ctx.plugin(LocalTaskService)
+  ctx.plugin(LocalTaskService, config.tasks ?? {})
   ctx.plugin(InvariantService, config.invariants ?? {})
   ctx.plugin(sessionInvariant)
   ctx.plugin(agentInvariant)

@@ -85,6 +85,7 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
+import { imageLimitsProjectionSchema } from './api/sessions.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -1224,6 +1225,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
       broadcast({ type: 'session/projection', sessionId: session.id, key, value, seq })
+    })
+  })
+
+  // The imageLimits projection unit: the attachments config this proxy
+  // enforces at prompt admission, constant per host boot. `apply` keeps the
+  // same state reference for every event, so no change frames are ever
+  // pushed — baselines alone carry the value — and clients pre-check intake
+  // and label upload affordances from it. Registered here, not in the
+  // attachment Service Definition: dsh-llm depends on dsh-attachment, so the
+  // seam package cannot reference the projection registry without a cycle,
+  // and the per-message rules the value describes are this proxy's own
+  // admission checks. The child activates only while both seams are composed.
+  // `view` reading the live service instead of the (null) state is sanctioned
+  // exactly for boot-constant units: the value cannot change within a process
+  // lifetime, so the fold stays observationally pure, and a stale persisted
+  // cache row re-viewing to the current config is the correct outcome.
+  ctx.inject(['sessionProjections', 'attachments'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register<'imageLimits', null>({
+      key: 'imageLimits',
+      schema: imageLimitsProjectionSchema,
+      init: () => null,
+      apply: state => state,
+      view: () => projectionCtx.attachments.imageLimits,
+      stateVersion: 1,
     })
   })
 

@@ -182,6 +182,31 @@ describe('dsh-acp-demo composition', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards task admission config to the bundled task provider', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      tasks: { maxConcurrentTasksPerOwner: 1 },
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    let settle!: (outcome: { status: 'killed' }) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'hold configured slot',
+      run: () => ({
+        cancel: () => { settle({ status: 'killed' }) },
+        done: new Promise((resolve) => { settle = resolve }),
+      }),
+    })
+    expect(() => ctx.tasks.start({
+      kind: 'bash',
+      label: 'blocked configured task',
+      run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
+    })).toThrow('(limit: 1)')
+    await ctx.fiber.dispose()
+  })
+
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
       provider: 'mock',

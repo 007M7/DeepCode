@@ -14,6 +14,8 @@ import {
 import {
   blobHash,
   isTranslationScopeFile,
+  languageSwitcherTargets,
+  linksTo,
   pairAnchorOfArgument,
   parseTranslationMarkdown,
   parseTranslationPairingCliArgs,
@@ -150,6 +152,20 @@ describe('translation pairing switchers', () => {
     expect(requiresSourceLanguageSwitcher('docs/cordis-api/inherited.md')).toBe(false)
     expect(requiresSourceLanguageSwitcher('docs/architecture.md')).toBe(true)
     expect(requiresSourceLanguageSwitcher('packages/core/session/README.md')).toBe(true)
+  })
+
+  it('accepts only the canonical public URL for an absolute switcher', () => {
+    const targets = languageSwitcherTargets('python/sdk/README.zh.md')
+    const canonical = parseTranslationMarkdown(
+      '[中文](https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk/README.zh.md)',
+    )
+    const wrongPath = parseTranslationMarkdown(
+      '[中文](https://github.com/deepseek-ai/deepseek-harness/blob/master/other/README.zh.md)',
+    )
+
+    expect(linksTo(canonical, targets)).toBe(true)
+    expect(translationStructureSignature(canonical, targets).links).toEqual([])
+    expect(linksTo(wrongPath, targets)).toBe(false)
   })
 })
 

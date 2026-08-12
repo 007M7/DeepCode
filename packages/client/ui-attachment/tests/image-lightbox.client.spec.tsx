@@ -39,12 +39,13 @@ describe('ImageLightbox', () => {
     }
   })
 
-  it('closes on a backdrop press but not on a press over the image', () => {
+  it('closes on a mask press but not on a press over the image', () => {
     const onClose = vi.fn()
     const view = render(<ImageLightbox src="blob:original" alt="原图" labels={labels} onClose={onClose} />)
     fireEvent.mouseDown(view.getByRole('img'))
     expect(onClose).not.toHaveBeenCalled()
-    fireEvent.mouseDown(view.getByRole('dialog', { name: '原图预览' }))
+    const mask = document.querySelector('[aria-hidden="true"]') as HTMLElement
+    fireEvent.mouseDown(mask)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
