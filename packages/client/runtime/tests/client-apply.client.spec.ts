@@ -12,8 +12,8 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
 import type { ConversationNodeDefinition } from '../src/client/contract/conversation.ts'
 import { Session } from '../src/client/sessions/session.ts'
-import type { SessionsService } from '../src/client/sessions/service.ts'
-import type { WorkspacesService } from '../src/client/workspaces/service.ts'
+import type { SessionRuntime } from '../src/client/sessions/service.ts'
+import type { WorkspaceRuntime } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
 
 interface Bench {
@@ -58,7 +58,7 @@ describe('runtime client apply', () => {
   it('mounts slots, Sessions, and Workspaces and fans host frames into both managers', async () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)
-    // The built-in 'root' declaration ships with this package's SlotsService
+    // The built-in 'root' declaration ships with this package's SlotRegistry
     // (the SlotMap 'root' merge lives here).
     expect(bench.ctx.slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
     const sessions = bench.ctx.get('sessions')
@@ -66,8 +66,8 @@ describe('runtime client apply', () => {
     expect(sessions !== undefined).toBe(true)
     expect(workspaces !== undefined).toBe(true)
     // The bound the wire schema enforces, not a per-connection negotiation.
-    expect((sessions as SessionsService).searchResultLimit).toBe(SESSION_SEARCH_RESULT_LIMIT)
-    if (workspaces === undefined) throw new Error('WorkspacesService missing after runtime apply')
+    expect((sessions as SessionRuntime).searchResultLimit).toBe(SESSION_SEARCH_RESULT_LIMIT)
+    if (workspaces === undefined) throw new Error('WorkspaceRuntime missing after runtime apply')
     expect(bench.sinks).toBeDefined()
 
     // Frame sinks reach the object layer: a host session-added lands in the list store.
@@ -107,8 +107,8 @@ describe('runtime client apply', () => {
     bench.sinks?.onConnected?.({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true })
     await flushMicrotasks()
 
-    const sessions = bench.ctx.get('sessions') as SessionsService
-    const workspaces = bench.ctx.get('workspaces') as WorkspacesService
+    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
     expect(bench.api.callsOf('session.create')).toEqual([{ workspaceId: 'w-recent' }])
     expect(sessions.list.getSnapshot().current).toBe('fk-new')
 
@@ -121,7 +121,7 @@ describe('runtime client apply', () => {
 
   it('wires registry changes into resident Sessions during the runtime apply pass', async () => {
     const bench = await mount()
-    const sessions = bench.ctx.get('sessions') as SessionsService
+    const sessions = bench.ctx.get('sessions') as SessionRuntime
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r-registry' as never,
       payload: { type: 'host/session-added', blank: true, sessionId: 's-registry' } as never,

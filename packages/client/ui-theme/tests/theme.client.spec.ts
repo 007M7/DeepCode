@@ -3,21 +3,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ThemeSettings, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 
 const make = (host = stubSettingsScope<ThemeSettings>()): {
   ctx: Context
-  theme: ThemeService
+  theme: ThemeRuntime
   events: ThemeSnapshot[]
   host: StubSettingsScope<ThemeSettings>
 } => {
   const ctx = new Context()
   const events: ThemeSnapshot[] = []
   ctx.on('theme/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, theme: new ThemeService(ctx, host.scope), events, host }
+  return { ctx, theme: new ThemeRuntime(ctx, host.scope), events, host }
 }
 
-describe('ThemeService', () => {
+describe('ThemeRuntime', () => {
   it('defaults to the system preference resolved against prefers-color-scheme', () => {
     const { theme } = make()
     const snapshot = theme.getTheme()

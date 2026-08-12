@@ -7,7 +7,7 @@ import type {
   ConversationNodeDefinition, ConversationViewDefinition, ConversationViewNode,
 } from '../src/client/contract/conversation.ts'
 import { Session } from '../src/client/sessions/session.ts'
-import { SessionsService } from '../src/client/sessions/service.ts'
+import { SessionRuntime } from '../src/client/sessions/service.ts'
 import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
 
 function eventDefinition(kind: string): ConversationNodeDefinition<null> {
@@ -145,7 +145,7 @@ describe('Conversation registries', () => {
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId, updatedAt: 1, running: false, blank: true }],
     }) as never)
-    const sessions = new SessionsService(ctx, api, fakeRemote())
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
     await sessions.refresh()
     await Promise.resolve()
     sessions.scope(sessionId)

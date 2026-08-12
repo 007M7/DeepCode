@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-composer 的[上下文仪表](../feature/2026-08-05-composer-context-meter-breakdown.md)的圆环、百分比与 `~已用 / 容量` 标题都取自 `contextPressure.pressureTokens`，即提供方报告的最新提示词规模。这个数字只在某个请求报告用量时才会移动，而压缩（compaction）不报告用量：`compact-basic` 通过直连的 `ctx.llm.stream()` 调用生成摘要，只追加 `compact/start`、`compact/summary`、用作替换的 `user/message` 和 `compact/end`——没有 `assistant/message`，也没有用量分片。
+composer 的[上下文仪表](../feature/2026-08-05-composer-context-meter-breakdown.md)的圆环、百分比与 `~已用 / 容量` 标题都取自 `contextPressure.pressureTokens`，即提供方报告的最新提示词规模。这个数字只在某个请求报告用量时才会移动，而压缩（compaction）不报告用量：`compaction-basic` 通过直连的 `ctx.llm.stream()` 调用生成摘要，只追加 `compaction/start`、`compaction/summary`、用作替换的 `user/message` 和 `compaction/end`——没有 `assistant/message`，也没有用量分片。
 
 于是在唯一一个专门用来改变它的操作面前，这块仪表纹丝不动。通过真实的 agent loop（智能体循环）驱动一次 `compactNow`：
 
@@ -43,4 +43,4 @@ AFTER  compact:  ring=4%  header=~4227/100000   rows=[system 18, tools 0, messag
 
 ## 测试
 
-`packages/llm/token-meter/tests/token-usage-projection.spec.ts` 覆盖了投影值在表层增长与一次压缩期间的延续更新（样本保持不动而投影值缩小），以及启发式误差会把数字压到负数时的零钳制。`packages/client/ui-conversation/tests/context-meter.client.spec.tsx` 钉住圆环读取投影值这一点，`chat-stats.spec.tsx` 钉住 `contextOccupancy` 的优先级与回退。上面那组端到端数字来自在挂载了投影注册表的真实 `AgentLoop` 上驱动 `BasicCompactService.compactNow`。
+`packages/llm/token-meter/tests/token-usage-projection.spec.ts` 覆盖了投影值在表层增长与一次压缩期间的延续更新（样本保持不动而投影值缩小），以及启发式误差会把数字压到负数时的零钳制。`packages/client/ui-conversation/tests/context-meter.client.spec.tsx` 钉住圆环读取投影值这一点，`chat-stats.spec.tsx` 钉住 `contextOccupancy` 的优先级与回退。上面那组端到端数字来自在挂载了投影注册表的真实 `AgentLoop` 上驱动 `BasicCompactionEngine.compactNow`。

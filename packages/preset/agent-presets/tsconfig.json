@@ -37,10 +37,10 @@
       "path": "../../util/atomic-write"
     },
     {
-      "path": "../../util/paths"
+      "path": "../../util/home-paths"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

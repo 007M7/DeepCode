@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-llm` 按精确模型名称注册适配器。插件在 Cordis 启动时提供模型列表，`LlmService` 为列表中的每个字符串保存一个适配器，`GenerateOptions.model` 同时选择适配器与提供方模型。两个随附的适配器都只面向相同的两个 DeepSeek 模型时，这种方式可以工作，但它混淆了两个独立决策：由哪个上游提供方承接请求，以及该提供方应运行哪个模型。
+`dsh-llm` 按精确模型名称注册适配器。插件在 Cordis 启动时提供模型列表，`LlmRuntime` 为列表中的每个字符串保存一个适配器，`GenerateOptions.model` 同时选择适配器与提供方模型。两个随附的适配器都只面向相同的两个 DeepSeek 模型时，这种方式可以工作，但它混淆了两个独立决策：由哪个上游提供方承接请求，以及该提供方应运行哪个模型。
 
 这种混淆使提供方网关无法提供开放的模型目录。例如，OpenRouter 是一个包含大量模型 ID 的提供方，私有 OpenAI 兼容端点也可能在不修改 Harness 插件树的情况下增加模型。目前，每个新选择的模型都必须在插件启动期间完成注册。同一个模型 ID 还可能存在于多个提供方中，因此仅按模型注册无法表达调用方预期使用的提供方。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 `GenerateOptions` 与 `LlmCallConfig` 在 `model: string` 之外携带 `provider: string`，`AgentOptions` 则携带对应的可选创建字段。只有两个值都非空时，agent loop（智能体循环）请求才有效；两个值也都会写入请求头日志。`agent/request` 可以在任意步骤返回替换后的字段组合，因此会话可以切换提供方与模型，无需改变 Cordis 插件生命周期。
 
-`LlmService` 按提供方注册和解析适配器。`registerAdapter(providers, adapter)` 在修改注册表前检查整个提供方列表，遇到重复项时返回 `DUPLICATE_ADAPTER`，并以一个 effect 为单位整体 dispose（资源释放）。模型 ID 不作为注册键；仍由选中的适配器负责验证或转发。后续的 [LLM 目录与 ACP 模型选择 Agent Note](2026-07-15-llm-model-catalog-and-acp-selection.md) 增加了建议性的 `listProviders()` / `listModels()` 发现接口，但不会把目录成员关系变成请求校验规则。
+`LlmRuntime` 按提供方注册和解析适配器。`registerAdapter(providers, adapter)` 在修改注册表前检查整个提供方列表，遇到重复项时返回 `DUPLICATE_ADAPTER`，并以一个 effect 为单位整体 dispose（资源释放）。模型 ID 不作为注册键；仍由选中的适配器负责验证或转发。后续的 [LLM 目录与 ACP 模型选择 Agent Note](2026-07-15-llm-model-catalog-and-acp-selection.md) 增加了建议性的 `listProviders()` / `listModels()` 发现接口，但不会把目录成员关系变成请求校验规则。
 
 在一个 Cordis 上下文中，一个提供方只能有一个适配器所有者。`dsh-llm-deepseek` 注册 `deepseek`；`dsh-llm-pi-ai` 也可以注册 `deepseek`，但同时加载两个所有者属于配置错误，不采用顺序规则或回退行为。若部署选择手写的 DeepSeek 实现，需从 pi-ai 配置中排除 `deepseek`；若部署选择 pi-ai 的 DeepSeek 实现，则不挂载 `dsh-llm-deepseek`。
 
@@ -42,7 +42,7 @@ pi-ai 的通用流选项不支持停止序列。若 Harness `stop` 选项已定�
 
 成功的终止 `finish` 分片可以携带回放状态，`BlockAssembler` 会将其与 token 用量和结束原因一起保留。agent loop 会把该状态附加到已组装助手消息的模型来源中，但不公开响应改写钩子。错误或中止响应不会生成正常助手消息，因此不会进入后续模型历史。
 
-pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包含源 API/提供方/模型、响应 ID/模型、停止原因，以及按索引对齐的文本签名、thinking 签名和工具调用签名。它不会重复 Harness 内容块中已有的文本或工具参数，也不包含诊断信息、时间戳、用量或错误。后续请求中，只有历史提供方和目标提供方当前归同一个适配器实例所有时，`LlmService` 才会把回放状态交给目标适配器。适配器在能够恢复历史响应时，将 Harness 记录的内容与回放状态组合，并负责所需的跨模型或跨提供方转换。适配器收到未知版本或块形状不匹配的回放状态时会显式失败；其他适配器只能收到提供方无关的内容以及提供方/模型字段。
+pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包含源 API/提供方/模型、响应 ID/模型、停止原因，以及按索引对齐的文本签名、thinking 签名和工具调用签名。它不会重复 Harness 内容块中已有的文本或工具参数，也不包含诊断信息、时间戳、用量或错误。后续请求中，只有历史提供方和目标提供方当前归同一个适配器实例所有时，`LlmRuntime` 才会把回放状态交给目标适配器。适配器在能够恢复历史响应时，将 Harness 记录的内容与回放状态组合，并负责所需的跨模型或跨提供方转换。适配器收到未知版本或块形状不匹配的回放状态时会显式失败；其他适配器只能收到提供方无关的内容以及提供方/模型字段。
 
 该状态属于模型可见的回放输入，因此遵循现有的[请求可重建规则](2026-07-05-reconstructable-requests.md)：它同时存在于终止 `finish` 分片和驱动派生的已组装 `assistant/message` 模型来源中。恢复和 fork 会原样保留该状态。压缩（compaction）遮蔽助手消息时，也会从活动 surface 中移除其回放状态；摘要属于普通的提供方无关内容。
 
@@ -50,7 +50,7 @@ pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包
 
 每条模型选择路径都同时携带 provider 与 model：声明式 agent、ACP（Agent Client Protocol）和 stdio 应用配置、JSON-RPC initialize 请求、subagent 覆盖与继承、工作流子 agent 覆盖，以及直接压缩摘要。subagent 先从父 agent 继承两个字段，再应用请求覆盖。系统提示词变量集合在 `model` 之外增加 `provider`。
 
-压缩配置在 `summarizationModel` 之外增加 `summarizationProvider`。两个值均为空时继承，均非空时选择显式目标；只配置其中一个会导致加载失败。继承优先使用最近一次记录的请求目标，没有时回退到 agent 创建选项。`compact/summary` 使用现有模型调用 envelope 记录两个字段。
+压缩配置在 `summarizationModel` 之外增加 `summarizationProvider`。两个值均为空时继承，均非空时选择显式目标；只配置其中一个会导致加载失败。继承优先使用最近一次记录的请求目标，没有时回退到 agent 创建选项。`compaction/summary` 使用现有模型调用 envelope 记录两个字段。
 
 JSON-RPC 运行时显式接收提供方与模型。仅当 `deepseek` 提供方没有注册所有者时，其便利回退才会挂载 `dsh-llm-deepseek`；其他缺失的提供方会直接失败，不会猜测适配器。
 

@@ -10,7 +10,7 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
-} from '@deepseek-ai/dsh-client-ui-slash/client'
+} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { QueueRow } from '../contract/queue.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 
@@ -47,7 +47,7 @@ export interface SessionInput extends InputTarget {
   /**
    * Surface a notice outside the machine's own effect stream: detached
    * command results and business notifications render through here.
-   * Session-routed — resolving the facade via InputService.for(actx) lands
+   * Session-routed — resolving the facade via SessionInputResolver.for(actx) lands
    * the notice on that session's composer, so a result arriving after a
    * session switch still reaches its own session.
    * @param level - severity tier.
@@ -59,7 +59,7 @@ export interface SessionInput extends InputTarget {
 }
 
 /** Session-addressed access to the per-session input facade. */
-export interface InputService {
+export interface SessionInputResolver {
   /** Resolve the facade for one session-scope ctx. */
   for(actx: ClientContext): SessionInput
 }
@@ -208,7 +208,7 @@ export interface InputMachineOptions {
 /** Published input state (the currency; per-session). */
 export interface InputState {
   readonly draft: string
-  /** Ordered runtime-only image ids; bytes and URLs stay in ConversationService. */
+  /** Ordered runtime-only image ids; bytes and URLs stay in ConversationController. */
   readonly imageIds: readonly DraftAttachmentId[]
   /** Monotonic draft revision (span CAS compares against this). */
   readonly draftRev: number

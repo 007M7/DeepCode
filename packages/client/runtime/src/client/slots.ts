@@ -1,5 +1,5 @@
 /**
- * SlotsService: the cordis Service layer of the slot system over the pure
+ * SlotRegistry: the cordis Service layer of the slot system over the pure
  * SlotCore (ui-slots owns registration semantics, the declaration ledger,
  * the load-time validations, and the unload cascade). This layer owns what
  * needs the runtime: the 'slots/changed' event bridge, register and
@@ -77,7 +77,7 @@ interface ErasedCore { register(options: object, component: unknown): () => void
 type SlotInjectionEffect = (() => void) | Iterable<() => void, void, void>
 
 /** cordis Service layer of the slot system; see the module doc for the split with SlotCore. */
-export class SlotsService extends Service {
+export class SlotRegistry extends Service {
   private readonly _core = new SlotCore()
   /** Store-instance axis: handle -> mounted scope, refcount, resolved instances. */
   private readonly _stores = new Map<EngineStoreHandle, StoreAxisRecord>()
@@ -409,8 +409,8 @@ export class SlotsService extends Service {
 // inside the class — see its JSDoc for why it must live on the prototype).
 // Element access reaches the private _register legally and keeps it a
 // TS-visible read.
-;(SlotsService.prototype as { register: (options: object, component: unknown) => () => void }).register
-  = function register(this: SlotsService, rawOptions: object, component: unknown): () => void {
+;(SlotRegistry.prototype as { register: (options: object, component: unknown) => () => void }).register
+  = function register(this: SlotRegistry, rawOptions: object, component: unknown): () => void {
     // The core's overloads proved the shares; the implementation works on
     // the erased view (same pattern as the core's own implementation arm).
     const options = rawOptions as ErasedRegisterOptions

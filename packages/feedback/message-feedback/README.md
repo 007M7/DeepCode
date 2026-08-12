@@ -37,7 +37,7 @@ Message feedback is not Session-log content or a Session projection. It emits no
 
 ## Service and Host Remote contract
 
-The same three `MessageFeedbackService` methods are published by `GatewayService` and `@Remote`; the Host endpoint names are `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete`. Every method returns a discriminated business union: `{ ok: true, value }` or `{ ok: false, error }`. Operational storage, corruption, or missing-durability-listener failures reject instead of being mislabeled as business errors.
+The same three `MessageFeedbackService` methods are published by `TypertRemoteService` and `@Remote`; the Host endpoint names are `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete`. Every method returns a discriminated business union: `{ ok: true, value }` or `{ ok: false, error }`. Operational storage, corruption, or missing-durability-listener failures reject instead of being mislabeled as business errors.
 
 | Method | Request | Success `value` | Rejected `error.code` |
 |---|---|---|---|

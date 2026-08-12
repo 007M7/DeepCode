@@ -6,7 +6,7 @@ English | [中文](2026-07-22-web-multimodal-image-input-and-durable-attachments
 
 ## Problem
 
-Before this change, the Web composer accepted only text: `InputBar` received a string draft, `ConversationService.send()` created text content, and the host forwarded that content to the agent. Users could not paste an image, inspect it before sending, submit an image-only prompt, or recover sent images from history.
+Before this change, the Web composer accepted only text: `InputBar` received a string draft, `ConversationController.send()` created text content, and the host forwarded that content to the agent. Users could not paste an image, inspect it before sending, submit an image-only prompt, or recover sent images from history.
 
 This is not only a composer gap. Core needs a durable image content block, providers need explicit modality handling, and the session log must reconstruct everything visible to a model. [The previous image-block removal](../../implemented/simplification/2026-07-04-drop-image-content-block.md) rejected a partial design that could silently lose or flatten images. A browser object URL, local path, provider URL, or base64 payload cannot be canonical session content.
 
@@ -41,7 +41,7 @@ The persistence boundary is message acceptance, not paste:
 | Accepted user image | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The host commits every image before `agent.send()` or `agent.steer()` can append the owning user event. |
 | Structured model image output | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The provider adapter commits the bytes before it emits a completed image block or assistant message event. Temporary URLs, paths, and base64 are forbidden in the event. |
 
-Each session's `InputMachine` state keeps the ordered runtime-only attachment identifiers alongside the live draft. The framework-owned chat store receives only the draft's plain-text persistence mirror, while `ConversationService` owns the corresponding browser-only `File` and object-URL registry:
+Each session's `InputMachine` state keeps the ordered runtime-only attachment identifiers alongside the live draft. The framework-owned chat store receives only the draft's plain-text persistence mirror, while `ConversationController` owns the corresponding browser-only `File` and object-URL registry:
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -130,7 +130,7 @@ Core supports structured assistant image blocks, but no current production provi
 
 Provider-neutral token estimation does not guess visual pricing from image dimensions; provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol API gains native image support rather than silently omitting the block.
 
-Compaction replays the selected conversation prefix, including image references, into the configured summarization route. A visual-capable route resolves those references through its adapter; a text-only route fails explicitly instead of silently dropping the visual context. The synthesized checkpoint remains text-only, and `compact-basic` rejects image summary output with `UNSUPPORTED_CONTENT`.
+Compaction replays the selected conversation prefix, including image references, into the configured summarization route. A visual-capable route resolves those references through its adapter; a text-only route fails explicitly instead of silently dropping the visual context. The synthesized checkpoint remains text-only, and `compaction-basic` rejects image summary output with `UNSUPPORTED_CONTENT`.
 
 ### History rendering and original preview
 
@@ -153,7 +153,7 @@ Malformed base64, unsupported or mismatched media, truncated image payloads, exc
 | `packages/llm/llm` | Role-neutral `ImageBlock` and input-modality metadata. |
 | `packages/llm/llm-pi-ai` | Resolve durable supported image input into native provider content. |
 | `packages/llm/llm-deepseek` | Reject image content explicitly. |
-| `packages/compact/compact-basic` | Preserve images in summary input and reject non-text checkpoint output explicitly. |
+| `packages/compaction/compaction-basic` | Preserve images in summary input and reject non-text checkpoint output explicitly. |
 | `packages/host/apiproxy` and `packages/bundle/base` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits and model preflight, plus default profile composition. |
 | `packages/client/connection` and `packages/client/runtime` | Bounded request buffering, wire types, fixture images, prompt uploads, attachment reads, and durable-reference folding. |
 | `packages/client/ui-conversation` | Per-session draft images, attachment rail, user and assistant image controls, and original preview. |

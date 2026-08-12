@@ -1,12 +1,12 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import type { HttpServerService } from '@deepseek-ai/dsh-host-webserver'
-import { Settings, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
+import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   DEFAULT_PREFERENCE, THEME_SETTINGS_NAMESPACE, apply,
 } from '@deepseek-ai/dsh-client-ui-theme'
 
-class MemorySettings extends Settings {
+class MemorySettings extends SettingsProvider {
   readonly writable = true
   protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
   protected persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {
@@ -34,12 +34,12 @@ describe('ui-theme host', () => {
     await ctx.plugin(MemorySettings).await()
     let transform: ((html: string) => string) | undefined
     let disposed = false
-    ctx.provide('httpServer', {
+    ctx.provide('webServer', {
       tapIndex: (next: (html: string) => string) => {
         transform = next
         return () => { disposed = true }
       },
-    } as HttpServerService)
+    } as WebServer)
     const fiber = ctx.plugin({ apply })
     await fiber.await()
     expect(transform?.('<body></body>')).toContain('const preference = "system"')
@@ -53,12 +53,12 @@ describe('ui-theme host', () => {
   it('uses the system preference when only an HTTP server exists', async () => {
     const ctx = new Context()
     let transform: ((html: string) => string) | undefined
-    ctx.provide('httpServer', {
+    ctx.provide('webServer', {
       tapIndex: (next: (html: string) => string) => {
         transform = next
         return () => undefined
       },
-    } as HttpServerService)
+    } as WebServer)
     await ctx.plugin({ apply }).await()
     expect(transform?.('<body></body>')).toContain('const preference = "system"')
   })

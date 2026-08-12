@@ -10,7 +10,7 @@ The GUI's credential onboarding begins with a DeepSeek-specific readiness check,
 
 ## Decision
 
-**The Settings shell coordinates ordered steps.** `settings.onboarding` remains a root-scoped list, but `ui-settings` projects its entry ids and order into one coordinator and mounts only the first incomplete step. The active registrant receives `complete()` and `openSection(id)`; no later step mounts until ownership transfers. The product welcome registers at order `-100`, while `ui-models` retains only the conditional DeepSeek readiness and credential-routing step at order `0`.
+**The Settings shell coordinates ordered steps.** `settings.onboarding` remains a root-scoped list, but `ui-settings` projects its entry ids and order into one coordinator and mounts only the first incomplete step. The active registrant receives `complete()` and `openSection(id)`; no later step mounts until ownership transfers. The product welcome registers at order `-100`, while `ui-settings-models` retains only the conditional DeepSeek readiness and credential-routing step at order `0`.
 
 **Ownerless product onboarding belongs to `ui-settings-general`.** `src/onboarding-copy.ts` is the single editable source for the complete notice, the Continue label, and `WELCOME_NOTICE_VERSION`; both supported GUI locales intentionally render the same Chinese owner copy. Runtime locale dictionaries derive their welcome values from that file, and tests import the same owner instead of repeating paragraph text. The notice is browser UI only: it creates no Session event and contributes no model-visible content. The notice states that session telemetry is [disabled by default](2026-08-10-telemetry-default-off.md) and names the `FEEDBACK_ONLY` and `FULL` opt-in modes.
 

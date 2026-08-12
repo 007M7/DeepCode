@@ -9,7 +9,7 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * A hook command was invoked at a hook point — a log-only record (like
-     * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
+     * `compaction/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
      * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
      * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group
      * pattern that selected it (absent for match-all), `handlerId` a stable id
@@ -41,11 +41,11 @@ declare module '@deepseek-ai/dsh-session/types' {
 }
 
 /**
- * The bridge that ran a hook — the CC bridge stamps `'claude'`, the Codex
+ * The bridge that ran a hook — the CC bridge stamps `'claude-code'`, the Codex
  * bridge `'codex'`. A native plugin at the interception points is not a bridge
  * and writes no `hook/*` invocation/result records (see the interception extension-points Agent Note).
  */
-export type HookDialect = 'claude' | 'codex'
+export type HookDialect = 'claude-code' | 'codex'
 
 /**
  * One configured command hook (the `{ type: 'command', command, timeout? }`
@@ -76,7 +76,7 @@ export interface MatcherGroup {
  * {@link regex} otherwise; Codex is always {@link regex}. The bridge picks the
  * mode for its dialect.
  */
-export type MatcherMode = 'claude' | 'codex'
+export type MatcherMode = 'claude-code' | 'codex'
 
 /**
  * The dialect-neutral OUTCOME a hook produced, parsed from its exit code +

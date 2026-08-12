@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-遥测（telemetry）Service Definition 声明 `TelemetryBackend` 后端约定，捕获协调器把会话记录传给实现该约定的任意上报 SDK 后端。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。本包调用 `emit()` 后就停止处理：批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不规定也不包装。设计依据与被否决的替代方案见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
+遥测（telemetry）Service Definition 声明 `SessionTelemetrySink` 后端约定，捕获协调器把会话记录传给实现该约定的任意上报 SDK 后端。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。本包调用 `emit()` 后就停止处理：批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不规定也不包装。设计依据与被否决的替代方案见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
 
 ## 后端约定
 
-`TelemetryBackend` 有三个成员：`emit(record)` 必须入队且不能阻塞，因为它会在 `session/event` 或显式权威日志回放期间同步执行；可选的 `flush()` 是轮次结束后的提示，调用方不等待结果，多数后端省略它并使用 SDK 的常规批处理计划；`shutdown()` 排空已入队记录，并在 SDK 停止后结束，dispose（资源释放）会等待它。提供 `flush()` 的实现必须安排并发 flush 与 `shutdown()` 最终排空的先后顺序。`Telemetry` 将此 API 注册在 `telemetry` 上下文键下：每个上下文只允许一个实现，重复加载会抛出异常。后端以 `live` 或 `on-demand` 捕获构造 `TelemetryCoordinator`，并在自己选择的触发器中调用 `captureSession(session, throughSeq?)`。
+`SessionTelemetrySink` 有三个成员：`emit(record)` 必须入队且不能阻塞，因为它会在 `session/event` 或显式权威日志回放期间同步执行；可选的 `flush()` 是轮次结束后的提示，调用方不等待结果，多数后端省略它并使用 SDK 的常规批处理计划；`shutdown()` 排空已入队记录，并在 SDK 停止后结束，dispose（资源释放）会等待它。提供 `flush()` 的实现必须安排并发 flush 与 `shutdown()` 最终排空的先后顺序。`SessionTelemetryBackend` 将此 API 注册在 `sessionTelemetry` 上下文键下：每个上下文只允许一个实现，重复加载会抛出异常。后端以 `live` 或 `on-demand` 捕获构造 `SessionTelemetryCoordinator`，并在自己选择的触发器中调用 `captureSession(session, throughSeq?)`。
 
-该服务还携带必需的 [`TelemetrySharingStatus`](#the-sharing-disclosure) `sharing` 成员：每个后端都必须向面向用户的确认 surface（`/feedback` 命令的确认文本）披露的部署级共享策略。消费方只有在未挂载任何遥测服务时才渲染「未配置」。seam 拥有该词汇（`full` | `feedback-only` | `disabled`），因此任何后端都可以披露策略，而无需依赖 OTel 包。
+该服务还携带必需的 [`SessionTelemetrySharingStatus`](#the-sharing-disclosure) `sharing` 成员：每个后端都必须向面向用户的确认 surface（`/feedback` 命令的确认文本）披露的部署级共享策略。消费方只有在未挂载任何遥测服务时才渲染「未配置」。seam 拥有该词汇（`full` | `feedback-only` | `disabled`），因此任何后端都可以披露策略，而无需依赖 OTel 包。
 
 <a id="the-sharing-disclosure"></a>
 
@@ -22,7 +22,7 @@
 
 ## 脱敏 waterfall（瀑布式事件）
 
-每条记录在投影后立即经过 `telemetry/record` waterfall，这是 Service Definition 的脱敏扩展点。本包自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式拦下这一条记录。实时捕获在追加时运行 waterfall；按需捕获则在回放权威日志时使用当时挂载的规则运行 waterfall。脱敏只作用于外发副本；权威会话日志永不改写。
+每条记录在投影后立即经过 `sessionTelemetry/record` waterfall，这是 Service Definition 的脱敏扩展点。本包自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式拦下这一条记录。实时捕获在追加时运行 waterfall；按需捕获则在回放权威日志时使用当时挂载的规则运行 waterfall。脱敏只作用于外发副本；权威会话日志永不改写。
 
 ## handoff 游标
 
@@ -34,7 +34,7 @@
 
 ## 逻辑记录
 
-`TelemetryRecord` 包含：`channel`（`ledger` | `ops`）、`time`（epoch 毫秒）、`severity`（预先映射好的严重级别：`tool/result.isError`、`turn/end` 的错误原因与 `agent-error` 映射为 ERROR，其他已捕获记录映射为 INFO，而 `telemetry/record` 策略可以指定 WARN）、只含身份信息的 `attributes`（`session.id`、`event.type`、`event.seq`，header 中存在时再加 `session.cwd`/`session.parent_id`/`session.seed_length`），以及作为 `body` 的完整深拷贝 `event.data`，且以脱敏后的内容为准。运维记录携带 `telemetry.op`（`agent-error` | `shutdown`）和 `session.id`，并刻意不带 `event.seq`/`event.type`：它们是用来告警的信号，不是用来累加的条目；`agent-error` 会把任意抛出值规范化为稳定的 `{ name, message }` 记录主体。交接之后的投递由后端 SDK 负责；重复仍然可能出现（无游标的重新收养、SDK 重试），因此接收端基于 `(session.id, event.seq)` 去重。
+`SessionTelemetryRecord` 包含：`channel`（`ledger` | `ops`）、`time`（epoch 毫秒）、`severity`（预先映射好的严重级别：`tool/result.isError`、`turn/end` 的错误原因与 `agent-error` 映射为 ERROR，其他已捕获记录映射为 INFO，而 `sessionTelemetry/record` 策略可以指定 WARN）、只含身份信息的 `attributes`（`session.id`、`event.type`、`event.seq`，header 中存在时再加 `session.cwd`/`session.parent_id`/`session.seed_length`），以及作为 `body` 的完整深拷贝 `event.data`，且以脱敏后的内容为准。运维记录携带 `sessionTelemetry.op`（`agent-error` | `shutdown`）和 `session.id`，并刻意不带 `event.seq`/`event.type`：它们是用来告警的信号，不是用来累加的条目；`agent-error` 会把任意抛出值规范化为稳定的 `{ name, message }` 记录主体。交接之后的投递由后端 SDK 负责；重复仍然可能出现（无游标的重新收养、SDK 重试），因此接收端基于 `(session.id, event.seq)` 去重。
 
 ## 模型体验
 
@@ -47,5 +47,5 @@
 ## 已知限制与暂缓事项
 
 - **尽力而为的投递**：游标标记的是已交接而非已投递；在重载窗口内被拆除的会话无法重新收养；崩溃时留在后端队列中的内容会丢失。持久化 outbox（spool、每 sink 游标、at-least-once）推迟到有部署方提出明确的崩溃丢失要求时再实现；见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
-- **不内置脱敏规则**：未挂载 `telemetry/record` 监听器时，记录以捕获时的原样离开进程，包括文件内容或命令输出中内嵌的任何凭据；向共享 collector 导出的部署方自行负责其规则集。
+- **不内置脱敏规则**：未挂载 `sessionTelemetry/record` 监听器时，记录以捕获时的原样离开进程，包括文件内容或命令输出中内嵌的任何凭据；向共享 collector 导出的部署方自行负责其规则集。
 - **按需脱敏使用当前状态**：未捕获的事件只存在于权威会话日志中。后续的 `captureSession()` 会使用当时挂载的策略，深拷贝并脱敏其当前值；不存在捕获时的遥测快照或持久化的捕获前 spool。

@@ -105,9 +105,9 @@ export const ev = {
       ...text === undefined ? {} : { text },
       ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
     } }),
-  /** A compaction's log-only `compact/summary` record. */
+  /** A compaction's log-only `compaction/summary` record. */
   compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
-    at(seq, { type: 'compact/summary', data: {
+    at(seq, { type: 'compaction/summary', data: {
       summary: text(summary),
       shadowedRange: { start, end },
       shadowedSeqs: [start, end],

@@ -32,7 +32,7 @@ describe('Typert-backed Cordis catalog', () => {
       }
     }
     expect(projector.renderRuntimeApi(model)).toBe(
-      expected('packages/self-modification/tool-cordis/src/api-catalog.ts'),
+      expected('packages/extensions/tool-cordis/src/api-catalog.ts'),
     )
   })
 })

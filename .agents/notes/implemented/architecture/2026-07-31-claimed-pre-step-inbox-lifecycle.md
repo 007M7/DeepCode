@@ -34,7 +34,7 @@ The archived [addressable queue occurrence decision](../../archived/feature/2026
 
 ## Verification
 
-Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, workspace-context staging, replacement, and same-step entry, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, and resumed durable projection. Generated event and type catalogs expose only the new waterfall and payloads.
+Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, agent-instructions staging, replacement, and same-step entry, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, and resumed durable projection. Generated event and type catalogs expose only the new waterfall and payloads.
 
 ## Consequences
 

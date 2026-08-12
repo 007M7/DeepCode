@@ -1,2 +1,0 @@
-- list "Background tasks":
-  - listitem: "bash sleep 45 signal: SIGTERM {{duration}}"

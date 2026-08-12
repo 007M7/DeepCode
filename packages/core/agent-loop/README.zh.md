@@ -78,7 +78,7 @@ interface Config {
 - 压缩（compaction）：在 `agent/pre-step` 上观测压力；在 `agent/request-error` 上进行规范的溢出修复
 - 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待按确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
 - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
-- subagent：在循环外部实现为 `ctx.subagents` 提供方；进程内提供方使用 `ctx.agents.create()` 和拥有的 `AgentHandle` 进行 teardown，而通用的 [`ctx.tasks`](../../tasks/tasks/) 与 [`dsh-tool-subagent`](../../subagent/tool-subagent/) 负责后台收集。
+- subagent：在循环外部实现为 `ctx.subagents` 提供方；进程内提供方使用 `ctx.agents.create()` 和拥有的 `AgentHandle` 进行 teardown，而通用的 [`ctx.jobs`](../../jobs/jobs/) 与 [`dsh-tool-subagent`](../../subagent/tool-subagent/) 负责后台收集。
 - 持久化：从 `session/event` 立即后写；`session/flush` 是显式观测屏障
 - UI：`session/event`（assistant token 流、边界、工具活动）+ `agent/*` 控制事件（`agent/status`、`agent/created`/`agent/disposed`）
 

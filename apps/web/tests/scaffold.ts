@@ -14,7 +14,7 @@
 // Composition divergences from `dsh web`, all deliberate, all via include
 // patches after the shipped bundle layers, over the SAME tree (never a
 // second yml): temp persistenceRoot; host-level skill roots confined to the
-// temp workspace while project skill discovery remains real; workspace-context
+// temp workspace while project skill discovery remains real; agent-instructions
 // disabled (recorded fixtures must not embed this repo's AGENTS.md);
 // session-title-llm disabled (its fire-and-forget title call would race the
 // loop for the session's replay cursor); webserver pinned to port 0 with the
@@ -40,7 +40,7 @@ import {
   healProfilesModuleFallback,
   loadOverlayPatches,
 } from '@deepseek-ai/dsh-app-boot'
-import { dshHomePath } from '@deepseek-ai/dsh-paths'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // Client packages must not be imported here: these e2e type-check in the Host
 // aggregate, so a Client import pulls that package's whole project — and every
 // project it references — into the Host build graph. Mirrored from
@@ -69,9 +69,9 @@ import SessionStore, {
   type SessionEvent,
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
-// Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
+// Empty type imports carry the webServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
@@ -101,7 +101,7 @@ const SHIPPED_PRESET_DIR = join(REPO_ROOT, 'apps/cli/config/agent-presets')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
-// catch-all would leave resolveModelInfo unroutable and compact-basic's
+// catch-all would leave resolveModelInfo unroutable and compaction-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
 const REPLAY_PROVIDERS = [{
@@ -166,7 +166,7 @@ export interface WebScaffold {
   baseUrl: string
   /** Settled root context (the in-process readiness barrier; headless event subscription is its sanctioned use). */
   ctx: Context
-  /** Temp project directory sessions run in (bash/fs tool cwd). */
+  /** Temp project directory sessions run in (shell/fs tool cwd). */
   workspaceCwd: string
   /** Temp persistence root (seeded sessions land here through the real API). */
   persistenceRoot: string
@@ -402,7 +402,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // cannot change replay requests or conversation goldens. Project roots stay
     // enabled against the same empty temp workspace, preserving the real seam.
     {
-      id: 'skill-local',
+      id: 'skill-filesystem',
       config: {
         dshHome: join(workspaceCwd, '.dsh-home'),
         agentsHome: join(workspaceCwd, '.agents-home'),
@@ -413,16 +413,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // fs/bash cwd default to process.cwd(); the gateway injects the same
     // value into session.cwd — chdir below anchors all three to the temp
     // workspace, keeping the composition untouched.
-    { id: 'workspace-context', disabled: true },
+    { id: 'agent-instructions', disabled: true },
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
     // names in the ambient environment). A scenario that pins a real backend
     // disclosure passes a local dead endpoint instead of disabling the row.
     options.telemetryUrl === undefined
-      ? { id: 'telemetry-otel', disabled: true }
+      ? { id: 'session-telemetry-otel', disabled: true }
       : {
-        id: 'telemetry-otel',
+        id: 'session-telemetry-otel',
         config: {
           mode: 'FULL',
           exporter: { url: options.telemetryUrl },
@@ -434,7 +434,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       config: { host: '127.0.0.1', port: 0 },
     },
     // The bundle's web-runtime row resolves the same built dist under test
-    // (apps/web IS @deepseek-ai/dsh-frontend); only the URL line is silenced.
+    // (apps/web IS @deepseek-ai/dsh-web-frontend); only the URL line is silenced.
     // Preserve the composed surface-context choice because a patch replaces
     // the row's complete config.
     { id: 'web-runtime', config: { printUrl: false, surfaceContext } },
@@ -452,7 +452,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'directory-picker', disabled: true },
     { insert: [
       { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
-      { id: 'ui-directory-picker', name: '@deepseek-ai/dsh-client-ui-directory-picker' },
+      { id: 'ui-directory-picker-browse', name: '@deepseek-ai/dsh-client-ui-directory-picker-browse' },
     ] },
     ...options.agentPresets === undefined
       ? []
@@ -527,9 +527,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         op: 'set', path: [WELCOME_NOTICE_ACK_FIELD], value: WELCOME_NOTICE_VERSION,
       }])
     }
-    const boundPort = ctx.get('httpServer')?.port
+    const boundPort = ctx.get('webServer')?.port
     if (boundPort === undefined) {
-      throw new Error('web e2e scaffold: httpServer service missing after settled boot')
+      throw new Error('web e2e scaffold: webServer service missing after settled boot')
     }
     port = boundPort
 
@@ -725,7 +725,7 @@ export async function seedSession(
     await seeder.plugin(SessionStore)
     // Same root as the booted tree with the plugin's own default compression,
     // so the host's directory-scan list() sees one consistent encoding.
-    await seeder.plugin(SessionPersistenceJsonl, { root: scaffold.persistenceRoot })
+    await seeder.plugin(JsonlSessionPersistence, { root: scaffold.persistenceRoot })
     await seeder.sessionPersistence.create(meta)
     await seeder.sessionPersistence.append(meta.id, events)
     // Deterministic sidebar order: cold summaries take updatedAt from mtime.

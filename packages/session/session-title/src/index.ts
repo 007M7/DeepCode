@@ -120,7 +120,7 @@ export interface SessionTitleUserMessage {
 }
 
 /** Automatic generation cadence owned by a registered provider. */
-export type SessionTitleAutomaticMode = 'first-message' | 'all-user-messages'
+export type SessionTitleAutomaticMode = 'first-prompt' | 'all-prompts'
 
 /** Immutable input supplied to one title-provider call. */
 export interface SessionTitleProviderRequest {
@@ -467,7 +467,7 @@ export class SessionTitleService extends Service {
     const registration = this.registration
     if (registration !== undefined && !registration.closing) {
       const messages = collectSessionTitleMessages(session.events, event.seq)
-      const shouldSchedule = registration.provider.automatic === 'all-user-messages'
+      const shouldSchedule = registration.provider.automatic === 'all-prompts'
         || (session.header.parentSession === undefined && messages.length === 1 && this.get(session) === undefined)
       if (shouldSchedule) {
         const state = this.stateFor(session)
@@ -726,7 +726,7 @@ export class SessionTitleService extends Service {
     if (typeof candidate.id !== 'string' || candidate.id.length === 0) {
       throw new Error('session-title provider id must be a non-empty string')
     }
-    if (candidate.automatic !== 'first-message' && candidate.automatic !== 'all-user-messages') {
+    if (candidate.automatic !== 'first-prompt' && candidate.automatic !== 'all-prompts') {
       throw new Error('session-title provider automatic mode is invalid')
     }
     if (typeof candidate.generate !== 'function') {

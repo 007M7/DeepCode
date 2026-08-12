@@ -9,7 +9,7 @@
 在 Harness 中，`tools`、`llm`、`agents` 都是服务。服务是挂载在 `ctx` 上的命名能力：
 
 ```ts ignore-check
-ctx.tools    // ToolRegistry service
+ctx.tools    // ToolRuntime service
 ctx.llm      // LLM service
 ctx.agents   // Agent service
 ```

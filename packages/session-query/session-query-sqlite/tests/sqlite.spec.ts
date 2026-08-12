@@ -9,8 +9,8 @@ import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/ds
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
-import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
-import SessionQuerySqlite, {
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import SqliteSessionQueryEngine, {
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
 import {
@@ -179,22 +179,22 @@ class TestPersistence extends SessionPersistence {
   }
 }
 
-async function liveContext(config: ConstructorParameters<typeof SessionQuerySqlite>[1] = { path: ':memory:' }): Promise<Context> {
+async function liveContext(config: ConstructorParameters<typeof SqliteSessionQueryEngine>[1] = { path: ':memory:' }): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionQuerySqlite, config)
+  await ctx.plugin(SqliteSessionQueryEngine, config)
   return ctx
 }
 
 describe('SQLite session search', () => {
   it('defaults and validates opening policy and persisted inspection concurrency through its Cordis config', async () => {
     const defaultCtx = await liveContext()
-    expect((defaultCtx.sessionQuery as SessionQuerySqlite).config.openAt).toBe('startup')
-    expect((defaultCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.openAt).toBe('startup')
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedInspectConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
 
     const configuredValue = 2
-    const configured = new SessionQuerySqlite.Config({
+    const configured = new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'first-search',
       persistedInspectConcurrency: configuredValue,
@@ -202,16 +202,16 @@ describe('SQLite session search', () => {
     expect(configured.openAt).toBe('first-search')
     expect(configured.persistedInspectConcurrency).toBe(configuredValue)
     const configuredCtx = await liveContext(configured)
-    expect((configuredCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
+    expect((configuredCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedInspectConcurrency)
       .toBe(configuredValue)
 
     for (const persistedInspectConcurrency of [0, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(() => new SessionQuerySqlite.Config({
+      expect(() => new SqliteSessionQueryEngine.Config({
         path: ':memory:',
         persistedInspectConcurrency,
       })).toThrow()
     }
-    expect(() => new SessionQuerySqlite.Config({
+    expect(() => new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'later' as never,
     })).toThrow()
@@ -221,7 +221,7 @@ describe('SQLite session search', () => {
     const path = await temporaryPath('unopened.db')
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const search = await ctx.plugin(SessionQuerySqlite, {
+    const search = await ctx.plugin(SqliteSessionQueryEngine, {
       path,
       openAt: 'first-search',
     })
@@ -234,11 +234,11 @@ describe('SQLite session search', () => {
   it('opens once on the first search and reuses readiness for later searches', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionQuerySqlite, {
+    await ctx.plugin(SqliteSessionQueryEngine, {
       path: ':memory:',
       openAt: 'first-search',
     })
-    const service = ctx.sessionQuery as SessionQuerySqlite
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
     const internals = service as unknown as { _open(): Promise<void> }
     const open = vi.spyOn(internals, '_open')
 
@@ -251,11 +251,11 @@ describe('SQLite session search', () => {
   it('shares one readiness promise across concurrent first searches', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionQuerySqlite, {
+    await ctx.plugin(SqliteSessionQueryEngine, {
       path: ':memory:',
       openAt: 'first-search',
     })
-    const service = ctx.sessionQuery as SessionQuerySqlite
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
     const internals = service as unknown as { _open(): Promise<void> }
     const originalOpen = internals._open.bind(internals)
     const release = Promise.withResolvers<undefined>()
@@ -647,7 +647,7 @@ describe('SQLite session search', () => {
     ]) {
       const direct = new Context()
       await direct.plugin(SessionStore)
-      expect(() => new SessionQuerySqlite(direct, config as never))
+      expect(() => new SqliteSessionQueryEngine(direct, config as never))
         .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
       expect(direct.sessionQuery).toBeUndefined()
     }
@@ -1068,7 +1068,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     const first = new Context()
     await first.plugin(SessionStore)
     const firstPersistence = await first.plugin(TestPersistence)
-    const firstSearch = await first.plugin(SessionQuerySqlite, { path })
+    const firstSearch = await first.plugin(SqliteSessionQueryEngine, { path })
     await first.sessionQuery.searchSessions({ query: 'needle' })
     expect(Object.fromEntries(TestPersistence.inspections)).toEqual({ unchanged: 1, changed: 1, deleted: 1 })
     await first.sessionQuery.searchSessions({ query: 'needle' })
@@ -1088,7 +1088,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     const second = new Context()
     await second.plugin(SessionStore)
     const secondPersistence = await second.plugin(TestPersistence)
-    const secondSearch = await second.plugin(SessionQuerySqlite, { path })
+    const secondSearch = await second.plugin(SqliteSessionQueryEngine, { path })
     const result = await second.sessionQuery.searchSessions({ query: 'needle' })
     expect(result.items.map(item => item.header.id).sort()).toEqual([added.id, changed.id, unchanged.id].sort())
     expect(Object.fromEntries(TestPersistence.inspections)).toEqual({
@@ -1118,7 +1118,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await first.plugin(SessionStore)
     const persistence = await first.plugin(TestPersistence)
     const live = first.sessions.create(shared.id, { seed: messageEvents('live needle'), meta: { createdAt: 10 } })
-    const search = await first.plugin(SessionQuerySqlite, { path })
+    const search = await first.plugin(SqliteSessionQueryEngine, { path })
     await expect(first.sessionQuery.searchEvents({ sessionId: live.id, query: 'live' })).resolves.toMatchObject({ items: [{}] })
     await search.dispose()
     await persistence.dispose()
@@ -1126,7 +1126,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     const second = new Context()
     await second.plugin(SessionStore)
     const persistenceAgain = await second.plugin(TestPersistence)
-    const searchAgain = await second.plugin(SessionQuerySqlite, { path })
+    const searchAgain = await second.plugin(SqliteSessionQueryEngine, { path })
     await expect(second.sessionQuery.searchSessions({ query: 'live' })).resolves.toEqual({ items: [] })
     await expect(second.sessionQuery.searchSessions({ query: 'persisted' }))
       .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
@@ -1202,7 +1202,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
     expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
-    await (ctx.sessionQuery as SessionQuerySqlite).close()
+    await (ctx.sessionQuery as SqliteSessionQueryEngine).close()
   })
 
   it('creates a persistent rollback journal owner-only', async () => {
@@ -1213,7 +1213,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
-    await (ctx.sessionQuery as SessionQuerySqlite).close()
+    await (ctx.sessionQuery as SqliteSessionQueryEngine).close()
   })
 
   it('preserves the mode of an existing database file', async () => {
@@ -1226,7 +1226,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await ctx.sessionQuery.searchSessions({ query: 'needle' })
 
     expect((await stat(path)).mode & 0o777).toBe(0o644)
-    await (ctx.sessionQuery as SessionQuerySqlite).close()
+    await (ctx.sessionQuery as SqliteSessionQueryEngine).close()
   })
 
   it('surfaces filesystem failures while pre-creating the database', async () => {
@@ -1234,7 +1234,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const ctx = new Context()
     await ctx.plugin(SessionStore)
 
-    await expect(ctx.plugin(SessionQuerySqlite, { path })).rejects.toMatchObject({
+    await expect(ctx.plugin(SqliteSessionQueryEngine, { path })).rejects.toMatchObject({
       code: 'SESSION_QUERY_INDEX_FAILED',
       cause: { code: 'ERR_INVALID_ARG_VALUE' },
     })
@@ -1244,14 +1244,14 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
   it('resets a recognized incompatible schema but refuses unknown or foreign tables', { timeout: 20_000 }, async () => {
     const stalePath = await temporaryPath('stale.db')
     const staleOwner = await liveContext({ path: stalePath })
-    await (staleOwner.sessionQuery as SessionQuerySqlite).close()
+    await (staleOwner.sessionQuery as SqliteSessionQueryEngine).close()
     const stale = new DatabaseSync(stalePath)
     stale.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION - 1}`)
     stale.close()
     const staleCtx = await liveContext({ path: stalePath })
     staleCtx.sessions.create(SessionId('live'), { seed: messageEvents('needle') })
     await staleCtx.sessionQuery.searchSessions({ query: 'needle' })
-    await (staleCtx.sessionQuery as SessionQuerySqlite).close()
+    await (staleCtx.sessionQuery as SqliteSessionQueryEngine).close()
     const rebuilt = new DatabaseSync(stalePath)
     expect((rebuilt.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
       .toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
@@ -1259,7 +1259,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const augmentedPath = await temporaryPath('augmented.db')
     const augmentedOwner = await liveContext({ path: augmentedPath })
-    await (augmentedOwner.sessionQuery as SessionQuerySqlite).close()
+    await (augmentedOwner.sessionQuery as SqliteSessionQueryEngine).close()
     const augmented = new DatabaseSync(augmentedPath)
     augmented.exec('CREATE TABLE unrelated(value TEXT)')
     augmented.exec("INSERT INTO unrelated VALUES ('safe')")
@@ -1267,7 +1267,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     augmented.close()
     const augmentedCtx = new Context()
     await augmentedCtx.plugin(SessionStore)
-    await expect(augmentedCtx.plugin(SessionQuerySqlite, { path: augmentedPath }))
+    await expect(augmentedCtx.plugin(SqliteSessionQueryEngine, { path: augmentedPath }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     expect(augmentedCtx.sessionQuery).toBeUndefined()
     const stillAugmented = new DatabaseSync(augmentedPath)
@@ -1277,14 +1277,14 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const currentAugmentedPath = await temporaryPath('current-augmented.db')
     const currentAugmentedOwner = await liveContext({ path: currentAugmentedPath })
-    await (currentAugmentedOwner.sessionQuery as SessionQuerySqlite).close()
+    await (currentAugmentedOwner.sessionQuery as SqliteSessionQueryEngine).close()
     const currentAugmented = new DatabaseSync(currentAugmentedPath)
     currentAugmented.exec('CREATE TABLE unrelated(value TEXT)')
     currentAugmented.exec("INSERT INTO unrelated VALUES ('safe')")
     currentAugmented.close()
     const currentAugmentedCtx = new Context()
     await currentAugmentedCtx.plugin(SessionStore)
-    await expect(currentAugmentedCtx.plugin(SessionQuerySqlite, {
+    await expect(currentAugmentedCtx.plugin(SqliteSessionQueryEngine, {
       path: currentAugmentedPath,
       journalMode: 'delete',
     })).rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
@@ -1304,7 +1304,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     foreign.close()
     const foreignCtx = new Context()
     await foreignCtx.plugin(SessionStore)
-    await expect(foreignCtx.plugin(SessionQuerySqlite, { path: foreignPath, journalMode: 'delete' }))
+    await expect(foreignCtx.plugin(SqliteSessionQueryEngine, { path: foreignPath, journalMode: 'delete' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     expect(foreignCtx.sessionQuery).toBeUndefined()
     const stillForeign = new DatabaseSync(foreignPath)
@@ -1320,7 +1320,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     wildcard.close()
     const wildcardCtx = new Context()
     await wildcardCtx.plugin(SessionStore)
-    await expect(wildcardCtx.plugin(SessionQuerySqlite, {
+    await expect(wildcardCtx.plugin(SqliteSessionQueryEngine, {
       path: wildcardPath,
       journalMode: 'delete',
     })).rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
@@ -1338,7 +1338,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     otherApp.close()
     const otherAppCtx = new Context()
     await otherAppCtx.plugin(SessionStore)
-    await expect(otherAppCtx.plugin(SessionQuerySqlite, { path: otherAppPath }))
+    await expect(otherAppCtx.plugin(SqliteSessionQueryEngine, { path: otherAppPath }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     expect(otherAppCtx.sessionQuery).toBeUndefined()
   })
@@ -1354,7 +1354,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     try {
       const ctx = new Context()
       await ctx.plugin(SessionStore)
-      await expect(ctx.plugin(SessionQuerySqlite, { path }))
+      await expect(ctx.plugin(SqliteSessionQueryEngine, { path }))
         .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
       await new Promise<void>((resolve) => { setImmediate(resolve) })
       expect(unhandled).toEqual([])
@@ -1372,18 +1372,18 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const lazyCtx = new Context()
     await lazyCtx.plugin(SessionStore)
-    const lazy = await lazyCtx.plugin(SessionQuerySqlite, {
+    const lazy = await lazyCtx.plugin(SqliteSessionQueryEngine, {
       path,
       openAt: 'first-search',
     })
-    expect(lazyCtx.sessionQuery).toBeInstanceOf(SessionQuerySqlite)
+    expect(lazyCtx.sessionQuery).toBeInstanceOf(SqliteSessionQueryEngine)
     await expect(lazyCtx.sessionQuery.searchSessions({ query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     await lazy.dispose()
 
     const eagerCtx = new Context()
     await eagerCtx.plugin(SessionStore)
-    await expect(eagerCtx.plugin(SessionQuerySqlite, { path }))
+    await expect(eagerCtx.plugin(SqliteSessionQueryEngine, { path }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     expect(eagerCtx.sessionQuery).toBeUndefined()
   })
@@ -1681,7 +1681,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     }
     const ctx = await liveContext()
     await ctx.plugin(TestPersistence)
-    const search = ctx.sessionQuery as SessionQuerySqlite
+    const search = ctx.sessionQuery as SqliteSessionQueryEngine
     const accepted = search.searchSessions({ query: 'needle' })
     await started
     const queued = search.searchSessions({ query: 'needle' })
@@ -1702,7 +1702,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     TestPersistence.reset()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const search = await ctx.plugin(SessionQuerySqlite, { path: ':memory:' })
+    const search = await ctx.plugin(SqliteSessionQueryEngine, { path: ':memory:' })
     const persistence = await ctx.plugin(TestPersistence)
     const optional = (ctx.sessionQuery as unknown as {
       _optionalPersistenceFiber: Fiber
@@ -1725,8 +1725,8 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const searchPath = await temporaryPath('derived.db')
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const persistence = await ctx.plugin(SessionPersistenceSqlite, { path: persistencePath })
-    const search = await ctx.plugin(SessionQuerySqlite, { path: searchPath })
+    const persistence = await ctx.plugin(SqliteSessionPersistence, { path: persistencePath })
+    const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
     const meta = header('real', 10, { cwd: '/work' })
     await ctx.sessionPersistence.create(meta)
     await ctx.sessionPersistence.append(meta.id, messageEvents('real SQLite needle'))
@@ -1750,11 +1750,11 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const first = new Context()
     await first.plugin(SessionStore)
-    const persistenceA = await first.plugin(SessionPersistenceSqlite, { path: persistencePathA })
+    const persistenceA = await first.plugin(SqliteSessionPersistence, { path: persistencePathA })
     await first.sessionPersistence.create(shared)
     await first.sessionPersistence.append(shared.id, messageEvents('alpha source'))
     const inspectA = vi.spyOn(first.sessionPersistence, 'inspect')
-    const searchA = await first.plugin(SessionQuerySqlite, { path: searchPath })
+    const searchA = await first.plugin(SqliteSessionQueryEngine, { path: searchPath })
     await expect(first.sessionQuery.searchSessions({ query: 'alpha' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
     expect(inspectA).toHaveBeenCalledTimes(1)
@@ -1763,9 +1763,9 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const reopened = new Context()
     await reopened.plugin(SessionStore)
-    const persistenceAAgain = await reopened.plugin(SessionPersistenceSqlite, { path: persistencePathA })
+    const persistenceAAgain = await reopened.plugin(SqliteSessionPersistence, { path: persistencePathA })
     const reopenedInspect = vi.spyOn(reopened.sessionPersistence, 'inspect')
-    const searchAAgain = await reopened.plugin(SessionQuerySqlite, { path: searchPath })
+    const searchAAgain = await reopened.plugin(SqliteSessionQueryEngine, { path: searchPath })
     await expect(reopened.sessionQuery.searchSessions({ query: 'alpha' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
     expect(reopenedInspect).not.toHaveBeenCalled()
@@ -1774,11 +1774,11 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
     const second = new Context()
     await second.plugin(SessionStore)
-    const persistenceB = await second.plugin(SessionPersistenceSqlite, { path: persistencePathB })
+    const persistenceB = await second.plugin(SqliteSessionPersistence, { path: persistencePathB })
     await second.sessionPersistence.create(shared)
     await second.sessionPersistence.append(shared.id, messageEvents('bravo source'))
     const inspectB = vi.spyOn(second.sessionPersistence, 'inspect')
-    const searchB = await second.plugin(SessionQuerySqlite, { path: searchPath })
+    const searchB = await second.plugin(SqliteSessionQueryEngine, { path: searchPath })
     await expect(second.sessionQuery.searchSessions({ query: 'bravo' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
     await expect(second.sessionQuery.searchSessions({ query: 'alpha' })).resolves.toEqual({ items: [] })

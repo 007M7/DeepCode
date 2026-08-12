@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The Tool presentation package's acceptance chain on the REAL machinery stack:
-// SlotTestRuntime (cordis Context + SlotsService ledger + the web-react
+// SlotTestRuntime (cordis Context + SlotRegistry ledger + the web-react
 // renderer) + ui-conversation and ui-tool apply — no outlet twins. Proves the
 // keyed 'tool.call.toolview' hole end to end: registered rows dispatch by
 // entryKey (the bash sample lands through its plugin), unregistered tools
@@ -14,7 +14,7 @@ import { cleanup, fireEvent } from '@testing-library/react'
 import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -70,7 +70,7 @@ async function bench(nodes: ToolResultNode[]) {
   runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.provide('layout', layout)
-  const locale = new LocaleService(runtime.ctx)
+  const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
   runtime.slots.installLocale(locale)
   await runtime.sessions.add({
@@ -205,7 +205,7 @@ describe('registrant declaration injection', () => {
     runtime.provide('remote', { $on: () => () => {} })
     runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    const locale = new LocaleService(runtime.ctx)
+    const locale = new LocaleRuntime(runtime.ctx)
     runtime.provide('locale', locale)
     runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)

@@ -32,11 +32,11 @@ const decompress = promisify(zstdDecompress)
 
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
-  'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'subprocess/subprocess', 'subprocess/subprocess-local', 'context/workspace-context', 'support/invariants', 'boot/app-boot',
+  'core/tools', 'core/agent-loop', 'llm/llm', 'shell/shell',
+  'shell/bash-local', 'shell/tool-bash', 'subprocess/subprocess', 'subprocess/subprocess-local', 'context/agent-instructions', 'runtime-diagnostics/invariants', 'boot/app-boot',
   'session/session-persistence',
   'session/session-checkpoint-policy', 'session/session-persistence-jsonl',
-  'acp/acp', 'examples/acp-demo', 'util/paths',
+  'acp/acp', 'examples/acp-demo', 'util/home-paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',

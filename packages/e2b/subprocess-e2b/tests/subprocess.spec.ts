@@ -8,13 +8,13 @@ import {
   type CommandResult,
   type Sandbox,
 } from '@deepseek-ai/dsh-e2b'
-import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import type E2BRuntime from '@deepseek-ai/dsh-e2b'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
+import E2BSubprocessRuntime from '@deepseek-ai/dsh-subprocess-e2b'
 import * as E2BSubprocessInvariant from '../src/invariant.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from '../src/output.ts'
 import { E2BSubprocessHandle } from '../src/process.ts'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { describe, expect, it, vi } from 'vitest'
 
 function commandError(exitCode: number): CommandExitError {
@@ -312,12 +312,12 @@ function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec
   }
 }
 
-function runtime(fake: FakeSandbox, getSandbox: () => Promise<Sandbox> = async () => fake.sandbox): E2BSandboxService {
+function runtime(fake: FakeSandbox, getSandbox: () => Promise<Sandbox> = async () => fake.sandbox): E2BRuntime {
   return {
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
     getSandbox,
-  } as unknown as E2BSandboxService
+  } as unknown as E2BRuntime
 }
 
 async function flush(): Promise<void> {
@@ -462,7 +462,7 @@ describe('E2BSubprocessHandle', () => {
 
   it('rejects an unrepresentable graceMs before any remote work', () => {
     const ctx = new Context()
-    const service = Object.create(E2BSubprocessService.prototype) as E2BSubprocessService
+    const service = Object.create(E2BSubprocessRuntime.prototype) as E2BSubprocessRuntime
     Reflect.set(service, 'disposing', false)
     Reflect.set(service, 'ctx', ctx)
     for (const graceMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
@@ -1616,14 +1616,14 @@ describe('E2BSubprocessHandle', () => {
   })
 })
 
-describe('E2BSubprocessService', () => {
+describe('E2BSubprocessRuntime', () => {
   async function service(
     fake = new FakeSandbox(),
-    providedRuntime: E2BSandboxService = runtime(fake),
+    providedRuntime: E2BRuntime = runtime(fake),
   ): Promise<{ ctx: Context; fiber: Awaited<ReturnType<Context['plugin']>> }> {
     const ctx = new Context()
     ctx.provide('e2b', providedRuntime)
-    const fiber = await ctx.plugin(E2BSubprocessService)
+    const fiber = await ctx.plugin(E2BSubprocessRuntime)
     return { ctx, fiber }
   }
 
@@ -1785,7 +1785,7 @@ describe('E2BSubprocessService', () => {
 
   it('registers the package-owned empty invariant installer', async () => {
     const ctx = new Context()
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     const fiber = await ctx.plugin(E2BSubprocessInvariant).await()
     await fiber.dispose()
   })

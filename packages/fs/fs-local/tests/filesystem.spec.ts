@@ -3,7 +3,7 @@
  * file/streamed text reads, atomic guarded writes (createIfAbsent /
  * replaceIfVersion), version-guarded literal edits, concurrency races, symlink
  * identity, and HMR/disposal. Read WINDOWING is policy and lives in
- * `dsh-fs-policy`, so it is not exercised here.
+ * `dsh-fs-observation-policy`, so it is not exercised here.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

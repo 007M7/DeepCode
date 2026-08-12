@@ -4,12 +4,12 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatViewSlotProps, ConvViewProps } from '../src/client/contract/slots.ts'
 
 describe('view-ring type negatives (compile-time; body never runs)', () => {
   it('holds the negative samples as expect-error sites', () => {
-    const negatives = (slots: SlotsService) => {
+    const negatives = (slots: SlotRegistry) => {
       // 1. List-kind registration requires the id shape field.
       // @ts-expect-error missing `id` on a list-slot registration
       slots.register({ name: 'conversation.view', order: 1 }, (_p: ConvViewProps) => null)
@@ -58,7 +58,7 @@ describe('view-ring type negatives (compile-time; body never runs)', () => {
 describe('view-ring runtime dual (real ledger)', () => {
   function bench() {
     const ctx = new Context()
-    const slots = new SlotsService(ctx)
+    const slots = new SlotRegistry(ctx)
     // The conversation entry's role: declare the ring (declaring is claiming).
     slots.register({
       name: 'root',

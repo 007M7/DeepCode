@@ -24,7 +24,7 @@
       "path": "../../session/session-persistence"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../session-query"

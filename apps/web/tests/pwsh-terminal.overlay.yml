@@ -11,7 +11,7 @@
   name: '@deepseek-ai/dsh-bash-sandbox'
   disabled: true
 - id: permission
-  name: '@deepseek-ai/dsh-permission'
+  name: '@deepseek-ai/dsh-permission-presets'
   disabled: true
 - insert:
     - id: pwsh-local

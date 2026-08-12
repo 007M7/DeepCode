@@ -8,7 +8,7 @@ English | [中文](2026-07-07-tool-call-timeout-policy.zh.md)
 
 The [timeout/deadline Agent Note](2026-07-06-timeout-deadline-library.md) extracted the timing-and-classification primitive into `@deepseek-ai/dsh-timeout`, but timeout policy was still attached to individual capabilities and model-facing schemas. `bash` exposed `timeoutMs`; `web_fetch` exposed `timeout_ms`; `web_search` had no model-facing timeout even though providers already honor `exec.signal`; a future grep/glob tool would either import the timeout library directly or invent its own timeout policy. That is the wrong authoring shape for a plugin SDK: a tool author should normally forward `exec.signal` to the implementation it calls, and deployment policy should decide the budget.
 
-At the same time, not every timeout in the repo is a model-facing tool-call budget. Hooks execute command hooks by calling `ctx.bash` directly, not through `ctx.tools.execute()`, and the `bash` model tool multiplexes foreground execution, background start, background polling, and hook reuse through the same backend. Moving every timeout into a tool plugin in one step would conflate those paths and risk breaking hook timeout semantics.
+At the same time, not every timeout in the repo is a model-facing tool-call budget. Hooks execute command hooks by calling `ctx.shell` directly, not through `ctx.tools.execute()`, and the `bash` model tool multiplexes foreground execution, background start, background polling, and hook reuse through the same backend. Moving every timeout into a tool plugin in one step would conflate those paths and risk breaking hook timeout semantics.
 
 ## Decision
 
@@ -16,7 +16,7 @@ Tool-call timeout is a policy that applies only to model-facing tool execution, 
 
 - `@deepseek-ai/dsh-timeout` remains the shared library that owns `deadline()` and `timeoutOf()`.
 - `@deepseek-ai/dsh-tools` has an around-dispatch waterfall, `tools/execute`, between `tools/pre-execute` and `tools/post-execute`.
-- `@deepseek-ai/dsh-timeout-policy` reads each tool's declared `timeoutMs` from the registry and wraps a call that has one by deriving a new `exec.signal`.
+- The [repository naming contract](../../proposed/architecture/2026-08-11-repository-naming-contract-and-rename-ledger.md) names `@deepseek-ai/dsh-tool-call-timeout-policy` for the exact operation it limits. The plugin reads each tool's declared `timeoutMs` from the runtime and wraps a call that has one by deriving a new `exec.signal`.
 
 The execution pipeline is:
 
@@ -40,11 +40,11 @@ That the catch is the base `next` — not something outside the waterfall — is
 
 ### The `timeout-policy` plugin
 
-The plugin is `@deepseek-ai/dsh-timeout-policy`, a zero-config function/namespace plugin (`name` / `inject` / `apply`) in the `packages/guard/` group (originally its own `timeout/` group). The per-tool budget is DECLARED on the tool, not on this plugin: a `ToolDefinition` carries an optional `timeoutMs`, which the owning tool plugin sets from its own config. `dsh-tool-web`, for example, resolves `fetchTimeoutMs` / `searchTimeoutMs` (default 30000) onto the `web_fetch` / `web_search` definitions:
+The plugin is `@deepseek-ai/dsh-tool-call-timeout-policy`, a zero-config function/namespace plugin (`name` / `inject` / `apply`) in the `packages/guard/` group (originally its own `timeout/` group). The per-tool budget is DECLARED on the tool, not on this plugin: a `ToolDefinition` carries an optional `timeoutMs`, which the owning tool plugin sets from its own config. `dsh-tool-web`, for example, resolves `fetchTimeoutMs` / `searchTimeoutMs` (default 30000) onto the `web_fetch` / `web_search` definitions:
 
 ```yaml
 - id: timeout-policy
-  name: '@deepseek-ai/dsh-timeout-policy'
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
@@ -79,21 +79,21 @@ No new session event is needed for reconstructability: `TOOL_TIMEOUT` is the fin
 
 `web_fetch` and `web_search` are migrated. `dsh-tool-web` keeps ownership of their model-facing schemas, and those schemas expose no timeout knob: `web_fetch` dropped its `timeout_ms` parameter to match the reference-agent shape, and `web_search` stays query-only. The tool bodies do not import `@deepseek-ai/dsh-timeout`; they forward `exec.signal` to `ctx.web`.
 
-`dsh-web-fetch-local` keeps one configured provider-level `timeoutMs` as a large resource backstop for direct `ctx.web.fetch()` callers and misconfigured deployments; it owns no model-facing timeout. When a `TOOL_TIMEOUT` signal reaches the fetch provider first, provider-scoped classification treats it as upstream `WEB_ABORTED`, and the outer `tools/execute` wrapper replaces the final tool result with `TOOL_TIMEOUT`. A shipped web-tool deployment configures the provider backstop above the `timeout-policy` budget so the tool-call policy normally wins for model calls.
+`dsh-web-fetch-http` keeps one configured provider-level `timeoutMs` as a large resource backstop for direct `ctx.web.fetch()` callers and misconfigured deployments; it owns no model-facing timeout. When a `TOOL_TIMEOUT` signal reaches the fetch provider first, provider-scoped classification treats it as upstream `WEB_ABORTED`, and the outer `tools/execute` wrapper replaces the final tool result with `TOOL_TIMEOUT`. A shipped web-tool deployment configures the provider backstop above the `timeout-policy` budget so the tool-call policy normally wins for model calls.
 
-`bash` stays on the current backend timeout path. `dsh-tool-bash` continues to expose `timeoutMs` and `run_in_background`; `dsh-bash-local` continues to use `@deepseek-ai/dsh-timeout` for `BASH_TIMEOUT`; hook bridges continue to call `runHook()` and pass `timeoutMs` through `ctx.bash`. This keeps foreground/background/hook behavior stable.
+`bash` stays on the current backend timeout path. `dsh-tool-bash` continues to expose `timeoutMs` and `run_in_background`; `dsh-bash-local` continues to use `@deepseek-ai/dsh-timeout` for `BASH_TIMEOUT`; hook bridges continue to call `runHook()` and pass `timeoutMs` through `ctx.shell`. This keeps foreground/background/hook behavior stable.
 
-`read`, `write`, `edit`, `todo_write`, `task_list`, and `task_kill` do not opt into tool-call timeout. `task_output` owns its bounded wait because a wait timeout is a successful live-status result, not a tool failure.
+`read`, `write`, `edit`, `todo_write`, `job_list`, and `job_kill` do not opt into tool-call timeout. `job_output` owns its bounded wait because a wait timeout is a successful live-status result, not a tool failure.
 
-A future model-facing grep/glob tool can be implemented on top of `ctx.bash` without importing `@deepseek-ai/dsh-timeout`: it forwards `exec.signal` to `ctx.bash`, and declares its own `timeoutMs` (from its plugin's config) for the enforcer to apply. If bash-local's backend timeout becomes a problem for such a tool, the bash seam can later add a caller-owned-deadline mode; that is a separate decision.
+A future model-facing grep/glob tool can be implemented on top of `ctx.shell` without importing `@deepseek-ai/dsh-timeout`: it forwards `exec.signal` to `ctx.shell`, and declares its own `timeoutMs` (from its plugin's config) for the enforcer to apply. If bash-local's backend timeout becomes a problem for such a tool, the bash seam can later add a caller-owned-deadline mode; that is a separate decision.
 
 ## Alternatives considered
 
-**Name the plugin `tool-timeout`.** The literal Agent Note name matched the `gen-tool-catalog` completeness guard's `packages/*/tool-*` glob, which requires every match to register a model-facing tool. This plugin registers none — it is a `tools/execute` wrapper — so a `tool-*` name would either fail `verify-tool-catalog` or force a misleading boot entry. The package is `@deepseek-ai/dsh-timeout-policy` in what was then a new `timeout/` group, since folded into `packages/guard/`; the cordis.yml `id` can still be `timeout-policy`.
+**Name the plugin `tool-timeout`.** The literal Agent Note name matched the `gen-tool-catalog` completeness guard's `packages/*/tool-*` glob, which requires every match to register a model-facing tool. This plugin registers none — it is a `tools/execute` wrapper — so a `tool-*` name would either fail `verify-tool-catalog` or force a misleading boot entry. The package is `@deepseek-ai/dsh-tool-call-timeout-policy` in what was then a new `timeout/` group, since folded into `packages/guard/`; the cordis.yml `id` can still be `timeout-policy`.
 
 **Keep per-tool timeout handling only.** This was the shape for `bash` and `web_fetch`, and it matches Claude Code and Codex for shell commands. It loses for web-style tools because every new timeout-capable tool must choose validation, cap semantics, docs, snapshots, and classification. The plugin centralizes policy and classification while leaving each tool's schema focused on business input.
 
-**Move all timeout policy out of bash-local immediately.** Cleaner long-term — bash-local would become a pure subprocess executor and all callers would own their deadlines. It loses as the first step because hooks call `ctx.bash` directly and the bash model tool has foreground/background semantics that are not the same tool-call lifetime. Keeping `BASH_TIMEOUT` preserves those paths while tool-call timeout proves itself on simpler tools.
+**Move all timeout policy out of bash-local immediately.** Cleaner long-term — bash-local would become a pure subprocess executor and all callers would own their deadlines. It loses as the first step because hooks call `ctx.shell` directly and the bash model tool has foreground/background semantics that are not the same tool-call lifetime. Keeping `BASH_TIMEOUT` preserves those paths while tool-call timeout proves itself on simpler tools.
 
 **Use a global default budget for every tool.** Convenient, but it surprises tool authors: any tool that accidentally runs longer than the global budget would start failing once the plugin loads. A per-tool declared budget makes adoption deliberate.
 

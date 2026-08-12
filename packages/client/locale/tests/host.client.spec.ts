@@ -1,11 +1,11 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { Settings, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   LOCALE_SETTINGS_NAMESPACE, apply,
 } from '@deepseek-ai/dsh-client-locale'
 
-class MemorySettings extends Settings {
+class MemorySettings extends SettingsProvider {
   readonly writable = true
   protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
   protected persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {

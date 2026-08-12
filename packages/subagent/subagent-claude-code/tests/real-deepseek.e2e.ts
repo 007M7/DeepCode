@@ -13,9 +13,9 @@ import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as claudeCode from '../src/index.ts'
 
 const execFileAsync = promisify(execFile)
@@ -113,8 +113,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)(
       }
       const ctx = new Context()
       contexts.push(ctx)
-      await ctx.plugin(SubagentService)
-      await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(LocalSubprocessRuntime)
       const handles: SubprocessHandle[] = []
       const spawn = ctx.subprocess.spawn.bind(ctx.subprocess)
       vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {

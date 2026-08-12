@@ -14,7 +14,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
-import type {} from '@deepseek-ai/dsh-permission'
+import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -29,7 +29,7 @@ const FILE_REFERENCE_PROMPT = fileURLToPath(new URL(
  * ripgrep-dependent pair below. The absences are deliberate, not incidental
  * gaps: the `cordis_*` toolset executes model-written JavaScript that no
  * sandbox row confines, `web_fetch` chooses its own request target, and
- * `mcp_*` servers spawn outside `ctx.bash`. The composition Agent Note owns the
+ * `mcp_*` servers spawn outside `ctx.shell`. The composition Agent Note owns the
  * rationale and its sources.
  */
 const EXPECTED_TOOLS = [
@@ -40,6 +40,9 @@ const EXPECTED_TOOLS = [
   'exit_plan_mode',
   'get_goal',
   'interrupt_agent',
+  'job_kill',
+  'job_list',
+  'job_output',
   'list_agents',
   'ralph',
   'read',
@@ -48,9 +51,6 @@ const EXPECTED_TOOLS = [
   'skill',
   'subagent',
   'subagent_fork',
-  'task_kill',
-  'task_list',
-  'task_output',
   'todo_write',
   'update_goal',
   'web_search',
@@ -108,7 +108,7 @@ it('assembles the shipped Web catalog, file-reference guidance, and confined acc
   )
   expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
   expect(scaffold.ctx.approval.config.policy).toBe('ask')
-  expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
+  expect(scaffold.ctx.permissionPresets.defaultPreset).toBe('workspace-write')
 
   const commandHandle = await scaffold.ctx.agents.create({
     sessionId: SessionId('shipped-command-catalog'),
@@ -126,11 +126,11 @@ it('assembles the shipped Web catalog, file-reference guidance, and confined acc
   }
 }, 120_000)
 
-it('lets a preset producer reach the background-task registry', async () => {
+it('lets a preset producer reach the background-job registry', async () => {
   scaffold = await launchWebScaffold()
   const ctx = scaffold.ctx
   const handle = await ctx.agents.create({
-    sessionId: SessionId('shipped-background-task'),
+    sessionId: SessionId('shipped-background-job'),
     meta: { cwd: scaffold.workspaceCwd },
     setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
   })
@@ -152,7 +152,7 @@ it('lets a preset producer reach the background-task registry', async () => {
     })
     expect({ isError: started.isError, content: started.content }).toEqual({
       isError: false,
-      content: [{ type: 'text', text: 'started background task bash-1' }],
+      content: [{ type: 'text', text: 'started background job bash-1' }],
     })
 
     // The controller reads what the producer started: same registry, one
@@ -160,7 +160,7 @@ it('lets a preset producer reach the background-task registry', async () => {
     const listed = await ctx.tools.execute({
       signal,
       callId: CallId('shipped-task-list'),
-      name: 'task_list',
+      name: 'job_list',
       arguments: {},
       agent: handle.agent,
     })
@@ -174,8 +174,8 @@ it('lets a preset producer reach the background-task registry', async () => {
     const collected = await ctx.tools.execute({
       signal,
       callId: CallId('shipped-task-output'),
-      name: 'task_output',
-      arguments: { task_id: 'bash-1', wait: true },
+      name: 'job_output',
+      arguments: { job_id: 'bash-1', wait: true },
       agent: handle.agent,
     })
     expect(collected.isError).toBe(false)

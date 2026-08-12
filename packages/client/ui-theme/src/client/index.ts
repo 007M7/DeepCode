@@ -69,7 +69,7 @@ export interface ThemeSnapshot {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    theme: ThemeService
+    theme: ThemeRuntime
   }
   interface Events {
     /**
@@ -96,7 +96,7 @@ const BUILTIN_THEMES: readonly ThemeDefinition[] = Object.freeze([
  * sensing, not presentation) and re-emits when the OS scheme flips while the
  * preference is `system`.
  */
-export class ThemeService {
+export class ThemeRuntime {
   private readonly ctx: Context
   private readonly host: SettingsScope<ThemeSettings>
   private themes: ThemeDefinition[] = [...BUILTIN_THEMES]
@@ -228,7 +228,7 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope
  */
 export function apply(ctx: ClientContext): void {
   const host = ctx.settingsScope.bind<ThemeSettings>({ namespace: THEME_SETTINGS_NAMESPACE })
-  const theme = new ThemeService(ctx, host)
+  const theme = new ThemeRuntime(ctx, host)
   ctx.provide('theme', theme)
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')

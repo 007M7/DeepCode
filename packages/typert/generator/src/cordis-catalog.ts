@@ -82,7 +82,7 @@ export interface ServiceMethodEntry {
 export interface ServiceEntry {
   /** The `ctx.<key>` name, e.g. `llm`. */
   key: string
-  /** The service class/interface name, e.g. `LlmService`. */
+  /** The service class/interface name, e.g. `LlmRuntime`. */
   type: string
   /** Whether the service class is abstract (a seam interface). */
   abstract: boolean
@@ -628,7 +628,7 @@ function renderRuntimeApi(
     '',
     '/** One named type shape the service signatures reference. */',
     'export interface TypeApiEntry {',
-    '  /** The exported type/interface name, e.g. `BashRunResult`. */',
+    '  /** The exported type/interface name, e.g. `ShellRunResult`. */',
     '  name: string',
     '  /** The full declaration text, comments stripped. */',
     '  declaration: string',

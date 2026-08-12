@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/rejected/simplification/2026-07-19-fold-compaction-package-split.md
-2026-07-19-fold-compaction-package-split.md: 8bd83c389454092171633af806178ef8a9a74c72
-2026-07-19-fold-compaction-package-split.zh.md: 7f3e1622cc576d0d6c1d7c7cf171e9c7ccbb77f5
+2026-07-19-fold-compaction-package-split.md: 17d2ff5b8b663131eb3548dbf32d9489ca174f6b
+2026-07-19-fold-compaction-package-split.zh.md: a9d85723ea849519951a2a68f25ada367d2af481

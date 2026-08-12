@@ -11,7 +11,7 @@
  * NOT a kernel boundary — the operations are the seam's own (open, rename),
  * and only the target path is untrusted, so canonicalize-then-contain is the
  * complete answer to this surface. Kernel-grade isolation of untrusted CODE
- * stays `ctx.bash`'s job (`@deepseek-ai/dsh-bash-sandbox`). This mirrors the
+ * stays `ctx.shell`'s job (`@deepseek-ai/dsh-bash-sandbox`). This mirrors the
  * `code-runtime` stance: containment, not a security boundary. The residual
  * TOCTOU (an ancestor symlink swapped between the containment re-check and the
  * syscall) is narrowed by re-canonicalizing immediately before delegating and

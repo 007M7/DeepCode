@@ -39,7 +39,7 @@ import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, TaskView, ToolEventView,
+  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
@@ -59,9 +59,9 @@ import {
 } from './api/session-search.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
-// Type-only: resolves `ctx.get('tasks')` to the background task registry.
-import type {} from '@deepseek-ai/dsh-tasks'
-import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
+// Type-only: resolves `ctx.get('tasks')` to the background job registry.
+import type {} from '@deepseek-ai/dsh-jobs'
+import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
@@ -91,8 +91,8 @@ import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } fr
 import { RpcId } from './api/rpc.ts'
 import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
-} from '@deepseek-ai/dsh-user-interaction'
-import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
+} from '@deepseek-ai/dsh-user-questions'
+import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import {
   ApiRemoteSessionNotFound as SessionNotFound,
@@ -119,7 +119,7 @@ const DEFAULT_MAX_MESSAGES = 50
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'bash', 'locale', 'permission', 'ui-conversation', 'ui-theme', 'web-search-deepseek',
+  'agent-loop', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme', 'web-search-deepseek',
 ] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
@@ -277,7 +277,7 @@ function isAborted(signal: AbortSignal): boolean {
  * backwards from the window tail. Replacement copies never entered the
  * conversation a reader sees — they restate a shadowed range for the model
  * alone — so they consume no quota; the page stays one contiguous raw range,
- * which keeps a compaction's log-only `compact/summary` record on the same page as its
+ * which keeps a compaction's log-only `compaction/summary` record on the same page as its
  * replacement. The cut is the starting seq of the oldest message group (chunks
  * group via sourceEventSeqs — never cut mid-message). The tail page naturally
  * includes the in-progress partial.
@@ -476,17 +476,17 @@ function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Sess
 
 /**
  * Project registry snapshots onto the wire view, dropping the three internal
- * fields {@link TaskView} documents as absent.
+ * fields {@link JobView} documents as absent.
  */
-function taskViews(snapshots: readonly TaskSnapshot[]): TaskView[] {
-  return snapshots.map(task => ({
-    id: task.id,
-    kind: task.kind,
-    label: task.label,
-    status: task.status,
-    ...task.detail === undefined ? {} : { detail: task.detail },
-    startedAt: task.startedAt,
-    ...task.finishedAt === undefined ? {} : { finishedAt: task.finishedAt },
+function jobViews(snapshots: readonly JobSnapshot[]): JobView[] {
+  return snapshots.map(job => ({
+    id: job.id,
+    kind: job.kind,
+    label: job.label,
+    status: job.status,
+    ...job.detail === undefined ? {} : { detail: job.detail },
+    startedAt: job.startedAt,
+    ...job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt },
   }))
 }
 
@@ -651,7 +651,7 @@ interface PendingQuestion {
   sessionId: SessionId
   questions: AskUserQuestionItem[]
   resolve: (answer: AskUserQuestionAnswer) => void
-  reject: (error: UserInteractionError) => void
+  reject: (error: UserQuestionError) => void
   signal?: AbortSignal
   onAbort?: () => void
 }
@@ -1295,11 +1295,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
-  const disposeProvider = ctx.userInteraction.registerProvider({
+  const disposeProvider = ctx.userQuestions.registerProvider({
     ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
       const sessionId = request.agent?.id
       if (sessionId === undefined) {
-        return Promise.reject(new UserInteractionError(
+        return Promise.reject(new UserQuestionError(
           'web user interaction requires an agent-owned session', 'ASK_MISSING_AGENT'))
       }
       return new Promise<AskUserQuestionAnswer>((resolve, reject) => {
@@ -1310,7 +1310,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         const onAbort = (): void => {
           claimQuestion(pending, 'cancelled')
-          reject(new UserInteractionError(
+          reject(new UserQuestionError(
             'ask_user_question was aborted before the user answered', 'ASK_ABORTED'))
         }
         pending.onAbort = onAbort
@@ -1328,10 +1328,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     disposeProvider()
     for (const pending of [...pendingQuestions.values()]) {
       claimQuestion(pending, 'cancelled')
-      pending.reject(new UserInteractionError(
-        'web user-interaction provider was disposed', 'ASK_ABORTED'))
+      pending.reject(new UserQuestionError(
+        'web user-questions provider was disposed', 'ASK_ABORTED'))
     }
-  }, 'api-proxy: user-interaction provider')
+  }, 'api-proxy: user-questions provider')
 
   // --- Approval pending registry ------------------------------------------
   // The proxy is the approval channel for every agent this host owns: an ask
@@ -1439,7 +1439,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Resolve the Workspace inherited by a fork without making ordinary loose lineage grouped. */
   async function forkWorkspace(source: Pick<Session, 'id' | 'header'>): Promise<Workspace | undefined> {
-    const workspaces = ctx.workspace.list()
+    const workspaces = ctx.workspaceRegistry.list()
     const direct = workspaces.find(workspace => workspace.sessionIds.includes(source.id))
     if (direct !== undefined || source.header.origin !== 'subagent') return direct
 
@@ -1638,9 +1638,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Resolve or create one path while holding the Host's workspace-create chain. */
   function ensureWorkspace(path: string): Promise<{ workspace: Workspace; created: boolean }> {
     const operation = workspaceCreationChain.then(async () => {
-      const existing = await ctx.workspace.resolveByPath(path)
+      const existing = await ctx.workspaceRegistry.resolveByPath(path)
       if (existing !== undefined) return { workspace: existing, created: false }
-      return { workspace: await ctx.workspace.create(path), created: true }
+      return { workspace: await ctx.workspaceRegistry.create(path), created: true }
     })
     workspaceCreationChain = operation.then(() => undefined, () => undefined)
     return operation
@@ -1786,7 +1786,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Missing-service report shared by the settings domain (skills-domain stance). */
   function settingsAbsent(): RpcError {
-    return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
+    return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-file) in its composition', details: {} }
   }
 
   /** Open one Host-resolved target and map native failures onto the wire vocabulary. */
@@ -2086,7 +2086,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const sessionId = request.payload.sessionId ?? `session-${randomUUID()}` as SessionId
         let workspace: Workspace | undefined
         if (request.payload.workspaceId !== undefined) {
-          workspace = ctx.workspace.get(brandWorkspaceId(request.payload.workspaceId))
+          workspace = ctx.workspaceRegistry.get(brandWorkspaceId(request.payload.workspaceId))
           if (workspace === undefined) {
             return err(request, {
               code: 'workspace-not-found',
@@ -2720,8 +2720,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     workspace: {
       list(request) {
         return Promise.resolve(ok(request, {
-          items: ctx.workspace.list().map(workspaceView),
-          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+          items: ctx.workspaceRegistry.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
         }))
       },
 
@@ -2744,7 +2744,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async rename(request) {
         const { payload } = request
-        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(payload.workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
         const title = payload.title.trim()
         // Uniqueness AND the same-title no-op both ride the create chain so
@@ -2753,7 +2753,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // still lands afterwards.
         const operation = workspaceCreationChain.then(async () => {
           if (title === workspace.title) return
-          if (ctx.workspace.list().some(other => other.id !== workspace.id && other.title === title)) {
+          if (ctx.workspaceRegistry.list().some(other => other.id !== workspace.id && other.title === title)) {
             throw new WorkspaceNameConflictError(title)
           }
           await workspace.setTitle(title)
@@ -2777,7 +2777,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async delete(request) {
         const { workspaceId } = request.payload
         const operation = workspaceCreationChain.then(() =>
-          ctx.workspace.delete(brandWorkspaceId(workspaceId)))
+          ctx.workspaceRegistry.delete(brandWorkspaceId(workspaceId)))
         workspaceCreationChain = operation.then(() => undefined, () => undefined)
         if (!await operation) return workspaceNotFound(request, workspaceId)
         return ok(request, { deleted: true as const })
@@ -2786,7 +2786,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async insertBefore(request) {
         const { workspaceId, beforeWorkspaceId } = request.payload
         try {
-          const workspaceIds = await ctx.workspace.insertBefore(
+          const workspaceIds = await ctx.workspaceRegistry.insertBefore(
             brandWorkspaceId(workspaceId),
             beforeWorkspaceId === undefined ? undefined : brandWorkspaceId(beforeWorkspaceId),
           )
@@ -2799,7 +2799,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async insertSessionBefore(request) {
         const { payload } = request
-        const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(payload.workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, payload.workspaceId)
         try {
           await workspace.insertSessionBefore(payload.sessionId, payload.beforeSessionId)
@@ -2823,7 +2823,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async archiveSession(request) {
         const { sessionId } = request.payload
         try {
-          await ctx.workspace.archiveSession(sessionId)
+          await ctx.workspaceRegistry.archiveSession(sessionId)
         } catch (error: unknown) {
           // Only the registry's unknown-session rejection is the business
           // code; storage/durability failures propagate as internal errors.
@@ -2834,7 +2834,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           })
         }
-        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
+        return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
       },
     },
 
@@ -3376,12 +3376,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // a session with no live Agent owns no tasks, so it correctly sees only
         // the unowned ones, and listing never revives a cold session. An empty
         // set sends nothing — absence is how the client reads "no tasks".
-        const tasks = ctx.get('tasks')
-        if (tasks !== undefined) {
+        const jobs = ctx.get('jobs')
+        if (jobs !== undefined) {
           for (const session of ctx.sessions.list()) {
-            const views = taskViews(tasks.list(ctx.agents.get(session.id)))
+            const views = jobViews(jobs.list(ctx.agents.get(session.id)))
             if (views.length > 0) {
-              queue.push(frame({ type: 'session/tasks', sessionId: session.id, tasks: views }))
+              queue.push(frame({ type: 'session/jobs', sessionId: session.id, jobs: views }))
             }
           }
         }
@@ -3416,29 +3416,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // session born after the stream opened missed the baseline loop.
             // Unowned tasks are visible to it from birth, so without this it
             // would show none until the next registry change.
-            const views = tasks === undefined ? [] : taskViews(tasks.list(ctx.agents.get(session.id)))
+            const views = jobs === undefined ? [] : jobViews(jobs.list(ctx.agents.get(session.id)))
             if (views.length > 0) {
-              queue.push(frame({ type: 'session/tasks', sessionId: session.id, tasks: views }))
+              queue.push(frame({ type: 'session/jobs', sessionId: session.id, jobs: views }))
             }
           }),
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)
           }),
-          ...tasks === undefined ? [] : [tasks.onTasksChanged((owner) => {
+          ...jobs === undefined ? [] : [jobs.onJobsChanged((owner) => {
             if (owner !== undefined) {
               // The exact owner instance the fence compares against, so the
               // push stays correct even while that Agent's scope is tearing
               // down and a lookup by id would already miss.
-              queue.push(frame({ type: 'session/tasks', sessionId: owner.id, tasks: taskViews(tasks.list(owner)) }))
+              queue.push(frame({ type: 'session/jobs', sessionId: owner.id, jobs: jobViews(jobs.list(owner)) }))
               return
             }
             // An unowned task is visible to every caller, so every subscribed
             // session's set changed with it.
             for (const session of ctx.sessions.list()) {
               queue.push(frame({
-                type: 'session/tasks',
+                type: 'session/jobs',
                 sessionId: session.id,
-                tasks: taskViews(tasks.list(ctx.agents.get(session.id))),
+                jobs: jobViews(jobs.list(ctx.agents.get(session.id))),
               }))
             }
           })],
@@ -3451,7 +3451,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
-        const committedWorkspaces = ctx.workspace.list()
+        const committedWorkspaces = ctx.workspaceRegistry.list()
         const committedWorkspaceIds = new Set(
           committedWorkspaces.map(workspace => String(workspace.id)),
         )
@@ -3459,7 +3459,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Frame-dedup baseline, same posture as committedWorkspaceIds: the
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.
-        let archivedSessionIds = ctx.workspace.archivedSessionIds
+        let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -3491,7 +3491,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 && state.workspaceIds.some((workspaceId, index) => workspaceId !== committedWorkspaceOrder[index])
               for (const workspaceId of state.workspaceIds) {
                 if (committedWorkspaceIds.has(workspaceId)) continue
-                const workspace = ctx.workspace.get(workspaceId)
+                const workspace = ctx.workspaceRegistry.get(workspaceId)
                 if (workspace === undefined) {
                   throw new Error(`committed workspace registry references missing workspace "${workspaceId}"`)
                 }
@@ -3633,7 +3633,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return Promise.resolve({ accepted: false, reason: 'bad-response' })
         }
         claimQuestion(pending, 'cancelled')
-        pending.reject(new UserInteractionError(
+        pending.reject(new UserQuestionError(
           'the user cancelled ask_user_question', 'ASK_CANCELLED'))
         return Promise.resolve({ accepted: true })
       }

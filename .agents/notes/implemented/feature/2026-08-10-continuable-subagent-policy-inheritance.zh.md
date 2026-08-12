@@ -24,6 +24,6 @@ Status: implemented
 ## 后果
 
 - 默认组合包的后台委派（`backgroundMode: continuable`）现在会继承父级显式的沙箱覆盖项，并把子级钉定为 `'never'` 审批；未组合任一策略服务的组合保持原有行为。
-- `dsh-subagent` 新增针对 `dsh-sandbox-policy` 与 `dsh-user-approval` 的可选 peer 类型（即一次性驱动器所用的 `ctx.get` 模式）；`dsh-subagent-inprocess` 完全移除自己的策略服务 peer 与类型导入，委托给共享辅助函数。
+- `dsh-subagent` 新增针对 `dsh-sandbox-policy` 与 `dsh-user-approval` 的可选 peer 类型（即一次性驱动器所用的 `ctx.get` 模式）；`dsh-subagent-in-process-driver` 完全移除自己的策略服务 peer 与类型导入，委托给共享辅助函数。
 - 可继续测试套件（`packages/subagent/subagent/tests/continuation-inheritance.spec.ts`）锁定全新启动的种子写入、await 前捕获、默认值省略、冷恢复快照稳定性与 fork 种子优先级；ACP 快照场景 `subagent-continuable-inheritance` 经组装后的应用锁定子级的委派事件与只读运行时上下文，移除捕获时即失败。
 - 进程外提供方（`acp`、`dsh-sdk`、`claude-code`、`codex`）不支持可继续子 agent（没有 `prepareContinuable`），其一次性子 agent 保留自身的部署策略（`inheritsParentContext = false`）；跨进程策略传播仍不在范围内。

@@ -1,9 +1,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { SessionsService } from '../src/client/sessions/service.ts'
+import { SessionRuntime } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
-import { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
+import { DirectoryBrowseError, WorkspaceCreateError, WorkspaceRuntime } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -187,12 +187,12 @@ describe('WorkspaceManager', () => {
   })
 })
 
-describe('WorkspacesService', () => {
+describe('WorkspaceRuntime', () => {
   it('feeds readiness and recent-Workspace targeting without changing Host order', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [
         workspace('stable-first', [], '2026-01-03T00:00:00.000Z'),
@@ -219,8 +219,8 @@ describe('WorkspacesService', () => {
   it('connectWorkspace reuses the workspace-member blank session and creates otherwise', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('alpha', [sid('s-blank')]), workspace('beta'), workspace('gamma')] as never[],
     }))
@@ -278,8 +278,8 @@ describe('WorkspacesService', () => {
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha', [sid('s-blank')])] as never[] }))
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' }] as never[],
@@ -298,8 +298,8 @@ describe('WorkspacesService', () => {
   it('returns created Workspaces and preserves Host business errors', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceCreate = () => Promise.resolve(ok({
       workspace: { ...workspace('picked'), path: '/w/alpha', title: 'alpha' }, created: true,
     }))
@@ -317,8 +317,8 @@ describe('WorkspacesService', () => {
   it('passes native directory selection and cancellation through without local state', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onPickDirectory = () => Promise.resolve(ok({ path: '/w/alpha' }))
     await expect(workspaces.pickDirectory()).resolves.toBe('/w/alpha')
     api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
@@ -331,7 +331,7 @@ describe('WorkspacesService', () => {
   it('passes listings and creation through the browse wire, wrapping business failures', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api, fakeRemote()))
+    const workspaces = new WorkspaceRuntime(ctx, api, new SessionRuntime(ctx, api, fakeRemote()))
     const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }], truncated: false }
     api.onListDirectory = () => Promise.resolve(ok(listing))
     await expect(workspaces.listDirectory()).resolves.toEqual(listing)
@@ -352,8 +352,8 @@ describe('WorkspacesService', () => {
   it('opens a filesystem path through the host without local state', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     await expect(workspaces.openPath('/w/alpha/a.ts')).resolves.toBeUndefined()
     expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
     api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
@@ -363,8 +363,8 @@ describe('WorkspacesService', () => {
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
     await workspaces.refresh()
     await expect(workspaces.delete(wid('alpha'))).resolves.toBeUndefined()
@@ -379,7 +379,7 @@ describe('WorkspacesService', () => {
   it('moves a Workspace through the durable order RPC and surfaces Host rejection', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api, fakeRemote()))
+    const workspaces = new WorkspaceRuntime(ctx, api, new SessionRuntime(ctx, api, fakeRemote()))
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('one'), workspace('two')] as never[],
     }))
@@ -402,8 +402,8 @@ describe('WorkspacesService', () => {
   it('targets New Session at explicit, current-session, then recent Workspaces and clears with none', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [
         workspace('current-home', [sid('current')]),
@@ -435,8 +435,8 @@ describe('WorkspacesService', () => {
 
     const emptyCtx = new Context()
     const emptyApi = new FakeApiClient()
-    const emptySessions = new SessionsService(emptyCtx, emptyApi, fakeRemote())
-    const emptyWorkspaces = new WorkspacesService(emptyCtx, emptyApi, emptySessions)
+    const emptySessions = new SessionRuntime(emptyCtx, emptyApi, fakeRemote())
+    const emptyWorkspaces = new WorkspaceRuntime(emptyCtx, emptyApi, emptySessions)
     const clear = vi.spyOn(emptySessions, 'clear')
     emptyWorkspaces.startSession()
     expect(clear).toHaveBeenCalledOnce()
@@ -445,8 +445,8 @@ describe('WorkspacesService', () => {
   it('archives a session, projects the set from the response, list, and frame, and clears only the current one', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onList = () => Promise.resolve(ok({
       items: [
         { sessionId: sid('s-open'), updatedAt: 2, running: false, blank: false },
@@ -491,8 +491,8 @@ describe('WorkspacesService', () => {
   it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s-open'), updatedAt: 1, running: false, blank: false }],
     }) as never)
@@ -525,8 +525,8 @@ describe('startInitialSelection', () => {
   function bench() {
     const ctx = new Context()
     const api = new FakeApiClient()
-    const sessions = new SessionsService(ctx, api, fakeRemote())
-    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     return { api, sessions, workspaces }
   }
 

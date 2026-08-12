@@ -5,8 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import SessionTitleService, { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 
 const CONFIG = {
@@ -57,14 +57,14 @@ describe('session title persistence round trips', () => {
     const id = SessionId('title-jsonl')
     const writer = new Context()
     await writer.plugin(SessionStore)
-    await writer.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+    await writer.plugin(JsonlSessionPersistence, { root, compression: 'none' })
     await writer.plugin(SessionTitleService, CONFIG)
     await appendPersistedTitle(writer, id)
     await writer.fiber.dispose()
 
     const reader = new Context()
     await reader.plugin(SessionStore)
-    await reader.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+    await reader.plugin(JsonlSessionPersistence, { root, compression: 'none' })
     await expectPersistedTitle(reader, id)
     await reader.fiber.dispose()
   })
@@ -76,14 +76,14 @@ describe('session title persistence round trips', () => {
     const id = SessionId('title-sqlite')
     const writer = new Context()
     await writer.plugin(SessionStore)
-    await writer.plugin(SessionPersistenceSqlite, { path })
+    await writer.plugin(SqliteSessionPersistence, { path })
     await writer.plugin(SessionTitleService, CONFIG)
     await appendPersistedTitle(writer, id)
     await writer.fiber.dispose()
 
     const reader = new Context()
     await reader.plugin(SessionStore)
-    await reader.plugin(SessionPersistenceSqlite, { path })
+    await reader.plugin(SqliteSessionPersistence, { path })
     await expectPersistedTitle(reader, id)
     await reader.fiber.dispose()
   })

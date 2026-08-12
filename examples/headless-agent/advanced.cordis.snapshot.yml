@@ -40,7 +40,7 @@
           compression: none
       - insert:
           - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-worker'
+            name: '@deepseek-ai/dsh-code-runtime-worker-thread'
           - id: tool-cordis
             name: '@deepseek-ai/dsh-tool-cordis'
           - id: llm-replay

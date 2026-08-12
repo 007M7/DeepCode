@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（编程智能体）。
+DeepSeek Harness（`dsh`）是一款开源 coding agent（编程智能体），也是一个基于插件的 agent harness（智能体框架）。
 
 它采用了**一切皆插件**的架构。
 

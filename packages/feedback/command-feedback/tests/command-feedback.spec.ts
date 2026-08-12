@@ -3,9 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import CommandService from '@deepseek-ai/dsh-commands'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { foldSurface, Session, SessionId } from '@deepseek-ai/dsh-session'
-import { Telemetry, type TelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
+import { SessionTelemetryBackend, type SessionTelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import * as commandFeedback from '@deepseek-ai/dsh-command-feedback'
 
 const { USER_ID, getOrCreateAnonymousUserId } = vi.hoisted(() => {
@@ -13,7 +13,7 @@ const { USER_ID, getOrCreateAnonymousUserId } = vi.hoisted(() => {
   return { USER_ID, getOrCreateAnonymousUserId: vi.fn(() => USER_ID) }
 })
 
-vi.mock('@deepseek-ai/dsh-user-id', () => ({
+vi.mock('@deepseek-ai/dsh-anonymous-user-id', () => ({
   getOrCreateAnonymousUserId,
 }))
 
@@ -27,10 +27,10 @@ interface Harness {
 }
 
 /** Minimal mounted backend disclosing one sharing policy. */
-class FakeTelemetry extends Telemetry {
-  override readonly sharing: TelemetrySharingStatus
+class FakeTelemetry extends SessionTelemetryBackend {
+  override readonly sharing: SessionTelemetrySharingStatus
 
-  constructor(ctx: Context, config: { sharing: TelemetrySharingStatus }) {
+  constructor(ctx: Context, config: { sharing: SessionTelemetrySharingStatus }) {
     super(ctx)
     this.sharing = config.sharing
   }
@@ -68,9 +68,9 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
  * backend disclosing one sharing policy. Without `sharing`, no telemetry
  * service exists and the acknowledgement reports "not configured".
  */
-async function harness(sharing?: TelemetrySharingStatus): Promise<Harness> {
+async function harness(sharing?: SessionTelemetrySharingStatus): Promise<Harness> {
   const ctx = new Context()
-  await ctx.plugin(CommandService)
+  await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionStore)
   if (sharing !== undefined) await ctx.plugin(FakeTelemetry, { sharing })
@@ -124,7 +124,7 @@ describe('/feedback human command', () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is not configured.`,
+      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['the diff view is unreadable'])
     const commandRun = test.session.events.find(event => event.type === 'command/run')
@@ -172,8 +172,8 @@ describe('/feedback human command', () => {
       test.ctx.commands.execute(test.agent, '/feedback second', signal),
     ])
     expect(settled.map(item => item?.result)).toEqual([
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is not configured.` },
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is not configured.` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.` },
     ])
     expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
@@ -182,7 +182,7 @@ describe('/feedback human command', () => {
     const test = await harness('full')
     await expect(run(test, ' everything shared')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is enabled.`,
+      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is enabled.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['everything shared'])
   })
@@ -191,7 +191,7 @@ describe('/feedback human command', () => {
     const test = await harness('feedback-only')
     await expect(run(test, ' gated sharing')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.`,
+      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['gated sharing'])
   })
@@ -200,7 +200,7 @@ describe('/feedback human command', () => {
     const test = await harness('disabled')
     await expect(run(test, ' local only')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}. Session sharing is disabled.`,
+      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is disabled.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['local only'])
   })

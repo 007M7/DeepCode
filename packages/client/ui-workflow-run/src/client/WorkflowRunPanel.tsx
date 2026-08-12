@@ -11,7 +11,7 @@ import type {
 } from './workflow-definition.ts'
 import css from './WorkflowRunPanel.module.css'
 
-/** Navigation action injected from the plugin's own SessionsService access. */
+/** Navigation action injected from the plugin's own SessionRuntime access. */
 export interface WorkflowRunInjected {
   readonly openSession: (id: SessionId) => void
 }

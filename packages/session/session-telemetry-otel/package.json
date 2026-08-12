@@ -46,7 +46,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-telemetry": "workspace:^",
-    "@deepseek-ai/dsh-user-id": "workspace:^",
+    "@deepseek-ai/dsh-anonymous-user-id": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
@@ -56,7 +56,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-telemetry": "workspace:^",
-    "@deepseek-ai/dsh-user-id": "workspace:^",
+    "@deepseek-ai/dsh-anonymous-user-id": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

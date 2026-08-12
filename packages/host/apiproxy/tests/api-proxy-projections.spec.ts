@@ -18,7 +18,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -50,7 +50,7 @@ const lastUserUnit = (): ProjectionDefinition<'test/last-user', LastUserState> =
 async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: Session }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create()

@@ -285,7 +285,7 @@ export interface LlmResolvedModelInfo extends LlmModelInfo {
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
  * afterward; tool arguments remain raw JSON strings. An adapter implementation
- * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * may throw, but `LlmRuntime.stream()` normalizes that failure to a terminal
  * `error` or `aborted` finish before exposing it to consumers.
  */
 export type StreamChunk =

@@ -17,7 +17,7 @@ import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'tool-ralph'
-export const inject = ['tools', 'workflows', 'subagents', 'systemPrompt']
+export const inject = ['tools', 'workflowEngine', 'subagents', 'systemPrompt']
 
 /** Deployment policy for the fixed Ralph workflow. */
 export interface Config {
@@ -444,7 +444,7 @@ export function apply(ctx: Context, config: Config): void {
       const maxRounds = resolveMaxRounds(args.maxRounds, resolved.maxRounds)
       void requireFreshProvider(ctx, resolved.subagentProvider)
 
-      const run: WorkflowRun = ctx.workflows.start({
+      const run: WorkflowRun = ctx.workflowEngine.start({
         script: RALPH_SCRIPT,
         meta: RALPH_META,
         args: { objective, maxRounds, maxHandoffChars: resolved.maxHandoffChars },

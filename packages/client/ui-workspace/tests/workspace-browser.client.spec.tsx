@@ -30,7 +30,7 @@ const sessionState = (items: readonly SessionSummary[], overrides: Partial<Sessi
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
   phase: 'ready',
-  subagentsByParent: {}, tasksBySession: {},
+  subagentsByParent: {}, jobsBySession: {},
   currentAddress: undefined,
   ...overrides,
 })
@@ -104,16 +104,16 @@ describe('WorkspaceBrowser', () => {
     }
     const b = mount({ useWorkspaces: hook(pending) })
     act(() => {
-      b.store.actions.setWorkspaceExpanded('deleted', true)
-      b.store.actions.syncRecentSessions('deleted', ['session'], { session: 1 })
+      b.store.actions.setGroupExpanded('deleted', true)
+      b.store.actions.syncSessionOrderAccount('deleted', ['session'], { session: 1 })
     })
-    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ deleted: true })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ deleted: true })
 
     rerender(b, { useWorkspaces: hook(workspaceState([])) })
     await waitFor(() => {
-      expect(b.store.getSnapshot().workspaceExpansion).toEqual({})
-      expect(b.store.getSnapshot().recentSessionOrder).toEqual({ [UNGROUPED_KEY]: [] })
-      expect(b.store.getSnapshot().recentSessionUpdatedAt).toEqual({ [UNGROUPED_KEY]: {} })
+      expect(b.store.getSnapshot().groupExpansion).toEqual({})
+      expect(b.store.getSnapshot().sessionOrderByAccount).toEqual({ [UNGROUPED_KEY]: [] })
+      expect(b.store.getSnapshot().sessionUpdatedAtByAccount).toEqual({ [UNGROUPED_KEY]: {} })
     })
   })
 
@@ -173,7 +173,7 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+      expect(b.store.getSnapshot().sessionOrderByAccount[FLAT_SESSION_ORDER_KEY])
         .toEqual(['one', 'two', 'three'])
     })
 
@@ -185,14 +185,14 @@ describe('WorkspaceBrowser', () => {
     })
     fireEvent.dragStart(one, { dataTransfer: dragData() })
     fireDrag(three, 'drop', 180)
-    expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+    expect(b.store.getSnapshot().sessionOrderByAccount[FLAT_SESSION_ORDER_KEY])
       .toEqual(['two', 'three', 'one'])
     expect(insertSessionBefore).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+      expect(b.store.getSnapshot().sessionOrderByAccount[FLAT_SESSION_ORDER_KEY])
         .toEqual(['one', 'two', 'three'])
     })
 
@@ -244,9 +244,9 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
 
     fireEvent.click(screen.getByText('alpha'))
-    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: false })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: false })
     fireEvent.click(screen.getByText('alpha'))
-    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     expect(screen.queryByText('session-6')).toBeNull()
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
@@ -272,7 +272,7 @@ describe('WorkspaceBrowser', () => {
     })
     fireEvent.dragStart(one, { dataTransfer: dragData() })
     fireDrag(two, 'drop', 180)
-    expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '手动排序' }))
@@ -283,16 +283,16 @@ describe('WorkspaceBrowser', () => {
     const updated = sessionState([summary('one', 4), summary('two', 2)])
     rerender(b, { useSessions: hook(updated) })
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionUpdatedAt.alpha).toEqual({ one: 4, two: 2 })
+      expect(b.store.getSnapshot().sessionUpdatedAtByAccount.alpha).toEqual({ one: 4, two: 2 })
     })
-    expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
 
     // Entering Last updated performs one complete recency sort.
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['one', 'two'])
+      expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['one', 'two'])
       expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('one')
     })
 
@@ -301,7 +301,7 @@ describe('WorkspaceBrowser', () => {
     const promoted = sessionState([summary('one', 4), summary('two', 5)])
     rerender(b, { useSessions: hook(promoted) })
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+      expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
       expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
     })
 
@@ -310,7 +310,7 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(promoted),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
     })
-    expect(restored.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+    expect(restored.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
   })
 
@@ -378,11 +378,11 @@ describe('WorkspaceBrowser', () => {
       startSession,
     })
     startSession.mockImplementation(() => {
-      expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+      expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     })
     expect(screen.queryByText('alpha-s')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))
-    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     expect(screen.getByText('alpha-s')).toBeTruthy()
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
@@ -858,18 +858,18 @@ describe('WorkspaceBrowser', () => {
     }
 
     dragAfter('one', 'three')
-    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
     dragAfter('two', 'one')
-    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['three', 'one', 'two'])
+    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['three', 'one', 'two'])
     expect(insertSessionBefore).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
     await waitFor(() => {
-      expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['one', 'two', 'three'])
+      expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['one', 'two', 'three'])
     })
     dragAfter('one', 'three')
-    expect(b.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
     expect(insertSessionBefore).not.toHaveBeenCalled()
 
     b.view.unmount()
@@ -878,7 +878,7 @@ describe('WorkspaceBrowser', () => {
       useWorkspaces: hook(workspaceState([])),
       insertSessionBefore,
     })
-    expect(restored.store.getSnapshot().recentSessionOrder[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(restored.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
     expect(screen.getAllByRole('treeitem').slice(1).map(row => row.textContent)).toEqual([
       expect.stringContaining('two'),
       expect.stringContaining('three'),

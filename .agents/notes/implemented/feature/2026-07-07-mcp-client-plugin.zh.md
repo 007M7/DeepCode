@@ -8,7 +8,7 @@ Status: implemented
 
 harness 此前无法消费 MCP（Model Context Protocol）生态中的工具。MCP 是工具服务器的新兴标准——GitHub、文件系统、数据库、代码搜索以及数百个社区服务器都通过 MCP 暴露工具。用户希望将 harness 指向一个或多个 MCP 服务器，让其工具以原生的模型可见工具形式出现，而无需为每个服务器编写胶水代码。
 
-`ToolRegistry` 已经接受原始 JSON Schema 工具定义（`dsh-tools` README 中有记录：「Raw JSON-Schema tool definitions (from MCP servers) are still accepted by `ToolRegistry.register()` directly」），扩展实操手册（cookbook）也勾勒了预期模式（「MCP | one plugin per server: discover tools → `ctx.tools.register()`」）。基础设施已就绪，缺的是桥接插件。
+`ToolRuntime` 已经接受原始 JSON Schema 工具定义（`dsh-tools` README 中有记录：「Raw JSON-Schema tool definitions (from MCP servers) are still accepted by `ToolRuntime.register()` directly」），扩展实操手册（cookbook）也勾勒了预期模式（「MCP | one plugin per server: discover tools → `ctx.tools.register()`」）。基础设施已就绪，缺的是桥接插件。
 
 ## 决策
 
@@ -90,7 +90,7 @@ type Config = StdioConfig | StreamableHttpConfig
 每个 MCP 工具有两个名称：
 
 - `rawName`——MCP `Tool.name` 的原始值，仅用于协议通信（`tools/call`）。
-- `publicName`——在 `ToolRegistry` 中注册的全局唯一模型可见名称：
+- `publicName`——在 `ToolRuntime` 中注册的全局唯一模型可见名称：
 
       mcp__<serverName>__<rawName>
 
@@ -179,7 +179,7 @@ v1 否决：引入了部分可用状态（工具已注册但暂时不可用）�
 
 ### 仅服务器命名空间（`github__create_issue`，无 `mcp__` 前缀）
 
-v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 harness 工具分离，也丧失了 MCP 全局策略匹配模式（`mcp__*`）。前缀仅多花 5 个字符；`mcp__<server>__<tool>` 拼写与 Claude Code 和 Codex 一致，最大化模型的熟悉度。如果 ToolRegistry 未来引入源感知命名空间，届时可作为命名策略变更重新考虑去掉字面前缀。
+v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 harness 工具分离，也丧失了 MCP 全局策略匹配模式（`mcp__*`）。前缀仅多花 5 个字符；`mcp__<server>__<tool>` 拼写与 Claude Code 和 Codex 一致，最大化模型的熟悉度。如果 ToolRuntime 未来引入源感知命名空间，届时可作为命名策略变更重新考虑去掉字面前缀。
 
 ### 从服务器公告的 `serverInfo.name` 派生命名空间
 

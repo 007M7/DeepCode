@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
 import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
@@ -44,7 +44,7 @@ async function mount(root: string, compression?: JsonlCompression): Promise<Cont
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionPersistenceJsonl, {
+  await ctx.plugin(JsonlSessionPersistence, {
     root,
     ...(compression === undefined ? {} : { compression }),
   })
@@ -116,7 +116,7 @@ runPersistenceContract('jsonl-zstd', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-jsonl-zstd-contract-'))
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  const fiber = await ctx.plugin(SessionPersistenceJsonl, { root })
+  const fiber = await ctx.plugin(JsonlSessionPersistence, { root })
   return {
     persistence: ctx.sessionPersistence,
     dispose: async () => {
@@ -129,7 +129,7 @@ runPersistenceContract('jsonl-zstd', async () => {
 runCoordinatorContract('jsonl-zstd', async (): Promise<CoordinatorFixture> => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-jsonl-zstd-coordinator-'))
   return {
-    mount: async ctx => ctx.plugin(SessionPersistenceJsonl, { root }),
+    mount: async ctx => ctx.plugin(JsonlSessionPersistence, { root }),
     corruptTail: async (id, cwd) => {
       const line = JSON.stringify({
         type: 'assistant/chunk',
@@ -331,7 +331,7 @@ describe('Zstandard frame structure', () => {
   })
 })
 
-describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
+describe('JsonlSessionPersistence: default Zstandard encoding', () => {
   it('writes .jsonl.zstd by default with one header frame and one first-batch frame', async () => {
     const root = await freshRoot()
     const ctx = await mount(root)
@@ -394,9 +394,9 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const ctx = new Context()
     contexts.push(ctx)
     await ctx.plugin(SessionStore)
-    let backend!: SessionPersistenceJsonl
+    let backend!: JsonlSessionPersistence
     await ctx.plugin(Object.assign((inner: Context) => {
-      backend = new SessionPersistenceJsonl(inner, { root })
+      backend = new JsonlSessionPersistence(inner, { root })
     }, { inject: ['sessions'] }))
     const header = meta('direct-default')
     const path = logPath(root, header.cwd, header.id, 'zstd')
@@ -695,7 +695,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
   })
 })
 
-describe('SessionPersistenceJsonl: encoding selection', () => {
+describe('JsonlSessionPersistence: encoding selection', () => {
   it('rejects roots owned by the opposite encoding in both directions', async () => {
     const rawRoot = await freshRoot('dsh-jsonl-raw-mismatch-')
     const raw = await mount(rawRoot, 'none')
@@ -727,7 +727,7 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
       '',
     ].join('\n'))
     await expect(ctx.sessionPersistence.load(loadHeader.id)).rejects.toThrow(/uses \.jsonl/)
-    await expect((ctx.sessionPersistence as SessionPersistenceJsonl).loadStored(loadHeader.id))
+    await expect((ctx.sessionPersistence as JsonlSessionPersistence).loadStored(loadHeader.id))
       .rejects.toThrow(/uses \.jsonl/)
     await expect(ctx.sessionPersistence.list()).rejects.toThrow(/uses \.jsonl/)
   })

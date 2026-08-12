@@ -18,7 +18,7 @@ Status: implemented
 
 ### TodoPanel：持久化列表作为一条常驻横条
 
-面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry` 使用 `ctx.slots.inject`，不依赖 `ConversationService`，`order: 0` 排在队列条上方），空列表时隐藏，可折叠为标题加以 `·` 连接的各状态计数的表头（本地化，形如 `1 已完成 · 2 进行中 · 1 待处理`，计数为零的段落省略；折叠态不再附带进行中条目正文）。状态图标为 figma todo 套件（绿色勾选环／蓝色渐隐环／虚线未开始环），卡片使用 tip 表面（`--dsw-specific-tip`、14px 圆角、`width: calc(100% - 88px)`／`max-width: 776px` 居中；InputBar 顶部 6px 内边距是到输入卡的间距）。它经 dock entry 收到的标准件 `useProjection` hook 读取 host 计算的 `todos` 投影——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry` 使用 `ctx.slots.inject`，不依赖 `ConversationController`，`order: 0` 排在队列条上方），空列表时隐藏，可折叠为标题加以 `·` 连接的各状态计数的表头（本地化，形如 `1 已完成 · 2 进行中 · 1 待处理`，计数为零的段落省略；折叠态不再附带进行中条目正文）。状态图标为 figma todo 套件（绿色勾选环／蓝色渐隐环／虚线未开始环），卡片使用 tip 表面（`--dsw-specific-tip`、14px 圆角、`width: calc(100% - 88px)`／`max-width: 776px` 居中；InputBar 顶部 6px 内边距是到输入卡的间距）。它经 dock entry 收到的标准件 `useProjection` hook 读取 host 计算的 `todos` 投影——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 

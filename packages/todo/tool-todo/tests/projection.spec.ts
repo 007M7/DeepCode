@@ -15,9 +15,9 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, TodoItem } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -38,8 +38,8 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
   if (withTodoTool) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })

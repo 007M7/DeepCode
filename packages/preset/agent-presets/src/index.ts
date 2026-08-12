@@ -28,7 +28,7 @@ import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type 
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
-import { dshHomePath } from '@deepseek-ai/dsh-paths'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, USER_PRESET_DIR } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
@@ -123,7 +123,7 @@ export class AgentPresets extends Service {
    * shadow; a subtree minted from it resolves every service through that
    * shadow's fiber instead of each entry's own inject store, so preset rows
    * would fail on the very services they declare. Standing mounts must hang
-   * off the untraced original (the `tasks-local` selfCtx precedent).
+   * off the untraced original (the `jobs-local` selfCtx precedent).
    */
   private readonly selfCtx: Context
 
@@ -500,7 +500,7 @@ export class AgentPresets extends Service {
       const current = await compositionStamp(preset.path)
       if (current === undefined || sameStamp(mounted.stamp, current)) return mounted
       // TODO: reclaim the superseded generation once the last agent joined to
-      // it is gone. The subtree is not inert — `dsh-skill-local` watches its
+      // it is gone. The subtree is not inert — `dsh-skill-filesystem` watches its
       // roots — and the settings-page authoring flow turns "a composition
       // changed" into a per-save event. This needs a joined-agent count on
       // StandingMount, incremented in `mount`/`composeFrom`/`recompose` and

@@ -7,7 +7,7 @@ The code-execution capability seam (see [capability seams](../../.agents/notes/i
 | Package | Role | ctx key |
 |---|---|---|
 | [`code-runtime/`](code-runtime/README.md) | Service Definition and shared vocabulary | `ctx.codeRuntime` |
-| [`code-runtime-worker/`](code-runtime-worker/README.md) | Worker-thread backend | registers `ctx.codeRuntime` |
+| [`code-runtime-worker/`](code-runtime-worker-thread/README.md) | Worker-thread backend | registers `ctx.codeRuntime` |
 
 Providers register the service without changing its Consumer. The child READMEs own language, isolation, and execution-budget details.
 

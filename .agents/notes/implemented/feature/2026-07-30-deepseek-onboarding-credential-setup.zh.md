@@ -10,9 +10,9 @@ Status: implemented
 
 ## 决策
 
-**Models 与首次使用引导共享同一个就绪状态投影。**`ui-models` 维护一个 store，把 `llm.providers({})`、脱敏后的 `settings.describe({})` 和批量调用的 `credentials.describe({refs})` 联接为同一份状态。首次使用投影选取由 `llm-deepseek` namespace 与空 settings path 持有的 `deepseek-official` 可配置提供方条目，读取生效的 `apiKeyEnv`，并检查对应的凭据描述符。同 provider id 但没有匹配可配置提供方声明的存活路由，在首次使用引导中视为适配器缺失。通过进程环境提供的凭据若已配置，则判定为就绪并保持只读。
+**Models 与首次使用引导共享同一个就绪状态投影。**`ui-settings-models` 维护一个 store，把 `llm.providers({})`、脱敏后的 `settings.describe({})` 和批量调用的 `credentials.describe({refs})` 联接为同一份状态。首次使用投影选取由 `llm-deepseek` namespace 与空 settings path 持有的 `deepseek-official` 可配置提供方条目，读取生效的 `apiKeyEnv`，并检查对应的凭据描述符。同 provider id 但没有匹配可配置提供方声明的存活路由，在首次使用引导中视为适配器缺失。通过进程环境提供的凭据若已配置，则判定为就绪并保持只读。
 
-**设置外壳只贡献排序与导航，不持有提供方策略。** `ui-settings` 声明一个根作用域的 `settings.onboarding` list slot，并在当前界面为空白 Hero 时，每次只挂载一个有序步骤。当前注册方会收到 `complete()` 和私有 `openSection(id)` 回调；完成当前步骤后，所有权转交给下一项。`ui-models` 通过 `slots.inject()` 注册 DeepSeek 步骤及其 Models 分区，使每项贡献都跟随自身的声明生命周期，不让插件加载顺序成为约定；独立贡献的对话框也无法堆叠。排在它之前的产品级欢迎步骤由[版本化欢迎决策](2026-07-30-versioned-gui-welcome-onboarding.md)单独持有。
+**设置外壳只贡献排序与导航，不持有提供方策略。** `ui-settings` 声明一个根作用域的 `settings.onboarding` list slot，并在当前界面为空白 Hero 时，每次只挂载一个有序步骤。当前注册方会收到 `complete()` 和私有 `openSection(id)` 回调；完成当前步骤后，所有权转交给下一项。`ui-settings-models` 通过 `slots.inject()` 注册 DeepSeek 步骤及其 Models 分区，使每项贡献都跟随自身的声明生命周期，不让插件加载顺序成为约定；独立贡献的对话框也无法堆叠。排在它之前的产品级欢迎步骤由[版本化欢迎决策](2026-07-30-versioned-gui-welcome-onboarding.md)单独持有。
 
 **首次使用页面只负责跳转到唯一的凭据编辑器。**适配器已挂载且处于活跃状态，其引用可解析、可写但尚未配置时，界面会显示一个操作按钮，用于打开「设置」的 Models 分区。该分区已有的 DeepSeek 设置卡片全权负责密码输入框、`credentials.set({ref, value})`、写入失败处理和写入后刷新；首次使用页面绝不持有或提交 secret。
 

@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { createUserMessage, deepFreeze, markAgentLoopRequest  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, deepFreeze, markAgentLoopRequest  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
   SessionTitleProviderId,
@@ -48,7 +48,7 @@ function appendRoute(session: ReturnType<Context['sessions']['create']>, reason:
 }
 
 describe('SessionTitleService provider lifecycle', () => {
-  it('inherits title events across forks, skips first-message retitling, and lets all-messages update later', async () => {
+  it('inherits title events across forks, skips first-prompt retitling, and lets all-messages update later', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
@@ -71,7 +71,7 @@ describe('SessionTitleService provider lifecycle', () => {
     }))
     const disposeFirst = ctx.sessionTitle.register({
       id: SessionTitleProviderId('fork-first'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate: firstGenerate,
     })
     child.append('turn/start', {
@@ -91,7 +91,7 @@ describe('SessionTitleService provider lifecycle', () => {
     }))
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('fork-all'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate: allGenerate,
     })
     child.append('turn/start', {
@@ -112,14 +112,14 @@ describe('SessionTitleService provider lifecycle', () => {
     expect(ctx.sessionTitle.get(parent)?.title).toBe('Inherited title prompt')
   })
 
-  it('runs a first-message provider once after the routed request and retries only through refresh', async () => {
+  it('runs a first-prompt provider once after the routed request and retries only through refresh', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
     const requests: SessionTitleProviderRequest[] = []
     const provider: SessionTitleProvider = {
       id: SessionTitleProviderId('first-model'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       async generate(request) {
         requests.push(request)
         return {
@@ -175,7 +175,7 @@ describe('SessionTitleService provider lifecycle', () => {
     let observedSignal: AbortSignal | undefined
     const first: SessionTitleProvider = {
       id: SessionTitleProviderId('winner'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate(request) {
         observedSignal = request.signal
         return pending.promise
@@ -184,7 +184,7 @@ describe('SessionTitleService provider lifecycle', () => {
     const dispose = ctx.sessionTitle.register(first)
     expect(() => ctx.sessionTitle.register({
       id: SessionTitleProviderId('duplicate'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate: async () => ({ title: 'duplicate', messageSeqs: [0] }),
     })).toThrow(/already registered/)
 
@@ -211,7 +211,7 @@ describe('SessionTitleService provider lifecycle', () => {
 
     const replacement: SessionTitleProvider = {
       id: SessionTitleProviderId('replacement'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate: async () => ({ title: 'replacement', messageSeqs: [message.seq] }),
     }
     const disposeReplacement = ctx.sessionTitle.register(replacement)
@@ -226,7 +226,7 @@ describe('SessionTitleService provider lifecycle', () => {
     const requests: SessionTitleProviderRequest[] = []
     const provider: SessionTitleProvider = {
       id: SessionTitleProviderId('all-model'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate(request) {
         requests.push(request)
         if (requests.length === 1) return firstResult.promise
@@ -262,13 +262,13 @@ describe('SessionTitleService provider lifecycle', () => {
 
   it('runs an all-messages revision when the next main request reuses its logged header', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
     const requests: SessionTitleProviderRequest[] = []
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('unchanged-route'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       async generate(request) {
         requests.push(request)
         return {
@@ -316,7 +316,7 @@ describe('SessionTitleService provider lifecycle', () => {
 
   it('ignores model streams that are not a matching loop request', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
     const generate = vi.fn(async (request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult> => ({
@@ -325,7 +325,7 @@ describe('SessionTitleService provider lifecycle', () => {
     }))
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('request-filter'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate,
     })
     const options = { provider: 'main-route', model: 'chat-model', messages: [] }
@@ -353,7 +353,7 @@ describe('SessionTitleService provider lifecycle', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     const provider: SessionTitleProvider = {
       id: SessionTitleProviderId('failing'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate: async () => { throw new Error('title backend failed') },
     }
     ctx.sessionTitle.register(provider)

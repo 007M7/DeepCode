@@ -1,7 +1,7 @@
 /**
  * ui-skill browser half: source and keyed toolview registration +
  * locale dictionaries + source duplicate-name proof +
- * fiber-teardown removal (HMR safety) against the real SlashService, then
+ * fiber-teardown removal (HMR safety) against the real InputTriggerService, then
  * the source behavior contract driven directly on the captured source with
  * real ClientSessionContext projections — sessionId addressing, the
  * session-keyed catalog cache (single-flight per key, scope-birth warm
@@ -16,10 +16,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply, inject } from '../src/client/index.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
@@ -34,14 +34,14 @@ type InvokeResult =
 type InvokeFn = (payload: object) => Promise<{ result: InvokeResult }>
 
 interface PresentationCapture {
-  slots: SlotsService
+  slots: SlotRegistry
   dictionaries: Array<{ namespace: string; dictionaries: unknown }>
   localeDisposed: boolean
 }
 
 /** Provide the presentation registries and capture the plugin's registrations. */
 function providePresentation(ctx: Context): PresentationCapture {
-  const slots = new SlotsService(ctx)
+  const slots = new SlotRegistry(ctx)
   slots.register({
     name: 'root',
     children: { 'tool.call.toolview': { kind: 'keyed', scope: 'session' } },
@@ -65,8 +65,8 @@ function providePresentation(ctx: Context): PresentationCapture {
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
 async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
   const ctx = new Context()
-  let captured: SlashSource | undefined
-  ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
+  let captured: InputTriggerSource | undefined
+  ctx.provide('inputTriggers', { registerSource: (src: InputTriggerSource) => { captured = src; return () => {} } })
   const defaultInvoke: InvokeFn = () => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } })
   ctx.provide('connection', { api: { skills: { list, invoke: invoke ?? defaultInvoke } } })
   ctx.provide('sessions', {
@@ -107,12 +107,12 @@ const req = (query: string, signal?: AbortSignal) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'connection', 'sessions', 'slots', 'locale', 'remote'])
+    expect(inject).toEqual(['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote'])
   })
 
   it('registers the dedicated skill row and its locale dictionaries', async () => {
     const ctx = new Context()
-    ctx.provide('slash', { registerSource: () => () => {} })
+    ctx.provide('inputTriggers', { registerSource: () => () => {} })
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
     ctx.provide('sessions', { subagentAddress: () => undefined })
     new TestRemote(ctx)
@@ -144,15 +144,15 @@ describe('apply', () => {
 
   it('registers the "/" skill source; disposal frees the name (HMR safety)', async () => {
     const ctx = new Context()
-    // SlashService itself injects 'sessions'; the stub unblocks its fiber.
+    // InputTriggerService itself injects 'sessions'; the stub unblocks its fiber.
     ctx.provide('sessions', {})
-    await ctx.plugin(SlashService).await()
+    await ctx.plugin(InputTriggerService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
     new TestRemote(ctx)
     const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const slash = ctx.get('slash') as SlashService
+    const inputTriggers = ctx.get('inputTriggers') as InputTriggerService
     const rival = {
       trigger: '/' as const,
       name: 'skill',
@@ -160,10 +160,10 @@ describe('apply', () => {
       onPick: () => undefined,
     }
     // Live registration holds the (trigger, name) seat…
-    expect(() => slash.registerSource(rival)).toThrow(/already registered/)
+    expect(() => inputTriggers.registerSource(rival)).toThrow(/already registered/)
     // …and fiber teardown releases it.
     await fiber.dispose()
-    expect(() => slash.registerSource(rival)).not.toThrow()
+    expect(() => inputTriggers.registerSource(rival)).not.toThrow()
     expect(presentation.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(presentation.localeDisposed).toBe(true)
   })

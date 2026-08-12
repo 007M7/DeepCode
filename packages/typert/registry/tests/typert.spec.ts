@@ -9,19 +9,19 @@ import TypertRegistry, {
 } from '@deepseek-ai/dsh-typert-registry'
 import type {
   InvocationDescriptor,
-  TypeRTContext,
-  TypeRTLookup,
-  TypeRTRemoteContribution,
-} from '@deepseek-ai/dsh-type-meta'
+  TypertContext,
+  TypertLookup,
+  TypertRemoteContribution,
+} from '@deepseek-ai/dsh-typert-protocol'
 import { apply as applyClientRegistry, inject as clientRegistryInject } from '../src/client/index.ts'
 
-declare module '@deepseek-ai/dsh-type-meta' {
-  interface TypeRTLookupMap {
-    fixture: TypeRTLookup<{ readonly id: string }, string>
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertLookupMap {
+    fixture: TypertLookup<{ readonly id: string }, string>
   }
 
-  interface TypeRTContextMap {
-    registryFixture: TypeRTContext<string>
+  interface TypertContextMap {
+    registryFixture: TypertContext<string>
   }
 }
 
@@ -40,7 +40,7 @@ function toolsContribution(schema: z.ZodType = z.object({ name: z.string() })): 
     model: {
       services: [{
         key: 'tools',
-        exportName: 'ToolRegistry',
+        exportName: 'ToolRuntime',
         summary: 'Tool registry and execution pipeline.',
         tags: [],
         members: [{
@@ -258,7 +258,7 @@ describe('TypertRegistry', () => {
   it('mounts Remote contributions in the calling fiber and withdraws them exactly', async () => {
     const ctx = await makeCtx()
     const descriptor = invocation()
-    const contribution: TypeRTRemoteContribution = {
+    const contribution: TypertRemoteContribution = {
       package: '@fixture/remote',
       descriptors: [descriptor],
     }

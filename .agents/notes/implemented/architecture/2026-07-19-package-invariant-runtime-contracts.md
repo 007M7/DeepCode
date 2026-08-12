@@ -39,17 +39,17 @@ The current 103-package workspace has 21 executable companions and 82 justified 
 | `dsh-llm-retry` | Durable retry records identify the open turn's latest closed step, remain unique per step, increase monotonically, and stay within retry and non-negative timer bounds. |
 | `dsh-tools` | Monotonic pre/execute/post stages and immutable final execution/result snapshots. |
 | `dsh-system-prompt` | Authoritative assembly section, tool, and variable data constraints. |
-| `dsh-compact` | Compaction start/summary/end pairing, range endpoints, token counts, and successful-summary presence. |
+| `dsh-compaction` | Compaction start/summary/end pairing, range endpoints, token counts, and successful-summary presence. |
 | `dsh-hook-protocol` | Hook invocation/result correlation, dialect, identity, and duration constraints. |
 | `dsh-sandbox-policy` | Durable `sandbox/mode` events use the closed sandbox-mode vocabulary. |
 | `dsh-fs` | Filesystem decision/observation events carry usable target and version identities. |
 | `dsh-goal` | Durable goal snapshots preserve source attribution, rendered content, revisions, lifecycle and timestamp relationships, and sequential admitted rounds. |
-| `dsh-goal-session` | Goal-sourced continuation messages match the prompt reconstructed from the preceding durable goal state. |
+| `dsh-goal-round-driver` | Goal-sourced continuation messages match the prompt reconstructed from the preceding durable goal state. |
 | `dsh-subagent` | Provider add/remove and child start/end events preserve identity and pairing. |
-| `dsh-permission` | Durable permission decisions name a preset in the active permission table. |
+| `dsh-permission-presets` | Durable permission decisions name a preset in the active permission table. |
 | `dsh-user-approval` | Approval asked/decided records pair by call and use valid outcomes and policies. |
 | `dsh-workflow` | Workflow and child-agent start/end events preserve run metadata, identity, outcome, count, and error relations. |
-| `dsh-tasks` | Current and terminal task snapshots preserve id/kind, owner, status, and timestamp relationships. |
+| `dsh-jobs` | Current and terminal task snapshots preserve id/kind, owner, status, and timestamp relationships. |
 | `dsh-tool-todo` | Durable whole-list snapshots use unique trimmed items and closed statuses. |
 | `dsh-time-context` | Plugin-attributed clock readings agree with the session's open turn, next pre-step position, and elapsed baseline; rendered time parses and does not postdate its event. |
 
@@ -59,7 +59,7 @@ Session-backed companions validate existing durable events when they load, using
 
 `verify-package-invariants` discovers every workspace package and enforces companion source, exact-name registration, named-only Loader shape, `./invariant` exports, publication files, dependencies, TypeScript references, and bundle entries. Its AST rule rejects generated markers, default exports, and unexplained empty installers. A non-empty installer must accept and use the failure reporter, and registration must pass that checked local `install` function. The gate deliberately does not infer semantic quality from method names or helper calls.
 
-Vitest mounts `InvariantService` with `{ enabled: true }` for every package test topology and loads the owning companion. The invariant subpath path mapping resolves source companions instead of stale built output. Focused suites cover every executable companion's valid and invalid observations, and the exhaustive topology runs every source companion through the real Loader namespace normalization. After the structural gate validates each publication map, an artifact gate stages its manifest-declared `lib/` files, imports the compiled `./invariant` self-reference under plain Node, and repeats that Loader-shape check, so a companion that imports an undeclared runtime chunk fails before release. Tests that synthesize event streams must produce a valid surrounding lifecycle unless the test is intentionally asserting a violation.
+Vitest mounts `InvariantRegistry` with `{ enabled: true }` for every package test topology and loads the owning companion. The invariant subpath path mapping resolves source companions instead of stale built output. Focused suites cover every executable companion's valid and invalid observations, and the exhaustive topology runs every source companion through the real Loader namespace normalization. After the structural gate validates each publication map, an artifact gate stages its manifest-declared `lib/` files, imports the compiled `./invariant` self-reference under plain Node, and repeats that Loader-shape check, so a companion that imports an undeclared runtime chunk fails before release. Tests that synthesize event streams must produce a valid surrounding lifecycle unless the test is intentionally asserting a violation.
 
 ## Alternatives considered
 

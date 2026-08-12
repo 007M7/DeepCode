@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { createUserMessage, CallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
@@ -112,7 +112,7 @@ async function withScript(script: readonly StreamChunk[]): Promise<{
 }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   const adapter = new RecordingAdapter(script)
   ctx.llm.registerAdapter(['current-route'], adapter)
   return { ctx, adapter }
@@ -122,7 +122,7 @@ describe('generateSessionTitleWithLlm', () => {
   it('uses the exact logged route, language targets, full framed input, and output token cap', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     const providerRequest = request(ctx)
     let requestWasLoggedAtDispatch = false
     const adapter = new RecordingAdapter(SCRIPT, () => {
@@ -176,7 +176,7 @@ describe('generateSessionTitleWithLlm', () => {
   it('uses paired explicit overrides and bounds the final framed input before model dispatch', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     const adapter = new RecordingAdapter(SCRIPT)
     ctx.llm.registerAdapter(['explicit-route'], adapter)
     const oversized = request(ctx)
@@ -316,7 +316,7 @@ describe('generateSessionTitleWithLlm', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SessionStore)
-      await ctx.plugin(LlmService)
+      await ctx.plugin(LlmRuntime)
       ctx.llm.registerAdapter(['current-route'], new CooperativeAdapter())
       const providerRequest = request(ctx)
       const pending = generateSessionTitleWithLlm(
@@ -342,7 +342,7 @@ describe('generateSessionTitleWithLlm', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(SessionStore)
-      await ctx.plugin(LlmService)
+      await ctx.plugin(LlmRuntime)
       ctx.llm.registerAdapter(['current-route'], new DelayedSuccessAdapter(20))
       const providerRequest = request(ctx)
       const pending = generateSessionTitleWithLlm(

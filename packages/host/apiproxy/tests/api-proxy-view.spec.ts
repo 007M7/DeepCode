@@ -13,12 +13,12 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -68,8 +68,8 @@ async function harness(): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
   ctx.tools.register(tool('gen', {
     presentCall: () => ({ card: 'generic', title: 'gen call' }),
@@ -249,7 +249,7 @@ describe('mux live view computation', () => {
     const shadowed = [...session.surface.nodes]
     // A compaction transaction: a log-only summary record immediately followed by the
     // replacement that shadows the range.
-    const summary = appendExtension(session, 'compact/summary', {
+    const summary = appendExtension(session, 'compaction/summary', {
       summary: [{ type: 'text', text: 'summary' }],
       shadowedRange: { start: shadowed[0], end: shadowed.at(-1) },
       shadowedSeqs: shadowed,

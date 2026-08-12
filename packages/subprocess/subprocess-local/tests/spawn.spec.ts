@@ -706,10 +706,10 @@ describe('tree-survivor escalation (terminate and bounded waits reach helpers th
 
   it('service teardown awaits tree survivors, not just handle settlement', async () => {
     const { Context } = await import('@deepseek-ai/cordis')
-    const { default: LocalSubprocessService } = await import('@deepseek-ai/dsh-subprocess-local')
+    const { default: LocalSubprocessRuntime } = await import('@deepseek-ai/dsh-subprocess-local')
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
-    ;(ctx.subprocess as InstanceType<typeof LocalSubprocessService>).internals = { spillDir }
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    ;(ctx.subprocess as InstanceType<typeof LocalSubprocessRuntime>).internals = { spillDir }
     const pidFile = join(spillDir, `survivor-svc-${Date.now()}.pid`)
     const running = ctx.subprocess.spawn(spec(
       `bash -c 'trap "" TERM; echo $$ > ${pidFile}; sleep 60' >/dev/null 2>&1 & disown; exit 0`,

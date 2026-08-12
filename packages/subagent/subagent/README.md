@@ -8,7 +8,7 @@ The [subagent family overview](../README.md) maps implementations and model-faci
 
 ## Service API
 
-`SubagentService` has these operations:
+`SubagentRuntime` has these operations:
 
 | Member | Meaning |
 |---|---|
@@ -94,7 +94,7 @@ Run events are scoped to the delegating parent. Every listener is independently 
 
 Provider additions and removals also emit `subagent/provider-added` and `subagent/provider-removed`. Consumers such as the model-facing tool use those events because Cordis may load sibling plugins concurrently; configuration order does not prove registration order.
 
-Continuable children do not create `SubagentRun` or Tasks. The continuation manager directly owns one process-local Activation and retained `AgentHandle` per resident child Session, uses the Agent inbox as the only FIFO, and cold-resumes from the durable descriptor. Exact live direct-parent identity authorizes parent-to-child delivery. Exact live child identity authorizes reports; the manager derives the recipient from durable `parentSession`, and `MessageSource` records the sender without granting authority. Interrupt authority is deliberately wider than delivery authority: a human presents the durable direct-parent address so a live child stays stoppable while its parent Agent is offline, and any exact live ancestor recorded in the Activation's materialization lineage may stop its descendant, because stopping a turn is idempotent and delivers no content.
+Continuable children do not create `SubagentRun` or Jobs. The continuation manager directly owns one process-local Activation and retained `AgentHandle` per resident child Session, uses the Agent inbox as the only FIFO, and cold-resumes from the durable descriptor. Exact live direct-parent identity authorizes parent-to-child delivery. Exact live child identity authorizes reports; the manager derives the recipient from durable `parentSession`, and `MessageSource` records the sender without granting authority. Interrupt authority is deliberately wider than delivery authority: a human presents the durable direct-parent address so a live child stays stoppable while its parent Agent is offline, and any exact live ancestor recorded in the Activation's materialization lineage may stop its descendant, because stopping a turn is idempotent and delivers no content.
 
 When `ctx.sessionProjections` is available, the service registers two projection units. `subagentTiming` resets at each descriptor so a fork seed's ancestor work cannot enter the child's total, then accumulates `turn/start` → `turn/end` active time and retains same-cut `active.since` and `active.through` bounds for an open turn; while that turn remains open, `active.through` follows the latest folded event, giving an inactive consumer a conservative crash bound without mixing in newer session metadata. `subagent` folds the durable identity — mode plus creation label — from `subagent/descriptor` events with the same last-wins reset discipline, so a fork seed's ancestor descriptor stands only until the child's own overrides it; a malformed or unrecognized-version payload folds to the serializable `null` sentinel — indistinguishable from a log with no descriptor, and surviving every JSON push frame so a consumer replaces a stale identity instead of keeping it — and never throws.
 
@@ -131,7 +131,7 @@ Every in-process child's runtime-context snapshot carries the `subagent:delegati
 ##### The delegation-scope statement
 
 ```markdown
-You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the job needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
 ```
 
 #### Token effect

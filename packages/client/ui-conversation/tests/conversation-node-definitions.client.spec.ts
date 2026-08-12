@@ -588,12 +588,12 @@ describe('built-in conversation node Definitions', () => {
         name: 'compact',
         source: { kind: 'user' },
       }),
-      at(11, 'compact/start', {
+      at(11, 'compaction/start', {
         compactionId: 'manual-1',
         sourceCommandId: 'command-1',
         turn: null,
       }),
-      at(12, 'compact/summary', {
+      at(12, 'compaction/summary', {
         compactionId: 'manual-1',
         sourceCommandId: 'command-1',
         summary: [{ type: 'text', text: 'manual summary' }],
@@ -609,7 +609,7 @@ describe('built-in conversation node Definitions', () => {
           sourceCommandId: 'command-1',
         },
       }, { surfaceOp: { op: 'replace', start: 1, end: 2 } }),
-      at(14, 'compact/end', {
+      at(14, 'compaction/end', {
         compactionId: 'manual-1',
         sourceCommandId: 'command-1',
         turn: null,
@@ -619,8 +619,8 @@ describe('built-in conversation node Definitions', () => {
         kind: 'success',
         sourceEventSeq: 12,
       }),
-      at(20, 'compact/start', { compactionId: 'automatic-1', turn: null }),
-      at(21, 'compact/summary', {
+      at(20, 'compaction/start', { compactionId: 'automatic-1', turn: null }),
+      at(21, 'compaction/summary', {
         compactionId: 'automatic-1',
         summary: [{ type: 'text', text: 'automatic summary' }],
         shadowedSeqs: [3, 4],
@@ -630,7 +630,7 @@ describe('built-in conversation node Definitions', () => {
         ...textMessage('automatic-checkpoint', 'checkpoint'),
         source: { kind: 'plugin', plugin: 'compact', compactionId: 'automatic-1' },
       }, { surfaceOp: { op: 'replace', start: 3, end: 4 } }),
-      at(23, 'compact/end', { compactionId: 'automatic-1', turn: null }),
+      at(23, 'compaction/end', { compactionId: 'automatic-1', turn: null }),
     ])
 
     const manual = node(snapshot(compactions), 'manual-compaction')
@@ -654,8 +654,8 @@ describe('built-in conversation node Definitions', () => {
     expect(before?.data).toMatchObject({ summary: null, summaryEventSeq: null })
 
     value.prepend([
-      at(9, 'compact/start', { compactionId: 'compact-1', turn: null }),
-      at(10, 'compact/summary', {
+      at(9, 'compaction/start', { compactionId: 'compact-1', turn: null }),
+      at(10, 'compaction/summary', {
         compactionId: 'compact-1',
         summary: [
           { type: 'text', text: 'older ' },
@@ -680,7 +680,7 @@ describe('built-in conversation node Definitions', () => {
 
   it('renders a historical compaction when its start remains outside the loaded window', () => {
     const value = assembler([
-      at(10, 'compact/summary', {
+      at(10, 'compaction/summary', {
         compactionId: 'compact-windowed',
         summary: [{ type: 'text', text: 'loaded summary' }],
         shadowedSeqs: [1, 2, 3],
@@ -702,10 +702,10 @@ describe('built-in conversation node Definitions', () => {
 
   it('ignores legacy compaction transactions without correlation ids', () => {
     const value = assembler([
-      at(10, 'compact/start', { turn: null }),
-      at(11, 'compact/end', { turn: null, error: 'This operation was aborted' }),
-      at(20, 'compact/start', { turn: null }),
-      at(21, 'compact/summary', {
+      at(10, 'compaction/start', { turn: null }),
+      at(11, 'compaction/end', { turn: null, error: 'This operation was aborted' }),
+      at(20, 'compaction/start', { turn: null }),
+      at(21, 'compaction/summary', {
         summary: [{ type: 'text', text: 'legacy summary' }],
         shadowedSeqs: [1, 2, 3],
         shadowedTokenCount: 42,
@@ -714,7 +714,7 @@ describe('built-in conversation node Definitions', () => {
         ...textMessage('legacy-checkpoint', 'checkpoint'),
         source: { kind: 'plugin', plugin: 'compact' },
       }, { surfaceOp: { op: 'replace', start: 1, end: 3 } }),
-      at(23, 'compact/end', { turn: null }),
+      at(23, 'compaction/end', { turn: null }),
     ], true)
 
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
@@ -897,7 +897,7 @@ describe('built-in conversation node Definitions', () => {
         step: 1,
         message: toolResult('root', 'root result'),
       }, { surfaceOp: 'append' }),
-      at(20, 'compact/summary', {
+      at(20, 'compaction/summary', {
         compactionId: 'manual-1',
         sourceCommandId: 'command-1',
         summary: [{ type: 'text', text: 'manual summary' }],

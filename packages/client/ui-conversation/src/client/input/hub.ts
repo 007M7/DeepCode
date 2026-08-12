@@ -1,18 +1,18 @@
 /**
- * InputHub: the InputService implementation (`ctx.conversation.input`) — one
+ * InputHub: the SessionInputResolver implementation (`ctx.conversation.input`) — one
  * SessionInputShell per session, created inside the sessions provide
  * materialization (the 'input' standard-kit entry IS the
  * creation trigger) and torn down by the scope disposer (instance-and-scope
  * share one lifecycle). The hub registers the three scoped input-mutation
- * listeners on each session's actx (the sole consumer side of the ui-slash
+ * listeners on each session's actx (the sole consumer side of the ui-input-trigger
  * bail events) and owns the default-sink choreography: every session is a
  * real host entity, so the sink is one unconditional prompt path.
  */
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { InputTriggerController } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { queueReadFaceOf } from '../queue/store.ts'
-import type { ComposerKeyboard, DraftAttachmentId, InputService, SessionInput } from './contract.ts'
+import type { ComposerKeyboard, DraftAttachmentId, SessionInputResolver, SessionInput } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
@@ -33,8 +33,8 @@ interface ConversationAttachmentFace {
   releaseDraftImage(id: DraftAttachmentId): void
 }
 
-/** Session-addressed input facade registry (InputService face + composer-layer extras). */
-export class InputHub implements InputService {
+/** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
+export class InputHub implements SessionInputResolver {
   private readonly shells = new Map<SessionId, SessionInputShell>()
 
   /**
@@ -47,7 +47,7 @@ export class InputHub implements InputService {
   ) {}
 
   /**
-   * Resolve the facade for one session-scope ctx (InputService face).
+   * Resolve the facade for one session-scope ctx (SessionInputResolver face).
    * @param actx - session-scope context.
    * @returns the resident per-session facade.
    */
@@ -72,7 +72,7 @@ export class InputHub implements InputService {
     const { sessionId: id, session, ctx: actx } = binding
     const shell = new SessionInputShell({
       actx,
-      slash: () => this.controller(actx),
+      inputTriggers: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
       defaultSink: (text, imageIds, mode) => { this.sink(session, text, imageIds, mode) },
@@ -133,9 +133,9 @@ export class InputHub implements InputService {
    * Resolve the optional slash controller for composer chrome that launches
    * the shared candidate menu without typing a trigger.
    * @param id - session id.
-   * @returns the resident controller, or undefined when ui-slash is absent.
+   * @returns the resident controller, or undefined when ui-input-trigger is absent.
    */
-  slash(id: SessionId): SlashController | undefined {
+  inputTriggers(id: SessionId): InputTriggerController | undefined {
     const actx = this.sessions().scope(id)
     return actx === undefined ? undefined : this.controller(actx)
   }
@@ -191,13 +191,13 @@ export class InputHub implements InputService {
     }
   }
 
-  private controller(actx: ClientContext): SlashController | undefined {
-    const slash = this.rootCtx.get('slash')
-    return slash?.sessionOf(actx)
+  private controller(actx: ClientContext): InputTriggerController | undefined {
+    const inputTriggers = this.rootCtx.get('inputTriggers')
+    return inputTriggers?.sessionOf(actx)
   }
 
   private popup(actx: ClientContext): PopupDismissFace | undefined {
-    const command = this.rootCtx.get('command') as CommandFace | undefined
+    const command = this.rootCtx.get('commandUi') as CommandFace | undefined
     return command?.popupFor(actx)
   }
 

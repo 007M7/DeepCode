@@ -28,10 +28,10 @@
     workspaceRoot: !!js process.cwd()
 
 - id: pty
-  name: '@deepseek-ai/dsh-pty'
+  name: '@deepseek-ai/dsh-terminal'
 
-- id: pty-local
-  name: '@deepseek-ai/dsh-pty-local'
+- id: terminal-bash
+  name: '@deepseek-ai/dsh-terminal-bash'
   config:
     pollIntervalMs: 25
     exactProbeAfterMs: 150
@@ -43,8 +43,8 @@
 - id: lsp
   name: '@deepseek-ai/dsh-lsp'
 
-- id: lsp-local
-  name: '@deepseek-ai/dsh-lsp-local'
+- id: lsp-stdio
+  name: '@deepseek-ai/dsh-lsp-stdio'
   config:
     servers:
       fixture:

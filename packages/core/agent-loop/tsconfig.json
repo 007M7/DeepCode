@@ -42,7 +42,7 @@
       "path": "../../settings/settings"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

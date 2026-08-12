@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import Lsp, { LspProviderId, type LspProvider, type LspProviderQuery, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import { DEFAULT_LSP_TOOL_TIMEOUT_MS, LSP_PROMPT_TEXT } from '@deepseek-ai/dsh-tool-lsp'
@@ -33,7 +33,7 @@ async function mount(
 ): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(Lsp)
   if (provider) (ctx.lsp as Lsp).registerProvider(provider)
   await ctx.plugin(ToolLsp, config)

@@ -40,7 +40,7 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../util/brand"

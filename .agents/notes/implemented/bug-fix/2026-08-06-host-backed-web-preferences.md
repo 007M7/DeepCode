@@ -8,7 +8,7 @@ English | [中文](2026-08-06-host-backed-web-preferences.zh.md)
 
 The Web Appearance, Language, and busy-Enter preferences lived in browser `localStorage`. Browser storage is scoped to an origin, so reopening `dsh web` on another port selected a different partition and lost choices even though both processes used the same DSH home. These are user-level product preferences; session selection, drafts, disclosure state, and other transient browser state remain page-local.
 
-The first theme implementation moved only Appearance to Host settings but awaited its initial RPC before providing `ThemeService`. A slow or unavailable settings request therefore suspended the assembled page. It also subscribed after the read, could miss an invalidation in that window, did not carry namespace revisions on writes, and allowed queued writes from a disposed plugin to reach the Host.
+The first theme implementation moved only Appearance to Host settings but awaited its initial RPC before providing `ThemeRuntime`. A slow or unavailable settings request therefore suspended the assembled page. It also subscribed after the read, could miss an invalidation in that window, did not carry namespace revisions on writes, and allowed queued writes from a disposed plugin to reach the Host.
 
 ## Decision
 

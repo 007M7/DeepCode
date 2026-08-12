@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PanelActions } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
-import { LayoutService } from './service.ts'
+import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
@@ -20,7 +20,7 @@ import { ThemePresenter } from './theme-presenter.ts'
 // ILayout: the ctx.layout face consumers and test fakes type against.
 // OwnerShare contracts below are the render-side halves registrants compose
 // against; the frame components and the store factory are package-internal.
-export { LayoutService } from './service.ts'
+export { LayoutController } from './service.ts'
 export type { ILayout } from './service.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -74,7 +74,7 @@ export const inject = ['slots', 'theme']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const layout = new LayoutService()
+  const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({

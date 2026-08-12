@@ -14,7 +14,7 @@ The package also made the repository's supported application inventory misleadin
 
 The `packages/ui/tui` package is deleted without a compatibility package or alias. Its source, package tests, terminal snapshots, dependency declarations, patched `pi-tui` artifact, workspace references, generated service catalog entry, and documentation are removed together. Generic host and agent-loop capabilities remain unchanged.
 
-The SDK project toolchain that remained as the TUI package's final consumer is deleted by the [toolchain removal decision](2026-08-11-remove-sdk-project-toolchain.md). Host applications may still mount the provider-neutral `dsh-user-interaction`, `dsh-commands`, and presentation services directly.
+The SDK project toolchain that remained as the TUI package's final consumer is deleted by the [toolchain removal decision](2026-08-11-remove-sdk-project-toolchain.md). Host applications may still mount the provider-neutral `dsh-user-questions`, `dsh-commands`, and presentation services directly.
 
 This decision supersedes the reusable-package retention in [the explicit-config `dsh` entrypoint decision](../../archived/simplification/2026-08-03-explicit-config-dsh-entrypoint.md) and the current applicability of the archived TUI implementation notes. Their historical records remain frozen, but they are not authority for the supported package or application inventory.
 
@@ -36,4 +36,4 @@ Repository searches and generated catalogs contain no TUI package, dependency pa
 
 DeepSeek Harness has no terminal UI package. Existing imports and `cordis.yml` rows that depend on the package fail instead of being translated. Web remains the shipped interactive surface; ACP, JSON-RPC, and one-shot CLI remain the non-Web entry points.
 
-The provider-neutral command, user-interaction, approval, tool-presentation, PTY, and session-projection capabilities remain available to other hosts. Reintroducing a terminal frontend requires a named product or deployment, an explicit package boundary, a concrete interaction provider, and assembled lifecycle and transcript acceptance for that frontend.
+The provider-neutral command, user-questions, approval, tool-presentation, PTY, and session-projection capabilities remain available to other hosts. Reintroducing a terminal frontend requires a named product or deployment, an explicit package boundary, a concrete interaction provider, and assembled lifecycle and transcript acceptance for that frontend.

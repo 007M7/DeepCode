@@ -17,7 +17,7 @@ Status: implemented
 - `{ kind: 'user', parentSessionId }`——人类出示持久化直接 parent 地址。在线目标的 `session.header.parentSession` 必须匹配；不涉及在线 parent Agent、目录读取或持久化访问，这正是 parent Agent 离线时在线 child 仍可被停止的原因。取消 cause 为 `user`。
 - `{ kind: 'ancestor', agent }`——一个确切在线的 ancestor Agent（直接 parent 或更深）。调用方必须是注册表中其 id 的当前条目（过期调用方即使目标不存在也被拒绝），不得是目标本身，并且必须出现在 Activation 物化时记录的 `ancestry` WeakSet 中。取消 cause 为 `parent`。
 
-目标只在管理器进程本地的 Activation map 中解析。不存在的 id——未知、一次性或已自然结算——是被接受的 no-op，统一覆盖完成竞态和重复请求而不泄露持久化目录信息；disposal 事务已打开的目标在鉴权后同样是被接受的 no-op。一次性生命周期（持有方 `dispose()`、task-kill）不受影响。`SubagentService.interrupt()` 把未绑定管理器的组合视为被接受的 no-op 而不是 `CONTINUATION_UNAVAILABLE`，因为没有管理器就不可能存在管理器拥有的在线 Activation。
+目标只在管理器进程本地的 Activation map 中解析。不存在的 id——未知、一次性或已自然结算——是被接受的 no-op，统一覆盖完成竞态和重复请求而不泄露持久化目录信息；disposal 事务已打开的目标在鉴权后同样是被接受的 no-op。一次性生命周期（持有方 `dispose()`、task-kill）不受影响。`SubagentRuntime.interrupt()` 把未绑定管理器的组合视为被接受的 no-op 而不是 `CONTINUATION_UNAVAILABLE`，因为没有管理器就不可能存在管理器拥有的在线 Activation。
 
 Host RPC `subagent.interrupt` 接收 continuable 的 `SubagentAddress` 并返回 `{ accepted: true }`。它的实现只以 `user` 授权调用核心原语——刻意不调用 `catalogChild()`、`listChildren()`、`sessionQuery` 或 parent 注册表查找。parent 地址不匹配的在线目标映射为 `subagent-unauthorized`；意外失败映射为 `internal`，不把错误文本泄漏到 wire。
 
@@ -41,7 +41,7 @@ Host RPC `subagent.interrupt` 接收 continuable 的 `SubagentAddress` 并返回
 
 在 Web 侧，正在运行的 continuable child 使用相互独立的 Send 与 Stop 操作：客户端 `Session.cancel()` 将 Stop 路由到 `subagent.interrupt`（one-shot 地址保持不可取消，普通会话仍通过 `session.cancel` 保留既有的 primary Send/Stop 切换），同时 Send 继续将后续消息加入队列。parent 离线但仍在运行的 continuable child 保留默认 composer，禁用输入区与 Send，但 Stop 仍然可达；停止后恢复为只读接管界面（周边目录与 composer 约定由 [Web subagent 对话](2026-07-27-web-subagent-conversations.md)拥有）。
 
-`dsh-tool-subagent-control` 中面向模型的 `interrupt_agent(agent_id)` 工具把 `exec.agent` 作为 `ancestor` 授权传入，自身不增加任何权限：核心原语校验在线注册表身份与记录的 lineage，因此该工具可以用同一个通用 `agent_id` 参数指定直接 child 或更深的后代——刻意不用会暗示仅限直接 child 的 `subagent_id`。发现依赖 `list_agents({ scope: 'descendants' })`，其底层是新的 `SubagentService.listDescendants()` 单次追踪 pre-order 遍历，每个条目带经校验的 `parentId`／`depth`（列表约定由[持久化目录 note](2026-07-22-durable-subagent-catalog-and-list-agents.md)拥有）；发现只是提示，绝非权限。`send_message` 保持其确切直接 parent 权限——只有中断是 ancestor 级的。
+`dsh-tool-subagent-control` 中面向模型的 `interrupt_agent(agent_id)` 工具把 `exec.agent` 作为 `ancestor` 授权传入，自身不增加任何权限：核心原语校验在线注册表身份与记录的 lineage，因此该工具可以用同一个通用 `agent_id` 参数指定直接 child 或更深的后代——刻意不用会暗示仅限直接 child 的 `subagent_id`。发现依赖 `list_agents({ scope: 'descendants' })`，其底层是新的 `SubagentRuntime.listDescendants()` 单次追踪 pre-order 遍历，每个条目带经校验的 `parentId`／`depth`（列表约定由[持久化目录 note](2026-07-22-durable-subagent-catalog-and-list-agents.md)拥有）；发现只是提示，绝非权限。`send_message` 保持其确切直接 parent 权限——只有中断是 ancestor 级的。
 
 ## 测试
 

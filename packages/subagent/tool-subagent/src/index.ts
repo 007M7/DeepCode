@@ -16,7 +16,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth, settleRun } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
-import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
+import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'tool-subagent'
@@ -109,7 +109,7 @@ function outputValueText(values: JsonValue[]): string {
 }
 
 /** Settle pending startup without rejecting the task producer contract. */
-async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<TaskOutcome> {
+async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<JobOutcome> {
   try {
     return await settleRun(await start)
   } catch (error: unknown) {
@@ -302,7 +302,7 @@ export function apply(ctx: Context, config: Config): void {
         // continuable background path is reachable at all.
         ? continuable
           ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
-          : ' This call waits for the result by default. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
+          : ' This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
         : ' This call waits for the subagent and returns its result.'),
       parameters: {
         description: {
@@ -320,7 +320,7 @@ export function apply(ctx: Context, config: Config): void {
             type: 'boolean' as const,
             description: continuable
               ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
-              : 'Whether to run as a background task and return its id. Defaults to false; collect with task_output or stop with task_kill.',
+              : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
           },
         } : {},
       },
@@ -332,7 +332,7 @@ export function apply(ctx: Context, config: Config): void {
               additionalProperties: false,
               properties: {
                 kind: { type: 'string', required: true, const: 'background' },
-                taskId: { type: 'string', required: true },
+                jobId: { type: 'string', required: true },
               },
             },
             {
@@ -357,7 +357,7 @@ export function apply(ctx: Context, config: Config): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background subagent task ${value.taskId}`
+            ? `started background subagent task ${value.jobId}`
             : value.kind === 'continuable'
               ? `started subagent ${value.subagentId}`
               : outputValueText(value.output),
@@ -397,13 +397,13 @@ export function apply(ctx: Context, config: Config): void {
             })
             return { kind: 'continuable' as const, subagentId: started.childId }
           }
-          const tasks = ctx.get('tasks')
-          if (tasks === undefined) {
-            throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+          const jobs = ctx.get('jobs')
+          if (jobs === undefined) {
+            throw new Error('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
           }
-          // One-shot background child: task preflight finishes before the
+          // One-shot background child: job preflight finishes before the
           // starter can spawn, and the task-owned signal covers startup.
-          const id = tasks.start({
+          const id = jobs.start({
             kind: 'subagent',
             label: args.description,
             owner: parent,
@@ -419,7 +419,7 @@ export function apply(ctx: Context, config: Config): void {
               }
             },
           })
-          return { kind: 'background' as const, taskId: id }
+          return { kind: 'background' as const, jobId: id }
         }
 
         const run: SubagentRun = await ctx.subagents.start(config.provider, {

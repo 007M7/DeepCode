@@ -10,7 +10,7 @@ Status: implemented
 
 这两份文件都名不副实。`examples/tui-agent` 并不是示例：`apps/cli/src/tui.ts` 把它硬编码为产品的默认配置；它还拥有 TUI 的 PTY 冒烟测试、八个终端快照场景，以及被 `cordis-agent` 叶节点 import 的 PTY harness。`dsh-tui-demo` 也不是 demo——它就是应用本身，由交付的二进制从 `packages/examples/` 中挂载。
 
-真正决定性的问题是重复。43 个共享配置项中，38 个逐字节相同，5 个因各 surface 的正当理由而不同；因此每次能力改动都必须改两处，而且可能无声漂移。该组合包还反转了一个默认值：`composeTuiApp` 读取 `config.goals ?? {}`，于是交付的 TUI 挂载了 goals、`tool-goal`、`goal-session` 和 `/goal`——尽管没有任何配置键要求它们。
+真正决定性的问题是重复。43 个共享配置项中，38 个逐字节相同，5 个因各 surface 的正当理由而不同；因此每次能力改动都必须改两处，而且可能无声漂移。该组合包还反转了一个默认值：`composeTuiApp` 读取 `config.goals ?? {}`，于是交付的 TUI 挂载了 goals、`tool-goal`、`goal-round-driver` 和 `/goal`——尽管没有任何配置键要求它们。
 
 ## 决策
 
@@ -24,7 +24,7 @@ Status: implemented
 
 patch 会整体替换目标配置项的 `config` 而不合并。因此，取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
 
-`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/self-modification/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP（Agent Client Protocol）overlay。
+`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/extensions/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP（Agent Client Protocol）overlay。
 
 ## 备选方案
 

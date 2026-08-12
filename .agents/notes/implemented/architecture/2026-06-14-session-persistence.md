@@ -12,7 +12,7 @@ The [event-sourced model](2026-06-11-event-sourced-sessions.md) makes the append
 
 ## Decision
 
-Persistence is a **capability seam** with an abstract Service Definition ([capability seams](2026-06-13-capability-seams.md), the `dsh-bash` template), not loop or core logic:
+Persistence is a **capability seam** with an abstract Service Definition ([capability seams](2026-06-13-capability-seams.md), the `dsh-shell` template), not loop or core logic:
 
 1. **Interface** (`dsh-session-persistence`, `ctx.sessionPersistence`) — an abstract `SessionPersistence` service: `locate`/`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`list`/`listSnapshots`. Its persisted unit IS the existing `SessionEvent` (`{ type, seq, time, data }`), reused verbatim — no conversion type.
 2. **Implementation** (`dsh-session-persistence-jsonl`) — an append-only logical JSONL log per session: a `SessionHeader` line followed by storage records that losslessly represent the contiguous `SessionEvent` stream. Eligible `assistant/chunk` delta runs use packed rows by default; [checksummed Zstandard frames](2026-07-19-zstandard-jsonl-session-logs.md) are the default physical encoding, with raw lines configurable.

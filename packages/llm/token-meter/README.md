@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Replay-aware token measurement through the singleton `ctx.tokenMeter` service. It advances one isolated fold per session from the durable log, so compaction and other pressure-sensitive plugins can share accounting without depending on `CompactService`.
+Replay-aware token measurement through the singleton `ctx.tokenMeter` service. It advances one isolated fold per session from the durable log, so compaction and other pressure-sensitive plugins can share accounting without depending on `CompactionEngine`.
 
 ## Configuration
 
@@ -47,14 +47,14 @@ The [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-proj
 
 ```yaml
 - name: '@deepseek-ai/dsh-token-meter'
-- name: '@deepseek-ai/dsh-compact-basic'
+- name: '@deepseek-ai/dsh-compaction-basic'
 ```
 
-Both plugins have usable defaults. The meter remains independent of model routing and optional compaction. A deployment configures capacity on its LLM adapter and compaction policy on `dsh-compact-basic`.
+Both plugins have usable defaults. The meter remains independent of model routing and optional compaction. A deployment configures capacity on its LLM adapter and compaction policy on `dsh-compaction-basic`.
 
 ## Model Experience
 
-Indirectly, through consumers such as `dsh-compact-basic`; the service itself adds no prompt, message, schema, tool, or model call.
+Indirectly, through consumers such as `dsh-compaction-basic`; the service itself adds no prompt, message, schema, tool, or model call.
 
 #### KV Cache effect
 

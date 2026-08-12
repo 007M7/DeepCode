@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.bash` 能力 seam 后面有一个完善的命令执行器（[dsh-bash](../../../../packages/bash/bash) → [dsh-bash-local](../../../../packages/bash/bash-local)），具备进程组终止、输出截断/spill 处理和凭证擦除功能。复用它来执行钩子意味着钩子桥接层无需重新实现子进程底层机制——但该 seam 此前无法写入 stdin 或设置额外 env。本次变更添加这两个输入。
+钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.shell` 能力 seam 后面有一个完善的命令执行器（[dsh-shell](../../../../packages/shell/shell) → [dsh-bash-local](../../../../packages/shell/bash-local)），具备进程组终止、输出截断/spill 处理和凭证擦除功能。复用它来执行钩子意味着钩子桥接层无需重新实现子进程底层机制——但该 seam 此前无法写入 stdin 或设置额外 env。本次变更添加这两个输入。
 
 `stdin` 和 `env` 不构成新的模型能力，因为普通 shell 语法已经能提供两者。环境凭证由 `dsh-bash-local` 的子环境擦除机制保护，而非靠隐藏这些 Service Definition 字段；模型工具参数是静态 JSON，不会展开 shell 变量。因此这些字段服务于受信的进程内调用方（如钩子桥接层），它们需要传递结构化输入和 `CLAUDE_*` 变量，而不必将其嵌入模型可见的 shell 文本。环境变量规则见 [defensive-patterns.md](../../../../docs/defensive-patterns.md)。
 
 ## 决策
 
-在 `BashExecRequest`（模型/插件侧请求）和 `BashExecSpec`（`run`/`start` 所作用的已解析 spec）上**同时**添加 `stdin?: string` 与 `env?: Record<string, string>`，并在 `dsh-bash-local` 中贯穿它们：`resolve()` 原样传递，`run()`/`start()` 将其传给 `runBash`，后者把字节写入子进程的 stdin 并合并额外 env。
+在 `ShellExecRequest`（模型/插件侧请求）和 `ShellExecSpec`（`run`/`start` 所作用的已解析 spec）上**同时**添加 `stdin?: string` 与 `env?: Record<string, string>`，并在 `dsh-bash-local` 中贯穿它们：`resolve()` 原样传递，`run()`/`start()` 将其传给 `runBash`，后者把字节写入子进程的 stdin 并合并额外 env。
 
 三个有意为之的选择：
 
@@ -30,4 +30,4 @@ Status: implemented
 
 ## 后果
 
-钩子桥接层通过既有的 bash seam 传递 JSON 载荷和钩子特定变量，保留其进程组终止、截断和 spill 行为。面向模型的行为不变，bash 工具仍是模型调用请求构建的唯一所有者。相关词汇定义见 [bash 数据结构参考](../../../../docs/subsystems/bash.md)。
+钩子桥接层通过既有的 bash seam 传递 JSON 载荷和钩子特定变量，保留其进程组终止、截断和 spill 行为。面向模型的行为不变，bash 工具仍是模型调用请求构建的唯一所有者。相关词汇定义见 [bash 数据结构参考](../../../../docs/subsystems/shell.md)。

@@ -24,6 +24,6 @@ The capture/append pair moved from the one-shot driver into the seam's shared ch
 ## Consequences
 
 - Default-bundle background delegation (`backgroundMode: continuable`) now inherits a parent's explicit sandbox override and pins the child to `'never'` approvals; compositions without either policy service behave unchanged.
-- `dsh-subagent` gains optional peer types on `dsh-sandbox-policy` and `dsh-user-approval` (the `ctx.get` pattern the one-shot driver used); `dsh-subagent-inprocess` drops its policy-service peers and type imports entirely and delegates to the shared helpers.
+- `dsh-subagent` gains optional peer types on `dsh-sandbox-policy` and `dsh-user-approval` (the `ctx.get` pattern the one-shot driver used); `dsh-subagent-in-process-driver` drops its policy-service peers and type imports entirely and delegates to the shared helpers.
 - The continuable suite (`packages/subagent/subagent/tests/continuation-inheritance.spec.ts`) pins fresh-start seeding, pre-await capture, default omission, cold-resume snapshot stability, and fork-seed precedence; the ACP snapshot scenario `subagent-continuable-inheritance` pins the child's delegation event and read-only runtime context through the assembled app and fails when the capture is removed.
 - Out-of-process providers (`acp`, `dsh-sdk`, `claude-code`, `codex`) support no continuable children (`prepareContinuable` absent), and their one-shot children keep their own deployment policy (`inheritsParentContext = false`); cross-process policy propagation remains out of scope.

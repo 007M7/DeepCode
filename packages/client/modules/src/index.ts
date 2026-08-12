@@ -16,7 +16,7 @@
  * negative "not a client package" verdict) is cached per name and never
  * expires — plugin-set changes take effect on restart; bundle content
  * changes reach the graph only through
- * {@link ClientModuleHostService.rebuilt}.
+ * {@link ClientModuleRegistry.rebuilt}.
  * @module @deepseek-ai/dsh-client-modules
  */
 
@@ -39,7 +39,7 @@ export type {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The web plugin table (provided by the client-modules node half). */
-    clientModuleHost: ClientModuleHostService
+    clientModules: ClientModuleRegistry
   }
 }
 
@@ -181,8 +181,8 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * already-loaded entries aggregates into one loud throw (FAILED fiber; the
  * boot activation audit reports it).
  */
-export class ClientModuleHostService extends Service {
-  static inject = ['httpServer', 'loader']
+export class ClientModuleRegistry extends Service {
+  static inject = ['webServer', 'loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -198,10 +198,10 @@ export class ClientModuleHostService extends Service {
 
   /**
    * Build the service: subscribe, seed, and run the activation flush.
-   * @param ctx - plugin context carrying httpServer and loader.
+   * @param ctx - plugin context carrying webServer and loader.
    */
   constructor(ctx: Context) {
-    super(ctx, 'clientModuleHost')
+    super(ctx, 'clientModules')
     // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
     // whose package declares every composed plugin as a dependency). The
     // modules package's own URL would miss sibling packages under pnpm's
@@ -239,11 +239,11 @@ export class ClientModuleHostService extends Service {
     }
 
     ctx.effect(
-      () => ctx.httpServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
       'client-modules: bundle route',
     )
     ctx.effect(
-      () => ctx.httpServer.tapIndex(html => injectBootManifest(html, this.composed)),
+      () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
       'client-modules: boot manifest injection',
     )
   }
@@ -457,4 +457,4 @@ export class ClientModuleHostService extends Service {
   }
 }
 
-export default ClientModuleHostService
+export default ClientModuleRegistry

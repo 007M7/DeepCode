@@ -1,8 +1,8 @@
-# TypeRT remote calls
+# Typert remote calls
 
 English | [中文](typert.zh.md)
 
-Types shared by generated Remote artifacts, the Host Gateway, and consumer API assemblies. The [TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) owns the architecture and transport decisions; this page records the literal public contracts from [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) and [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts).
+Types shared by generated Remote artifacts, the Host Gateway, and consumer API assemblies. The [Typert Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) owns the architecture and transport decisions; this page records the literal public contracts from [`dsh-typert-protocol`](../../packages/typert/protocol/src/types.ts) and [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts).
 
 ## Lookup and Context declarations
 
@@ -10,19 +10,19 @@ Business-object packages extend two empty maps through declaration merging. A lo
 
 ```ts type-equiv
 /** Merge-extensible Host object lookup declarations. */
-interface TypeRTLookupMap {}
+interface TypertLookupMap {}
 ```
 
 ```ts type-equiv
 /** Merge-extensible scoped Context declarations. */
-interface TypeRTContextMap {}
+interface TypertContextMap {}
 ```
 
 The registry retains a lookup's wire declaration after its resolver unloads. SRC discovery therefore continues to classify the parameter as a lookup and fails unavailable instead of accepting the wire value as an ordinary business object.
 
 ```ts type-equiv
 /** Stable wire declaration retained after a lookup provider unloads. */
-interface TypeRTLookupDefinition {
+interface TypertLookupDefinition {
   /** Merge-declared lookup key. */
   readonly key: string
   /** Source parameter name recognized by the SRC weak parser. */
@@ -42,11 +42,11 @@ An `InvocationDescriptor` is local reflection, not a wire message. Host and cons
 
 ```ts type-equiv
 /** Codec attached to one invocation parameter or result. */
-type TypeRTCodec =
+type TypertCodec =
   | {
     readonly mode: 'strict'
     readonly typeSymbol: string
-    readonly schema: TypeRTSchema
+    readonly schema: TypertSchema
   }
   | {
     readonly mode: 'src-json'
@@ -65,7 +65,7 @@ interface InvocationParameterDescriptor {
   /** Lookup key when `source` is `lookup`. */
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
-  readonly codec: TypeRTCodec
+  readonly codec: TypertCodec
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
@@ -91,7 +91,7 @@ interface InvocationDescriptor {
       readonly kind: 'context'
       readonly context: string
       readonly wire: string
-      readonly codec: TypeRTCodec
+      readonly codec: TypertCodec
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -108,36 +108,36 @@ interface InvocationDescriptor {
     readonly parameter: 'signal'
   }
   /** Codec for the resolved method result. */
-  readonly result: TypeRTCodec
+  readonly result: TypertCodec
   /** Source declaration used only for diagnostics. */
   readonly sourceLocation?: InvocationSourceLocation
 }
 ```
 
-## TypeRT registry
+## Typert registry
 
 `ctx.typert` separates current-environment descriptors, explicitly selected Remote contributions, lookup providers, and scoped Context providers. A lookup provider owns the stable wire declaration and default resolver; Host composition can configure an effect-scoped synchronous or asynchronous resolver for the same key, and unloading that configuration restores the default policy. Registrations are Cordis-owned effects and return awaitable disposers.
 
 ```ts type-equiv
-/** Minimal TypeRT runtime consumed through dependency inversion. */
-interface TypeRTService {
-  readonly local: TypeRTLocalRegistry
-  readonly remotes: TypeRTRemoteRegistry
-  readonly lookups: TypeRTLookupRegistry
-  readonly contexts: TypeRTContextRegistry
+/** Minimal Typert runtime consumed through dependency inversion. */
+interface TypertRegistryContract {
+  readonly local: TypertLocalRegistry
+  readonly remotes: TypertRemoteRegistry
+  readonly lookups: TypertLookupRegistry
+  readonly contexts: TypertContextRegistry
 }
 ```
 
-Generated consumer declarations merge direct namespaces into the map inherited by `TypeRTClientRemote`.
+Generated consumer declarations merge direct namespaces into the map inherited by `TypertClientRemote`.
 
 ```ts type-equiv
 /** Merge-extensible direct namespace surface generated for Client Remote services. */
-interface TypeRTRemoteNamespaceMap {}
+interface TypertRemoteNamespaceMap {}
 ```
 
 ## Host Gateway
 
-Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields and the carrier's cancellation signal separately; infrastructure and boundary failures use the Gateway's in-process error taxonomy, ordinary exceptions are folded by the RPC adapter into the transport's `internal` error code, and existing RPC errors carried by lookup policy through `TypeRTLookupFailure` are returned unchanged.
+Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields and the carrier's cancellation signal separately; infrastructure and boundary failures use the Gateway's in-process error taxonomy, ordinary exceptions are folded by the RPC adapter into the transport's `internal` error code, and existing RPC errors carried by lookup policy through `TypertLookupFailure` are returned unchanged.
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -194,13 +194,13 @@ interface TypertGateway {
 
 ```ts type-equiv
 /** Client Remote capability implemented by the Gateway and consumed by Remote assemblies. */
-interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
+interface TypertClientRemote extends TypertRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.
    * @returns disposer after namespace services and concrete methods are ready.
    */
-  $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
+  $mount(contribution: TypertRemoteContribution): Promise<TypertDisposer>
   /**
    * Subscribe to one forwarded Host event; delivery is one-way, in registration
    * order, and isolates a throwing listener from the rest.
@@ -209,11 +209,11 @@ interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
    * @param listener - receives the Host's argument list as declared by Cordis `Events`.
    * @returns disposer owned by the calling fiber.
    */
-  $on<Event extends TypeRTRemoteEvent>(event: Event, listener: Events[Event]): () => void
+  $on<Event extends TypertRemoteEvent>(event: Event, listener: Events[Event]): () => void
   /**
    * Hand one decoded forwarded frame to the subscription table. The carrier
    * owning the Host frame sink calls this; a consumer subscribes with
-   * {@link TypeRTClientRemote.$on} and never calls it.
+   * {@link TypertClientRemote.$on} and never calls it.
    *
    * `event` is a plain string because this is the wire boundary: the name is
    * whatever the Host assembly's allowlist selected, and one nobody subscribed
@@ -247,7 +247,7 @@ Registry of generated schemas, package reflection, invocations, and Remote depen
  * @param contribution - generated schemas, reflection, and Host invocations.
  * @returns the exact effect disposer that removes this contribution.
  */
-register(contribution: TypertContribution): TypeRTDisposer
+register(contribution: TypertContribution): TypertDisposer
 
 /**
  * Look up one schema by `<package>#<name>`.
@@ -303,7 +303,7 @@ Source: [`packages/typert/registry/src/service.ts:446`](../../packages/typert/re
 
 ### `ctx.typertGateway` — `TypertGatewayService`
 
-Resolve strict generated definitions or conservative SRC markers against current Cordis Services and TypeRT providers.
+Resolve strict generated definitions or conservative SRC markers against current Cordis Services and Typert providers.
 
 ```ts cordis-catalog
 /**

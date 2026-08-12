@@ -61,7 +61,7 @@ export function normalizeSessionTitle(input: string, maxBytes: number): string {
 }
 
 /**
- * Derive the deterministic first-message fallback.
+ * Derive the deterministic first-prompt fallback.
  * @param input - text from the first eligible human message.
  * @param maxWords - positive whitespace-delimited word cap.
  * @param maxBytes - positive UTF-8 byte cap.

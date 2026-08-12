@@ -2,16 +2,16 @@
 
 English | [中文](README.zh.md)
 
-The **`WebService`** (`ctx.web`) defines WHAT web access the harness has — search the web, fetch a URL — over multiple providers, without binding the model contract to one vendor's API shape.
+The **`WebRuntime`** (`ctx.web`) defines WHAT web access the harness has — search the web, fetch a URL — over multiple providers, without binding the model contract to one vendor's API shape.
 
-This package owns the Service Definition role of the web capability. Unlike bash/fs it spans two operations (search and fetch) on one seam, with potentially multiple providers each:
+This package owns the Service Definition role of the web capability. Unlike shell/fs it spans two operations (search and fetch) on one seam, with potentially multiple providers each:
 
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-web` (this) | Service Definition: the service, provider registries, selection policy, request/result vocabulary, the `WebError` taxonomy |
 | `@deepseek-ai/dsh-web-search-exa` | Search provider: Exa |
 | `@deepseek-ai/dsh-web-search-perplexity` | Search provider: Perplexity |
-| `@deepseek-ai/dsh-web-fetch-local` | Fetch provider: anonymous public HTTP(S) |
+| `@deepseek-ai/dsh-web-fetch-http` | Fetch provider: anonymous public HTTP(S) |
 | `@deepseek-ai/dsh-tool-web` | Consumer: the model-facing `web_search` / `web_fetch` tool schemas over `ctx.web` |
 
 Search and fetch share no request schema and no business logic, but they are deliberately one seam: `ctx.web` is a single web-access middle layer with one provider-selection policy owner, one abort/error vocabulary, and one product-facing "how this harness reaches the web" config surface. The `Search`/`Fetch` method pairs are deliberately parallel.

@@ -12,9 +12,9 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
-import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 
 const testToolSignal = new AbortController().signal
@@ -48,12 +48,12 @@ afterEach(async () => {
 // --------------------------------------------------------------------------
 // DEFAULT deployment: the policy gate plugin is loaded.
 // --------------------------------------------------------------------------
-describe('default deployment (with dsh-fs-policy)', () => {
+describe('default deployment (with dsh-fs-observation-policy)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     await ctx.plugin(FsPolicy)
     fiber = await ctx.plugin(ToolFs)
@@ -310,12 +310,12 @@ describe('default deployment (with dsh-fs-policy)', () => {
 // --------------------------------------------------------------------------
 // BARE deployment: the tool suite WITHOUT the policy gate.
 // --------------------------------------------------------------------------
-describe('bare provider (no dsh-fs-policy)', () => {
+describe('bare provider (no dsh-fs-observation-policy)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-bare-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     fiber = await ctx.plugin(ToolFs)
   })
@@ -383,7 +383,7 @@ describe('per-session cwd', () => {
     sessionDir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-session-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: dir }) // config.cwd = dir, NOT sessionDir
     await ctx.plugin(FsPolicy)
     fiber = await ctx.plugin(ToolFs)
@@ -428,7 +428,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     await ctx.plugin(FsPolicy)
     fiber = await ctx.plugin(ToolFs)

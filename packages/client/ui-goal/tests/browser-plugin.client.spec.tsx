@@ -14,10 +14,10 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
-import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationEventRegistry } from '@deepseek-ai/dsh-client-runtime/src/client/conversation/event-registry.ts'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { GoalBarActions } from '../src/client/slots.ts'
@@ -80,14 +80,14 @@ async function bench(options: {
     get resume() { return activeGoals?.resume },
     get clear() { return activeGoals?.clear },
   })
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
     name: 'root', children: {
       'conversation.input.dock': { kind: 'list', scope: 'session' },
       'conversation.chat.node': { kind: 'keyed', scope: 'session' },
     },
   } as never, (() => null) as never)
-  ctx.provide('locale', new LocaleService(ctx))
+  ctx.provide('locale', new LocaleRuntime(ctx))
   ctx.provide('sessions', {
     binding: (id: SessionId) => ({
       sessionId: id,

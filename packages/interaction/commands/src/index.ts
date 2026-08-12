@@ -8,7 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
-import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
+import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { CommandId } from './brand.ts'
 import type {
   CommandDescriptor,
@@ -89,7 +89,7 @@ class CommandLayer implements ScopeLayer {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    commands: CommandService
+    commands: CommandRuntime
   }
 }
 
@@ -222,7 +222,7 @@ function normalizeResult(command: string, value: unknown): CommandResult {
  * registered through a command-injected child of an agent context shadow
  * globals for that agent.
  */
-export class CommandService extends GatewayService {
+export class CommandRuntime extends TypertRemoteService {
   private readonly layers = new ScopedLayers(
     scope => new CommandLayer(scope),
     () => { this.notifyChange() },
@@ -384,4 +384,4 @@ export class CommandService extends GatewayService {
   }
 }
 
-export default CommandService
+export default CommandRuntime

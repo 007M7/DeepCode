@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-01-windows-pwsh-default.md
-2026-08-01-windows-pwsh-default.md: c66e289c24d6024b1df53cd60f25c27d46fafc5a
-2026-08-01-windows-pwsh-default.zh.md: b2ad45ec96d546d01436a383ed7d8884b978aa31
+2026-08-01-windows-pwsh-default.md: e4be14ad162e27e7860bf67d82d8045343db8f4e
+2026-08-01-windows-pwsh-default.zh.md: b1a535b2a25761cb5cc8d1a831ecd743794b78ea

@@ -18,13 +18,13 @@
   name: cordis:group
   group: true
   isolate:
-    pty: true
+    terminals: true
   config:
     - id: pty
-      name: '@deepseek-ai/dsh-pty'
+      name: '@deepseek-ai/dsh-terminal'
 
-    - id: pty-local
-      name: '@deepseek-ai/dsh-pty-local'
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
       config:
         timeoutMs: 300000
 

@@ -19,7 +19,7 @@ import type {
   SubprocessTerminalSignal,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import type E2BRuntime from '@deepseek-ai/dsh-e2b'
 import {
   bootstrapEnvironment,
   readRemoteEnvironment,
@@ -456,7 +456,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
  * @returns The live subprocess terminal handle.
  */
 export async function spawnE2BTerminal(
-  runtime: E2BSandboxService,
+  runtime: E2BRuntime,
   spec: SubprocessTerminalSpawnSpec,
   stateDir: string,
   pollMs: number,

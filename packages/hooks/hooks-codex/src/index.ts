@@ -38,7 +38,7 @@ import { parseCodexConfig, type CodexHookConfig } from './config.ts'
 /* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
-export const inject = ['bash']
+export const inject = ['shell']
 
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
@@ -138,7 +138,7 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const { output, durationMs } = await runHook(ctx.bash, hook, {
+        const { output, durationMs } = await runHook(ctx.shell, hook, {
           payload,
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},

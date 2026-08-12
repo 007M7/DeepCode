@@ -48,7 +48,7 @@ export type {
   SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
   SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
-export type { TaskView } from './tasks.ts'
+export type { JobView } from './jobs.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'

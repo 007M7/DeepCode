@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { type ToolResult } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { type ToolResult } from '@deepseek-ai/dsh-tools'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -22,7 +22,7 @@ import type {
   FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
-import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
@@ -101,7 +101,7 @@ class FakeFs extends FileSystem {
 async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(FakeFs)
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
@@ -177,7 +177,7 @@ describe('registration', () => {
   it('stays pending until ctx.fs exists (inject)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(ToolFs) // no fs provider
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
@@ -185,7 +185,7 @@ describe('registration', () => {
   it('unregisters everything on fiber disposal (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(FakeFs)
     await ctx.plugin(FsPolicy)
     const fiber = await ctx.plugin(ToolFs)
@@ -692,7 +692,7 @@ describe('read caps are plugin config', () => {
   async function setupWith(config: ToolFs.Config) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(FakeFs)
     await ctx.plugin(FsPolicy)
     await ctx.plugin(ToolFs, config)
@@ -749,7 +749,7 @@ describe('read caps are plugin config', () => {
   ] as const)('rejects a non-positive or fractional %s at load', async (name, config) => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(FakeFs)
     await expect(ctx.plugin(ToolFs, config)).rejects.toThrow(new RegExp(`tool-fs: ${name} must be a positive integer`))
   })
@@ -791,7 +791,7 @@ describe('sandbox escalation API (write/edit)', () => {
   async function setupConfining(opts: { approval?: boolean } = {}) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
     await ctx.plugin(SandboxingFakeFs)
     await ctx.plugin(FsPolicy)
@@ -821,7 +821,7 @@ describe('sandbox escalation API (write/edit)', () => {
   it('fails load when a confining filesystem has no shared sandbox-policy resolver', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(SandboxingFakeFs)
     await expect(ctx.plugin(ToolFs)).rejects.toThrow('tool-fs: the mounted filesystem confines but ctx.sandboxPolicy is missing')
   })
