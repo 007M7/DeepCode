@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-pwsh-local/resolve
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -36,6 +36,19 @@ export function candidatePwshPaths(env: NodeJS.ProcessEnv = process.env): string
   return candidates
 }
 
+/** Whether a candidate can be spawned: a real file or a link-shaped reparse point. */
+function candidateExists(candidate: string): boolean {
+  if (existsSync(candidate)) return true
+  // Microsoft Store app execution aliases are reparse points whose target
+  // ACL refuses stat(), so existsSync misses them; lstat sees the link
+  // itself and CreateProcess resolves it when the executor spawns.
+  try {
+    return lstatSync(candidate).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
 /**
  * Resolve the pwsh executable this executor spawns.
  * @param configured - an explicit `pwshPath` config value, trusted as-is.
@@ -53,7 +66,7 @@ export function resolvePwshPath(
   if (configured !== undefined && configured.length > 0) return configured
   if (platform === 'win32') {
     for (const candidate of candidatePwshPaths(env)) {
-      if (existsSync(candidate)) return candidate
+      if (candidateExists(candidate)) return candidate
     }
   }
   return 'pwsh'

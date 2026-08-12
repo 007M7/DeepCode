@@ -9,7 +9,7 @@
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -125,6 +125,18 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
     // PATH-resolution fallback.
     expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: join(dir, 'empty'), SystemRoot: join(dir, 'no-windows') }, 'win32'))
       .toBe('pwsh')
+  })
+
+  it('accepts a link-shaped PATH candidate whose target cannot be stat-ed', () => {
+    // Store app execution aliases stat as EACCES but lstat as a link; a
+    // dangling symlink reproduces that split on every platform.
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-link-'))
+    const store = join(dir, 'store')
+    mkdirSync(store, { recursive: true })
+    const link = join(store, 'pwsh.exe')
+    symlinkSync(join(dir, 'no-such-target.exe'), link)
+    expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: store }, 'win32'))
+      .toBe(link)
   })
 })
 
@@ -298,8 +310,10 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
   it('start returns immediately with a running handle that settles as completed', async () => {
     const { bash } = await setup()
     const before = Date.now()
-    const proc = bash.start(bash.resolve({ command: 'Start-Sleep -Milliseconds 200; Write-Output done' }))
-    expect(Date.now() - before).toBeLessThan(150)
+    // The sleep outlasts any realistic spawn latency, so returning while the
+    // child still sleeps proves start() does not wait for completion.
+    const proc = bash.start(bash.resolve({ command: 'Start-Sleep -Milliseconds 2000; Write-Output done' }))
+    expect(Date.now() - before).toBeLessThan(1000)
     expect(proc.status).toBe('running')
     await proc.done
     expect(proc.status).toBe('completed')
