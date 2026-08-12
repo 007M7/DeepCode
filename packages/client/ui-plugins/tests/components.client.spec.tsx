@@ -12,16 +12,12 @@ afterEach(cleanup)
 
 type Snapshot = Awaited<ReturnType<PluginSettingsSectionInjected['list']>>
 const t = ((key: PluginsKey): string => en[key]) as PluginSettingsSectionProps['t']
-const unusedHook = (() => { throw new Error('unused by plugin inventory') }) as never
 
 function props(list: PluginSettingsSectionInjected['list']): PluginSettingsSectionProps {
   return {
-    close: vi.fn(),
-    useSessions: unusedHook,
-    useWorkspaces: unusedHook,
     t,
     list,
-  }
+  } as PluginSettingsSectionProps
 }
 
 const SNAPSHOT = {
@@ -31,12 +27,13 @@ const SNAPSHOT = {
     { entryId: 'loading', moduleName: '@fixture/loading-name', enabled: true, fiberPhase: 'loading' },
     { entryId: 'failed', moduleName: '@fixture/failed-name', enabled: true, fiberPhase: 'failed' },
     { entryId: 'unloading', moduleName: '@fixture/unloading-name', enabled: true, fiberPhase: 'unloading' },
+    { entryId: 'unobserved', moduleName: '@fixture/unobserved-name', enabled: true, fiberPhase: null },
     { entryId: 'disabled-entry', moduleName: '@deepseek-ai/dsh-host-directory-picker-native', enabled: false, fiberPhase: null },
   ],
 } as unknown as Snapshot
 
 describe('PluginSettingsSection', () => {
-  it('renders searchable two-column-card semantics with dots and tags', async () => {
+  it('renders runtime status only for enabled plugins', async () => {
     const deferred = Promise.withResolvers<Snapshot>()
     const list = vi.fn(() => deferred.promise)
     const view = render(<PluginSettingsSection {...props(list)} />)
@@ -46,9 +43,9 @@ describe('PluginSettingsSection', () => {
     expect(list).toHaveBeenCalledOnce()
     expect(screen.getByRole('searchbox', { name: en.search })).toBeTruthy()
     expect(screen.getByRole('heading', { name: en.catalog })).toBeTruthy()
-    expect(view.container.querySelector('[data-plugin-count]')?.textContent).toBe('6')
-    expect(screen.getAllByRole('listitem')).toHaveLength(6)
-    expect(screen.getAllByText(en.enabledTag)).toHaveLength(5)
+    expect(view.container.querySelector('[data-plugin-count]')?.textContent).toBe('7')
+    expect(screen.getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.getAllByText(en.enabledTag)).toHaveLength(6)
     expect(screen.getByText(en.disabledTag)).toBeTruthy()
     for (const value of [
       'Mounted',
@@ -75,8 +72,10 @@ describe('PluginSettingsSection', () => {
       target: { value: 'disabled-entry' },
     })
     expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'directory-picker-native, Not mounted, Disabled' }))
+    fireEvent.click(screen.getByRole('button', { name: 'directory-picker-native, Disabled' }))
     expect(screen.getAllByText(en.disabledTag)).toHaveLength(2)
+    expect(screen.queryByText(en.cordis)).toBeNull()
+    expect(screen.queryByText(en.unobserved)).toBeNull()
   })
 
   it('filters by module name or Loader entry id', async () => {

@@ -256,6 +256,12 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // client's "omitted key = capability absent → clear the row" rule from
     // wiping preset-owned projections on cold reads.
     expect(projections?.values).toHaveProperty('todos', null)
+    // The session-stats unit is a shipped web-app bundle row: whole-log
+    // turn/step counts ride the same tail block (the stats strip's source).
+    const sessionStats = projections?.values.sessionStats as { turns: number; steps: number } | undefined
+    expect(sessionStats).toBeDefined()
+    expect(sessionStats?.turns).toBeGreaterThanOrEqual(1)
+    expect(sessionStats?.steps).toBeGreaterThanOrEqual(sessionStats?.turns ?? 0)
   })
 
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {

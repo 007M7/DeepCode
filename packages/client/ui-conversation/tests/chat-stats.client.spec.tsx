@@ -98,9 +98,11 @@ describe('deriveStats', () => {
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    // Window-scoped by design: the paged window is not an accounting source, so
-    // the fold exposes no billing fields (billing rides the projection);
-    // decodeTokens is a throughput input, not a billed total.
+    // The window fold's counts are only the fallback for assemblies without
+    // the sessionStats projection; the paged window is not an accounting
+    // source either, so the fold exposes no billing fields (billing rides the
+    // tokenUsage projection); decodeTokens is a throughput input, not a
+    // billed total.
     expect(Object.keys(stats).sort()).toEqual(
       ['decodeMs', 'decodeTokens', 'llmMs', 'steps', 'toolMs', 'ttftMs', 'ttftSteps', 'turns'],
     )
@@ -168,6 +170,14 @@ describe('formatters', () => {
 
 describe('StatsLine', () => {
   const USAGE = { uncachedInputTokens: 10, outputTokens: 5, cacheReadTokens: 90, cacheWriteTokens: 0 }
+
+  /** A whole-log sessionStats value: zeros plus overrides. */
+  function sessionStats(overrides: Record<string, number>): Record<string, number> {
+    return {
+      turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0,
+      ...overrides,
+    }
+  }
 
   /** Stub the projection seat: a key-addressed table of whole values. */
   function projections(values: Record<string, unknown>): StatsLineProps['useProjection'] {
@@ -279,6 +289,69 @@ describe('StatsLine', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsLine {...props(source, {})} />)
     expect(view.container.textContent).toBe('1 turns · 1 steps')
+  })
+
+  it('renders whole-session counts from the sessionStats projection over the paged window', () => {
+    // The bug's acceptance at unit level: one loaded page must not scope the
+    // counter — the durable projection's totals win over the window fold.
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      sessionStats: sessionStats({ turns: 10, steps: 89 }),
+    })} />)
+    expect(view.container.textContent)
+      .toBe('10 turns · 89 steps| Cache hit 90%| Input 100 tok · Output 5 tok')
+  })
+
+  it('treats a defined zero-count projection as empty, not as fallback', () => {
+    // A composed unit always serves the key; all-zero genuinely means no
+    // closed step in the whole log, so nothing renders on a brand-new session.
+    const empty = makeSource()
+    const view = render(<StatsLine {...props(empty.source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      sessionStats: sessionStats({}),
+    })} />)
+    expect(view.container.textContent).toBe('')
+  })
+
+  it('hides the zero-token group when steps closed without any billed activity', () => {
+    // A session whose only turn failed before billing (e.g. an auth error):
+    // the counts group renders alone, not an uninformative zero-token group.
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      sessionStats: sessionStats({ turns: 1, steps: 1 }),
+    })} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps')
+  })
+
+  it('keeps the counts group over an empty visible window when the projection carries totals', () => {
+    // Extends the durable-groups guarantee: full-session counts survive a
+    // window that compaction (or paging) left without assistant nodes.
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      sessionStats: sessionStats({ turns: 7, steps: 44 }),
+    })} />)
+    expect(view.container.textContent)
+      .toBe('7 turns · 44 steps| Cache hit 90%| Input 100 tok · Output 5 tok')
+  })
+
+  it('renders whole-log wall times and speeds from the projection, not the loaded window', () => {
+    // The 加载更早 hazard beyond counts: LLM/tool durations and the TTFT and
+    // throughput figures must not grow per loaded page either. An untimed
+    // 1-node window renders the projection's whole-log figures verbatim.
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      sessionStats: sessionStats({
+        turns: 200, steps: 200, llmMs: 100_000, toolMs: 62_000,
+        ttftMs: 1_600, ttftSteps: 2, decodeMs: 3_000, decodeTokens: 60,
+      }),
+    })} />)
+    expect(view.container.textContent).toBe(
+      '200 turns · 200 steps| LLM 1m40s · Tool call 1m2s| TTFT avg 0.8s · 20 tok/s| Cache hit 90%| Input 100 tok · Output 5 tok',
+    )
   })
 
   it('omits cache hit when nothing was billed on the input side', () => {

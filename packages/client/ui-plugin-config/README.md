@@ -2,17 +2,17 @@
 
 English | [中文](README.zh.md)
 
-The **Plugins** settings section: one expandable card per Host plugin whose configuration a user owns. A card shows the plugin's name and what it governs; expanding it in place reveals hand-written controls bound to that plugin's settings namespace, each field marking whether the user overrode it and offering a reset back to the value the deployment composed.
+The **Plugins** settings section and its **Plugin configuration** tab. The section owns the heading and compact tab chrome; feature plugins contribute pages through `settings.plugins.tab`. This package's own tab shows one expandable card per Host plugin whose configuration a user owns. A card shows the plugin's name and what it governs; expanding it in place reveals hand-written controls bound to that plugin's settings namespace, each field marking whether the user overrode it and offering a reset back to the value the deployment composed.
 
 ## What appears here
 
-A card renders only when its namespace is both registered by a live Host plugin and served to the browser. A deployment that does not compose the owning plugin — or serves the namespace to no client — renders nothing for it rather than an empty or disabled card, so the section reflects what this deployment actually runs.
+A card renders only when its namespace is both registered by a live Host plugin and served to the browser. A deployment that does not compose the owning plugin — or serves the namespace to no client — renders nothing for it rather than an empty or disabled card, so the configurable tab reflects what this deployment actually runs.
 
 The first batch covers the shell executor (`bash`), the agent loop's tool-call parallelism (`agent-loop`), and the DeepSeek search provider (`web-search-deepseek`).
 
 ## Extension point
 
-The section declares `settings.plugin.item`, a root list slot. A plugin that ships a browser half registers its own card into that slot and owns its controls; this package neither enumerates namespaces nor renders a form it was not given. Ordering follows the slot's `order`.
+The section declares `settings.plugins.tab`, a root list slot whose labels become ordered tabs. It keeps a tab mounted after its first selection, so local drafts and read-only snapshots survive tab switches. The package registers its own `configurable` contribution, which declares the nested `settings.plugin.item` list slot. A plugin that ships a browser half registers its own card into that nested slot and owns its controls; this package neither enumerates namespaces nor renders a form it was not given. Both levels follow the contribution's `order`.
 
 ## Writes
 
