@@ -1,7 +1,9 @@
 /**
  * Official-DeepSeek first-run step. Readiness comes from the same
- * provider/settings/credential join as the Models page; the prompt only
- * routes the user to that page's single credential editor.
+ * provider/settings/credential join as the Models page: any provider the user
+ * can already talk to ends the step, and only a user with none is offered the
+ * official DeepSeek route. The prompt itself only routes to that page's single
+ * credential editor.
  */
 
 import { useEffect, useRef } from 'react'
@@ -10,7 +12,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { BrandWordmark, Button, OnboardingSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { ModelsSettingsState, ModelsSettingsStore } from './store.ts'
-import { deepSeekReadiness } from './store.ts'
+import { onboardingReadiness } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './DeepSeekOnboardingDialog.module.css'
 
@@ -34,15 +36,15 @@ function assertNever(_value: never): never {
 }
 
 /**
- * Prompt a first-run user to open Models while the official adapter exists
- * and its effective credential is not configured.
+ * Prompt a first-run user to open Models while no provider can serve requests
+ * and the official adapter exists with an unconfigured effective credential.
  * @param props - settings-shell owner state and Models feature dependencies.
  * @returns the onboarding page or null when onboarding needs no intervention.
  */
 export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): ReactNode {
   const { complete, openSection, controller, useSnapshot, t } = props
   const state = useSnapshot(snapshot => snapshot)
-  const readiness = deepSeekReadiness(state)
+  const readiness = onboardingReadiness(state)
   const titleRef = useRef<HTMLHeadingElement | null>(null)
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   useEffect(() => {
     if (
       readiness.kind === 'adapter-absent'
-      || readiness.kind === 'configured'
+      || readiness.kind === 'provider-ready'
       || readiness.kind === 'unavailable'
     ) complete()
   }, [complete, readiness.kind])
@@ -72,7 +74,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   switch (readiness.kind) {
     case 'loading':
     case 'adapter-absent':
-    case 'configured':
+    case 'provider-ready':
     case 'unavailable':
       return null
     case 'credential-missing':
