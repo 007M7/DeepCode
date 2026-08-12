@@ -1,4 +1,4 @@
-# self-modification/ — the agent modifies its own runtime
+# extensions/ — the agent modifies its own runtime
 
 English | [中文](README.zh.md)
 

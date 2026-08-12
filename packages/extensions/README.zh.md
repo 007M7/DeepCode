@@ -1,4 +1,4 @@
-# self-modification/：agent（智能体）修改自身运行时
+# extensions/：agent（智能体）修改自身运行时
 
 [English](README.md) | 中文
 
