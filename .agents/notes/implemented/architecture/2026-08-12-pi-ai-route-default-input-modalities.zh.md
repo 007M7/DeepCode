@@ -10,7 +10,7 @@ Status: implemented
 
 Harness 把缺失的模态当作否定能力，并有三个准入点在构造任何请求之前就依据它行动：模型选择拒绝切换进已含图片的会话，prompt 准入拒绝图片，`read_image` 拒绝读取。它们的诊断让用户去选一个支持图片的模型——这条建议没有可达的指向对象，因为没有任何配置键能让手写模型变得支持图片。这条路封死在元数据上而非能力上：请求转换器和每种 pi-ai 线路协议都能携带图片，`llm-pi-ai` 自身的流前置检查才是唯一会拦下它的东西。
 
-源码中把这一假定论证为适配器的真实能力而非部署选择。该论证描述的是 DeepSeek chat-completions 适配器——它的序列化器确实拒绝 image block——对 pi-ai 路由从来就不成立。
+源码中把这一假定论证为适配器的真实能力而非部署选择，而 [[2026-08-03-pi-ai-declared-provider-catalog]] 在决定配置面公开哪些 `Model` 字段时记录了同一套论证（「没有任何读取方：…… `context.ts` 只保留文本块」）。该论证描述的是 DeepSeek chat-completions 适配器——它的序列化器确实拒绝 image block——对 pi-ai 路由从来就不成立。本 note 仅在模态一项上取代那一条；定价在那里依然因其自身、仍然成立的理由保持关闭。
 
 ## 决策
 
@@ -46,6 +46,8 @@ DeepSeek chat-completions 适配器保持不动。它的 `['text']` 是关于其
 
 ## 测试
 
-`packages/llm/llm-pi-ai/tests/catalog.spec.ts` 覆盖了这条链的每一级以及空列表的两种读法：一条路由上未声明的模型与条目声明的纯文本、视觉模型并存，路由默认值为未声明的模型作答而条目仍然压过它，catalog 视觉模型在更窄的路由默认值下保住自身模态，条目的 `[]` 走继承而非清空，以及路由的 `[]` 被拒绝。报出的元数据经由真实 `ctx.llm.listModels` 组合断言。
+`packages/llm/llm-pi-ai/tests/catalog.spec.ts` 在 resolver 层覆盖了这条链的每一级以及空列表的两种读法：一条路由上未声明的模型与条目声明的纯文本、视觉模型并存，路由默认值为未声明的模型作答而条目仍然压过它，catalog 视觉模型在更窄的路由默认值下保住自身模态，条目的 `[]` 走继承而非清空，以及路由的 `[]` 被拒绝。另有一条用例把每一级端到端复验一遍——写入的 settings 段、插件自身的注册、以及 `ctx.llm.listModels` / `resolveModelInfo`——因此文档与 `LlmModelInfo` 之间若有断点无法蒙混过关。
+
+`config.spec.ts` 负责 schema 边界：两个层级上的未知模态拒绝、路由空列表被 schema 接受而由 settings seam 真正运行的命名空间校验器拒绝，以及继承规则所倚赖的「缺省数组物化为 `[]`」这一事实。
 
 没有任何无密钥 snapshot 通道会跑 pi-ai 路由：snapshot 示例驱动的是 `dsh-llm-replay`，它在自己的配置里直接声明模态，而 pi-ai 路由需要一个真实端点，其端口是静态 `cordis.yml` 无法写出的。本次变更所供给的那些准入点已经通过该提供方在那里得到覆盖（`examples/acp-agent/image.cordis.snapshot.yml` 与 `image-text-route.cordis.snapshot.yml`）且不受影响——改变的是某个适配器报告什么，而非门禁如何读取它。

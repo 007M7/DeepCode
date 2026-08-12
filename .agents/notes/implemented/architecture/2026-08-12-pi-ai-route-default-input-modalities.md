@@ -10,7 +10,7 @@ Nothing in `settings.yaml` could describe a hand-declared pi-ai model as accepti
 
 The harness treats an omitted modality as negative capability, and three admission points act on it before any request is built: model selection refuses to switch into a session that already holds images, prompt admission refuses an image, and `read_image` refuses to read one. Their diagnostics tell the user to select an image-capable model — advice with no reachable referent, because no configuration key could make a hand-declared model image-capable. The route was closed at the metadata, not at the capability: the request converter and every pi-ai wire protocol carry images, and `llm-pi-ai`'s own stream guard is the only thing that would have stopped one.
 
-The assumption was justified in the source as the adapter's real capability rather than a deployment choice. That justification described the DeepSeek chat-completions adapter, whose serializer genuinely rejects image blocks, and had never been true of the pi-ai route.
+The assumption was justified in the source as the adapter's real capability rather than a deployment choice, and [[2026-08-03-pi-ai-declared-provider-catalog]] recorded the same reasoning when it decided which `Model` fields the configuration surface would expose ("nothing reads them: … `context.ts` keeps only text blocks"). That justification described the DeepSeek chat-completions adapter, whose serializer genuinely rejects image blocks, and had never been true of the pi-ai route. This note supersedes that one on modalities alone; pricing stays closed there for its own, still-current reason.
 
 ## Decision
 
@@ -46,6 +46,8 @@ A model that declares images its endpoint does not serve is not caught locally �
 
 ## Testing
 
-`packages/llm/llm-pi-ai/tests/catalog.spec.ts` covers each rung of the chain and both readings of an empty list: one route mixing an undeclared model with entry-declared text-only and vision models, a route default answering an undeclared model while an entry still outranks it, a catalog vision model keeping its modalities under a narrower route default, an entry's `[]` inheriting rather than emptying, and the route's `[]` refused. The reported metadata is asserted through a real `ctx.llm.listModels` composition.
+`packages/llm/llm-pi-ai/tests/catalog.spec.ts` covers each rung of the chain and both readings of an empty list at the resolver: one route mixing an undeclared model with entry-declared text-only and vision models, a route default answering an undeclared model while an entry still outranks it, a catalog vision model keeping its modalities under a narrower route default, an entry's `[]` inheriting rather than emptying, and the route's `[]` refused. A separate case re-asserts every rung end to end — a written settings section, the plugin's own registration, and `ctx.llm.listModels` / `resolveModelInfo` — so a break between the document and `LlmModelInfo` cannot pass.
+
+`config.spec.ts` holds the schema boundary: an unknown modality refused at both levels, the empty route list accepted by the schema and refused by the namespace validator that the settings seam actually runs, and the `[]` materialization for an absent array that the inheritance rule depends on.
 
 No keyless snapshot lane exercises a pi-ai route: the snapshot examples drive `dsh-llm-replay`, which declares modalities directly in its configuration, and a pi-ai route needs a live endpoint whose port a static `cordis.yml` cannot name. The admission points this change feeds are already covered there through that provider (`examples/acp-agent/image.cordis.snapshot.yml` and `image-text-route.cordis.snapshot.yml`) and are unaffected — what changed is what one adapter reports, not how a gate reads it.

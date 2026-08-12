@@ -324,10 +324,10 @@ export function resolveProfiles(
       )
     }
     // Detached from the configuration object because pi-ai types `Model.input`
-    // mutable and every model falling through to it is handed this array. The
-    // schema's explicit default covers an absent key, so an empty list here is
-    // always one someone typed — and unlike an entry's, nothing below it can
-    // answer instead — so it is refused rather than read as "no answer".
+    // mutable. The schema's explicit default covers an absent key, so an empty
+    // list here is always one someone typed — and unlike an entry's, nothing
+    // below it can answer instead — so it is refused rather than read as "no
+    // answer".
     const defaultInput = [...source.defaultInput ?? DEFAULT_INPUT]
     if (defaultInput.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" defaultInput must name at least one modality`)

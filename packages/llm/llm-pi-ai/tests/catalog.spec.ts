@@ -212,16 +212,49 @@ describe('hand-declared providers', () => {
     const inputOf = (route: string, id: string): readonly string[] | undefined =>
       resolved.get(route)?.piProvider.getModels().find(model => model.id === id)?.input
 
-    // Nothing can interrogate the endpoint, so an undeclared model on a route
-    // that names no default claims only the modality every supported protocol
-    // carries. Claiming images instead would admit one the provider then
-    // rejects mid-turn, after the durable message is already in the log.
     expect(inputOf('acme-gateway', 'bare')).toEqual(['text'])
     expect(inputOf('acme-gateway', 'seeing')).toEqual(['text', 'image'])
     expect(inputOf('acme-gateway', 'deaf')).toEqual(['text'])
     expect(inputOf('seeing-gateway', 'bare')).toEqual(['text', 'image'])
     expect(inputOf('seeing-gateway', 'deaf')).toEqual(['text'])
     expect(inputOf('anthropic', vision.id)).toEqual(vision.input)
+  })
+
+  it('carries a written modality declaration all the way to the seam’s model metadata', async () => {
+    // The resolver-level cases above cannot see a break between the settings
+    // document and `LlmModelInfo`, so each rung is asserted once more through
+    // a written section, the plugin's own registration, and `ctx.llm`.
+    const dir = await home()
+    const ctx = await bootWithSettings(dir, {})
+    await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
+      providers: {
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          models: [{ id: 'bare' }, { id: 'seeing', input: ['text', 'image'] }],
+        },
+        'vision-gateway': {
+          api: 'openai-completions',
+          baseURL: 'https://vision.test/v1',
+          defaultInput: ['text', 'image'],
+          models: [{ id: 'bare' }, { id: 'deaf', input: ['text'] }],
+        },
+        'anthropic': { defaultInput: ['text'] },
+      },
+    })
+
+    const listed = async (provider: string): Promise<Record<string, readonly string[] | undefined>> =>
+      Object.fromEntries((await ctx.llm.listModels(provider)).map(model => [model.id, model.inputModalities]))
+
+    expect(await listed('acme-gateway')).toEqual({ bare: ['text'], seeing: ['text', 'image'] })
+    expect(await listed('vision-gateway')).toEqual({ bare: ['text', 'image'], deaf: ['text'] })
+    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'seeing')).inputModalities).toEqual(['text', 'image'])
+
+    // A catalog vision model keeps what the catalog records even under a
+    // narrower route default: the route value is a fallback, not an override.
+    const vision = getBuiltinModels('anthropic').find(model => model.input.includes('image'))
+    if (vision === undefined) throw new Error('the installed catalog ships no anthropic vision model')
+    expect((await ctx.llm.resolveModelInfo('anthropic', vision.id)).inputModalities).toEqual(vision.input)
   })
 
   it('reads an entry’s empty modality list as no answer, and the route’s as unserviceable', () => {
