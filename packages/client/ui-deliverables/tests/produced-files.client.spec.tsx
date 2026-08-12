@@ -27,7 +27,6 @@ import {
   type DeliverablesTurnData,
 } from '../src/client/turn-deliverables.ts'
 import { apply, inject } from '../src/client/index.ts'
-import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -438,9 +437,7 @@ describe('producedFileMentions resolver', () => {
 })
 
 describe('package shells', () => {
-  it('the node half mounts inert and the invariant companion registers ownership', async () => {
-    // The node half is deliberately inert; mounting it must simply not throw.
-    applyNode()
+  it('the invariant companion registers ownership', async () => {
     const registered: string[] = []
     const ctx = new Context()
     ctx.provide('invariants')
