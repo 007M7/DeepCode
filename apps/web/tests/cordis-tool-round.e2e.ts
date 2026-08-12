@@ -153,7 +153,7 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     await runRow.waitFor({ timeout: 10_000 })
     await expect.poll(() => runRow.textContent()).toContain('snap-')
 
-    const stopRow = page.locator('[data-tool="cordis_stop"]').filter({ hasText: 'Stop dynamic Plugin' }).first()
+    const stopRow = page.locator('[data-tool="cordis_stop"]').filter({ hasText: 'Stop dynamic package' }).first()
     await stopRow.waitFor({ timeout: 10_000 })
     await expect.poll(() => stopRow.textContent()).toContain('snap-')
     await expect(stopRow.getAttribute('data-state')).resolves.toBe('ok')
