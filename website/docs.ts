@@ -133,9 +133,9 @@ const homeAndGuide = pairedPages([
   {
     source: 'docs/user/guide/python-sdk.md',
     route: 'guide/python-sdk.md',
-    label: { root: 'Python SDK', en: 'Python SDK' },
+    label: { root: 'Python', en: 'Python' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
-    section: { root: '其他接口', en: 'Other interfaces' },
+    section: { root: 'SDK', en: 'SDK' },
     order: 1,
   },
 ])
@@ -427,7 +427,7 @@ export interface DocsSection {
  */
 const sections: Record<DocsLocale, readonly DocsSection[]> = {
   root: [
-    { label: '入门' }, { label: '其他接口' },
+    { label: '入门' }, { label: 'SDK' },
     { label: '基础' }, { label: '框架能力' }, { label: '实战' }, { label: 'Cordis 框架教程' },
     { label: '概念' }, { label: '生成参考' }, { label: 'Cordis API' }, { label: '开发手册' },
     { label: '总览' },
@@ -439,7 +439,7 @@ const sections: Record<DocsLocale, readonly DocsSection[]> = {
     { label: '平台与接入', collapsed: true },
   ],
   en: [
-    { label: 'Guide' }, { label: 'Other interfaces' },
+    { label: 'Guide' }, { label: 'SDK' },
     { label: 'Basics' }, { label: 'Framework' }, { label: 'Practice' }, { label: 'Cordis framework tutorial' },
     { label: 'Concepts' }, { label: 'Generated reference' }, { label: 'Cordis Core API' }, { label: 'Cookbook' },
     { label: 'Overview' },

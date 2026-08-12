@@ -378,10 +378,10 @@ describe('sidebar ordering', () => {
   })
 
   it('declares placements per locale rather than in one shared list', () => {
-    // Each locale ranks only its own labels, so a label one locale never uses
-    // cannot borrow a rank from the other.
-    expect(sectionSpec('root', '入门').index).toBe(0)
-    expect(sectionSpec('en', 'Guide').index).toBe(0)
+    // `SDK` labels a group in both locales, so one shared list would have to
+    // rank it against `入门` and against `Guide` at the same position.
+    expect(sectionSpec('root', 'SDK').index).toBeGreaterThan(sectionSpec('root', '入门').index)
+    expect(sectionSpec('en', 'SDK').index).toBeGreaterThan(sectionSpec('en', 'Guide').index)
     expect(() => sectionSpec('en', '入门')).toThrow()
     expect(() => sectionSpec('root', 'Guide')).toThrow()
   })
