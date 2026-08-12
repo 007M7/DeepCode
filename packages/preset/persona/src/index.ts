@@ -40,12 +40,15 @@ export interface Config {
   text: string
   /** Make this persona the complete system prompt, suppressing every other section. */
   complete?: boolean
+  /** Suppress dynamic runtime-context snapshots for this persona's agent scope. */
+  includeRuntimeContext?: boolean
 }
 
 /** Runtime schema for the persona row. */
 export const Config: z<Config> = z.object({
   text: z.string().required(),
   complete: z.boolean().default(false),
+  includeRuntimeContext: z.boolean().default(true),
 })
 
 /**
@@ -61,4 +64,5 @@ export function apply(ctx: Context, config: Config): void {
     text: config.text,
     ...(config.complete ? { complete: true } : {}),
   }), 'persona.section()')
+  if (!(config.includeRuntimeContext ?? true)) ctx.systemPrompt.suppressRuntimeContext()
 }

@@ -30,7 +30,7 @@ Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CON
 
 ## Minimal variant
 
-[`minimal.cordis.yml`](minimal.cordis.yml) is the complete standalone counterpart of the Web `minimal` preset. `DSH_SYSTEM_PROMPT` selects its system prompt, with `You are a helpful software engineer assistant.` as the fallback, and no context-compaction plugin is mounted. Its model-facing tools are exactly:
+[`minimal.cordis.yml`](minimal.cordis.yml) is the complete standalone counterpart of the Web `minimal` preset. `DSH_SYSTEM_PROMPT` selects its system prompt, with `You are a helpful software engineer assistant.` as the fallback. It suppresses every system-prompt runtime-context contribution for fresh sessions and mounts no context-compaction plugin. Its model-facing tools are exactly:
 
 - owner-scoped persistent `bash`
 - `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`

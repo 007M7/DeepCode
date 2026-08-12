@@ -1131,6 +1131,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register ordered dynamic context in the calling context\'s scope. Scoped\n * entries shadow global entries with the same name.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
+        signature: 'suppressRuntimeContext(): () => void',
+        jsDoc: '/**\n * Suppress every dynamic runtime-context contribution in the calling\n * context\'s scope without changing the services that own or enforce those\n * facts. Multiple suppressors remain independently disposable.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
         jsDoc: '/**\n * Register a tool-schema provider in the calling context\'s scope. Global and\n * matching scoped providers both contribute; returning the reserved\n * {@link TOOL_ORDER_REST} name makes assembly fail.\n * @param provider - evaluated for each assembly with its context.\n * @returns the exact Cordis effect disposer.\n */',
       },

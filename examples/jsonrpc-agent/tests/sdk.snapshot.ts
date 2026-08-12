@@ -77,8 +77,8 @@ interface SdkScenario {
   expectedSystem?: string
   /** Exact model-facing descriptions for selected tools. */
   expectedToolDescriptions?: Readonly<Record<string, string>>
-  /** Stable policy-context clauses the real assembled request must include or omit. */
-  policyContext?: { includes: readonly string[]; excludes: readonly string[] }
+  /** Expected runtime-context state in the real assembled request. */
+  runtimeContext?: false | { includes: readonly string[]; excludes: readonly string[] }
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -111,10 +111,7 @@ const SCENARIOS: SdkScenario[] = [
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
     expectedSystem: MINIMAL_SYSTEM_PROMPT,
     expectedToolDescriptions: { bash: MINIMAL_BASH_DESCRIPTION },
-    policyContext: {
-      includes: ['Current DSH file policy: danger-full-access.', 'file modifications by available operations'],
-      excludes: ['write and edit tools', 'terminal sessions', 'one-shot bash commands'],
-    },
+    runtimeContext: false,
   },
 ]
 
@@ -182,8 +179,8 @@ function assembledSystem(log: PersistedLog): string {
   return system
 }
 
-function assembledPolicyContext(log: PersistedLog): string {
-  const contexts = log.content.trimEnd().split('\n').flatMap((line) => {
+function assembledRuntimeContexts(log: PersistedLog): string[] {
+  return log.content.trimEnd().split('\n').flatMap((line) => {
     const event = JSON.parse(line) as {
       type?: string
       data?: { source?: { kind?: string; plugin?: string }; content?: Array<{ type?: string; text?: unknown }> }
@@ -193,8 +190,6 @@ function assembledPolicyContext(log: PersistedLog): string {
       || event.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
     return event.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
   })
-  if (contexts.length !== 1) throw new Error(`session log has ${String(contexts.length)} runtime-context snapshots; expected one`)
-  return contexts[0] as string
 }
 
 function contextOf(logs: readonly { content: string; header: Record<string, unknown> }[], cwd: string): NormalizeContext {
@@ -447,14 +442,20 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
         expect(assembledToolDescriptions(parent)).toMatchObject(scenario.expectedToolDescriptions)
       }
-      if (scenario.policyContext !== undefined) {
+      if (scenario.runtimeContext !== undefined) {
         const parent = ordered[0]
         if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
-        const context = assembledPolicyContext(parent)
-        for (const clause of scenario.policyContext.includes) expect(context).toContain(clause)
-        for (const clause of scenario.policyContext.excludes) expect(context).not.toContain(clause)
-        const system = assembledSystem(parent)
-        for (const clause of scenario.policyContext.includes) expect(system).not.toContain(clause)
+        const contexts = assembledRuntimeContexts(parent)
+        if (scenario.runtimeContext === false) {
+          expect(contexts).toEqual([])
+        } else {
+          expect(contexts).toHaveLength(1)
+          const context = contexts[0] as string
+          for (const clause of scenario.runtimeContext.includes) expect(context).toContain(clause)
+          for (const clause of scenario.runtimeContext.excludes) expect(context).not.toContain(clause)
+          const system = assembledSystem(parent)
+          for (const clause of scenario.runtimeContext.includes) expect(system).not.toContain(clause)
+        }
       }
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)
