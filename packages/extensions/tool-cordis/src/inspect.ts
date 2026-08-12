@@ -14,8 +14,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-cordis-host-runner'
 import { EVENT_API, INHERITED_CTX_API, SERVICE_API, TYPE_API } from './api-catalog.ts'
 import type { EventApiEntry, InheritedApiEntry, ServiceApiEntry, ServiceApiMethod, TypeApiEntry } from './api-catalog.ts'
-import { CLIENT_NOTES, CLIENT_SLOT_API } from './client-catalog.ts'
-import type { ClientSlotEntry } from './client-catalog.ts'
 import { FiberState, STATE_LABELS } from './fiber-state.ts'
 
 /** One live service joined with what the generated catalog knows about it. */
@@ -330,74 +328,5 @@ export function describeEvents(events: readonly EventApiEntry[] = EVENT_API, nam
     return entry
   })
   lines.push('waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() short-circuits the chain.')
-  return lines
-}
-
-/** One slot's compact listing row: what it is, and whether registering costs shipped UI. */
-function slotSummaryLines(entry: ClientSlotEntry): string[] {
-  const lines = [`- ${entry.key} [${entry.kind}, ${entry.scope}] — ${entry.summary}`]
-  lines.push(entry.replaceRisk === 'shadows-shipped-ui'
-    ? `    OCCUPIED — registering here REPLACES: ${entry.occupants.join('; ')}`
-    : `    additive${entry.occupants.length === 0 ? ' (no shipped entries)' : ` (beside: ${entry.occupants.join('; ')})`}`)
-  return lines
-}
-
-/** One slot's full teaching block: how to register, what arrives, what it costs. */
-function slotDetailLines(entry: ClientSlotEntry): string[] {
-  const lines = [`- ${entry.key} [${entry.kind}, ${entry.scope}]`]
-  for (const docLine of entry.doc.split('\n')) lines.push(`    ${docLine}`)
-  lines.push(`    exists: ${entry.declaredBy}`)
-  lines.push(entry.replaceRisk === 'shadows-shipped-ui'
-    ? `    OCCUPIED — registering here REPLACES: ${entry.occupants.join('; ')}`
-    : `    additive${entry.occupants.length === 0 ? ' (no shipped entries)' : ` (beside: ${entry.occupants.join('; ')})`}`)
-  if (entry.keyDomain !== '') lines.push(`    key domain: ${entry.keyDomain}`)
-  lines.push(`    register options besides name:${entry.registerOptions.length === 0 ? ' none' : ''}`)
-  for (const option of entry.registerOptions) {
-    lines.push(`      ${option.name} (${option.requirement}, ${option.type}) — ${option.doc}`)
-  }
-  lines.push(entry.ownerProps.length === 0
-    ? '    owner props: none — the owner supplies only the render site'
-    : '    owner props (the shapes the owner passes down):')
-  for (const declaration of entry.ownerProps) {
-    for (const declLine of declaration.split('\n')) lines.push(`      ${declLine}`)
-  }
-  if (entry.ownerPropsReferences.length > 0) {
-    lines.push(`    shapes those fields reference, not expanded here: ${entry.ownerPropsReferences.join(', ')}`
-      + ' — read the field as the contract above describes it rather than the whole shape')
-  }
-  lines.push('    framework props for this scope:')
-  for (const prop of entry.standardProps) lines.push(`      ${prop}`)
-  if (entry.slotInject !== '') lines.push(`    slot-level inject face every entry receives: ${entry.slotInject}`)
-  if (entry.hookContext !== '') lines.push(`    per-render-site hook context: ${entry.hookContext}`)
-  lines.push('    minimal browser half:')
-  for (const codeLine of entry.example.split('\n')) lines.push(`      ${codeLine}`)
-  return lines
-}
-
-/**
- * The `client` section: the browser half's slot surface — every seat a dynamic
- * package can contribute UI into, whether taking it costs shipped UI, and (with
- * an exact `name`) the full register contract for one seat. Compile-time data
- * from the shipped web bundle, so it needs no live runtime.
- * @param slots - the generated slot catalog (injectable for tests).
- * @param notes - the cross-cutting registrant rules (injectable for tests).
- * @param name - exact slot key to expand; omitted for the compact catalog.
- * @returns the section lines.
- * @throws when `name` is not a catalogued slot key.
- */
-export function describeClient(
-  slots: readonly ClientSlotEntry[] = CLIENT_SLOT_API,
-  notes: readonly string[] = CLIENT_NOTES,
-  name?: string,
-): string[] {
-  if (name !== undefined) {
-    const entry = slots.find(candidate => candidate.key === name)
-    if (!entry) throw new Error(`no catalogued client slot named "${name}"`)
-    return slotDetailLines(entry)
-  }
-  const lines = slots.flatMap(entry => slotSummaryLines(entry))
-  lines.push('how to contribute:')
-  for (const note of notes) lines.push(`- ${note}`)
-  lines.push('pass name:"<slot key>" with what:"client" for one slot\'s register options, owner/framework props, and a minimal browser half.')
   return lines
 }

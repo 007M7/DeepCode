@@ -31,7 +31,7 @@ export type { CordisKey } from './locales.ts'
 
 /** Required services for the two Tool cards, panel, Remote lifecycle, and Slash source. */
 export const inject = [
-  'slots', 'locale', 'slash', 'remote', 'remote.dynamicCordisRunner', 'dynamicCordisRunner',
+  'slots', 'locale', 'inputTriggers', 'remote', 'remote.dynamicCordisRunner', 'dynamicCordisRunner',
 ]
 
 /** Mount every Cordis browser surface over the shared Host inventory. */
@@ -153,7 +153,7 @@ export function apply(ctx: ClientContext): void {
     subscribeLexicon(_session, listener) { return inventory.subscribe(listener) },
     onPick({ candidate }) { return { text: `@${candidate.name} ` } },
   }
-  const slash = ctx.get('slash') as InputTriggerService
+  const slash = ctx.get('inputTriggers') as InputTriggerService
   ctx.effect(() => slash.registerSource(source), 'ui-cordis: @pluginId source')
 
   inventory.refresh()
