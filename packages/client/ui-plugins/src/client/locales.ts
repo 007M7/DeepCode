@@ -2,8 +2,7 @@
 
 /** Simplified Chinese dictionary and key source of truth. */
 export const zh = {
-  nav: '插件',
-  title: '插件',
+  tab: '插件列表',
   loading: '正在读取插件…',
   error: '暂时无法读取插件。',
   retry: '重试',
@@ -28,8 +27,7 @@ export type PluginsKey = keyof typeof zh
 
 /** English dictionary checked against the Chinese key set. */
 export const en = {
-  nav: 'Plugins',
-  title: 'Plugins',
+  tab: 'Plugin list',
   loading: 'Reading plugins…',
   error: 'Plugins are temporarily unavailable.',
   retry: 'Retry',

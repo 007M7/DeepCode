@@ -12,7 +12,7 @@ The seam that made the Models page possible was already general: any plugin may 
 
 ## Decision
 
-Three host-plane plugins register their own settings namespace, and one browser-side section renders whatever the deployment exposes.
+Three host-plane plugins register their own settings namespace, and one browser-side Plugins section aggregates feature-owned tabs. Its configurable tab renders whatever editable settings the deployment exposes.
 
 **Layering, unchanged.** A section resolves as schema defaults → the plugin's composition entry → the user layer. Each plugin passes its `cordis.yml` entry as the `base` and reads its config through a source thunk, so a stored change reaches the next use and a detaching settings provider leaves the composition entry running. Constraints the schema cannot express — positive and finite, the timer bound on `graceMs`, the parallel cap being a positive integer — become the section validator, so a bad value is refused at the write instead of at the next command.
 
@@ -24,7 +24,7 @@ Three host-plane plugins register their own settings namespace, and one browser-
 
 **Exposure stays a Host allowlist.** The three namespaces join `WEB_SETTINGS_NAMESPACES`; registration alone still never crosses the transport, and a namespace absent from that list answers `settings-not-exposed` exactly as an unregistered one does.
 
-**The section knows no namespace.** `dsh-client-ui-plugin-config` declares a `settings.plugin.item` slot and renders the cards registered into it, so a plugin that ships a browser half owns its card and its controls. Each card binds its namespace through the client settings scope, which gained the two things a form needs: the raw `user` layer, whose key PRESENCE is what marks a field overridden, and `unset`, which clears one field back to the composition layer. A card renders nothing while its namespace is unavailable, so a deployment that does not compose the owning plugin shows no trace of it.
+**The configurable tab knows no namespace.** `dsh-client-ui-plugin-config` owns the Plugins section, contributes its `configurable` page through `settings.plugins.tab`, and declares a nested `settings.plugin.item` slot there. It renders the cards registered into that nested slot, so a plugin that ships a browser half owns its card and its controls. Each card binds its namespace through the client settings scope, which gained the two things a form needs: the raw `user` layer, whose key PRESENCE is what marks a field overridden, and `unset`, which clears one field back to the composition layer. A card renders nothing while its namespace is unavailable, so a deployment that does not compose the owning plugin shows no trace of it.
 
 **A card stages its edits and writes them on save.** Controls hold no draft of their own: the card's form owns the staged text, every control renders it, and only **Save** turns it into document mutations. A settings write is durable and revision-fenced, so a control that committed as it settled spent a revision on a value the user had not decided to store and could not preview; the reset stages the composed default the same way. Because the Host's validators own the constraints no schema can express, the form reads the section back after writing and reports a save that did not land instead of predicting the outcome, keeping those drafts for the user to correct. The credential control is staged with the rest even though it writes through the credentials domain, so one save covers everything the card shows.
 

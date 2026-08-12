@@ -7,17 +7,10 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.heading h2,
 .catalogHeading h3,
 .status,
 .failure p {
   margin: 0;
-}
-
-.heading h2 {
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
 }
 
 .status,

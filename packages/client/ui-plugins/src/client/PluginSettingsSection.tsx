@@ -19,7 +19,7 @@ type PluginFiberPhase = PluginInventoryEntry['fiberPhase']
 
 /** Full component props assembled by the Settings slot renderer. */
 export type PluginSettingsSectionProps =
-  PropsRuntime<'settings.section'>
+  PropsRuntime<'settings.plugins.tab'>
   & PropsLocale<'settings.plugins'>
   & InjectFace<PluginSettingsSectionInjected>
 
@@ -62,7 +62,7 @@ function matches(entry: PluginInventoryEntry, normalizedQuery: string): boolean 
 
 /** Render the read-only current Loader inventory. */
 export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): ReactNode {
-  const titleId = useId()
+  const catalogId = useId()
   const [request, setRequest] = useState(0)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<PluginInventoryEntry['entryId'] | null>(null)
@@ -97,10 +97,7 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
   }
 
   return (
-    <section className={css.section} aria-labelledby={titleId} aria-busy={state.status === 'loading'}>
-      <header className={css.heading}>
-        <h2 id={titleId}>{t('title')}</h2>
-      </header>
+    <div className={css.section} aria-busy={state.status === 'loading'}>
       {state.status === 'loading' ? <p className={css.status}>{t('loading')}</p> : null}
       {state.status === 'error' ? (
         <div className={css.failure}>
@@ -134,8 +131,9 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
               {filteredEntries.map((entry) => {
                 const status = phaseLabel(entry.fiberPhase, t)
                 const title = moduleShortName(entry.moduleName)
+                const configuration = t(entry.enabled ? 'enabledTag' : 'disabledTag')
                 const open = expanded === entry.entryId
-                const detailId = `${titleId}-details-${encodeURIComponent(entry.entryId)}`
+                const detailId = `${catalogId}-details-${encodeURIComponent(entry.entryId)}`
                 return (
                   <li
                     className={css.card}
@@ -148,22 +146,24 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
                       type="button"
                       aria-expanded={open}
                       aria-controls={detailId}
-                      aria-label={`${title}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
+                      aria-label={entry.enabled ? `${title}, ${status}, ${configuration}` : `${title}, ${configuration}`}
                       onClick={() => {
                         setExpanded(current => current === entry.entryId ? null : entry.entryId)
                       }}
                     >
                       <strong className={css.cardTitle} title={entry.moduleName}>{title}</strong>
                       <span className={css.cardTrailing}>
-                        <span
-                          className={css.statusDot}
-                          data-phase={entry.fiberPhase ?? 'unobserved'}
-                          role="img"
-                          aria-label={status}
-                          title={status}
-                        />
+                        {entry.enabled ? (
+                          <span
+                            className={css.statusDot}
+                            data-phase={entry.fiberPhase ?? 'unobserved'}
+                            role="img"
+                            aria-label={status}
+                            title={status}
+                          />
+                        ) : null}
                         <span className={css.configTag} data-enabled={entry.enabled ? 'true' : 'false'}>
-                          {t(entry.enabled ? 'enabledTag' : 'disabledTag')}
+                          {configuration}
                         </span>
                         <IconChevronDownOutline14 className={css.chevron} size={12} aria-hidden="true" />
                       </span>
@@ -174,12 +174,14 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
                         <dl className={css.details}>
                           <div>
                             <dt>{t('configuration')}</dt>
-                            <dd>{t(entry.enabled ? 'enabledTag' : 'disabledTag')}</dd>
+                            <dd>{configuration}</dd>
                           </div>
-                          <div>
-                            <dt>{t('cordis')}</dt>
-                            <dd>{status}</dd>
-                          </div>
+                          {entry.enabled ? (
+                            <div>
+                              <dt>{t('cordis')}</dt>
+                              <dd>{status}</dd>
+                            </div>
+                          ) : null}
                         </dl>
                       </div>
                     ) : null}
@@ -190,6 +192,6 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
           ) : null}
         </div>
       ) : null}
-    </section>
+    </div>
   )
 }

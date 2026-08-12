@@ -2,7 +2,7 @@
 
 /** Locale keys these surfaces render. */
 export type PluginConfigKey =
-  | 'nav' | 'title' | 'intro' | 'empty'
+  | 'nav' | 'title' | 'intro' | 'tabs' | 'configurableTab' | 'empty'
   | 'overridden' | 'reset' | 'readOnly' | 'expand' | 'collapse'
   | 'save' | 'saving' | 'discard' | 'unsaved' | 'saveFailed' | 'invalidNumber'
   | 'bashTitle' | 'bashDescription' | 'bashTimeoutMs' | 'bashTimeoutMsHint'
@@ -14,9 +14,11 @@ export type PluginConfigKey =
 
 /** English copy. */
 export const en: Record<PluginConfigKey, string> = {
-  nav: 'Plugin config',
-  title: 'Plugin configuration',
-  intro: 'Configure the plugins this deployment installed.',
+  nav: 'Plugins',
+  title: 'Plugins',
+  intro: 'Configure and inspect the plugins installed in this deployment.',
+  tabs: 'Plugin views',
+  configurableTab: 'Plugin configuration',
   empty: 'This deployment exposes no plugin settings.',
   overridden: 'Overridden',
   reset: 'Reset to default',
@@ -53,9 +55,11 @@ export const en: Record<PluginConfigKey, string> = {
 
 /** Simplified Chinese copy. */
 export const zh: Record<PluginConfigKey, string> = {
-  nav: '插件配置',
-  title: '插件配置',
-  intro: '配置本部署已安装的插件。',
+  nav: '插件',
+  title: '插件',
+  intro: '配置和查看本部署已安装的插件。',
+  tabs: '插件视图',
+  configurableTab: '插件配置',
   empty: '本部署没有开放任何插件设置。',
   overridden: '已覆盖',
   reset: '恢复默认',
