@@ -165,7 +165,7 @@ export function nextVendorVersion(
 ): string {
   const taggedOrder = tagged === undefined ? undefined : compareReleaseNumbers(tagged, current)
   const ahead = taggedOrder !== undefined && taggedOrder > 0
-  const baseline = ahead ? tagged : current
+  const baseline = ahead && tagged !== undefined ? tagged : current
   const [major, minor, patch] = releaseNumbers(baseline)
   // Reuse the numbers when the tagged version that set them is a prerelease
   // of them; increment when a stable release already holds them.
