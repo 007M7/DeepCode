@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-models",
   "description": "Models settings and official-DeepSeek first-run routing over one live provider/settings/credential join",
-  "version": "0.0.1-rc.4",
+  "version": "0.0.1-rc.5",
   "publishConfig": {
     "access": "restricted"
   },
