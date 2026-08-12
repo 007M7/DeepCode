@@ -570,6 +570,11 @@ describe('dsh-workflow-worker-thread', () => {
       // inside the worker resolves instead of degrading to a cwd-relative
       // `undefined\temp` (tsx writes its transform cache there).
       process.env.WORKFLOW_ENV_CANARY = 'leak me'
+      // The unbuilt worker forwards TSX_TSCONFIG_PATH (a path pin, not a
+      // credential); clear it so this test observes the empty ambient case
+      // regardless of the parent's environment.
+      const tsconfigPath = process.env.TSX_TSCONFIG_PATH
+      delete process.env.TSX_TSCONFIG_PATH
       try {
         const result = await run(ctx, parent, scripted(`
           const proc = ${ESCAPE}
@@ -579,6 +584,8 @@ describe('dsh-workflow-worker-thread', () => {
         const expectedKeys = process.platform === 'win32' ? ['TEMP', 'TMP'] : []
         expect(result.value).toEqual({ canary: null, keys: expectedKeys })
       } finally {
+        if (tsconfigPath === undefined) delete process.env.TSX_TSCONFIG_PATH
+        else process.env.TSX_TSCONFIG_PATH = tsconfigPath
         delete process.env.WORKFLOW_ENV_CANARY
       }
     })
@@ -591,17 +598,12 @@ describe('dsh-workflow-worker-thread', () => {
 
     it('workerSpawnEnv forwards TSX_TSCONFIG_PATH when the snapshot harness pins it', () => {
       const tsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
-      vi.stubEnv('TSX_TSCONFIG_PATH', tsconfig)
-      try {
-        expect(workerSpawnEnv('linux')).toEqual({ TSX_TSCONFIG_PATH: tsconfig })
-        expect(workerSpawnEnv('win32')).toEqual({
-          TMP: tmpdir(),
-          TEMP: tmpdir(),
-          TSX_TSCONFIG_PATH: tsconfig,
-        })
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      expect(workerSpawnEnv('linux', tsconfig)).toEqual({ TSX_TSCONFIG_PATH: tsconfig })
+      expect(workerSpawnEnv('win32', tsconfig)).toEqual({
+        TMP: tmpdir(),
+        TEMP: tmpdir(),
+        TSX_TSCONFIG_PATH: tsconfig,
+      })
     })
 
     it('the unbuilt worker forwards exactly TSX_TSCONFIG_PATH through the scrub: the paths-map pin survives, secrets do not', async () => {

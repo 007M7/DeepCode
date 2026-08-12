@@ -38,18 +38,21 @@ interface ChildRecord {
  * The unbuilt shape additionally forwards `TSX_TSCONFIG_PATH` for path
  * resolution.
  * @param platform - host platform; overridable so tests exercise both peer arms.
+ * @param tsconfigPath - the tsconfig pin to forward; only the unbuilt caller
+ *   passes one, so the built worker never observes the host's pin.
  * @returns the scrubbed worker environment object.
  */
-export function workerSpawnEnv(platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+export function workerSpawnEnv(
+  platform: NodeJS.Platform = process.platform,
+  tsconfigPath: string | undefined = undefined,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   if (platform === 'win32') {
     const tmp = tmpdir()
     env.TMP = tmp
     env.TEMP = tmp
   }
-  if (process.env.TSX_TSCONFIG_PATH !== undefined) {
-    env.TSX_TSCONFIG_PATH = process.env.TSX_TSCONFIG_PATH
-  }
+  if (tsconfigPath !== undefined) env.TSX_TSCONFIG_PATH = tsconfigPath
   return env
 }
 
@@ -81,7 +84,7 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: string | URL; options: W
     entry: new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`),
     options: {
       workerData: init,
-      env: workerSpawnEnv(),
+      env: workerSpawnEnv(undefined, process.env.TSX_TSCONFIG_PATH),
       execArgv: [],
     },
   }
