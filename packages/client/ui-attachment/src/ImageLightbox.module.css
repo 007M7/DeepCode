@@ -19,7 +19,6 @@
 
 .image {
   position: relative;
-  z-index: 1;
   max-width: min(100%, 1600px);
   max-height: calc(100vh - 80px);
   object-fit: contain;
@@ -32,6 +31,7 @@
   position: fixed;
   top: 20px;
   right: 20px;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 36px;

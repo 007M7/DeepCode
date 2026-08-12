@@ -71,6 +71,10 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       case 'image': {
         // Consecutive image blocks share one gallery so several images tile
         // into rows instead of each opening a one-image group of its own.
+        // Keyed by the group's FIRST block index: a streaming append that
+        // extends the group then only grows `images` instead of remounting
+        // the gallery under a shifted key.
+        const start = i
         const group = [block]
         while (i + 1 < blocks.length) {
           const next = blocks[i + 1]
@@ -78,7 +82,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           group.push(next)
           i += 1
         }
-        rendered.push(<ImageGallery key={i} images={group} load={imageLoader} align="start" labels={messageImageLabels(t)} />)
+        rendered.push(<ImageGallery key={start} images={group} load={imageLoader} align="start" labels={messageImageLabels(t)} />)
         break
       }
       // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.

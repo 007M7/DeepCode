@@ -1,5 +1,4 @@
 import { createPortal } from 'react-dom'
-import clsx from 'clsx'
 import css from './DropOverlay.module.css'
 
 /** Drop-overlay strings the owner resolves from its own locale namespace. */
@@ -27,7 +26,7 @@ export function DropOverlay({ disabled, labels }: {
   labels: DropOverlayLabels
 }) {
   return createPortal(
-    <div className={clsx(css.mask, disabled && css.disabled)} role="status">
+    <div className={css.mask} role="status">
       <div className={css.wrap}>
         <div className={css.illustration} aria-hidden="true">
           {disabled ? <UploadDisabledIllustration /> : <UploadIllustration />}

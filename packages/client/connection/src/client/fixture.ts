@@ -981,6 +981,9 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['contextBreakdown'] = contextBreakdownOf(log)
   // Always present (attachment service composed): the deployment image
   // limits, constant per boot (mirrors the attachment-local defaults).
+  // Deliberate host divergence: the real gateway never pushes an imageLimits
+  // change frame (constant unit), but the fixture's uniform baseline replay
+  // frames every key here, incidentally exercising higher-seq-wins.
   values['imageLimits'] = {
     maxImageBytes: 10 * 1024 * 1024,
     maxImagesPerMessage: 20,

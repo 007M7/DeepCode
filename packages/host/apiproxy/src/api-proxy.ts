@@ -1237,6 +1237,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   // seam package cannot reference the projection registry without a cycle,
   // and the per-message rules the value describes are this proxy's own
   // admission checks. The child activates only while both seams are composed.
+  // `view` reading the live service instead of the (null) state is sanctioned
+  // exactly for boot-constant units: the value cannot change within a process
+  // lifetime, so the fold stays observationally pure, and a stale persisted
+  // cache row re-viewing to the current config is the correct outcome.
   ctx.inject(['sessionProjections', 'attachments'], (projectionCtx) => {
     projectionCtx.sessionProjections.register<'imageLimits', null>({
       key: 'imageLimits',
