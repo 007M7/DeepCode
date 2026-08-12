@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-pwsh-local/resolve
  */
 
-import { existsSync, lstatSync } from 'node:fs'
+import { lstatSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -36,15 +36,21 @@ export function candidatePwshPaths(env: NodeJS.ProcessEnv = process.env): string
   return candidates
 }
 
-/** Whether a candidate can be spawned: a real file or a link-shaped reparse point. */
+/**
+ * Whether a candidate can be spawned. lstat opens the entry itself instead of
+ * following reparse points, so it sees the Store app execution alias where
+ * stat hits the target's ACL (EACCES); Node reports that alias as a symlink
+ * on current releases and as a plain file on older ones, and CreateProcess
+ * resolves either shape. A real directory never matches.
+ */
 function candidateExists(candidate: string): boolean {
-  if (existsSync(candidate)) return true
-  // Microsoft Store app execution aliases are reparse points whose target
-  // ACL refuses stat(), so existsSync misses them; lstat sees the link
-  // itself and CreateProcess resolves it when the executor spawns.
   try {
-    return lstatSync(candidate).isSymbolicLink()
+    const stat = lstatSync(candidate)
+    return stat.isFile() || stat.isSymbolicLink()
   } catch {
+    // ENOENT (the candidate vanished between listing and probing) is the only
+    // expected failure; any other error names an unspawnable path, so false
+    // is the safe answer for it too.
     return false
   }
 }

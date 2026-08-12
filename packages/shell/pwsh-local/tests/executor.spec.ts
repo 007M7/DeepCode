@@ -138,6 +138,17 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
     expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: store }, 'win32'))
       .toBe(link)
   })
+
+  it('skips a directory candidate and falls through to the PATH-resolution default', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-resolve-dir-'))
+    const store = join(dir, 'store')
+    mkdirSync(join(store, 'pwsh.exe'), { recursive: true })
+    expect(resolvePwshPath(undefined, {
+      ProgramFiles: join(dir, 'missing'),
+      PATH: store,
+      SystemRoot: join(dir, 'no-windows'),
+    }, 'win32')).toBe('pwsh')
+  })
 })
 
 describe('spawn construction (pure, every platform)', () => {
