@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-20-error-cause-chain-diagnostics.md
 2026-07-20-error-cause-chain-diagnostics.md: d1944b3b435f2e1c64e1612adf0e61dd8e7401ff
-2026-07-20-error-cause-chain-diagnostics.zh.md: 054397f1a5902ef9121856e63c13637f84fe9768
+2026-07-20-error-cause-chain-diagnostics.zh.md: cd493f99388282189c807353b32fec15f1007f87

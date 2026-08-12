@@ -6,21 +6,21 @@ Status: implemented
 
 ## 问题
 
-Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bundle → HTTP 单次 RPC + 两条 SSE（Server-Sent Events）流 → `toFetchHandler`/apiproxy → host 端的 agent loop（智能体循环）、工具与 JSONL 持久化——却没有任何测试无密钥且确定性地检验这条链。[GUI 测试体系](../process/2026-07-20-gui-testing-system.md)覆盖第 1 层（Node 中的协议同构）、第 2 层（对象层状态机）与第 3 层冒烟测试，但无密钥冒烟驱动的是 `FixtureApiClient`——没有 host、没有 wire、没有 agent loop——而全链路冒烟需要 `DEEPSEEK_API_KEY` 和真实模型，因此不确定、在无密钥 CI 中自行跳过。[docs/testing.md](../../../../docs/testing.md) 的快照哲学——带密钥录制一次、永久无密钥回放、格式变动时刷新——已覆盖 ACP（Agent Client Protocol）、headless `stream-json` 与 TUI 三个文本记录（transcript）表面；web 表面是唯一没有这层保障的组装形态。而缺口恰恰是两起已实证 GUI P0 藏身之处：fixture（测试前置数据）客户端短路掉的 wire 承载链。
+Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bundle → HTTP 单次 RPC + 两条 SSE（Server-Sent Events）流 → `toFetchHandler`/apiproxy → host 端的 agent loop（智能体循环）、工具与 JSONL 持久化——却没有任何测试无密钥且确定性地检验这条链。[GUI 测试体系](../process/2026-07-20-gui-testing-system.md)覆盖第 1 层（Node 中的协议同构）、第 2 层（对象层状态机）与第 3 层冒烟测试，但无密钥冒烟驱动的是 `FixtureApiClient`——没有 host、没有 wire、没有 agent loop——而全链路冒烟需要 `DEEPSEEK_API_KEY` 和真实模型，因此不确定、在无密钥 CI 中自行跳过。[docs/testing.md](../../../../docs/testing.md) 的快照哲学——带密钥录制一次、永久无密钥回放、格式变动时刷新——已覆盖 ACP（Agent Client Protocol）、headless `stream-json` 与 TUI 三个 transcript（文本记录）表面；web 表面是唯一没有这层保障的组装形态。而缺口恰恰是两起已实证 GUI P0 藏身之处：fixture（测试前置数据）客户端短路掉的 wire 承载链。
 
 ## 决策
 
-`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放；用户可见状态使用规范化的 aria 预期输出，持久世界状态则使用进程内断言。配套的产品约定包括 `dsh-llm-replay` 的节奏控制、消费检查与已校验的索引式覆写 patch；跨包的 `dsh-llm` 失败通过自有数据属性保留经校验的提供方信息；已交付的 web 组合挂载 `llm-retry`，以处理瞬态模型失败。
+`pnpm run test:web` 携带 `apps/web/tests/` 下的无密钥、确定性浏览器 e2e 车道：录制的会话日志 fixture 经 `@deepseek-ai/dsh-llm-replay` 对真实进程内 web 组合回放；用户可见状态使用规范化的 aria 预期输出，持久化的世界状态则使用进程内断言。配套的产品约定包括 `dsh-llm-replay` 的节奏控制、消费检查与已校验的索引式覆写 patch；跨包的 `dsh-llm` 失败通过自有数据属性保留经校验的提供方信息；已交付的 web 组合挂载 `llm-retry`，以处理瞬态模型失败。
 
 ### Scaffold：`apps/web/tests/scaffold.ts`
 
 一个普通的共享 fixture 模块（[测试政策认可的形态](../../../../docs/testing.md)），不是包：值得门禁把守的逻辑——回放推导、会话解析、日志脱敏、持久化——都在已受门禁的包 `dsh-llm-replay`、`dsh-acp-snapshot`、`dsh-session-persistence-jsonl` 中；剩下的只是启动接线和浏览器胶水，而驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100% 覆盖率。
 
-`launchWebScaffold()` 通过 vendored Loader 的 include 机制，从交付的 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 启动真实 web 组合——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制。差异全部经 include patch 覆盖在这棵树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；每个主机级 `skill-local` 根目录（`dshHome`、`agentsHome` 和 `bundledSkillDir`）都钉在临时工作区下并禁用监听，因为环境 skill（技能）目录是模型可见输入；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0 加已构建 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守。初始化回滚和正常关闭都会先对 Cordis 树执行 dispose（资源释放），再删除 scaffold 持有的两个临时根目录；每项清理都会独立尝试，并会报告清理失败而不掩盖初始化失败。
+`launchWebScaffold()` 通过 vendored Loader 的 include 机制，从交付的 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 启动真实 web 组合——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制。差异全部经 include patch 覆盖在这棵树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；每个主机级 `skill-local` 根目录（`dshHome`、`agentsHome` 和 `bundledSkillDir`）都钉在临时工作区下并禁用监听，因为环境 skill（技能）目录是模型可见输入；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0，并使用已构建的 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI（命令行界面）冒烟把守。初始化回滚和正常关闭都会先对 Cordis 树执行 dispose（资源释放），再删除 scaffold 持有的两个临时根目录；每项清理都会独立尝试，并会报告清理失败而不掩盖初始化失败。
 
-无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充空的适配器注册表——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelInfo` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让注册表保持空置，任何离群的流式调用都会以 NO_ADAPTER 大声失败。
+无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充空的适配器注册表——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelInfo` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让注册表保持空置，任何意外的流式调用都会以 NO_ADAPTER 大声失败。
 
-`seedSession()` 通过真实持久化 API 播种冷会话——一次性 `Context` 挂载 `SessionStore` + `SessionPersistenceJsonl` 指向 host 的根目录，`create()` + `append()`，一次 `utimes` 回拨保证侧栏顺序确定（`semantic-checkpoint.snapshot.ts` 先例）——绝不裸写文件，因此播种器对桶哈希、文件名编码、压缩一无所知，host 的 zstd 默认值也无需任何启动开关。种子在播种时即校验（可解析、以 `turn/end` 结尾——未闭合的最终轮次会被恢复（resume）的崩溃修复改写）。
+`seedSession()` 通过真实持久化 API 播种冷会话——一次性 `Context` 挂载 `SessionStore` + `SessionPersistenceJsonl` 到 host 的根上下文，`create()` + `append()`，一次 `utimes` 回拨保证侧栏顺序确定（`semantic-checkpoint.snapshot.ts` 先例）——绝不裸写文件，因此播种器对桶哈希、文件名编码、压缩一无所知，host 的 zstd 默认值也无需任何启动开关。种子在播种时即校验（可解析、以 `turn/end` 结尾——未闭合的最终轮次会被恢复（resume）的崩溃修复改写）。
 
 ### 确定性规则
 
@@ -42,7 +42,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 覆盖约定
 
-该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 Waterfall 视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局重置、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；离群的模型调用或未耗尽的 fixture 会使拆卸失败。必需车道还包含一份合成的 88 轮 Chat 滚动约定，其中混合了换行 Markdown、围栏代码以及成对的 bash 调用/结果。真实 wheel、输入框、工具、tab、会话与 viewport 交互会在并发历史前插加带节奏流式输出、贴底/离底流式输出、工具 disclosure 离屏循环、扩展历史后的视图/会话重新挂载、宽度重排、贴底后立即重新挂载、输入框尺寸变化以及 textarea wheel 链场景中，断言一个具名已结算行相对 transcript scrollport 的顶部位置和到真实底部的距离；真实键盘翻页与触摸式惯性滑动模拟额外钉住不依赖 wheel 的贴底跟随所有权（[读者滚动归因笔记](../bug-fix/2026-08-06-reader-scroll-attribution-observed-top-ledger.md)）；它刻意不钉 DOM 基数或绝对 `scrollTop`，因此同一约定可以验收虚拟化实现。另一份基于同一 fixture 的交互约定钉住异构行顺序、相邻工具 disclosure 的独立状态、用户消息剪贴板内容的精确值、以轮次为边界的消息 fork、源会话/子会话隔离，以及子会话中的一次真实追问轮次；wheel 输入只用于导航到语义目标，不承载几何预期。一份简短的实时历史约定从空白工作区开始，连续驱动输入框轮次，其中包括真实的 bash 调用/结果轮次和一段带节奏的长篇最终响应；它钉住单一会话身份、每轮事件的精确归属、浏览器回显唯一性与输入框恢复，不设置时间阈值。
+该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering（中途引导）；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 waterfall（瀑布式事件）视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局重置、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；意外的模型调用或未耗尽的 fixture 会使拆卸失败。必需车道还包含一份合成的 88 轮 Chat 滚动约定，其中混合了换行 Markdown、围栏代码以及成对的 bash 调用/结果。真实 wheel、输入框、工具、tab、会话与 viewport 交互会在并发历史前插加带节奏流式输出、贴底/离底流式输出、工具 disclosure 离屏循环、扩展历史后的视图/会话重新挂载、宽度重排、贴底后立即重新挂载、输入框尺寸变化以及 textarea wheel 链场景中，断言一个已稳定的具名行相对 transcript scrollport 的顶部位置和到真实底部的距离；真实键盘翻页与触摸式惯性滑动模拟额外钉住不依赖 wheel 的贴底跟随所有权（[读者滚动归因笔记](../bug-fix/2026-08-06-reader-scroll-attribution-observed-top-ledger.md)）；它刻意不钉 DOM 基数或绝对 `scrollTop`，因此同一约定可以验收虚拟化实现。另一份基于同一 fixture 的交互约定钉住异构行顺序、相邻工具 disclosure 的独立状态、用户消息剪贴板内容的精确值、以轮次为边界的消息 fork、源会话/子会话隔离，以及子会话中的一次真实追问轮次；wheel 输入只用于导航到语义目标，不承载几何预期。一份简短的实时历史约定从空白工作区开始，连续驱动输入框轮次，其中包括真实的 bash 调用/结果轮次和一段带节奏的长篇最终响应；它钉住单一会话身份、每轮事件的精确归属、浏览器回显唯一性与输入框恢复，不设置时间阈值。
 
 ### CI 立场
 
@@ -52,7 +52,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 业界先例
 
-调研了 AI 聊天/agent web UI 与 mock 层（LibreChat、vercel/ai-chatbot + AI SDK、lobe-chat、open-webui、OpenHands、Chainlit、continue、cline、langfuse、gradio/streamlit；Playwright HAR/route、MSW、Polly/nock、WireMock、aimock）。自有后端的应用的主流成熟架构是：真实后端约定后放一个进程内伪造/回放模型，下游全部真实（LibreChat 的 `LIBRECHAT_TEST_RUN_HOOK` 伪模型；ai-chatbot 的 `MockLanguageModelV3` + `simulateReadableStream`；continue 的脚本化 mock 提供方类）——这正是 `dsh-llm-replay` 已然所是。浏览器层 SSE 拦截无法检验增量渲染（`route.fulfill` 一次性交付整个响应体；playwright#33564），且服务端 SSE 栈完全失测，因此各项目只把它用于边缘用例。分片节奏作为 fixture 参数反复出现（LibreChat 默认 10ms 附慢速档；ai-chatbot 500ms）；CI 里的真实模型会腐烂（open-webui 的套件长出 120 秒超时，先被禁用后被删除）；会话在持久化层以受控时间戳播种（LibreChat 直插回拨时间的 Mongo 文档；langfuse 播种其数据库）。没有任何被调研项目为 UI 测试把录制的 agent 事件日志经真实后端回放——最接近的是提供方层录制 fixture（aimock）与前端层 socket 历史发射（OpenHands MSW）——因此会话日志即 fixture 的设计沿着本仓库「模型可见 ⟺ 已记录」不变式所指的方向比业界先例多走了一步。
+调研了 AI（人工智能）聊天/agent web UI 与 mock 层（LibreChat、vercel/ai-chatbot + AI SDK、lobe-chat、open-webui、OpenHands、Chainlit、continue、cline、langfuse、gradio/streamlit；Playwright HAR/route、MSW、Polly/nock、WireMock、aimock）。自有后端的应用的主流成熟架构是：真实后端约定后放一个进程内伪造/回放模型，下游全部真实（LibreChat 的 `LIBRECHAT_TEST_RUN_HOOK` 伪模型；ai-chatbot 的 `MockLanguageModelV3` + `simulateReadableStream`；continue 的脚本化 mock 提供方类）——这正是 `dsh-llm-replay` 已然所是。浏览器层 SSE 拦截无法检验增量渲染（`route.fulfill` 一次性交付整个响应体；playwright#33564），且服务端 SSE 栈完全失测，因此各项目只把它用于边缘用例。分片节奏作为 fixture 参数反复出现（LibreChat 默认 10ms 附慢速档；ai-chatbot 500ms）；CI 里的真实模型会腐烂（open-webui 的套件长出 120 秒超时，先被禁用后被删除）；会话在持久化层以受控时间戳播种（LibreChat 直插回拨时间的 Mongo 文档；langfuse 播种其数据库）。没有任何被调研项目为 UI 测试把录制的 agent 事件日志经真实后端回放——最接近的是提供方层录制 fixture（aimock）与前端层 socket 历史发射（OpenHands MSW）——因此会话日志即 fixture 的设计沿着本仓库「模型可见 ⟺ 已记录」不变式所指的方向比业界先例多走了一步。
 
 ## 曾考虑的替代方案
 
@@ -78,7 +78,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **客户端 `data-dsh-busy` 安定信号。** 暂缓：host 侧 `whenIdle` 屏障配合稳定 DOM 轮询，足以覆盖当前场景。第一次安定轮询抖动，或必要状态在 DOM 中不可观察时，再重新考虑。
 
-## Testing
+## 测试
 
 `pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`pnpm run test:web:perf` 构建并运行手动性能清单；`test:web:perf:built` 复用现有产物。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。live-interactions AUTH 场景会把不可重试的终态失败钉为 Chat 内联状态，其中携带适合展示的消息与错误码，并验证提供方回显的凭据片段不会出现在 Chat 或 Trajectory 中；该场景同时覆盖输入框恢复与 `turn/end` 错误。scaffold 环境隔离场景会在全部 3 个环境 skill 根目录中分别填入不同条目，并要求这些条目都不得进入组装后的目录。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
@@ -92,4 +92,4 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 后果
 
-Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。按需启用的性能车道保留了可重复的诊断工作负载，又不会向 CI 添加受 host 差异影响的时长或内存预期；在仓库拥有经校准的基准测试环境之前，性能回归仍是需要人工解读的信号。
+Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在目录中发布的 128k 上下文窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。按需启用的性能车道保留了可重复的诊断工作负载，又不会向 CI 添加受 host 差异影响的时长或内存预期；在仓库拥有经校准的基准测试环境之前，性能回归仍是需要人工解读的信号。

@@ -8,7 +8,7 @@ Status: implemented
 
 默认挂载遥测后，`dsh web` 与 headless 命令（现为 `dsh --profile headless`）新增了 SIGINT/SIGTERM 处理器，使进程退出时可以排空 Cordis 插件树，而不是丢弃排队中的遥测数据。每个处理器都使用单向布尔闩锁（latch），并且只有在 `ctx.fiber.dispose()` 结算后才退出。headless 正常完成时同样会无界等待整棵树执行 dispose（资源释放）。
 
-随后有用户复现，headless 命令在打印观察 URL 后立即卡死，重复按 `Ctrl+C` 也没有反应；设置 `DSH_TELEMETRY_DISABLED=1` 后不再卡死，而同一 Linux 沙箱中的独立 Node 信号处理器能够收到 SIGINT。这将待结算的 disposer 定位到遥测，而非终端信号转发。OTel 的 `BatchLogRecordProcessor.shutdown()` 会先等待 `exporter.forceFlush()`，再进入受 `exportTimeoutMillis` 限制的完成 promise；OTLP 导出器的 `forceFlush()` 则直接等待正在进行的 HTTP Promise。因此，代理／沙箱连接始终无法取得 socket 时，即使已经配置两项 SDK 超时，也会让提供方关闭一直待结算。
+随后有用户复现，headless 命令在打印观察 URL 后立即卡死，重复按 `Ctrl+C` 也没有反应；设置 `DSH_TELEMETRY_DISABLED=1` 后不再卡死，而同一 Linux 沙箱中的独立 Node 信号处理器能够收到 SIGINT。这将待结算的 disposer 定位到遥测，而非终端信号转发。OTel 的 `BatchLogRecordProcessor.shutdown()` 会先等待 `exporter.forceFlush()`，再等待受 `exportTimeoutMillis` 限制的完成 Promise；OTLP 导出器的 `forceFlush()` 则直接等待正在进行的 HTTP Promise。因此，代理／沙箱连接始终无法取得 socket 时，即使已经配置两项 SDK 超时，也会让提供方关闭一直待结算。
 
 闩锁随后把这个遥测缺陷变成无法终止的 CLI（命令行界面）：正常完成流程已经在等待单次根级 dispose；第一次 SIGINT 会加入同一个待结算的 dispose，并设置信号闩锁；后续 SIGINT 在闩锁处直接返回，因此进程再无退出途径。正常完成之前收到信号时，同样会陷入无界等待。Web 使用的闩锁结构与此相同。
 
@@ -16,7 +16,7 @@ Status: implemented
 
 ## 决策
 
-修复分为两层归属。OTel 后端围绕 SDK 提供方的完整关闭 Promise 增加 `shutdownTimeoutMillis`（默认值和交付值均为 3 秒）。超过该截止时间时会 reject，并进入遥测协调器现有的失败隔离路径，使 Cordis 插件树能够完成 dispose；由于 OTel 未公开取消传输 Promise 的能力，待处理记录可能丢失。
+修复分为两层归属。OTel 后端围绕 SDK 提供方的完整关闭 Promise 增加 `shutdownTimeoutMillis`（默认值和交付值均为 3 秒）。超过该截止时间时会以拒绝状态结算，并进入遥测协调器现有的失败隔离路径，使 Cordis 插件树能够完成 dispose；由于 OTel 未公开取消传输 Promise 的能力，待处理记录可能丢失。
 
 Web 与 headless 共用 `createProcessShutdown`，它是围绕根级 dispose 建立的进程级控制器：
 
@@ -49,7 +49,7 @@ headless 对完成的轮次仍以 0 退出，对其他轮次结束原因或 API 
 
 ## 测试
 
-`apps/cli/tests/process-shutdown.spec.ts` 固定了 dispose 成功后的自然完成、dispose 失败后的强制退出、5 秒退出兜底、正常调用汇合、信号拥有的 dispose、信号中断正常 dispose 或 dispose 后句柄排空，以及第二次信号强制退出的行为。
+`apps/cli/tests/process-shutdown.spec.ts` 固定了 dispose 成功后的自然完成、dispose 失败后的强制退出、5 秒退出兜底、正常调用汇合、由信号发起的 dispose、信号中断正常 dispose 或 dispose 后句柄排空，以及第二次信号强制退出的行为。
 
 `apps/cli/tests/headless-shutdown.e2e.ts` 在 PTY 中启动真实交付的 Web/headless Loader 插件树，并挂载一个仅用于测试的插件；该插件的 disposer 会声明已经进入清理流程，但永不结算。测试在观察地址出现后发送 SIGINT，等待 dispose 已启动的证据，再次发送 SIGINT，并要求进程以 130 退出。源码／产物启动解析器使两个执行平面都覆盖同一项回归。该 PTY 用例覆盖用户可见的进程状态；模型输出快照没有变化。
 

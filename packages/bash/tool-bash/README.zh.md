@@ -6,7 +6,7 @@
 
 需要加载执行器 Service provider（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。工具约定是 bash 方言——请挂载能解析 bash 的执行器。
 
-包（package）根只公开 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍保留在包内部。
+包根只公开 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍保留在包内部。
 
 插件还会提供 `tool:bash` 提示词段落（顺序 105）：检查每个结果中的 `[exit code: N]` 标记，发现失败时先调查原因再继续。
 
@@ -28,13 +28,13 @@
 
 ### 托管 shell 环境
 
-每次模型发起的前台或后台 bash 调用都会通过共享的 [`dsh-bash-env`](../bash-env/README.md) 注册表收到新收集的一组可信 `DSH_*` 环境变量：`DSH_HOME`（Harness home 绝对路径）、`DSH_SHELL=1`、agent 的 `DSH_SESSION_ID`，以及当活跃持久化后端能定位时的 `DSH_SESSION_JSONL`。注册表约定——贡献方注册、重复／未声明键的响亮失败、内置项保留与贡献方示例——住在该包的 README 里。快照通过专用的 `BashExecRequest.dshEnv` 通道传递；本地执行器会先删除继承的所有 `DSH_*` 再合并，因此嵌套 harness 和并发的父／子 agent 不会泄漏陈旧身份，且绝不修改 `process.env`。工具说明只教授通用 `$DSH_*` 约定，不会点名持久化专用变量，也不会添加永久的系统提示词段落。
+每次模型发起的前台或后台 bash 调用都会通过共享的 [`dsh-bash-env`](../bash-env/README.md) 注册表收到新收集的一组可信 `DSH_*` 环境变量：`DSH_HOME`（Harness home 绝对路径）、`DSH_SHELL=1`、agent 的 `DSH_SESSION_ID`，以及当活跃持久化后端能定位时的 `DSH_SESSION_JSONL`。注册表约定——贡献方注册、重复键／未声明键的显式报错机制、内置项保留与贡献方示例——载于该包的 README。快照通过专用的 `BashExecRequest.dshEnv` 通道传递；本地执行器会先删除继承的所有 `DSH_*` 再合并，因此嵌套 harness 和并发的父／子 agent 不会泄漏陈旧身份，且绝不修改 `process.env`。工具说明只教授通用 `$DSH_*` 约定，不会点名持久化专用变量，也不会添加永久的系统提示词段落。
 
 结果文本依次包含 stdout、可选的 `[stderr]` 段落和适用的沙箱拒绝、超时、信号、退出代码及截断标记。超时与最终退出状态分别报告；非零退出仍是由模型解释的结果，不会成为 `isError`。截断结果会链接安全的完整 spill 文件，或报告文件不可用。只有 spawn 错误和中止等基础设施故障才会产生 `isError`。
 
 已完成前台进程的规范成功值为 `{ kind: 'foreground', ...BashRunResult }`，已发布任务则为 `{ kind: 'background', taskId }`。Native renderer 保留上述文本，包括精确的 `started background task <id>`；程序化消费方使用带类型字段，无需解析这些字符串。执行器的流上限仍是 `BashRunResult` 的采集限制，并携带其 spill 路径。
 
-当 `run_in_background` 为 true 时，此插件会在 spawn 前预检 `ctx.tasks.start()`，把调用方 agent 注册为持有者，并将返回的 `BashProcess` 句柄适配为通用的取消／完成／增量输出钩子。任务运行时持有 id、跨会话隔离、完成通知、等待和 dispose（资源释放）清理；此插件只把 bash 退出／沙箱事实映射为任务输出和结果详情。`enableRunInBackground: false` 会移除该参数，并在执行时拒绝强制后台调用。
+当 `run_in_background` 为 true 时，此插件会在 spawn 前预检 `ctx.tasks.start()`，把调用方 agent 注册为持有者，并将返回的 `BashProcess` 句柄适配为通用的取消／完成／增量输出钩子。任务运行时负责 task id、跨会话隔离、完成通知、等待和 dispose（资源释放）清理；此插件只把 bash 退出／沙箱事实映射为任务输出和结果详情。`enableRunInBackground: false` 会移除该参数，并在执行时拒绝强制后台调用。
 
 ## UI 展示
 
@@ -48,11 +48,11 @@
 
 除非启用沙箱的执行器（[`dsh-bash-sandbox`](../bash-sandbox/)）限制命令，否则命令以执行器的完整权限运行。仅拒绝型沙箱会把拒绝作为结果事实报告，并在此渲染为拒绝标记；逐调用的允许／拒绝／询问策略由 `tools/pre-execute` waterfall（瀑布式事件）负责（参见 docs/architecture.md）。
 
-需要升权的 bash 调用会在执行前解析 `ctx.approval`。`allowed-once` 只对该次调用应用请求模式；审批被拒、取消、不可用或缺少审批上下文时，命令完全不会执行，并返回不同的错误。发生真实拒绝后，模型可以在同一轮次中使用满足需要的最窄模式和理由重试同一命令一次；审批提示本身就是征求同意的步骤。升权绝不能预先推测，禁用或拒绝审批即为最终结果。其理由由 [沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) 持有。
+需要升权的 bash 调用会在执行前解析 `ctx.approval`。`allowed-once` 只对该次调用应用请求模式；审批被拒、取消、不可用或缺少审批上下文时，命令完全不会执行，并返回不同的错误。发生真实拒绝后，模型可以在同一轮次中使用满足需要的最窄模式和理由重试同一命令一次；审批提示本身就是征求同意的步骤。升权绝不能预先推测，禁用或拒绝审批即为最终结果。其理由见 [沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 ## 逐会话模式切换
 
-对于启用沙箱的执行器，每次调用依次按单次升权、会话覆盖、执行器默认值解析模式。未启用沙箱以及没有 agent 的调用不携带会话覆盖。策略归属方贡献当前且不区分具体能力的常驻模式；拒绝结果仍负责操作特定的有效模式与重试引导。参见 [`dsh-bash` 整合](../bash/README.md)和[沙箱切换约定](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
+对于启用沙箱的执行器，每次调用依次按单次升权、会话覆盖、执行器默认值解析模式。未启用沙箱以及没有 agent 的调用不携带会话覆盖。策略归属方贡献当前且不区分具体能力的常驻模式；拒绝结果仍负责特定于该操作的有效模式与重试引导。参见 [`dsh-bash` 折叠计算](../bash/README.md)和[沙箱切换约定](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 ## 模型体验
 
@@ -88,7 +88,7 @@ Check the [exit code: N] marker on every bash result; investigate failures befor
 
 #### KV Cache 影响
 
-只要可见性、后台支持和执行器沙箱功能保持不变，前缀即可稳定复用。限制、配置或执行器发生变化时，可能从首个变化的工具定义开始使复用失效。
+只要可见性、后台支持和执行器沙箱能力保持不变，前缀即可稳定复用。限制、配置或执行器发生变化时，可能从首个变化的工具定义开始使复用失效。
 
 ### 前台结果
 
@@ -98,17 +98,17 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### Token 影响
 
-调用前结果 token 为零。每条流的输出有界，每个已输出行则会保留在历史中，直至压缩（compaction）。
+调用前结果 token 为零。每条流的输出有界，每个已输出行则会保留在历史中，直至 compaction（上下文压缩）。
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 后台任务上下文与结果
 
 #### 模型看到的内容
 
-启动会精确返回 `started background task <taskId>`。此生产方会向通用任务运行时提供增量进程输出、可选的 `[some output was dropped from memory; full output: <paths-or-(unavailable)>]`、沙箱事实，以及 `exit code: <exitCode>` 或 `signal: <signal>` 等终止详情。[`dsh-tool-tasks`](../../tasks/tool-tasks/README.md) 持有模型可见的状态行、完成通知、列表和取消响应。
+启动会精确返回 `started background task <taskId>`。此生产方会向通用任务运行时提供增量进程输出、可选的 `[some output was dropped from memory; full output: <paths-or-(unavailable)>]`、沙箱事实，以及 `exit code: <exitCode>` 或 `signal: <signal>` 等终止详情。[`dsh-tool-tasks`](../../tasks/tool-tasks/README.md) 负责模型可见的状态行、完成通知、列表和取消响应。
 
 #### Token 影响
 
@@ -116,7 +116,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 工具错误
 
@@ -130,7 +130,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与延期工作
 

@@ -18,13 +18,13 @@
 
 | 成员 | 语义 |
 |---|---|
-| `saveText(input)` | 逐字保存 `input.content`；成功时返回 `SpillRef`（不透明定位信息、写入的精确字节数和取回指引）。**如果出现真实存储故障，则返回拒绝**（权限、ENOSPC、后端不可用）；由调用方决定如何降级。 |
+| `saveText(input)` | 逐字保存 `input.content`；成功时返回 `SpillRef`（不透明定位信息、写入的精确字节数和取回指引）。**发生真实存储故障时，调用会以拒绝状态结束**（权限、ENOSPC、后端不可用）；由调用方决定如何降级。 |
 
 存储操作以请求的 `owner` 会话作为保存时命名空间进行分组；后端自行选择私有表示，并可以从调用方的 `suggestedName` 派生名称，但绝不能将其当作可信路径。该 seam 只负责存储：不提供保留策略（由 [`@deepseek-ai/dsh-retention`](../../util/retention) 负责），不替换工具结果（由 `@deepseek-ai/dsh-spill-policy` 负责），也不提供取回/搜索 API（后端的 `retrievalHint` 会告诉模型如何使用定位信息）。
 
 ## 词汇
 
-`SaveTextSpill`（owner、source、suggestedName、content）是请求；`SpillRef`（locator、bytes、retrievalHint）是结果。`SpillLocator` 是[带品牌类型](../../util/brand)的值，并以不透明字符串的形式呈现给模型；对 `dsh-spill-local` 而言它是本地路径，但未来的后端可以返回 URI、键或命令 token，无需修改策略／工具消费方。`SpillOwner.sessionId` 是保存时存储命名空间：fork 后的会话会从种子日志继承现有定位信息，无需复制文件或更改其归属；fork 后新产生的 spill 使用子会话 id。`SpillSource` 记录产生该 spill 的 `toolName`、`callId` 和 `label`，供后端命名和检查使用，不用于访问控制。完整约定见 `src/types.ts`。
+`SaveTextSpill`（owner、source、suggestedName、content）是请求；`SpillRef`（locator、bytes、retrievalHint）是结果。`SpillLocator` 是[带品牌类型](../../util/brand)的值，并以不透明字符串的形式呈现给模型；对 `dsh-spill-local` 而言它是本地路径，但未来的后端可以返回 URI、键或命令 token，无需修改策略／工具消费方。`SpillOwner.sessionId` 是保存时存储命名空间：fork 后的会话会从种子日志继承现有定位信息，无需复制或更改其归属；fork 后新产生的 spill 使用子会话 id。`SpillSource` 记录产生该 spill 的 `toolName`、`callId` 和 `label`，供后端命名和检查使用，不用于访问控制。完整约定见 `src/types.ts`。
 
 设计原理见[工具输出 spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，其中说明了为什么创建操作应由运行时 spill seam 而非面向模型的 `write` 工具承担。
 
@@ -39,4 +39,4 @@
 ## 已知限制与暂缓事项
 
 - **该 seam 没有取回或删除 API**：消费方只能渲染后端的定位信息与指引；生命周期和访问语义仍由后端自行决定。
-- **存储不等于访问控制**：`SpillOwner` 会区分写入命名空间，但不会授予定位信息的读取权限；每个后端和取回消费方都必须自行强制执行访问边界。
+- **存储不等于访问控制**：`SpillOwner` 会区分写入命名空间，但不会授予通过定位信息读取内容的权限；每个后端和取回消费方都必须自行强制执行访问边界。

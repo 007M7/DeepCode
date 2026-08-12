@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-受防护的 `write` 与 `edit` 失败以只陈述条件、不给出唯一正确恢复方式的消息到达模型：`FS_STALE_VERSION`（"file changed since it was read"）与 `FS_NOT_OBSERVED`（"edit requires reading … first"）。模型必须自行猜测恢复方式是重新读取（或首次读取）后重试，而基于结构化错误码路由的重试/权限/UI 层看到的也是同一段消息文本。提供方拥有的消息属于存储 seam 的面向机器词汇（[文件系统能力 seam](../architecture/2026-06-17-filesystem-capability-seam.md)），因此恢复指令不能放在那里，否则会把面向模型的措辞泄漏给 `FsError` 的每个消费方。
+受防护的 `write` 与 `edit` 失败以只陈述条件、不给出唯一正确恢复方式的消息到达模型：`FS_STALE_VERSION`（「file changed since it was read」）与 `FS_NOT_OBSERVED`（「edit requires reading … first」）。模型必须自行猜测恢复方式是重新读取（或首次读取）后重试，而基于结构化错误码路由的重试/权限/UI 层看到的也是同一段消息文本。提供方拥有的消息属于存储 seam 的面向机器词汇（[文件系统能力 seam](../architecture/2026-06-17-filesystem-capability-seam.md)），因此恢复指令不能放在那里，否则会把面向模型的措辞泄漏给 `FsError` 的每个消费方。
 
 ## 决策
 

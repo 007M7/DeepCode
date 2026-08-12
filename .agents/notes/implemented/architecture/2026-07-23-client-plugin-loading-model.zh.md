@@ -48,7 +48,7 @@ manifest 拥有包的装载约定：它的 `inject` 依赖边，加可选的 `im
 
 浏览器复刻 host 侧的分工。`dsh-client-modules`（`ClientModuleSystem`）坐上 host 侧由 Node 内部 ESM loader 占据的模块系统席位；同一份 vendored `@cordisjs/plugin-loader` 在两侧都坐治理席。二者的分界线一句话说尽：**模块系统拥有模块身份与字节——代码怎么到达、怎么登记、怎么变成导出内容；Loader 拥有插件生命周期——插件何时挂载、等待什么、如何拆除。**
 
-`ClientModuleSystem` 是一张 lazy CJS 表。执行 bundle 只**登记**其工厂——bundle 调用 `window.__ModuleLoader__.load({ id, factory })`，此外什么都不发生。模块体的一切副作用（包括 CSS 注入）都住在工厂闭包里，在物化时运行：物化即该 id 的首次 `require`/import，此后记忆化。工厂若 require 一个已登记未物化的同伴，就递归物化它，因此任何地方都不存在排序。被要求 import 一个 id 时，表按固定分支顺序解析：种子词条 → 记忆化的记录 → 静态登记（壳自有模块，如 app-shell）→ 已登记的工厂 → 图行外部 classic script 加载 → 大声抛错。最后这一抛是构建期纯度门禁在运行期的镜像。系统还保管逐模块的簿记——名下 `<style data-plugin>` 标签 id、观测到的 require 边——并暴露 HMR（热模块替换）需要的两个动词：`prefetch(id)`（加载脚本、只登记工厂；并发调用共享同一在途任务）与 `invalidate(id)`（丢弃工厂与记录，下次到达即重新加载）。
+`ClientModuleSystem` 是一张 lazy CJS 表。执行 bundle 只**登记**其工厂——bundle 调用 `window.__ModuleLoader__.load({ id, factory })`，此外什么都不发生。模块体的一切副作用（包括 CSS 注入）都住在工厂闭包里，在物化时运行：物化即该 id 的首次 `require`/import，此后记忆化。工厂若 require 一个已登记未物化的同伴，就递归物化它，因此任何地方都不存在排序。被要求 import 一个 id 时，表按固定分支顺序解析：种子词条 → 记忆化的记录 → 静态登记（壳自有模块，如 app-shell）→ 已登记的工厂 → 图行外部 classic script 加载 → 大声抛错。最后这一抛是构建期纯度门禁在运行时的镜像。系统还保管逐模块的簿记——名下 `<style data-plugin>` 标签 id、观测到的 require 边——并暴露 HMR（热模块替换）需要的两个动词：`prefetch(id)`（加载脚本、只登记工厂；并发调用共享同一在途任务）与 `invalidate(id)`（丢弃工厂与记录，下次到达即重新加载）。
 
 vendored Loader 经其 `internal` 约定消费模块系统——唯一调用点是 `tree.import`——并拥有一切 entry 形状的事务：entry 创建、fiber 经 cordis 服务等待的激活（注入的服务未就位即保持 PENDING，服务 provide 时级联激活）、update/refresh、拆除。治理代码按 vendor 政策与 host 侧逐字节相同。浏览器化是壳 vite 配置里的编译期映射：一个 `node:module` stub 别名加若干 `process.*` define，使 `ModuleLoader.fromInternal()` 返回 undefined——这正是留给壳来填的空槽。模块系统挂载为 `ctx.modules`。
 

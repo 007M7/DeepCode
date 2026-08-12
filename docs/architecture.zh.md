@@ -124,7 +124,7 @@ idle inject:
 
 适配器选择、分发与迭代失败会成为 error 或 aborted 类型的终止 `finish` 分片。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用的重试策略和信号；middleware 与消费方错误仍在恢复之外。失败分片既不提交消息，也不提交工具调用。
 
-其他故障使用 `agent/error`；取消和 dispose（资源释放）优先于恢复。在提交请求头之前，轮次信号会取消能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。driver 会处理在 abort 开始后、收敛前收到的唤醒输入；`disposed` 取消会让该输入保持待处理状态（[取消收敛窗口唤醒锁存](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。持久性以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`；取消和 dispose（资源释放）优先于恢复。在提交请求头之前，轮次信号会取消能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会先报告原因，再执行清理和中止；空闲调用不发事件。driver 会处理在 abort 开始后、收敛前收到的唤醒输入；`disposed` 取消会让该输入保持待处理状态（[取消收敛窗口唤醒锁存](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。持久性以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 轮次和步骤事件均位于轮次边界内；loop 只会在轮次内从进入步骤的批次追加 `user/message`。轮次会在首次领取与 pre-step 之前打开，因此拒绝、空输入、取消或失败会关闭一个不包含任何步骤事件的持久轮次。独立的 `compact/* { turn: null }` 事件不占用轮次，其锁定时刻标记可以与 inbox splice 交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](subsystems/session.md#why-a-turn-ended-turnendreasonmap)。
 
@@ -166,11 +166,11 @@ idle inject:
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[interaction/](../packages/interaction/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 CLI（命令行界面）、ACP 自动化和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[interaction/](../packages/interaction/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### Agent Preset
 
-部署可为每个会话分别组装面向模型的插件集合。**agent preset** 是一个含 `agent.cordis.yml` 的目录，在 `setup(agentCtx)` 期间作为 `include` 子树挂到该 agent 的 scope 之下，其工具与提示词注册因而归档进该 agent 的分层并随之卸载，注册表无需新增层级。宿主组装保留必须共享的部分：注册表本身、跨会话设施、沙箱与审批栈、模型路由。`ctx.agentPresets` 负责发现与把关，拒绝未激活的行和把服务发布进根 realm 的行。详见 [按会话组装 agent preset](../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md)、[preset/](../packages/preset/README.md)。
+部署可为每个会话分别组装面向模型的插件集合。**agent preset** 是一个含 `agent.cordis.yml` 的目录，在 `setup(agentCtx)` 期间作为 `include` 子树挂到该 agent 的 scope 之下，其工具与提示词注册因而归档进该 agent 的分层并随之卸载，注册表无需新增层级。宿主组装保留必须共享的部分：注册表本身、跨会话设施、沙箱与审批栈、模型路由。`ctx.agentPresets` 负责发现与受控挂载，拒绝从未激活的行，以及把服务发布进根服务 realm 的行。详见 [按会话组装 agent preset](../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md)、[preset/](../packages/preset/README.md)。
 
 ### 新行为的归属位置
 
@@ -180,7 +180,7 @@ idle inject:
 |---|---|
 | 添加模型提供方 | 在 `ctx.llm` 上注册其适配器 |
 | 添加面向模型的能力 | 在 `ctx.tools` 上注册；schema 加入提示词组装 |
-| 让某个会话拥有不同的能力集合 | 在 agent preset 中组装它；其中的 service 行需要 `isolate` realm |
+| 让某个会话拥有不同的能力集合 | 在 agent preset 中组装它；其中的服务行需要 `isolate` realm |
 | 添加 shell 执行 | 实现并注册 `ctx.bash` 后端；本地后端通过 `ctx.subprocess` spawn 进程 |
 | 添加持久化终端执行 | 注册 `ctx.pty` 后端和 `dsh-tool-pty` |
 | 添加用户命令 | 在 `ctx.commands` 上注册；适配器无需模型轮次即可发现并分派 |

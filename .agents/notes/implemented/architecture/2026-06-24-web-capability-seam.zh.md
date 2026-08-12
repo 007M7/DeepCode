@@ -66,7 +66,7 @@ flowchart LR
   toolWeb -->|ctx.tools.register| webFetch["tool: web_fetch"]
 ```
 
-`@deepseek-ai/dsh-web` 仅依赖 Cordis 和底层 harness 支持。它声明 `ctx.web`、提供方接口、请求/结果类型、提供方可用性约定和错误码。它不导入工具、agent、会话、LLM 或提供方包。
+`@deepseek-ai/dsh-web` 仅依赖 Cordis 和底层 harness 支持。它声明 `ctx.web`、提供方接口、请求/结果类型、提供方可用性约定和错误码。它不导入工具、agent（智能体）、会话、LLM 或提供方包。
 
 提供方包仅依赖 `dsh-web` 和 Cordis。它们拥有凭证、端点、协议格式映射、解析和 `WebError` 转换，使用平台 `fetch`。每个提供方注入共享服务并注册后端；只有 `dsh-web` 拥有 `ctx.web` 键。提供方私有的协议形状不会产生对 `ctx.llm` 或 Cordis HTTP 服务的依赖。
 
@@ -207,7 +207,7 @@ seam 请求比 OpenCode 的面向模型工具更小：
 
 seam 请求刻意不包含逐调用超时、`format`、`prompt` 或提供方特有的提取控制。取消通过直接的可选执行信号实现，fetch 提供方拥有一个部署配置的超时兜底。`format` 是对已获取资源的展示决策；`prompt` 是更高层的 LLM 摘要指令；Firecrawl、Exa、Tavily 或 Parallel 等提取 API 可能不暴露具体的 HTTP 响应。如果产品日后需要提供方支撑的页面提取，那是一个独立的 `web_extract` 能力或对本 seam 的刻意扩展——提取语义绝不通过将每个 HTTP 字段设为可选来偷渡进 `web_fetch`。
 
-HTTP 状态码是已获取资源状态的一部分，不自动构成工具失败。通过网络成功获取到 `404` 或 `500` 响应时会返回带有状态码和有界解码正文（当内容类型受支持时）的 `WebFetchResult`。`WebError` 用于无法安全获取或表示资源的失败：无效或被阻断的 URL、重定向策略违规、超时、abort、响应过大、不支持的内容类型、提供方失败或网络失败。
+HTTP 状态码是已获取资源状态的一部分，不自动构成工具失败。通过网络成功获取到 `404` 或 `500` 响应时，会返回带有状态码和有界解码正文（当内容类型受支持时）的 `WebFetchResult`。`WebError` 用于无法安全获取或表示资源的失败：无效或被阻断的 URL、重定向策略违规、超时、abort、响应过大、不支持的内容类型、提供方失败或网络失败。
 
 ```ts
 export interface WebFetchRequest {

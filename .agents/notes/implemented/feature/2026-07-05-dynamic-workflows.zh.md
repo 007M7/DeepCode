@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`），但需要扇出到多个独立部分的工作——跨多文件审计、迁移、多角度调研、对抗式验证——迫使模型逐轮次编排：每个中间结果都落入父上下文，计划无处持久存储，每一步的协调都要消耗一次模型往返。Claude Code 以[动态工作流](https://code.claude.com/docs/en/workflows)的形式提供了这一能力：模型编写一段 JavaScript 编排脚本，运行时执行它，由脚本（而非对话）持有循环、分支和中间结果。
+harness 可以通过 `dsh-tool-subagent` 将一个任务委派给一个子 agent（智能体），但需要扇出到多个独立部分的工作——跨多文件审计、迁移、多角度调研、对抗式验证——迫使模型逐轮次编排：每个中间结果都落入父上下文，计划无处持久存储，每一步的协调都要消耗一次模型往返。Claude Code 以[动态工作流](https://code.claude.com/docs/en/workflows)的形式提供了这一能力：模型编写一段 JavaScript 编排脚本，运行时执行它，由脚本（而非对话）持有循环、分支和中间结果。
 
 ## 决策
 
@@ -28,7 +28,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 **为何选择 `node:worker_threads`**：每次运行获得一个非池化的 worker。vm 上下文限定了文档中说明的脚本 API，而消息端口 RPC 将 `agent()` 桥接到宿主侧的子循环。worker 防止脚本的同步工作阻塞宿主，提供序列化边界，并允许取消后强制终止。`isolated-vm` 因其维护状态和部署要求被否决。
 
-宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 完全停稳，在此协议上保持 subagent run 约定。这些竞态算法由 [agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) 定义。
+宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose（资源释放）时的完全停稳，在此协议上保持 subagent run 约定。这些竞态算法由 [agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) 定义。
 
 引擎暴露一条进程内 `MessageChannel` 测试路径，因为主进程 V8 覆盖率无法观测 worker 执行。
 
@@ -58,7 +58,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 
 - **后台收集**（启动工具 → run id → 完成通知 → 收集），与 bash/subagent 后台统一一起设计。
 - **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本约定收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。
-- **保存/打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令 API）和**脚本持久化到运行目录**（工具调用事件已经持久记录了脚本）。
+- **保存／打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令 API）和**脚本持久化到运行目录**（工具调用事件已经持久记录了脚本）。
 - **嵌套 `workflow()`**、**token `budget`**，以及 `effort`/`isolation`/`agentType` agent 选项（每个都会明确拒绝，并在消息中注明其已延迟实现）。
 - **整体运行的挂钟超时**：取消总能释放调用方（result 在宽限期内 settle），因此总运行时间上限是后台重设计的策略旋钮，不是此处的正确性需求。
 - **超越 worker 线程的引擎加固**：在同一 seam 背后使用 isolated-vm 或独立进程引擎（真正的沙箱化；内存限制）。
@@ -74,7 +74,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 - **`ValueSchemaSpec` 作为 `outputSchema` 协议类型**：面向作者的形式如今具有等价词汇，但工作流提供的是来自其他 realm 的原始 JSON Schema 数据；将这类运行时数据假装成可信的作者声明，会跳过原始 schema 断言边界。
 - **schema 对象库（zod 或本仓库的 schemastery）用于结构化输出子集**：schema 是协议数据——纯 JSON，跨越 `agent({schema})` 中的 vm realm 边界并逐字落入强制工具的 parameters——正是活 schema 对象无法存在的位置；在运行时消费原始 JSON Schema 需要在其上加一个第三方转换器（zod core 只输出 JSON Schema，不能反向），且会在 schemastery 的配置角色旁边放置第二种 schema 语言。
 - **ajv 用于值校验**：它校验完整 JSON Schema，因此子集门控——模块的真正要点，因为每个被接受的关键字都必须是 harness 强制执行的——无论如何仍需手写；它通过 `new Function` 编译校验器；且它将成为 dsh-tools 的第一个运行时依赖，仅为替换约 70 行的值遍历器，而带路径且逐一报告所有违规的错误报告无论如何都是自定义的。
-- **提供方 JSON 模式代替捕获工具**：它保证有效 JSON，但不保证符合 schema，且它与工具调用的交互不明确。捕获工具保留了轮次内的校验重试。提供方侧的严格工具 schema 后续可以在不改变本设计的情况下收窄接受的子集。
+- **提供方 JSON 模式代替捕获工具**：它保证 JSON 有效，但不保证其符合 schema，且它与工具调用的交互不明确。捕获工具保留了轮次内的校验重试。提供方侧的严格工具 schema 后续可以在不改变本设计的情况下收窄接受的子集。
 
 ## 后果
 

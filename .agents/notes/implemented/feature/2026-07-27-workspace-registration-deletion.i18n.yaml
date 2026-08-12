@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md
 2026-07-27-workspace-registration-deletion.md: 08bce9fefa13f6e093aaf5ef6c8e8dfb9a409c1d
-2026-07-27-workspace-registration-deletion.zh.md: c75d29c102e3528dc755d21a2a9854a8c4a5a811
+2026-07-27-workspace-registration-deletion.zh.md: 7bc61a22521aa0fa3e4c1cc78d0fd3cc08fae479

@@ -9,7 +9,7 @@
 
 | 事件 | 模式 | 声明位置 | 派发方 | 监听方 |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:182`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:183`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
 | `agent-preset/selected` | `emit` | [`packages/preset/agent-presets/src/types.ts:13`](../packages/preset/agent-presets/src/types.ts) | [`agent-presets`](../packages/preset/agent-presets) (`emit`) | `apiproxy` |
 | `agent/created` | `emit` | [`packages/core/agent/src/runtime-types.ts:159`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-presets`](../packages/preset/agent-presets), [`goal-session`](../packages/goal/goal-session), [`tool-schedule`](../packages/schedule/tool-schedule) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/runtime-types.ts:168`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`goal-session`](../packages/goal/goal-session), [`subagent`](../packages/subagent/subagent) |

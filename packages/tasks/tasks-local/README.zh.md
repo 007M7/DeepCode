@@ -16,7 +16,7 @@
 
 ## 模型体验
 
-通过生产方插件和 [`dsh-tool-tasks`](../tool-tasks/README.md) 间接影响；它们会呈现任务 id、输出、状态、取消和完成通知。
+通过生产方插件和 [`dsh-tool-tasks`](../tool-tasks/README.md) 间接影响；它们会呈现 task id、输出、状态、取消和完成通知。
 
 #### KV Cache 影响
 

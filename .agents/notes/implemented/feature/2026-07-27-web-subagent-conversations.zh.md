@@ -16,11 +16,11 @@ UI 还必须保留[持久化目录](../../implemented/feature/2026-07-22-durable
 
 Web 产品通过页头操作公开选中会话中由会话支撑的直接 subagent。用户可以懒加载展开后代目录，并在现有对话区域中打开任一 mode。one-shot child 永久只读。可继续 child 只有在其确切直接 parent agent 存活时才接受用户后续消息；否则，其持久化 transcript 仍然可读，并附带恢复说明。
 
-每个打开的 child 都携带目录派生地址 `{ parentSessionId, childSessionId, mode }`。选择专用历史与提示词传输的是包含 mode 的地址，而不是谱系或粗粒度 origin 标记。历史操作会从持久化存储读取会话，而不触发激活。可继续提示词操作会调用 `ctx.subagents.followup()`，并在 inbox 接受消息时以 `{ messageId }` 成功返回；它不会 steer 打开的轮次、公开 Activation、等待完成或返回结果。
+每个打开的 child 都携带目录派生地址 `{ parentSessionId, childSessionId, mode }`。选择专用历史与提示词传输的是包含 mode 的地址，而不是谱系或粗粒度 origin 标记。历史操作会从持久化存储读取会话，而不触发激活。可继续提示词操作会调用 `ctx.subagents.followup()`，并在 inbox 接受消息时以 `{ messageId }` 成功返回；它不会对进行中的轮次执行 steering（中途引导）、公开 Activation、等待完成或返回结果。
 
 通用 Host 领域遵守同一所有权边界。`session.history` 与 `session.fork` 的源端会读取已附加 Session 或检查持久化存储，而不获取 Agent；history 从所检查的确切前缀归并冷态投影值，fork 则发布一个普通的独立会话。绑定到 Agent 的通用会话、命令与目标路由会对由会话支撑的 subagent 返回 `agent-busy`；显式 id 的 `session.create` 接纳与仅针对已附加会话的队列控件亦然。拒绝分类器接受粗粒度 `origin` 标记、会话自身后缀中的 `subagent/descriptor`，或 parent 对其确切的存活运行时所有权；这些信号只会阻止通用路径取得所有权，绝不取代目录 mode 或直接 parent 授权。
 
-停止一个已寻址 child 绝不回退到 `session.cancel`。`SubagentService.followup()` 只负责消息被 inbox 接受前的准入，不授予取消句柄；正在运行的可继续 child 通过专用的 `subagent.interrupt` 路由停止，遵循[当前轮次中断约定](2026-08-06-continuable-subagent-interrupt.md)，该约定会暂停而非丢弃待处理工作。one-shot child 在 Web 端仍不可取消。
+停止一个已寻址 child 绝不回退到 `session.cancel`。`SubagentService.followup()` 只负责消息被 inbox 接受前的准入，不授予取消句柄；正在运行的可继续 child 通过专用的 `subagent.interrupt` 路由停止，遵循[当前轮次中断约定](2026-08-06-continuable-subagent-interrupt.md)，该约定会停放并保留待处理工作，而不是将其丢弃。one-shot child 在 Web 端仍不可取消。
 
 本决策涵盖 Web 端发现、transcript 查看与经 parent 授权的用户继续交互。它不会让 subagent 成为用户独立所有的对象；这类产品仍然属于[交互式 side session](../../proposed/feature/2026-07-08-interactive-side-sessions.md)。
 
@@ -33,7 +33,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 | 会话页头可打开紧凑的 child 列表。 | 触发器会汇总仅含 subagent 的完整后代谱系；树按服务顺序显示每个直接目录条目，包括已禁用的 diagnostic。 |
 | 选择一行会复用对话 UI。 | 已寻址历史绝不激活 child；只有 parent 存活的可继续行才保留普通输入框。 |
 | 嵌套 agent 会逐层展开。 | 每行携带一层 `hasChildren` 快照；展开时会立即预留已知直接后代行，随后仍只加载该行的直接目录，并保留其自身的 parent 地址。 |
-| 条目显示 label、状态、token 用量与活跃耗时，同时避免侧边栏条目重复。 | mode 与 `running`／`inactive` 活动状态会同时以文字和视觉呈现；可选 title、持久化 token 用量与活跃轮次耗时来自列表保留的投影值。紧凑耗时从一天起省略更小的单位，而悬停和无障碍名称仍保留精确的整秒数。`SessionHeader.origin` 会移除重复的导航条目，但不授予任何功能权限。 |
+| 条目显示 label、状态、token 用量与活跃耗时，同时避免侧边栏条目重复。 | mode 与 `running`／`inactive` 活动状态会同时以文字和视觉呈现；可选 title、持久化 token 用量与活跃轮次耗时来自列表保留的投影值。紧凑耗时从一天起省略更小的单位，而悬停和无障碍名称仍保留精确的整秒数。`SessionHeader.origin` 会移除重复的导航条目，但不授予任何能力。 |
 
 ## 产品约定
 
@@ -63,13 +63,13 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 普通 `session.history` 路由对于普通会话和 subagent 会话同样只执行观察，但它既不携带目录地址，也不授予继续执行权限。每条需要 Agent 的普通路由都会在恢复冷会话前经过共享所有权栅栏；`session.cancel` 与 `session.updateQueue` 会直接执行同一检查，因为它们有意只查询已附加的 Agent。
 
-适配器仍位于 `dsh-host-apiproxy`；`dsh-host-webserver` 仍作为载体。浏览器代码通过现有连接包（package）导入约定，绝不直接访问宿主 `ctx`，从而保持 [GUI RPC 分层](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)。
+适配器仍位于 `dsh-host-apiproxy`；`dsh-host-webserver` 仍作为载体。浏览器代码通过现有连接包导入约定，绝不直接访问宿主 `ctx`，从而保持 [GUI RPC 分层](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)。
 
 ## 客户端对象层与呈现
 
 不依赖 React 的运行时负责目录、单次并发刷新、保留的地址、可用性提示、传输选择，以及每个列表行当前投影值的引用稳定映射。再次选择已知 child 时会保留其地址，避免导航静默切换到普通会话 API。缺失的中间面包屑地址可以从已加载的祖先目录恢复，但在用户选择该面包屑之前不会保留为传输地址，也不会创建 scope。恢复的导航会持久化包含 mode 的完整地址。
 
-目录通过标准 `useSessions` 快照传递。组件局部状态负责菜单可见性、已展开分支与焦点。`ui-conversation` 声明通用页头操作列表 slot，并通过其编辑器链分发当前对话快照；其中没有 subagent 专用的接管标记。`@deepseek-ai/dsh-client-ui-subagent` 注册目录操作，并根据普通 owner props 选择按原因区分的只读编辑器。组件只接收派生 props 与回调，绝不接收 `ctx`。
+目录通过标准 `useSessions` 快照传递。组件局部状态负责菜单可见性、已展开分支与焦点。`ui-conversation` 声明通用页头操作列表 slot，并通过其 composer 链分发当前对话快照；其中没有 subagent 专用的接管标记。`@deepseek-ai/dsh-client-ui-subagent` 注册目录操作，并根据普通 owner props 选择按原因区分的只读编辑器。组件只接收派生 props 与回调，绝不接收 `ctx`。
 
 每个进程内 subagent child 都会在发布前写入 `SessionHeader.origin: 'subagent'`。会话列表摘要与增量 Host 帧会投影该字段，使分组和扁平侧边栏省略重复的 child 行，同时保留普通 fork。同一条现有的 `host/session-added` 帧还会把已加载的直接 parent 行标记为可展开，而无需引入目录事件流。描述符 mode 与目录校验仍然是导航、继续执行和授权的权威依据。
 
@@ -83,7 +83,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 **对已寻址 child 使用普通会话 API。** 不予采纳，因为通用历史不携带目录 mode 校验，而绑定到 Agent 的通用控件会有意拒绝 subagent，不会授予直接 parent 继续执行授权。
 
-**将适配器放入 webserver。** 不予采纳，因为目录与继续执行是通道无关的客户端功能；webserver 只承载已校验的消息。
+**将适配器放入 webserver。** 不予采纳，因为目录与继续执行是通道无关的客户端能力；webserver 只承载已校验的消息。
 
 **新建 UI 包。** 不予采纳，因为 `ui-subagent` 已经负责 Web subagent 引用，也是目录与已寻址 child 呈现的统一 owner。
 
@@ -95,7 +95,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 **根据谱系推断 mode 或侧边栏过滤。** 不予采纳，因为普通 fork 共享 `parentSession`。由描述符支撑的目录负责提供 mode；单独的 `origin` 标记只是低成本的导航分类器。
 
-**构建预先加载的递归树或专用目录流。** 就当前规模而言不予采纳。只读 header 的一层可展开性预查会在不读取后代事件的情况下保证点击前的稳定性，而展开仍是懒加载式权威直接 child 读取；现有 Host 帧会更新活动状态、恢复 parent 行的可展开性，并触发有界的成员刷新。
+**构建预先加载的递归树或专用目录流。** 就当前规模而言不予采纳。仅用于页头的一层可展开性预查会在不读取后代事件的情况下保证点击前的稳定性，而展开仍是懒加载式权威直接 child 读取；现有 Host 帧会更新活动状态、恢复 parent 行的可展开性，并触发有界的成员刷新。
 
 **让 child 在 parent 消失后仍能独立交互。** 不予采纳，因为独立生命周期与用户所有权需要 side session 语义。
 
@@ -111,7 +111,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 ## 后果
 
 - 目录读取可能重新扫描持久化谱系与每个直接候选的描述符日志，但可展开性只复用该追踪中已有的后代 header；Web 活动基线会为每个健康行增加一次 Agent 注册表查找，随后使用现有实时帧，而 token 用量与耗时会复用投影基线和推送，无需按行读取日志，成员刷新则保持去抖动和单次并发。
-- parent 可用性、child 活动状态与 `hasChildren` 都是快照。列出之后，发布、dispose、其他发送方或其他进程都可能抢先改变状态；类型化提示词失败仍属预期行为。
+- parent 可用性、child 活动状态与 `hasChildren` 都是快照。列出之后，发布、dispose（资源释放）、其他发送方或其他进程都可能抢先改变状态；类型化提示词失败仍属预期行为。
 - child 可能在历史获取与 mux 订阅之间发布，因此现有序号归并也涵盖从冷态转为存活的已寻址路径。
 - 持久化 origin 会为 child header 与列表投影添加一个有意保持弱约束的产品分类字段；它不能变成授权捷径。
-- 除对正在运行的可继续 child 的当前轮次 Stop（[中断约定](2026-08-06-continuable-subagent-interrupt.md)）之外，UI 不提供 child 取消、持久化结果、Activation 身份、删除或可独立交互的离线 mode，其文案不得暗示这些功能已经存在。活跃轮次耗时度量的是已记录工作，而非 Activation 驻留时间。
+- 除对正在运行的可继续 child 的当前轮次 Stop（[中断约定](2026-08-06-continuable-subagent-interrupt.md)）之外，UI 不提供 child 取消、持久化结果、Activation 身份、删除或可独立交互的离线 mode，其文案不得暗示这些能力已经存在。活跃轮次耗时度量的是已记录工作，而非 Activation 驻留时间。

@@ -10,7 +10,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`modules/`](modules/README.md) | 加载浏览器侧客户端模块。 |
 | [`web-react/`](web-react/README.md) | 连接 shell 运行时与 React 渲染。 |
 | [`connection/`](connection/README.md) | 维护浏览器与宿主之间的 RPC 通信和事件传递。 |
-| [`runtime/`](runtime/README.md) | 为会话、Workspace 和 UI 组合提供共享客户端服务。 |
+| [`runtime/`](runtime/README.md) | 为会话、工作区和 UI 组合提供共享客户端服务。 |
 | [`hmr/`](hmr/README.md) | 在开发期间刷新客户端插件。 |
 | [`locale/`](locale/README.md) | 提供本地化偏好与消息词典。 |
 | [`schema-form/`](schema-form/README.md) | 为设置编辑器提供 schema 驱动的草稿处理。 |
@@ -22,7 +22,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-layout/`](ui-layout/README.md) | 排列应用的主要区域。 |
 | [`ui-sidebar/`](ui-sidebar/README.md) | 展示工作区与会话导航。 |
 | [`ui-workspace/`](ui-workspace/README.md) | 提供工作区选择与创建界面。 |
-| [`ui-conversation/`](ui-conversation/README.md) | 展示当前会话及其输入界面。 |
+| [`ui-conversation/`](ui-conversation/README.md) | 展示当前对话及其输入界面。 |
 | [`ui-tool/`](ui-tool/README.md) | 编排工具调用树和按工具键控的视图。 |
 | [`ui-workflow-run/`](ui-workflow-run/README.md) | 把持久工作流运行回放为 Chat 嵌套折叠项，并只为实时子 Session 提供导航。 |
 | [`ui-goal/`](ui-goal/README.md) | 展示和管理当前目标。 |
@@ -37,7 +37,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |
 | [`ui-plugin-config/`](ui-plugin-config/README.md) | 插件设置分区：把宿主平面的插件配置呈现为可展开卡片。 |
 | [`ui-question/`](ui-question/README.md) | 展示 agent 请求的交互式问题。 |
-| [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并创作预设组装。 |
+| [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并编写预设组合。 |
 | [`ui-settings/`](ui-settings/README.md) | 承载设置界面及其扩展区域。 |
 | [`ui-settings-general/`](ui-settings-general/README.md) | 提供常规设置分区。 |
 | [`ui-models/`](ui-models/README.md) | 提供模型提供方配置与 DeepSeek 配置引导。 |

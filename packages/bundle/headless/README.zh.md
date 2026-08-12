@@ -8,13 +8,13 @@ Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/a
 
 ## 模型体验
 
-无影响，因为 runner 把任务作为普通用户消息提交；提示词与工具归 base 和 headless 组合包中的相应行所有。
+无影响，因为 runner 把任务作为普通用户消息提交；提示词与工具由 base 和 headless 组合包中的相应条目提供。
 
 #### KV Cache 影响
 
 无；runner 不向请求前缀添加任何内容。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **只提交一个任务**：runner 没有用于交互式后续输入的 surface；它会等待 Agent 在返回 idle 前完成的所有工作，并打印该区间内最后一条非空 assistant 消息。
 - **`ctx.appExit` 由启动器持有**：在 `dsh` 启动器之外启动 headless profile 会在激活时明确报错，直到宿主提供该退出请求。

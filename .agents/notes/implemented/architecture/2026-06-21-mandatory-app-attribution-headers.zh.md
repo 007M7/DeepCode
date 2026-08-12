@@ -6,15 +6,15 @@ Status: implemented
 
 ## 问题
 
-LLM（大语言模型）提供方请求应当标识发出请求的产品。这对提供方侧的技术支持、滥用调查、兼容性调试和流量分析都有价值。在本 Agent Note 之前，harness 只做了部分工作：手写的 DeepSeek 适配器发送了一个手动复制的 `User-Agent` 常量（`packages/llm/llm-deepseek/src/adapter.ts`），而基于 pi-ai 的孪生适配器则完全不发送 harness 自有的头部（`packages/llm/llm-pi-ai/src/adapter.ts`）。因此新适配器可以悄无声息地省略归属标识，而基于库的适配器也可能与手写适配器产生偏差——尽管[孪生适配器 Agent Note](2026-06-13-twin-llm-adapters.md) 的存在正是为了让两种实现在提供方约定上保持诚实。
+LLM（大语言模型）提供方请求应当标识发出请求的产品。这对提供方侧的技术支持、滥用调查、兼容性调试和流量分析都有价值。在本 Agent Note 之前，harness 只做了部分工作：手写的 DeepSeek 适配器发送了一个手动复制的 `User-Agent` 常量（`packages/llm/llm-deepseek/src/adapter.ts`），而基于 pi-ai 的孪生适配器则完全不发送 harness 自有的头部（`packages/llm/llm-pi-ai/src/adapter.ts`）。因此新适配器可以悄无声息地省略归属标识，而基于库的适配器也可能与手写适配器产生偏差——尽管[孪生适配器 Agent Note](2026-06-13-twin-llm-adapters.md) 的存在正是为了确保两种实现中的提供方约定真实可靠。
 
-直接触发因素来自 OpenRouter 的[应用归属](https://openrouter.ai/docs/app-attribution)文档。OpenRouter 根据 `HTTP-Referer` 加上 display/category 头部来创建应用页面和排名。这有价值，但它不是 HTTP 标准中的应用身份机制。风险在于：把 OpenRouter 的精确头部集当作通用标准来采纳，然后将提供方特有的头部泄漏到直连 DeepSeek 的请求、未来的 OpenAI/Anthropic/Vertex 适配器、测试服务器或无限期记录未知字段的代理中。
+直接触发因素来自 OpenRouter 的[应用归属](https://openrouter.ai/docs/app-attribution)文档。OpenRouter 根据 `HTTP-Referer` 加上用于展示和分类的头部来创建应用页面和排名。这有价值，但它不是 HTTP 标准中的应用身份机制。风险在于：把 OpenRouter 的精确头部集当作通用标准来采纳，然后将提供方特有的头部泄漏到直连 DeepSeek 的请求、未来的 OpenAI/Anthropic/Vertex 适配器、测试服务器或无限期记录未知字段的代理中。
 
 ## 调研
 
-- **OpenRouter 的机制是提供方特有的。** 其当前文档说明应用归属通过 `HTTP-Referer`（必需）、`X-OpenRouter-Title` 和 `X-OpenRouter-Categories` 来追踪；`X-Title` 仅为向后兼容而接受。其 API 参考称这些头部为可选，并说它们使应用在 OpenRouter 上可被发现。这是一项具体的 OpenRouter 惯例，而非 IETF 或 OpenAI 兼容 API 标准。
-- **在 agent 工具生态中，`HTTP-Referer` 是一种 OpenRouter 感知的惯例，而非通用 agent 惯例。** 它足够常见，以至于 OpenRouter SDK 和示例直接暴露它，面向 OpenRouter 的框架通常需要一种方式来透传它。但 ACP（Agent Client Protocol）等 agent 协议在自己的 initialize 消息中协商名称、版本和能力，而模型提供方请求仍需 HTTP 层面的身份标识。因此「在 agent 世界中被接受」意味着「被 OpenRouter 集成所识别」，而非「可跨 agent 运行时或提供方移植」。
-- **编程 agent 在 `User-Agent` 中标识产品和版本。** 公开实现在环境细节和提供方特有的附加头部上各有不同，但产品身份是共同惯例；不存在通用的精确格式。
+- **OpenRouter 的机制是提供方特有的。** 其当前文档说明应用归属通过 `HTTP-Referer`（必需）、`X-OpenRouter-Title` 和 `X-OpenRouter-Categories` 来追踪；`X-Title` 仅为向后兼容而接受。其 API 参考称这些头部为可选，并说它们使应用在 OpenRouter 上可被发现。这是一项具体的 OpenRouter 约定，而非 IETF 或 OpenAI 兼容 API 标准。
+- **在 agent（智能体）工具生态中，`HTTP-Referer` 是一种 OpenRouter 感知的惯例，而非通用 agent 惯例。** 它足够常见，以至于 OpenRouter SDK 和示例直接暴露它，面向 OpenRouter 的框架通常需要一种方式来透传它。但 ACP（Agent Client Protocol）等 agent 协议在自己的 initialize 消息中协商名称、版本和能力，而模型提供方请求仍需 HTTP 层面的身份标识。因此「在 agent 世界中被接受」意味着「被 OpenRouter 集成所识别」，而非「可跨 agent 运行时或提供方移植」。
+- **编程 agent 在 `User-Agent` 中标识产品和版本。** 公开实现在环境细节和提供方特有的附加头部上各有不同，但产品身份是共同约定；不存在通用的精确格式。
 - **标准化的通用客户端身份头部是 `User-Agent`。** RFC 9110 第 10.1.5 节将 `User-Agent` 定义为用户代理软件身份，说明它用于互操作性报告和分析，并说用户代理应当在每个请求中发送它（除非被配置为不发送）。这是唯一直接对应「哪个产品在发出此 HTTP 请求」的标准头部。
 - **`Referer` 是标准的，但 OpenRouter 的 `HTTP-Referer` 不是标准字段。** RFC 9110 第 10.1.3 节将 `Referer` 定义为获取目标 URI 的来源 URI，并用大量篇幅讨论隐私限制。OpenRouter 则要求 `HTTP-Referer`，将其用作应用 URL 标识符。该名称和含义是 OpenRouter 特有的，尽管它形似标准 `Referer` 头部的 CGI 环境变量形式。
 - **`From` 是标准的，但不适合作为强制默认值。** RFC 9110 第 10.1.2 节将 `From` 定义为负责用户代理的人的电子邮件地址。机器人代理应当发送它以便服务器联系运营者，但非机器人代理出于隐私和安全策略考虑不应在未经用户显式配置的情况下发送。harness 可以后续支持运营者联系方式，但不得凭空捏造或全局强制要求。
@@ -51,7 +51,7 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 
 已落地的约定：
 
-- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属约定（`LlmAdapter` JSDoc、包 README，以及 `docs/subsystems/llm-streaming.md` 的适配器约定（adapter contract）章节）。
+- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属约定（`LlmAdapter` JSDoc、包 README，以及 `docs/subsystems/llm-streaming.md` 的适配器约定章节）。
 - 共享辅助函数（`attributionHeaders` / `userAgent`）从包元数据构建应用身份和标准 `User-Agent` 值，适配器无需手动复制版本常量。
 - `dsh-llm-deepseek` 在每个请求上发送共享的 `User-Agent`，其 mock 服务器套件断言精确值。
 - `dsh-llm-pi-ai` 通过 pi-ai 的 `StreamOptions.headers` 钩子发送相同的 `User-Agent`，其 mock 服务器套件断言精确值。
@@ -63,7 +63,7 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 
 **现在就实现 OpenRouter 应用归属。** 本决策否决。发送 `HTTP-Referer` 加 `X-OpenRouter-Title` 可以满足 OpenRouter 排名，但这些头部是提供方特有的产品功能，不是本决策所标准化的提供方无关的模型请求归属。支持它们应当是后续显式的 OpenRouter 适配器/模式决策，而非隐藏在首个共享归属辅助函数中。
 
-**向所有提供方发送 OpenRouter 头部。** 否决。这会把一项自定义的 OpenRouter 惯例当作通用标准，并向未要求这些字段的提供方发送语义误导的头部。还有风险将 `HTTP-Referer` 当作通用应用 URL 字段使用，尽管标准 HTTP 已有 `User-Agent` 用于产品身份、`Referer` 用于不同的浏览上下文概念。
+**向所有提供方发送 OpenRouter 头部。** 否决。这会把一项自定义的 OpenRouter 约定当作通用标准，并向未要求这些字段的提供方发送语义误导的头部。还有风险将 `HTTP-Referer` 当作通用应用 URL 字段使用，尽管标准 HTTP 已有 `User-Agent` 用于产品身份、`Referer` 用于不同的浏览上下文概念。
 
 **仅使用提供方账户/项目身份。** 否决。组织/项目头部、API key、云账户和计费项目标识的是谁付费或谁拥有请求，而非哪个应用在发送流量。它们也不暴露公开的应用标题/类别，无法帮助 OpenRouter 等网关构建应用排名。
 

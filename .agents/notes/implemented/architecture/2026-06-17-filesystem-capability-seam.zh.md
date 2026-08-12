@@ -14,7 +14,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 2. 后端：当前是本地磁盘，未来可能是沙箱/远程/项目作用域的文件系统。
 3. 消费方 API：面向模型的 `read` / `write` / `edit` schema 与结果格式化。
 
-如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的约定应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制路径包含约束，否则它只是一个基础路径。
+如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的约定应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制执行路径包含约束，否则它只是一个基础路径。
 
 文件系统工具必须在成为公开包（package）接口之前，以与 bash 相同的能力 seam 形态落地。
 
@@ -34,7 +34,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 第一个消费方有意仅限文本文件：`dsh-tool-fs` 暴露面向模型的 `read`、`write` 和 `edit` 工具，处理 UTF-8 文本文件。未来的消费方可以添加目录列表、搜索/glob、二进制安全操作、文件监视或更高层的项目操作，只要 `ctx.fs` 上存在所需能力，就无需改动本地后端包。直接目录列表后来由[为文件系统 seam 添加直接目录列举能力](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)添加。
 
-文件系统权限和沙箱并非此拆分所隐含。本地后端从其配置的基目录解析相对路径，但隔离策略是独立的决策：要么由更严格的 `ctx.fs` 实现强制执行，要么由权限/沙箱插件包装 `tools/execute` 并在调用到达消费方之前否决。
+文件系统权限和沙箱并非此拆分所隐含。本地后端从其配置的基目录解析相对路径，但路径包含约束策略是独立的决策：要么由更严格的 `ctx.fs` 实现强制执行，要么由权限/沙箱插件包装 `tools/execute` 并在调用到达消费方之前否决。
 
 读后写/编辑与观测状态属于 `dsh-fs-policy`，而非 `ctx.fs`。通过 `fs/*` 事件门控，策略按不透明 actor 记录版本，并提供可选的变更期望；提供方原子性地强制新鲜度。`dsh-tool-fs` 发出事件但不依赖策略。见[拆分文件系统 seam](../simplification/2026-06-26-fsspec-style-fs-seam.md)和[事件门控插件](2026-06-26-file-context-as-event-gate.md) Agent Note。
 
@@ -51,7 +51,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 `@deepseek-ai/dsh-fs-local` 依赖 `@deepseek-ai/dsh-fs` 和 `cordis`。它继承 `FileSystem`，将自身注册为 `ctx.fs`，拥有本地后端配置（如基目录），并包含所有直接的 `node:fs` / `node:path` 访问。它不持有观测状态存储——新鲜度是后端铸造、策略插件记录的版本令牌。
 
-`@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent 或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
+`@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent（智能体）或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
 
 根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入 Service provider 包。
 
@@ -131,7 +131,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 本仓库曾踩过的防御性模式类别被直接固定：
 
-- **原子写入临时文件安全。** 写入/编辑通过目标旁边一个私有随机 `0700` 目录中的独占 owner-only（`'wx'`、`0o600`）临时文件暂存，失败时清理，最后原子 rename——与 bash 溢出文件规则一致，因为可预测的 world-readable 临时路径招致符号链接竞争和信息泄露。测试断言权限，并断言已存在的临时路径不会被覆盖；此原语是 seam 的常设要求。
+- **原子写入临时文件安全。** 写入/编辑通过目标旁边一个私有随机 `0700` 目录中的独占 owner-only（`'wx'`、`0o600`）临时文件暂存，失败时清理，最后原子 rename——与 bash spill 文件规则一致，因为可预测的 world-readable 临时路径招致符号链接竞争和信息泄露。测试断言权限，并断言已存在的临时路径不会被覆盖；此原语是 seam 的常设要求。
 - **通过符号链接的 `targetKey` 同一性。** 两个输入路径解析到同一 realpath 时共享一个观测状态条目：通过路径 A 的 `read` 满足通过符号链接路径 B 的 `edit` 的读后编辑守护，通过一个路径的陈旧写入可通过另一个路径检测到。
 - **并发/陈旧竞争。** 对同一目标的两个并发写入/编辑操作确定性地收敛——一个成功，另一个被 `FS_STALE_VERSION` 拒绝——成功的编辑刷新记录状态，使同一 owner 的下一次编辑可以继续。
 - **HMR（热模块替换）安全与 dispose（资源释放）。** dispose 后端的 fiber 会撤回 `ctx.fs` 提供方；后续的提供方以无继承状态启动。
@@ -144,7 +144,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 ## 后果
 
-**`cwd` 可能被误认为沙箱。** 本地后端的基目录是解析默认值，而非自动的隔离边界。如果需要隔离，必须由后端约定或 `tools/execute` 上的权限/沙箱插件强制执行。
+**`cwd` 可能被误认为沙箱。** 本地后端的基目录是解析默认值，而非自动的隔离边界。如果需要路径包含约束，必须由后端约定或 `tools/execute` 上的权限/沙箱插件强制执行。
 
 **接口可能变得过于本地化。** 如果 `ctx.fs` 返回 `absolutePath` 之类的字段，远程、沙箱或虚拟后端会变得尴尬。约定应暴露显示元数据，而不要求消费方理解宿主路径。
 

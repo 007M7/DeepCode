@@ -29,7 +29,7 @@ Service provider 与 Consumer 由此独立演进：沙箱化执行器替换 `dsh
 ## 曾考虑的替代方案
 
 - **始终合并各角色**：否决。因为它会重新耦合独立变化的 Service Definition、Service provider 和 Consumer。
-- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 对会话进行检测），是延后的权限/沙箱工作（`tools/pre-execute` deny/ask 门）的候选方案，不是替换实现的机制。混淆这两个「能力」概念正是本 Agent Note 所指出的陷阱。
+- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 针对会话检测这些权限），是延后的权限／沙箱工作（`tools/pre-execute` deny/ask 门）的候选方案，不是替换实现的机制。混淆这两个「能力」概念正是本 Agent Note 所指出的陷阱。
 
 ## 后果
 

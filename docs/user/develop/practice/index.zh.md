@@ -6,7 +6,7 @@
 
 ## 概念参考
 
-当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），Harness 会区分三种角色：**Service Definition**、**Service provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
+当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），harness 会区分三种角色：**Service Definition**、**Service provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
 
 ## 以 Bash 为例
 

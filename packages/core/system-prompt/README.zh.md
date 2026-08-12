@@ -8,8 +8,8 @@
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `includeHarnessIdentity` | `true` | 是否包含固定的 `You are an AI agent powered by the DeepSeek Harness SDK.`、顺序为 −100 的开场白。仅当兼容部署拥有完整系统提示词时设为 false。 |
-| `persona` | `''` | 全局部署 persona 默认值：唯一由配置创作的提示词片段，渲染为顺序为 0 的 `deployment:persona` 段，除非 agent 作用域的贡献将其遮蔽。它是模板，完整的 `{{…}}` 组会严格按已注册变量解释（随附循环注册 `{{model}}`/`{{cwd}}`），目前没有表达字面量花括号的转义语法。为空 ⇒ 渲染时删除该段。 |
+| `includeHarnessIdentity` | `true` | 是否包含顺序为 −100 的固定开场白 `You are an AI agent powered by the DeepSeek Harness SDK.`。仅当兼容部署拥有完整系统提示词时设为 false。 |
+| `persona` | `''` | 全局部署 persona 默认值：唯一由配置提供的提示词片段，渲染为顺序为 0 的 `deployment:persona` 段，除非 agent 作用域的贡献将其遮蔽。它是模板，完整的 `{{…}}` 组会严格按已注册变量解释（随附循环注册 `{{model}}`/`{{cwd}}`），目前没有表达字面量花括号的转义语法。为空 ⇒ 渲染时删除该段。 |
 | `toolOrder` | 无 | 显式的面向模型工具顺序：一个 `ToolSchema.name` 列表，包含一个 `'<unlisted-tools>'` 其余项（`TOOL_ORDER_REST`）。已列工具占据列出的位置；未列工具按名称字典序落在其余项位置。缺席 ⇒ 直接按名称字典序排列。在 `system-prompt/assemble` waterfall（瀑布式事件）之前应用于已收集工具；与段的 `order` 排序一样，它会规范化注册表贡献的内容（注册顺序是插件加载产物），而修改列表的 waterfall 监听器拥有其输出的确定性。配置错误会明确失败：列表没有恰好一个其余项或存在重复项，会在加载时抛出；已列名称没有对应已注册工具，会使每次 `assemble()` 被拒绝；工具提供方返回保留的其余项名称也会被拒绝。在随附循环下，轮次会在任何模型请求前失败。为何采用中心列表而非每插件权重，见[显式面向模型工具顺序](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.md)。 |
 
 ## 服务：`SystemPrompt`（ctx 键：`systemPrompt`）
@@ -25,7 +25,7 @@
 
 ### 实时事件
 
-`system-prompt/assemble` 对普通段落具有权威性；complete 段是在 waterfall 之后应用的最终提示词约束。替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
+`system-prompt/assemble` 对普通段落具有权威性；complete 段是在 waterfall 之后应用的最终提示词约束。替换条目的监听器必须保留任何已启用的 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
 
 ### 关键类型
 
@@ -53,7 +53,7 @@
 
 默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。`includeHarnessIdentity: false` 仅省略这个固定开场白。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete；此时，该确切段落会成为完整的系统提示词，而 waterfall 得到的上下文、工具和变量保持不变。
 
-##### Harness 身份
+##### harness 身份
 
 ```markdown
 You are an AI agent powered by the DeepSeek Harness SDK.
@@ -75,7 +75,7 @@ You are an AI agent powered by the DeepSeek Harness SDK.
 
 #### Token 影响
 
-Schema token 在每次请求中重复。限制工具会为该 agent 移除其全部 schema 成本，但不会移除独立提示词段；重排序会改变缓存形状，但不改变语义内容。
+schema token 在每次请求中重复。限制工具会为该 agent 移除其全部 schema 成本，但不会移除独立提示词段；重排序会改变缓存形状，但不改变语义内容。
 
 #### KV Cache 影响
 
@@ -86,4 +86,4 @@ Schema token 在每次请求中重复。限制工具会为该 agent 移除其全
 - **部署方编写的提示词文本只来自配置／组合**：此插件拥有全局 persona 默认值；创建方插件可以注册 agent 作用域的遮蔽项；其他段来自拥有相应事实的插件。不存在终端用户提示词编辑 API。
 - **没有表示字面量 `{{…}}` 花括号的转义语法**：每个完整组都会按已注册变量插值；只有实际提示词需要转义时才会实现。
 - **`toolOrder` 配置错误在提示词组装（首轮）时出现，而不是启动时**：只有形状违规会在配置加载时抛出。
-- **共享同一 `order` 值的段按注册顺序打破平局**：这是插件加载产物；确定性依赖不同顺序区间的约定，与已规范化的工具顺序不同。
+- **共享同一 `order` 值的段按注册顺序打破平局**：这是插件加载产物；确定性依赖在顺序分段内使用不同值的约定，与已规范化的工具顺序不同。

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md
 2026-07-05-reconstructable-requests.md: e78284964ca85905524d3a0800b2de46c6964094
-2026-07-05-reconstructable-requests.zh.md: ff61386b31cf2bd8e69f51eedf257823ca7fabbb
+2026-07-05-reconstructable-requests.zh.md: 2a99fd477755c8c52f9941d832b1647786c0b242

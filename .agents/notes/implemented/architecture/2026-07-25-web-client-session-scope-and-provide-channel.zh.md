@@ -64,7 +64,7 @@ Session 实例与 scope 同生命周期，存活资格 = host listed（一个判
 - host 判据：`session.events.length === 0`（零日志事件 = 尚无用户消息）。live 会话 `summarize()` 内存直读；cold 会话恒 `false`——lazy-create 约定保证 never-appended 会话根本不进 `persistence.list()`（JSONL/SQLite 两后端均已实证真 lazy），blank 从不落盘。
 - wire 承载两处：`SessionSummary.blank` 必填列；`host/session-added` 帧必填 `blank` 字段（创建时恒 true，供别的 tab 按同一空会话状态入镜像）。
 - client 镜像只降不升（单调），三来源翻转，全部复用既有 wire 信号：
-  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明用户消息已写入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首条提示词被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
+  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明用户消息已入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首条提示词被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
   - 其他端：`host/session-status (running:true)` 帧翻转——blank 会话从不 running，首次 running 必然已非 blank；
   - 重连对齐：`session.list` 的 summary.blank 是权威，错过帧的端下次拉取自然对齐；陈旧的 blank:true 不能把已转正的会话重新标回 blank。
 - 列表纪律：store 保留全部行；Workspace browser 的分组、平铺、搜索和计数共用同一可见投影——所有非 blank 会话都显示，blank 会话只显示 `session.id === sessions.current` 的一条，并强制标题为 `New Session`。切换 Workspace 后，旧 blank 实体仍在镜像中但从列表隐藏，目标 Workspace 的 current blank 显示；因此用户可见面全局至多一条 blank 行。
@@ -90,8 +90,8 @@ Session 实例与 scope 同生命周期，存活资格 = host listed（一个判
 slot scope 是闭集 `root | session-maybe | session`：
 
 - `root` 只拿全局标准件，不接收会话身份或供数。
-- `session-maybe` 以**收养（adoption）身份语义**跟随 current 会话（唯一行为——不存在「永久保持实例」模式）：空态出生的化身在**第一个** session 到来时保持 React 实例（空壳收养它——不重挂，DOM 存活）；此后行为与严格 session entry 完全一致——切到不同 session 重挂，跌回无 session 也重挂为崭新的空态化身（之后再次收养）。因此组件本地的 per-session 状态**由构造保证**随切换清零；需要活过切换的状态必须住 session 绑定的源（machine、store、hooks）。无 session 时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅 runtime 的原子 `currentProvide` 投影驱动这条更新——选择移动和提供方名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的钩子/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无 session 时仍保留完整钩子/prop 形状；逐 entry 的收养记账（化身计数 key）住在 renderer 的 `SessionMaybeEntry`。
-- `session` 保证 `sessionId`、所有钩子 source 与 props 均存在；每个严格 entry 的错误边界以 `sessionId` 为 key，切换 session 会重建该 entry 及其 session store。
+- `session-maybe` 以**收养（adoption）身份语义**跟随 current 会话（唯一行为——不存在「永久保持实例」模式）：空态出生的化身在**第一个**会话到来时保持 React 实例（空壳收养它——不重挂，DOM 存活）；此后行为与严格会话 entry 完全一致——切到不同会话重挂，跌回无会话也重挂为崭新的空态化身（之后再次收养）。因此组件本地的逐会话状态**由构造保证**随切换清零；需要活过切换的状态必须住会话绑定的源（machine、store、hooks）。无会话时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅运行时的原子 `currentProvide` 投影驱动这条更新——选择移动和提供方名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的钩子/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无会话时仍保留完整钩子/prop 形状；逐 entry 的收养记账（化身计数 key）住在 renderer 的 `SessionMaybeEntry`。
+- `session` 保证 `sessionId`、所有钩子 source 与 props 均存在；每个严格 entry 的错误边界以 `sessionId` 为 key，切换会话会重建该 entry 及其会话 store。
 
 `conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、root 持有的 scrollport 与 composer stack，以及 overlay chain 的 fallback 外框，在无会话 → blank 会话的切换中保持 React 实例。两个严格 session entry 只填入固定区域，不改变该树的父级：`conversation.session.header` 在 scrollport 上方承载 breadcrumb／tab／action，`conversation.session` 在其内部承载 view ring 与 draft mirror；二者共享同一个 session scope chat store。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时，其 machine faces 和消息动作保持惰性，整张虚线卡片可经指针打开现有 Workspace picker，只读 textarea 也可通过 Enter 或 Space 打开。session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不派发任何内容。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
 
@@ -121,7 +121,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 | React Context 层层传会话语境 | 插件在 host/client 两侧应是一个心智模型；scope 机制与 host dsh-scope 同构 |
 | `scopeTarget` carrier + 融合派发器（镜像 host `agentEvents`） | host 包装层护的是「业务 Agent subject 与 scope key 不漂移」，client 事件无 subject 可护；filter 住 actx + cordis 原语覆盖全部需求 |
 | Session 不持 ctx（对象层 cordis-free） | 只为筛选单测不引 cordis 而生的红线，代价是 contribute 两跳回调 + 可变公有字段；host Agent 本就持 loopCtx |
-| Session 实例常驻（resident-instance） | host session log 即持久真相；常驻仅为身份便利，与 scope 生命周期错位是复杂度之源 |
+| Session 实例常驻（resident-instance） | host 会话日志即持久真相；常驻仅为身份便利，与 scope 生命周期错位是复杂度之源 |
 | 组件收 wiring 回调包（inject→props 两层下传） | 标准件通道让组件自取；公共 API 收敛为 hooks + 稳定 props |
 | Hero 无会话视图与会话 Conversation 整支互换 | 即使外层 layout 不变，Hero、picker 与 composer 子树仍会一起重建，界面产生整块抖动 |
 | 让 InputBar 自身变成 `session-maybe` | 输入状态机、键盘命令面与动作都被迫接受缺省值；只替换 disabled 输入体能把可选性留在外壳边界 |

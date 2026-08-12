@@ -2,11 +2,11 @@
 
 [English](providers.md) | 中文
 
-Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 pi-ai 已安装目录中的 Anthropic、OpenAI 等提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
+harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 pi-ai 已安装目录中的 Anthropic、OpenAI 等提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
 
 ## 提供方从哪里来
 
-`cordis.yml` 决定装了哪些**适配器**，settings 文档决定跑哪些**提供方**。出厂组合里有两个 LLM 适配器：
+`cordis.yml` 决定装了哪些**适配器**，settings 文档决定跑哪些**提供方**。出厂组合里有两个 LLM（大语言模型）适配器：
 
 - `llm-deepseek` 提供 `deepseek-official` 路由，是默认可用的那个。
 - `llm-pi-ai` 以**休眠**状态挂载：零路由，模型选择器里也不会多出条目，直到 settings 里的 `llm-pi-ai:` 段落给出提供方 profile，路由才注册上来；段落清空则一并撤下。
@@ -135,7 +135,7 @@ agent-default-model:
   reasoningEffort: high   # optional
 ```
 
-会话跑过一轮后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接入口与 Host 支撑的入口都读取同一服务。
+会话跑过一个轮次后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接入口与 Host 支撑的入口都读取同一服务。
 
 如果某个已存默认值指向的提供方后来被删掉了，输入框会显示**选择模型**并拒绝输入，而不是把消息发给一个没人服务的路由。
 

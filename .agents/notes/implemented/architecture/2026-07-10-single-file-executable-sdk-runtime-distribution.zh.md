@@ -9,7 +9,7 @@ Status: implemented
 DeepSeek Harness 需要为 Python 库专门提供一种无需安装 Node、可直接在目标平台运行的 SDK 分发形态：一个单文件可执行程序（下称 exe），通过 stdio 提供 JSON-RPC 对外服务接口（`HarnessSdkServer`，Python SDK 的对端），且实际启动的插件与配置完全由 exe 外部输入的 `cordis.yml` 决定。
 
 - 与 Python SDK 通信的 JSON-RPC 协议已经过验证
-- 需要提供通过标准化 `cordis.yml` 加载所有插件（ES 模块）的能力
+- 需要提供一种让 `cordis.yml` 加载所有插件（ES 模块）的标准方式
 - 分发物要自带 Node 运行时，并支持本地源码链接的调试模式
 
 ## 决策
@@ -21,13 +21,13 @@ exe 使用 [@yao-pkg/pkg](https://github.com/yao-pkg/pkg)（vercel/pkg 归档后
 
 `--sea` 要求构建目标 ≥ node22，exe 统一以 node24 为构建目标；每次 pkg 调用只打包一个构建目标，多平台各调用一次。
 
-术语提醒：pkg 的 `/snapshot` VFS 与本仓库测试体系的「快照」（ACP 回放预期输出、`$DSH_SNAPSHOT`）无关，本文用「VFS」指前者。
+术语提醒：pkg 的 `/snapshot` VFS 与本仓库测试体系的「快照」（ACP（Agent Client Protocol）回放预期输出、`$DSH_SNAPSHOT`）无关，本文用「VFS」指前者。
 
 ### 对外服务接口也是插件：sdk/server + examples/jsonrpc-demo 两个包
 
 确定性协议实现（`server.ts` / `transport.ts`）按 `acp/acp` + `examples/acp-demo` 的既有模式落为两包——对外服务接口本身也是插件：
 
-- [`packages/sdk/server`](../../../../packages/sdk/server/README.md)（`@deepseek-ai/dsh-jsonrpc`）：纯协议插件；执行 `apply` 时，在进程 stdio 上挂载 `HarnessSdkServer` 与按行传输的 JSON-RPC 层，资源释放走 `ctx.effect()`。是否提供服务由 `cordis.yml` 决定；未挂载该插件的配置会启动一个不提供此服务的合法进程。协议级退出归插件所有（应答并确保 `shutdown` 响应发送完毕后，对根运行时执行 dispose（资源释放），让待处理的持久化操作完成，再调用 `exit(0)`；HMR 式卸载只停止服务，不退出进程）。
+- [`packages/sdk/server`](../../../../packages/sdk/server/README.md)（`@deepseek-ai/dsh-jsonrpc`）：纯协议插件；执行 `apply` 时，在进程 stdio 上挂载 `HarnessSdkServer` 与按行分隔的 JSON-RPC 传输层，资源释放走 `ctx.effect()`。是否提供服务由 `cordis.yml` 决定；未挂载该插件的配置会启动一个不提供此服务的合法进程。协议级退出归插件所有（应答并确保 `shutdown` 响应发送完毕后，对根运行时执行 dispose（资源释放），让待处理的持久化操作完成，再调用 `exit(0)`；HMR（热模块替换）式卸载只停止服务，不退出进程）。
 - [`packages/examples/jsonrpc-demo`](../../../../packages/examples/jsonrpc-demo/README.md)（`@deepseek-ai/dsh-jsonrpc-demo`）：轻量应用入口——`installFailLoud` + `loadEnv` + 配置发现 + [`dsh-app-boot`](../../../../packages/boot/app-boot/src/index.ts) 的 `boot()`；`boot()` 完成后入口即完成，服务器由 `cordis.yml` 中的 `dsh-jsonrpc` 条目启动。它只依赖 `app-boot`。进程级退出归 `bin` 所有（stdin EOF/SIGTERM → dispose 后返回 0，SIGINT → 130）。
 
 配置发现有两个通道，均缺失时立即报错：优先使用 `DSH_CORDIS_CONFIG` 环境变量（SDK 客户端约定），其次使用 argv 位置参数；没有默认路径或内置回退——「实际启动的插件由外部 `cordis.yml` 决定」是硬语义。
@@ -58,13 +58,13 @@ exe「必须显式配置」的硬语义不变；零配置体验由包装层恢�
 
 ## 工作线程插件
 
-exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个后端构建后的宿主都通过 `fileURLToPath()` 转换相邻 `lib/worker.cjs` 的 URL，再将所得文件系统字符串传给 `Worker`；pkg 的 Worker 钩子可以用这种形式解析 VFS 内文件。该钩子会把 VFS 内的工作线程文件作为 CommonJS 编译，所以工作线程入口采用 CommonJS。工作流引擎在未构建的源码执行中仍保留 `data:` URL 引导程序，只有构建后的相邻入口使用文件系统字符串。自定义配置的可执行文件冒烟测试会加载两个后端，实际调用 `run_code` 与不启动 agent 的 `workflow`，并要求两个工作线程都从 pkg 的 VFS 内返回 `42`。
+exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个后端构建后的宿主都通过 `fileURLToPath()` 转换相邻 `lib/worker.cjs` 的 URL，再将所得文件系统字符串传给 `Worker`；pkg 的 Worker 钩子可以用这种形式解析 VFS 内文件。该钩子会把 VFS 内的工作线程文件作为 CommonJS 编译，所以工作线程入口采用 CommonJS。工作流引擎在未构建的源码执行中仍保留 `data:` URL 引导程序，只有构建后的相邻入口使用文件系统字符串。自定义配置的可执行文件冒烟测试会加载两个后端，实际调用 `run_code` 与不启动 agent（智能体）的 `workflow`，并要求两个工作线程都从 pkg 的 VFS 内返回 `42`。
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置、仓库内置的独立 minimal 组合和直接二进制协议，对 mock 端点完成一个轮次，并校验最终文本与 JSONL。minimal 运行会断言其精确系统提示词与双工具目录，跨调用保留 Bash 状态，并调用编辑器。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。同一构建任务还会经 Python SDK 运行一组检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent 和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用组合包中未使用的 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化以下各处的不透明消息 ID：SDK 结果与通知流，以及父会话和两个子会话的 JSONL 日志。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。随后把平台 wheel 包安装进干净的 venv，并在不传 `runtime_bin` 的情况下运行。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置、仓库内置的独立 minimal 组合和直接二进制协议，对 mock 端点完成一个轮次，并校验最终文本与 JSONL。minimal 运行会断言其精确系统提示词与双工具目录，跨调用保留 Bash 状态，并调用编辑器。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。同一构建任务还会经 Python SDK 运行一个检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent 和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用其未使用的内置 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化以下各处的不透明消息 ID：SDK 结果与通知流，以及父会话和两个子会话的 JSONL 日志。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。随后把平台 wheel 包安装进干净的 venv，并在不传 `runtime_bin` 的情况下运行。
 
-手工驱动注意：`bin` 将 stdin EOF 视为「客户端已离开」并立即 dispose，短命管道会中止进行中的轮次——管道驱动必须保持 stdin 打开，直到轮次结束。
+手工驱动注意：`bin` 将 stdin EOF 视为「客户端已离开」并立即 dispose，生命周期较短的管道会中止进行中的轮次——管道驱动必须保持 stdin 打开，直到轮次结束。
 
 ## 曾考虑的替代方案
 
@@ -74,7 +74,7 @@ exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个
 
 **每包 ESM→CJS 预打包进 VFS。** 保持真实解析语义、只降级模块格式的折中；`--sea` 直接通过实测，这层构建复杂度无需引入。
 
-**让 jsonrpc-agent 承担完整闭包依赖。** 应用入口将声明 53 个以上自身并不 `import()` 的依赖，使「打包 manifest」伪装成真实依赖关系，还会迫使 `constraints` 为其增加 `cordis-in-dependencies` 与 `files` 通配符两个例外。将闭包清单放在 Python 侧的 manifest 包后，`constraints` 不需要任何例外，`bin` 也能保持与 acp-agent 同构的正常包形状。
+**让 jsonrpc-agent 承担完整闭包依赖。** 应用入口将声明 53 个以上自身并不 `import()` 的依赖，使「打包 manifest」伪装成真实依赖关系，还会迫使 `constraints` 为其增加 `cordis-in-dependencies` 与 `files` 通配符两个例外。将闭包 manifest 放在 Python 侧的 manifest 包后，`constraints` 不需要任何例外，`bin` 也能保持与 acp-agent 同构的正常包形状。
 
 **开放插件集（从磁盘加载用户插件）。** 交付的集合是封闭的；PoC 同时证实，可以通过 `ctx.baseUrl` 相对路径通道从 VFS 外的磁盘 `import()` ESM。该能力列为后续演进，届时还需解决外部插件与 exe 内 Cordis 实例的共享问题。
 

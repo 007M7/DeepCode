@@ -85,7 +85,7 @@ task id 在运行时全局可见且可预测，因此注册表会授权每次访
 
 每个生产方通过带默认值的配置，自行决定其 schema 是否暴露 `run_in_background`。`dsh-tool-bash`、`dsh-tool-pty` 和每个 `dsh-tool-subagent` 实例都使用 `enableRunInBackground`，默认值为 true。禁用的实例会省略该参数；由于通用参数校验器允许未声明的键，它还会在执行时拒绝强制传入的后台参数。省略 schema 用于声明能力不可用；执行检查负责强制该约束。
 
-`ctx.tasks` 不改写生产方 schema。bundle 只转发其所拥有生产方的配置。如果后台调用在没有附加控制器的情况下到达 `start()`，运行时防线会在执行前使其失败。
+`ctx.tasks` 不改写生产方 schema。bundle 只转发其所拥有的生产方的配置。如果后台调用在没有附加控制器的情况下到达 `start()`，运行时防线会在执行前使其失败。
 
 ## 生产方集成
 

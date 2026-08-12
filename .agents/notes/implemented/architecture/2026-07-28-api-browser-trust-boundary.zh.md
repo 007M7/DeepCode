@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Web GUI 宿主以纯 HTTP 提供 `/api`（默认 `127.0.0.1:3080`，支持 `--host 0.0.0.0`），而这个面上有远程代码执行级别的方法——`session.prompt` 驱动的 agent（智能体）可以运行 bash。浏览器会用两种经典方式把操作者变成攻击此类本地 API 的「混淆代理人」：恶意页面发出跨站「简单请求」POST（`text/plain`——不经 CORS 预检即发出），其副作用照常执行、只是响应不可读；以及 DNS rebinding 后的源以「同源」身份直连 socket，CORS 整体失效，只有 `Host` 头会暴露攻击者的域名。在本决策之前，系统里唯一的浏览器信任检查（`isTrustedNativeDialogRequest`：回环 socket、同源、回环 Host）只守着一个装饰性的路由——`host.pickDirectory`，其原生对话框弹在宿主屏幕上——而所有真正具有严重后果的方法都没有防护。按 RPC 逐个设防也活不过应用内目录浏览器：它存在的意义就是服务合法的远程客户端，回环规则恰恰会拒绝它们。
+Web GUI 宿主以纯 HTTP 提供 `/api`（默认 `127.0.0.1:3080`，支持 `--host 0.0.0.0`），而这个面上有远程代码执行级别的方法——`session.prompt` 驱动的 agent（智能体）可以运行 bash。浏览器会用两种经典方式把操作者变成攻击此类本地 API 的「混淆代理人」：恶意页面发出跨站「简单请求」 POST（`text/plain`——不经 CORS 预检即发出），其副作用照常执行、只是响应不可读；以及 DNS rebinding 后的源以「同源」身份直连 socket，CORS 整体失效，只有 `Host` 头会暴露攻击者的域名。在本决策之前，系统里唯一的浏览器信任检查（`isTrustedNativeDialogRequest`：回环 socket、同源、回环 Host）只守着一个装饰性的路由——`host.pickDirectory`，其原生对话框弹在宿主屏幕上——而所有真正具有严重后果的方法都没有防护。按 RPC 逐个设防也活不过应用内目录浏览器：它存在的意义就是服务合法的远程客户端，回环规则恰恰会拒绝它们。
 
 ## 决策
 
@@ -26,6 +26,6 @@ Web GUI 宿主以纯 HTTP 提供 `/api`（默认 `127.0.0.1:3080`，支持 `--ho
 ## 后果
 
 - 未来任何 `/api` 方法天然在覆盖范围内；不存在会被遗忘的按路由信任决定。
-- 非回环部署的对外服务 authority 必须列入信任范围，否则请求会被拒绝。dsh CLI 通过把本机 LAN IP 字面量推导进 connection 行（不带端口的条目——IP 字面量 Host 不可能是被重绑的域名，且绑定端口可能由操作系统分配）来保住它广告出的 `--host 0.0.0.0` LAN URL，并提供 `dsh web --trusted-host` 声明具名权威；CLI 不参与引导的组合自行声明 `trustedHosts`。非浏览器自动化走同一道栅栏：回环地址、推导的 LAN IP 或已声明的权威可通过；未声明的 DNS 别名会被拒绝。
+- 非回环部署的对外服务 authority 必须列入信任范围，否则请求会被拒绝。dsh CLI 通过把本机 LAN IP 字面量推导进 connection 行（不带端口的条目——IP 字面量 Host 不可能是被重绑的域名，且绑定端口可能由操作系统分配）来保住它公布的 `--host 0.0.0.0` LAN URL，并提供 `dsh web --trusted-host` 声明具名权威；并非由 CLI 启动的组合自行声明 `trustedHosts`。非浏览器自动化走同一道栅栏：回环地址、推导的 LAN IP 或已声明的权威可通过；未声明的 DNS 别名会被拒绝。
 - 客户端必须给 POST 体标注 `application/json`（我们自己的客户端一向如此；裸 fetch 测试补上了该头）。
 - 无认证 `0.0.0.0` 部署的「可信网络」假设从隐含变为成文。

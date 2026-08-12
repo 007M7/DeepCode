@@ -13,7 +13,7 @@
 ### 公共 API
 
 - `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
-- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
+- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发一个需等待完成的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，再创建带谱系元数据的实时子会话。
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
@@ -36,7 +36,7 @@
 
 普通类（不是 Cordis 服务）。活跃会话通过 `ctx.sessions.create()` 创建，脱离态的回放或检查会话通过 `Session.create()` 创建；脱离态工厂不会发布生命周期事件，也不会将会话绑定到 fiber。
 
-- `session.append(type, data, opts?)` 会为持久数据和 surface 元数据制作快照并冻结它们，校验标记形态、被引用的源事件 seq、替换覆盖完整性，以及仅修改内容的单个 `tool/result` 重写，随后同步提交，再在彼此独立的失败收容下通知观察者。对已附加会话的重入追加会被拒绝，运行时检查也覆盖扩宽后的联合类型和已加载日志。
+- `session.append(type, data, opts?)` 会为持久数据和 surface 元数据制作快照并冻结它们，校验标记形态、被引用的源事件 seq、替换覆盖完整性，以及仅修改内容的单个 `tool/result` 重写，随后同步提交，再在彼此独立的失败收容下通知观察者。对已挂接会话的重入追加会被拒绝，运行时检查也覆盖扩宽后的联合类型和已加载日志。
 - `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，其中包含这些条目存储的完整、带标识且冻结的消息。assistant 消息的模型来源会保留生成该消息的提供方和模型，以及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
 - `session.deriveEventMessage(event)` 是重建和请求检查使用的规范逐事件投影。
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
@@ -70,11 +70,11 @@
 
 生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记与声明位置。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。每条 `assistant/message` 都会记录提供方、模型和可选回放状态。
 
-`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
+`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、钩子桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
 此包还定义 `TurnEndReasonMap`，即用于轮次结束、可合并扩展且以 `kind` 为标签的和类型。`turn/start` 只携带轮次编号；随后已进入的 `user/message` 批次记录其输入，`llm/retry` 则记录请求恢复。
 
-被中断的实时轮次以 `{ kind: 'aborted', reason: AgentCancelCause }` 结束，在持久 transcript（文本记录）中保留类型化取消原因。持久化会将受支持旧格式中的粗粒度中止结果导入为 `{ kind: 'aborted', reason: { kind: 'legacy' } }`，因为该记录没有保留调用方。轮次失败携带 `{ kind: 'error', error }`；只有崩溃恢复会合成 `{ kind: 'interrupted' }`。
+被中断的实时轮次以 `{ kind: 'aborted', reason: AgentCancelCause }` 结束，在持久 transcript 中保留类型化取消原因。持久化会将受支持旧格式中的粗粒度中止结果导入为 `{ kind: 'aborted', reason: { kind: 'legacy' } }`，因为该记录没有保留调用方。轮次失败携带 `{ kind: 'error', error }`；只有崩溃恢复会合成 `{ kind: 'interrupted' }`。
 
 每个 `SessionEvent` 都有三个可选顶层字段（结构元数据）：
 
@@ -84,7 +84,7 @@
 
 ### 元数据类型（`types.ts`）
 
-- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型由此包与 `SessionId` 一同所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
+- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型与 `SessionId` 一同归此包所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
 
 ### 扩展点
 
@@ -98,7 +98,7 @@
 
 #### 模型看到的内容
 
-模型会原样接收 `user/message`、`assistant/message` 和 `tool/result` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、hook 记录、todo 记录以及其他仅日志事件不会添加消息。
+模型会原样接收 `user/message`、`assistant/message` 和 `tool/result` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、钩子记录、todo 记录以及其他仅日志事件不会添加消息。
 
 #### Token 影响
 
@@ -116,7 +116,7 @@
 
 #### Token 影响
 
-完整会话的 token 增量为零。恢复时，每个修复后的调用都会添加保留的、针对具体风险的错误文本。
+未受损会话的 token 增量为零。恢复时，每个修复后的调用都会添加保留的、针对具体风险的错误文本。
 
 #### KV Cache 影响
 
@@ -138,7 +138,7 @@
 
 ## 已知限制与暂缓事项
 
-- **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
+- **会话分支／树结构**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
 - **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
 - **`SESSION_FORMAT_VERSION` 固定为 `0`**：预发布阶段不承诺广泛兼容性；`Session` 只接受当前 seed 形状，后端拒绝其他任何版本并说明方向（更新的版本提示"由更新的 harness 写入，请升级"；更旧的版本说明尚无升级路径）。不认识的事件类型同样被拒绝，除非信封带 `ignorable` 标记；版本机制见 [session-log 版本机制 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md)。范围受限的存储导入升级应由持久化边界负责（[政策](../../../AGENTS.md)、[消息标识机制引入前的消息恢复](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)）。
 - **`TurnEndReasonMap` 不含 ACP（Agent Client Protocol）命名的 `refusal`／`max_turn_requests` 变体**：受生产方约束；只有当适配器或循环首次产生这些变体时才加入。

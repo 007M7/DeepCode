@@ -16,7 +16,7 @@ Status: implemented
 
 两项 Linux 主作业、Node 兼容性、Python SDK 和 `windows node 24 / wine blocking` 继续作为 `all checks passed` 的依赖项；`windows node 24 / native complete` 被刻意排除。分支保护继续要求 `e2e` 和 `all checks passed`。剩余的企业级 Linux 运行器标签无法分配运行器时没有自动后备机制：标准作业会继续报告各自的约定，但无法产出缺失的必需结果。
 
-当前主拓扑及其测量结果由[大型运行器决策](2026-07-22-evidence-based-larger-hosted-runners.md)记录。[跨平台串行参考流程](2026-07-21-serial-cross-platform-ci-reference.md)继续作为独立的标准托管完整性检查，手动大型运行器套件则保留规格比较，同时不扩大普通必需矩阵。
+当前主拓扑及其测量结果以[大型运行器决策](2026-07-22-evidence-based-larger-hosted-runners.md)为准。[跨平台串行参考流程](2026-07-21-serial-cross-platform-ci-reference.md)继续作为独立的标准托管完整性检查，手动大型运行器套件则保留规格比较，同时不扩大普通必需矩阵。
 
 ## 曾考虑的替代方案
 
@@ -30,6 +30,6 @@ Status: implemented
 
 ## 后果
 
-普通拉取请求会将企业级运行器容量用于 Linux 关键路径，而 Wine 作业让必需的 Windows 判定继续使用标准 Linux 运行器容量。独立原生作业使用标准 Windows 运行器容量，不会延迟或改变聚合流程。一次实际的分支头精确运行会区分分支保护采用的命令与单独的诊断约定；排队延迟与每个作业从 `startedAt` 到 `completedAt` 的执行区间分开报告。
+普通拉取请求会将企业级运行器容量用于 Linux 关键路径，而 Wine 作业让必需的 Windows 判定继续使用标准 Linux 运行器容量。独立原生作业使用标准 Windows 运行器容量，不会延迟或改变聚合流程。一次针对确切分支头的实际运行会区分分支保护采用的命令与单独的诊断约定；排队延迟与每个作业从 `startedAt` 到 `completedAt` 的执行区间分开报告。
 
 企业级运行器分配能力下降时，标准兼容性作业、必需的 Wine 作业与诊断性原生 Windows 作业仍能提供有用证据，但无法让受阻的必需 Linux 作业或聚合流程变绿。恢复 Linux 可用性时，可能需要恢复完整的标准托管拓扑；仅改变运行器池定义的状态，不足以证明它可以接收作业。

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-24-web-session-model-selector.md
 2026-07-24-web-session-model-selector.md: 3f7dde359842a82d03218dc71ca0e3617ae6dbdf
-2026-07-24-web-session-model-selector.zh.md: 474476966da8d4628578dc3e13f74f643bd6eaed
+2026-07-24-web-session-model-selector.zh.md: 4fa3a04378e21af8a366005f7da9c6d9b6f7a04c

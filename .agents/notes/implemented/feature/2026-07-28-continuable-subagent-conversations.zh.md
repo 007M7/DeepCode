@@ -1,4 +1,4 @@
-# Agent Note（agent 决策记录）：可继续的 subagent
+# Agent Note: 可继续的 subagent
 
 Status: implemented
 
@@ -54,7 +54,7 @@ inbox 接受消息前发生任何失败，操作都会在不返回任何 id 的�
 
 空闲的历史会话没有 `AgentHandle`。第一条通过鉴权的 `next-turn` 投递会根据持久化会话恢复激活，并将消息提交到其 inbox。冷恢复使用经过身份认证的确切在线 parent Agent 执行鉴权；当该 parent 有激活时，还使用它建立所有权，但绝不使用 parent 执行重建。
 
-激活作为消费方会直接持有已发布的 `AgentHandle` 直至结算，而管理器的私有 activation-owner 作用域则是其 Cordis 结构化所有者。可继续 subagent 路径不创建任何中间的带结果执行包装层，包括 `SubagentRun`；一次性委派保持不变，且不属于该生命周期。远程提供方不在此处的范围内，引入时需要单独的激活所有权约定。激活 dispose 后，历史会话不消耗运行时内存。
+激活会直接持有已发布的 `AgentHandle` 直至结算，而管理器的私有 activation-owner 作用域则是其 Cordis 结构化所有者。可继续 subagent 路径不创建任何中间的带结果执行包装层，包括 `SubagentRun`；一次性委派保持不变，且不属于该生命周期。远程提供方不在此处的范围内，引入时需要单独的激活所有权约定。激活 dispose 后，历史会话不消耗运行时内存。
 
 ### 激活生命周期
 
@@ -109,11 +109,11 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 
 顶层拆卸由宿主负责，而不表示为另一次激活。管理器卸载会调用其内部的管理器全局 drain，同步关闭准入，等待每个已获准的物化过程完成发布或回滚，停止稳定的在线森林，并按 child-first 顺序释放。拥有选定顶层 Agent 的宿主使用 `drainContinuableDescendants(parents)`：确切的 Agent 身份只关闭这些根之下的准入，直到每个身份离开注册表，而无关森林和管理器全局准入保持在线；管理器会在第一次 await 之前停止其可见后代，只等待这些根之下已获准的物化过程，并且只释放选定分支。每个已物化的 start 和在线投递都会在与 inbox 提交相同的同步区间内重新检查调用方取消、适用的 draining 作用域、Activation dispose 和确切的 parent 权限，因此只要拆卸或 parent 替换先于接受发生，就会阻止向正在关闭的 handle 投递。只有适用的 drain 结算后，宿主才能 dispose 自己的顶层 Agent；只有管理器全局 drain 会先于管理器作用域 dispose。
 
-activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 按注册逆序撤销，无法表达动态 child 图。管理器初始化时先注册私有作用域的结构化 disposer，再注册自身的 drain disposer，使逆序撤销先执行 drain、再释放该作用域；如果只在与后续 Agent handle 相同的作用域上注册 cleanup effect，结构化 handle dispose 就可能绕过 child-first 顺序。每个物化过程都会在启动内部事务前注册其屏障参与项，并对其确切的在线祖先建立快照，然后保持跟踪，直到安装 Activation 或完全回滚。Activation 会以弱引用方式记录其属于这组祖先，因此中间 Agent 即使离开注册表，也不会让仍在线的后代脱离宿主根节点的可见范围。每个 Activation 都会在取消或递归回调前安装一个记忆化的 dispose promise，使限定作用域的宿主关闭、全局管理器卸载、child 释放和正常结算能够汇合，而不会重复释放。取消会在等待缓慢的后代清理之前自顶向下传播；handle 释放仍是 child-first。同级分支独立 drain；系统会记录单次 dispose 失败，但仍会尝试其余选中 handle，聚合 drain 则在所有选中分支结算后报告失败。这次进程内拆卸不会销毁持久化 child 会话。
+activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 按注册逆序撤销，无法表达动态 child 图。管理器初始化时先注册私有作用域的结构化 disposer，再注册自身的 drain disposer，使逆序撤销先执行 drain、再释放该作用域；如果只在与后续 Agent handle 相同的作用域上注册 cleanup effect，结构化 handle dispose 就可能绕过 child-first 顺序。每个物化过程都会在启动内部事务前注册其屏障参与项，并对其确切的在线祖先建立快照，然后保持跟踪，直到安装 Activation 或完全回滚。Activation 会保留其在这组祖先中的弱成员关系，因此中间 Agent 即使离开注册表，也不会让仍在线的后代脱离宿主根节点的可见范围。每个 Activation 都会在取消或递归回调前安装一个记忆化的 dispose promise，使限定作用域的宿主关闭、全局管理器卸载、child 释放和正常结算能够汇合，而不会重复释放。取消会在等待缓慢的后代清理之前自顶向下传播；handle 释放仍是 child-first。同级分支独立 drain；系统会记录单次 dispose 失败，但仍会尝试其余选中 handle，聚合 drain 则在所有选中分支结算后报告失败。这次进程内拆卸不会销毁持久化 child 会话。
 
 ### 报告投递扩展
 
-可选的 child 作用域 `report(output)` 工具不会改变 Activation 驻留状态，也不会增加另一条队列。它每轮可调用零次或多次，不允许指定接收方，而是推导在线的直接 parent；投递采用静默注入还是唤醒 parent follow-up，由部署配置选择。[report 工具 Agent Note](2026-07-30-continuable-subagent-report-tool.md)规定其权限、确认、设置贡献和投递约定。
+后来添加的可选 child 作用域 `report(output)` 工具不会改变 Activation 驻留状态，也不会增加另一条队列。它每轮可调用零次或多次，不允许指定接收方，而是推导在线的直接 parent；投递采用静默注入还是唤醒 parent follow-up，由部署配置选择。[report 工具 Agent Note](2026-07-30-continuable-subagent-report-tool.md)规定其权限、确认、设置贡献和投递约定。
 
 ### 延后的 steering（中途引导）
 

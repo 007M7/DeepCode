@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md
 2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md: 08715d3ad6ad7a2346327861e7134b10da184f00
-2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: 77b57274d0d931f0ec58fecd3d5f9ca5bba3f624
+2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: 6dd4aeff6067874b403f6dfc08fd42d4e5963a91

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、sandbox 拒绝渲染与同轮次 `sandbox_permissions` 升级面、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
+注册在 `ctx.bash` 执行器 seam 之上的面向模型的 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、sandbox 拒绝渲染与同轮次 `sandbox_permissions` 升级面、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
 
 需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
 
@@ -34,7 +34,7 @@
 
 规范成功形态是已完成前台进程的 `{ kind: 'foreground', ...BashRunResult }`（存在时投影执行器的 `sandbox` 事实——`mode`/`denied`、可选的 `enforcement`/`runnerFailed`）或已发布任务的 `{ kind: 'background', taskId }`。渲染器对后台 ack 精确保留 `started background task <id>`；编程消费者使用类型化字段而不解析渲染文本。
 
-当 `run_in_background` 为 true 时，本插件在 spawn 前预检 `ctx.tasks.start()`，把调用 agent 注册为 owner，并将返回的 `BashProcess` 句柄适配为通用的 cancel/done/增量输出钩子。任务运行时拥有 id、跨会话隔离、完成通知、等待与清理；本插件只把 pwsh 退出事实映射进任务输出与结果明细。`enableRunInBackground: false` 会移除参数并在执行时拒绝强制的后台调用。
+当 `run_in_background` 为 true 时，本插件在 spawn 前预检 `ctx.tasks.start()`，把调用 agent 注册为 owner，并将返回的 `BashProcess` 句柄适配为通用的 cancel/done/增量输出钩子。任务运行时负责 task id、跨会话隔离、完成通知、等待和 dispose（资源释放）清理；本插件只把 pwsh 退出事实映射进任务输出与结果明细。`enableRunInBackground: false` 会移除参数并在执行时拒绝强制的后台调用。
 
 ## UI presentation
 
@@ -42,9 +42,9 @@
 
 ## 模型体验
 
-### System prompt
+### 系统提示词
 
-#### What the model sees
+#### 模型看到的内容
 
 本插件注册作用域内的每个请求都包含下面的 pwsh 指引。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。
 
@@ -54,71 +54,71 @@
 Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.
 ```
 
-#### Token effect
+#### Token 影响
 
 插件激活期间每次请求的固定小额输入成本。
 
-#### KV Cache effect
+#### KV Cache 影响
 
 注册作用域与 prompt 文本不变时前缀稳定。插件激活或释放可能使该 prompt 段落的复用失效。
 
-### Tool schemas
+### 工具 schema
 
-#### What the model sees
+#### 模型看到的内容
 
 模型看到生成的 [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh)。按 agent 作用域的工具限制可以移除该 agent 的定义。
 
-#### Token effect
+#### Token 影响
 
 工具可见的每个请求上的固定 schema 成本。
 
-#### KV Cache effect
+#### KV Cache 影响
 
 可见性与工具定义不变时前缀稳定。限制或配置变更可能从首个变化 token 起使复用失效。
 
-### Foreground result
+### 前台结果
 
-#### What the model sees
+#### 模型看到的内容
 
 渲染器输出数据相关的 stdout 尾部，然后是可选的 `[stderr]` 与 stderr 尾部。条件行精确为 `[output truncated; full output: <path>]`、`[sandbox: file access denied under <mode> mode]` 加升级提示 `[sandbox: escalation available — …]`（仅当组合公开升级能力时）、`[timed out after <timeoutMs>ms]`、`[killed by signal: <signal>]` 与 `[exit code: <exitCode>]`（仅非零退出）；空体渲染为 `(no output)`。
 
-#### Token effect
+#### Token 影响
 
 调用前零结果 token。每个流的输出有界，而每条已发出的行保留在历史中直到压缩。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
+仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV Cache 条目失效。
 
-### Background result
+### 后台结果
 
-#### What the model sees
+#### 模型看到的内容
 
 后台启动精确渲染为 `started background task <id>`；随后的读取与状态通过通用 `task_output`/`task_kill` 工具流转，包括内存截断丢弃未读字节时的 lossy 读取 spill 通知。
 
-#### Token effect
+#### Token 影响
 
 ack 是固定短行；任务输出按读取有界。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
+仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV Cache 条目失效。
 
-### Tool errors
+### 工具错误
 
-#### What the model sees
+#### 模型看到的内容
 
 校验与基础设施失败规范化为 `Error: <message>`。本包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`invalid escalation: sandbox_permissions requires a justification`、`invalid escalation: justification is only valid together with sandbox_permissions`、`invalid justification: expected a non-empty sentence`、`sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`、共享的升级失败（非严格更宽、无审批服务、无 agent 可路由、无审批通道、用户拒绝、已取消）、`run_in_background is disabled for this deployment (enableRunInBackground: false)`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks` 与 `tool call aborted`。
 
-#### Token effect
+#### Token 影响
 
 只有失败的调用会新增这些保留 token；被中止的调用不产生命令输出。
 
-#### KV Cache effect
+#### KV Cache 影响
 
-仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
+仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV Cache 条目失效。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - **Windows 沙箱下的语言模式与 named-pipe 捕获** — 在 [Windows ACL 沙箱](../../sandbox/sandbox-windows-acl/README.md) 下，read-only pwsh 会以 ConstrainedLanguage 启动，因为临时目录写入被拒绝，导致 PowerShell 的 AppLocker 探针失败并按 fail-closed 处理：`Add-Type`、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`）、COM 对象与反射都会以“only core types”错误失败，且该模式无法从内部解除。workspace-write 的私有临时目录使探针得以完成，因此除非主机策略另有规定，否则它保持 FullLanguage。两种受限模式都拒绝 named-pipe 打开，因此受限命令内的管道 stdio spawn 以 EPERM 失败。工具描述把这两个约定教给模型；后端 README 负责完整的限制说明。
 - **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。

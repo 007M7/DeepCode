@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-30-web-transcript-log-ordered-projection.md
 2026-07-30-web-transcript-log-ordered-projection.md: f2eda6983ab88a420a4506be7766320dc5da0fa2
-2026-07-30-web-transcript-log-ordered-projection.zh.md: 4c8bb5d0b9b49762d12aba837cef9c0818740cb0
+2026-07-30-web-transcript-log-ordered-projection.zh.md: 43aa2514dfd388eaaff9950931f6f659b0d12347

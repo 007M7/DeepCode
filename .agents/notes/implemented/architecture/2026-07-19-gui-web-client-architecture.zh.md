@@ -46,7 +46,7 @@ slot 体系有自己的笔记——[slot 体系标准](2026-07-22-slot-type-chai
 
 slot 之外不存在第二种组件注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list slot entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。最终 Chat 业务 Node 通过 keyed/session `'conversation.chat.node'` slot 分发；ui-tool 拥有其中的 `tool-call` entry，递归渲染传入的 `subCalls`，并声明 keyed/session `'tool.call.toolview'` 子 slot。key 空间仍在运行时开放（SlotMap 声明 slot、从不声明 key），root 与任意深度的后代都按 `entryKey: toolName` 分发，以 `GenericToolCard` 兜底。业务包通过 `ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: '<tool>' }, Row))` 注册原子视图；声明本身就是加载与重载依赖（[决策](2026-08-05-slot-declaration-injection.md)）。ui-conversation 还通过 `'conversation.details.tool'` 委托 selected call 的详情正文，使 ui-tool 的 card model 保持为唯一展示所有者，同时避免 conversation 导入 Tool 组件。与 target 无关的事件注册表和视图注册表是数据组装 seam，不是平行组件注册表（[决策](2026-08-09-client-conversation-node-assembly.md)）。
 
-**scope 寻址**与 host 侧 agent scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
+**scope 寻址**与 host 侧 agent（智能体）scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
 
 ## 数据对象层（`packages/client/runtime/src/client/sessions/`）
 
@@ -69,7 +69,7 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 ```
 
 - **Session**（session.ts）：懒建、常驻——建成后在后台持续吃帧，切走切回秒显。操作面：`prompt`/`cancel`（RPC 透传；失败落进快照的 `promptError`）、`open`（拉尾页 history，幂等）、`loadOlder`（向上翻页，防重入）、`resync`（重连 = 清窗口重跑 open）。订阅面：`subscribe`/`getSnapshot`（恒返缓存引用）——`implements ObservableSnapshot<ConversationSnapshot>`，构造时挂 `useSelector = bindSnapshotSelector(this)`，Session 本身就是 uSES 源。帧分发是一个 switch：`session/event` 帧按 seq 去重（唯一去重键），open 在途时缓冲，否则追加 + 增量投影；open/缝合按 seq 合并 live 缓冲并去重，`subscribed.lastSeq` 超出窗口尾则回补一次。
-- **ConversationSnapshot**（conversation.ts）：顶层不可变快照契约。`chat` 包含结构化 `order`、identity 稳定的 keyed Node reader、Turn/Step index 和 timeline；`nodes`、`partial`、`runningCalls`、`turnTimings`、`turnEnds` 是未迁移 Trajectory 消费者使用的兼容 slice。pending interaction、queue、running、removed、open state、paging 和 prompt error 仍是 Session 信息。**引用纪律**（memo 与 uSES 的前提）：未变化的子结构和 Node value 保持引用；单个业务更新只替换对应 key 的 value，除非它的顺序或 Location 发生变化。React 仍只订阅 Session 这一处 observable source，并由框架提供的 `useSession(selector)` 隔离 Node 与 Location 聚合更新。
+- **ConversationSnapshot**（conversation.ts）：顶层不可变快照约定。`chat` 包含结构化 `order`、identity 稳定的 keyed Node reader、Turn/Step index 和 timeline；`nodes`、`partial`、`runningCalls`、`turnTimings`、`turnEnds` 是未迁移 Trajectory 消费方使用的兼容 slice。pending interaction、queue、running、removed、open state、paging 和 prompt error 仍是 Session 信息。**引用纪律**（memo 与 uSES 的前提）：未变化的子结构和 Node value 保持引用；单个业务更新只替换对应 key 的 value，除非它的顺序或 Location 发生变化。React 仍只订阅 Session 这一处 observable source，并由框架提供的 `useSession(selector)` 隔离 Node 与 Location 聚合更新。
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
 - **ConversationNodeAssembler**（`runtime/src/client/conversation/`）：Session 拥有的增量引擎在原始事件上运行各自独立注册的 Definition。`match(event)` 无须扫描 Context 即可选出 `(kind, id)`；start/update 构造 Definition state；引擎计算的 Location 携带 Turn/Step 关闭信息；向前查询 Context 时记录依赖，并由后续 prepend 修复；`buildViewNode(target)` 只物化 dirty Context。Chat builder 保留结构顺序和 per-key value identity，`useSession` selector 负责消费隔离，Assistant token 发布则合并到每个 animation frame 一次。[Conversation Node 决策](2026-08-09-client-conversation-node-assembly.md)拥有组装边界，[Tool 展示所有权](2026-08-08-client-tool-presentation-ownership.md)拥有 Tool 递归渲染。
@@ -79,10 +79,10 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 
 胶水包就是整条 ctx↔React 边界；组件保持零框架依赖。
 
-- 快照 store 引擎**住 runtime 包**（zustand vanilla + 草稿式更新，缺省 `flush: 'sync'`，可选 `'raf'` 合批，可选整值 localStorage 持久化，dev 深冻结——全部从 `runtime` 的 `./client` 主出口导出，无子路径）：store 产物是裸的可观察源，不带任何 hook 成员。插件只经 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 的 `defineStore` 声明触及引擎。web-react 在绑定处（`bindSnapshotSelector`，按源缓存）从 React 消费的唯一数据约定合成每个 hook：`ObservableSnapshot<T>`（`getSnapshot`/`subscribe`）——Session 对象与快照 store 同构满足它。业务插件包只依赖 runtime 与 ui-slots；web-react 是仅壳可用的胶水。
-- `bindSnapshotSelector(source)`：把一个源绑定为经 uSES-with-selector 的带类型 selector hook。uSES 约定四条按构造成立：getSnapshot 恒返缓存引用；subscribe 是绑定期闭包（引用永稳）；纯 CSR 不传 server snapshot；相等性缺省 `Object.is`，按调用可选 `shallowEqual`。
-- `useInvoke(fn)`：把异步动作包成引用恒定的触发器加 pending 标志；pending 走 per-hook 外部 store 经 uSES 读出（渲染路径零 setState），并发调用计数，invoke 引用永不变。
-- 相等性协议，全链一致：生产端结构共享；消费端以 `Object.is` 或 `shallowEqual` 短路；`React.memo` 浅比较。深比较全链禁止。
+- 快照 store 引擎**住 runtime 包**（zustand vanilla + 草稿式更新，缺省 `flush: 'sync'`，可选 `'raf'` 合批，可选整值 localStorage 持久化，dev 深冻结——全部从 `runtime` 的 `./client` 主出口导出，无子路径）：store 产物是裸的可观察源，不带任何钩子成员。插件只经 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 的 `defineStore` 声明触及引擎。web-react 在绑定处（`bindSnapshotSelector`，按源缓存）从 React 消费的唯一数据约定合成每个钩子：`ObservableSnapshot<T>`（`getSnapshot`/`subscribe`）——Session 对象与快照 store 同构满足它。业务插件包只依赖 runtime 与 ui-slots；web-react 是仅壳可用的胶水。
+- `bindSnapshotSelector(source)`：把一个源绑定为经 uSES-with-selector 的带类型 selector 钩子。uSES 约定四条按构造成立：getSnapshot 恒返缓存引用；subscribe 是绑定期闭包（引用永稳）；纯 CSR 不传 server snapshot；相等性缺省 `Object.is`，按调用可选 `shallowEqual`。
+- `useInvoke(fn)`：把异步动作包成引用恒定的触发器加 pending 标志；pending 走每个钩子的外部 store 经 uSES 读出（渲染路径零 setState），并发调用计数，invoke 引用永不变。
+- 相等性协议，全链一致：生产端结构共享；消费方以 `Object.is` 或 `shallowEqual` 短路；`React.memo` 浅比较。深比较全链禁止。
 
 ## 目录形态
 

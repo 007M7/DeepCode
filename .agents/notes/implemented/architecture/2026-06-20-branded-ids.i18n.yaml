@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-20-branded-ids.md
 2026-06-20-branded-ids.md: ded48409bcb3deb19e35029fa795b5ea28c9f6d7
-2026-06-20-branded-ids.zh.md: ae23fedfcc2f16f7a79066492ad4bce2981ee819
+2026-06-20-branded-ids.zh.md: ca7c767d44423499d94b6702bcd1cce0cca3827c

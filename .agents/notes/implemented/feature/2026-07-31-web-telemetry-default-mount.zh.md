@@ -15,12 +15,12 @@ Status: implemented
 | 决策项 | 取值 | 理由 |
 |---|---|---|
 | 挂载面 | base.cordis.yml（原始配置 + Web + headless） | 所有加载共享 base 的配置树采用同一个部署立场；原始配置 overlay 决定该部署是否创建会话 |
-| endpoint | `DSH_TELEMETRY_OTLP_URL`，缺省 `https://harness-telemetry.deepseeksvc.com/v1/logs` | 内部 collector；env 覆盖供本地/联调 |
-| 退出开关 | `DSH_TELEMETRY_DISABLED` 非空（含 `0`/`false`）即关 | 隐私向开关取「宁关勿误开」；行级 disable 只能在 AppCLIEntry 的 patch 层做（config 无 disable 语义，且必须先于 `exporter.url` 的加载期校验生效） |
+| endpoint | `DSH_TELEMETRY_OTLP_URL`，缺省 `https://harness-telemetry.deepseeksvc.com/v1/logs` | 内部 collector；env 覆盖供本地/开发运行 |
+| 退出开关 | `DSH_TELEMETRY_DISABLED` 非空（含 `0`/`false`）即关 | 隐私开关取「宁关勿误开」；行级 disable 只能在 AppCLIEntry 的 patch 层做（config 无 disable 语义，且必须先于 `exporter.url` 的加载期校验生效） |
 | 上报节奏 | `processor.scheduledDelayMillis: 10000`（10s/批） | 流式回流，非退出才报；崩溃至多丢失最后一个尚未导出间隔内的数据 |
 | 退出 drain 上界 | `exporter.timeoutMillis: 1000` + `maxExportBatchSize: 2048`（与 maxQueueSize 相等） + `exportTimeoutMillis: 1500` + `shutdownTimeoutMillis: 3000` | collector 不可达的常规故障会在约 1s 内放行：timeoutMillis 是单次 socket 超时与重试 deadline，使用与队列等大的单批可避免依次排空导致耗时倍增。由 DSH 管理的 3s 外层上限覆盖 SDK 先执行的无界 `forceFlush()` 等待，即传输 Promise 始终无法取得 socket 的情况。 |
 | 压缩 | `compression: gzip` | 事件 body 含全文，跨机房带宽 |
-| CI 隔离 | 全部 8 个 GitHub 工作流顶层 `env: DSH_TELEMETRY_DISABLED: '1'` | CI 启动 web 组合的所有通道（e2e/快照/已构建版本的冒烟测试）不得向生产 endpoint 泄测试会话 |
+| CI 隔离 | 全部 8 个 GitHub 工作流顶层 `env: DSH_TELEMETRY_DISABLED: '1'` | CI 启动 web 组合的所有通道（e2e/快照/已构建版本的冒烟测试）不得向生产 endpoint 传输测试会话 |
 
 集成测试 `apps/cli/tests/telemetry-web.e2e.ts`（keyless）钉住部署级行为：测试内 OTLP collector + mock LLM（大语言模型）服务器，真启动 `dsh web`，断言 ledger 覆盖、seq 单调、步骤首个分片投影、以及 SIGINT drain 后 ops `shutdown` 标记到达。
 
@@ -35,5 +35,5 @@ Status: implemented
 ## 后果
 
 - 无本地 collector 的开发者跑 `dsh web` 会对生产 endpoint 每 10s 发一次 POST（联不通则静默失败，OTel diag logger 未注册）；本地开发设 `DSH_TELEMETRY_DISABLED=1` 或 `DSH_TELEMETRY_OTLP_URL` 指本地。
-- **当前尚未挂载任何脱敏规则**：导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、其余身份 Resource 属性（hostname/surface；匿名 user id 已由[匿名用户 id Note](2026-07-31-telemetry-anonymous-user-id.md)落地）、使用数据 metrics 轨是本决策明确的后续工作。
+- **当前尚未挂载任何脱敏规则**：导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、其余身份 Resource 属性（hostname/surface；匿名 user id 已由[匿名用户 id Note](2026-07-31-telemetry-anonymous-user-id.md)落地）、usage-metrics track是本决策明确的后续工作。
 - 复用这棵树的测试载具（如 `apps/web/tests/scaffold.ts`）须显式关停该行，否则 fixture（测试前置数据）会话会流向 env 里碰巧存在的 collector。

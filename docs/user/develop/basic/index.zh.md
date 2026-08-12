@@ -2,7 +2,7 @@
 
 [English](index.md) | 中文
 
-本教程会创建一个最小的 Harness 插件，并将其加载到 Web UI 中。请从已完成[快速开始](../../guide/quickstart.md)的仓库检出开始。
+本教程会创建一个最小的 Harness 插件，并将其加载到 Web UI 中。请基于一个已完成[快速开始](../../guide/quickstart.md)的仓库检出副本进行操作。
 
 ## 创建本地项目
 
@@ -137,5 +137,5 @@ export default class MyService extends Service {
 
 ## 下一步
 
-- [开发一个工具](./tool.md) — 详细了解工具定义 DSL
+- [开发一个工具](./tool.md) — 了解工具定义 DSL
 - [插件配置](./config.md) — 让插件接受用户配置

@@ -33,7 +33,7 @@ Status: proposed
 
 **保持按启动目录的 `.storages`（改动前现状）**——拒绝：会话是全局的，所以每个从会话派生的介质都与自己的真源劈叉；缓存的动机场景（一次列出全部会话）结构性丢行，工作区注册表索引着从另一个启动目录看不见的会话。
 
-**launcher patch + `storageRoot` profile 键**——未采：一行 yml `!!js` 表达式即达全局根，与会话根的既有分层完全一致；launcher patch 多引入一个改写点，profile 键在有真实消费者前是空席（按行覆盖已有个人 config.yaml patch 层可用）。
+**launcher patch + `storageRoot` profile 键**——未采：一行 yml `!!js` 表达式即达全局根，与会话根的既有分层完全一致；launcher patch 多引入一个改写点，profile 键在有真实消费方前是空席（按行覆盖已有个人 config.yaml patch 层可用）。
 
 **只把投影缓存的 route 指到全局根，`workspace.json` 留在 per-cwd**——拒绝：工作区注册表有一模一样的全局 vs per-cwd 错位，而且用户选择把缓存放在 `workspace.json` 旁边——一个 hub 根让介质同址、心智模型单一。
 

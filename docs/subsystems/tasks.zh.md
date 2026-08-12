@@ -2,7 +2,7 @@
 
 [English](tasks.md) | 中文
 
-长时间运行的生产方、`ctx.tasks` 与任务控制命令共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的确切字段和变体。
+长时间运行的生产方、`ctx.tasks` 与任务控制命令共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) 负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的确切字段和变体。
 
 ## ID 与状态
 

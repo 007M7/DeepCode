@@ -15,8 +15,8 @@ TUI 连接不可达的 DeepSeek 端点时，失败只显示一条 `fetch failed`
 
 - `dsh-llm` 导出 `errorChain(value)`：渲染抛出值及其完整 `cause` 链（`outer: inner: …`）与 AggregateError 成员（`msg [m1; m2]`），并容错循环 cause 和恶意强制转换。它只是用于诊断输出的渲染器；路由仍然基于 `HarnessError.code`。
 - DeepSeek 适配器把拿到响应之前的传输失败包装成 `LlmError('TRANSPORT')`，写明配置的 `baseURL` 并将原始拒绝值作为 `cause` 串入错误链。被中止的请求变为 `LlmError('ABORTED')`；由于轮次信号已处于中止状态，agent loop（智能体循环）仍将该轮次归类为取消而非恢复。
-- 每个诊断边界改用 `errorChain` 而非 `error.message`/`String(error)`：agent-loop 的持久化 `turn/end` 错误消息（`errorData`）、其日志警告、TUI 的 `agent/error` 通知与启动失败行、以及 `dsh-stdio` 的启动失败日志行。实时 `agent/error` 事件与 `SettleReason` 以 `unknown` 原样保留抛出值；各诊断 Consumer 自行渲染，而不是由循环把它包装成另一个错误。`dsh-agent-loop`、`dsh-stdio`、`dsh-tui` 里各自的 `renderThrown` 副本被删除，统一使用这一个共享渲染器。
-- `dsh-stdio` 渲染失败的 `turn/end` reason：`[turn failed <code>] <message>`、`[turn aborted] <reason>`、`[turn rejected] <reason>`、`[turn interrupted by a previous process exit]` 以及输出 token 上限通知。通过声明合并扩展出的未知 kind 按普通 turn 结束处理。
+- 每个诊断边界改用 `errorChain` 而非 `error.message`/`String(error)`：agent-loop 的持久化 `turn/end` 错误消息（`errorData`）、其日志警告、TUI 的 `agent/error` 通知与启动失败行、以及 `dsh-stdio` 的启动失败日志行。实时 `agent/error` 事件与 `SettleReason` 以 `unknown` 原样保留抛出值；各诊断消费方自行渲染，而不是由循环把它包装成另一个错误。`dsh-agent-loop`、`dsh-stdio`、`dsh-tui` 里各自的 `renderThrown` 副本被删除，统一使用这一个共享渲染器。
+- `dsh-stdio` 渲染失败的 `turn/end` reason：`[turn failed <code>] <message>`、`[turn aborted] <reason>`、`[turn rejected] <reason>`、`[turn interrupted by a previous process exit]` 以及输出 token 上限通知。通过声明合并扩展出的未知 kind 按普通轮次结束处理。
 
 `errorChain` 与 `HarnessError` 一样放在 `dsh-llm` 里，理由相同：它是每个消费方都已导入的叶子包，共享不增加新的依赖边。
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-tmux-location-context.md
 2026-07-27-tmux-location-context.md: 2a2188c920b678565173d28fb18268f951cc9a11
-2026-07-27-tmux-location-context.zh.md: c0f6e9f5ca56bef9794f55e72ffbbe3ee1be7240
+2026-07-27-tmux-location-context.zh.md: 14040196c98cc1c01038095ef701f085a11bdf75
