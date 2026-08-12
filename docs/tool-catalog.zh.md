@@ -22,7 +22,7 @@
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；禁用 `enableRunInBackground` 配置（默认为 true）后，该参数会被完全移除。 |
 | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
-| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`、`cordis_mount`、`cordis_unmount` | `ctx.tools` | `tool/call`、`tool/result`、`process-local temporary Plugin lifecycle` | - | 不在任何随产品发布的树中，需要有意选择启用；临时 Plugin 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。由 cordis_mount 创建的插件在卸载或 DSH 重启之前可以注册**额外的**模型可见工具；发生这类工具集变更时，系统会记录完整且有变动的请求头。 |
+| `@deepseek-ai/dsh-tool-cordis` | `cordis_define`、`cordis_inspect_list`、`cordis_inspect_query`、`cordis_inspect_self`、`cordis_run`、`cordis_stop`、`cordis_undefine` | `ctx.tools`、`ctx.dynamicCordisRunner` | `tool/call`、`tool/result`、`process-local dynamic package lifecycle` | - | 不在任何随产品发布的树中，需要显式选择启用；动态 Package 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。该工具集注入 `@deepseek-ai/dsh-cordis-host-runner` 提供的 `ctx.dynamicCordisRunner`，后者拥有定义注册表和 vm 沙箱；组合缺少它时这些工具不会激活。运行中的 Package 在停止、undefine 或 DSH 重启前可以注册**额外的**模型可见工具；发生这类工具集变化时，系统会记录完整且有变动的请求头。 |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`、`ctx.fs` | `tool/call`、`fs/observed after view presence/absence, edit absence, or successful mutation`、`tool/result` | - | 基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。 |
 | `@deepseek-ai/dsh-tool-fs` | `edit`、`read`、`read_image`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt`、`ctx.attachments (read_image registration)`、`ctx.llm + an image-capable route (read_image execution)` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful file operation`、`durable attachment (read_image)`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。 |
@@ -255,50 +255,81 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
-### `cordis_inspect`
+### `cordis_define`
 
-检查当前 DSH 进程中的实时 Cordis 运行时。只读。章节包括：`services`（所有已提供的 ctx 服务及拥有它的插件 fiber）、`plugins`（所有实时插件 fiber 及其生命周期状态）、`tools`（当前注册的模型可见工具，即你可以调用的工具）、`temporary`（仅由 cordis_mount 创建的临时 Plugin：id、名称、状态、提供的服务、等待的服务和存续期）、`api`（每个**实时**服务的方法签名以及参数／返回值类型形状；编写调用服务的插件代码前请先阅读）、`events`（每个 harness 事件的分派模式和确切签名；在此选择监听目标）。临时 Plugin 仅存在于内存中，会在后续轮次中保持活动，并在 cordis_unmount、工具集卸载或 DSH 重启后消失；不会自动恢复。`temporary` 是 `plugins` 的子集。省略 `what` 可获取全部 6 个章节。使用 `what:"api"` 或 `what:"events"` 时，可传入确切的 `name`，将范围缩小到一个服务／事件，并包含其原始源码 JSDoc。
+定义一个不可变的 Cordis Package。新建 Plugin 时使用 kind:"new"，只提供 3 至 6 位小写英文字母组成的语义前缀；Host 返回最终 pluginId 和 packageId。修改现有 Plugin 时使用 kind:"existing" 并传入精确 pluginId，以追加 Package 而不覆盖旧版本。code.host 与 code.client 至少提供一个；每个值都是返回 Cordis Plugin 的 plain JavaScript 函数体，不经过 TypeScript、JSX 或 import 转换。依赖 Service、Event、Builtin、Slot 或 token 前先查询 Inspect。Define 只校验参数和语法并记录源码，不申请审批、不执行 apply，也不改变 currentPackageId。成功后用返回的 ID 调用 cordis_run。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "what": {
-      "type": "string",
-      "description": "Limit the report to one section. Omit for all sections.",
-      "enum": [
-        "services",
-        "plugins",
-        "tools",
-        "temporary",
-        "api",
-        "events"
+    "plugin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "new"
+            },
+            "idPrefix": {
+              "type": "string",
+              "description": "Suggested semantic prefix of 3–6 lowercase English letters; the Host adds a unique numeric suffix."
+            }
+          },
+          "required": [
+            "kind",
+            "idPrefix"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "existing"
+            },
+            "pluginId": {
+              "type": "string",
+              "description": "Exact ID of an existing Plugin; the new Package is appended to that instance."
+            }
+          },
+          "required": [
+            "kind",
+            "pluginId"
+          ]
+        }
       ]
     },
     "name": {
       "type": "string",
-      "description": "Exact service key or event name whose original JSDoc to include; valid only with what:\"api\" or what:\"events\"."
-    }
-  }
-}
-```
-
-来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
-### `cordis_mount`
-
-在当前 DSH 进程中挂载临时 Cordis Plugin。它创建的是内存中的运行时 Plugin，而不是已安装或已配置的 Plugin。该插件会在后续轮次中保持活动，直到执行 cordis_unmount、工具集卸载或 DSH 重启。它不会创建文件、安装包、修改 cordis.yml 或个人／项目配置、在重启后保留，也不会自动转为永久插件。若要保留，请让 Agent 通过常规开发工作流实现 Harness Plugin 或可安装的 profile bundle。它可能影响同一进程中的其他会话；沙箱不是安全边界，注入的服务会访问真实运行时。`code` 会立即作为异步 JavaScript 函数的函数体在隔离沙箱中运行，并且**必须** `return` 一个插件。支持两种形式：函数形式 `return (ctx) => { … }`，它不声明 inject，因此可以注册工具、监听事件和提供服务，但访问**任何**服务（例如 ctx.shell）都会抛出异常；仅在不需要服务时使用。对象形式 `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }`，它声明依赖，Cordis 只在服务存在后激活插件；**优先使用**这种形式。你只能访问 inject 中列出的服务：即使未声明的服务存在，访问它也会抛出异常，因为如果提供方被卸载，未声明的依赖将无法清理。代码调用服务**之前**，请读取 cordis_inspect 的 what:"api"；它会列出方法签名以及参数／返回值的类型形状，不要猜测字段类型，例如 bash 运行的 stdout 是对象而非字符串。在 `apply` 内，请使用标准 Cordis API：通过 `ctx.on(event, listener)` 观察事件（见 cordis_inspect 的 what:"events"），或调用 `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` 为自己提供新工具；该工具会在你的**下一步骤**可调用。工具参数：每个键**就是**一个属性，即 { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }；每个直接 DSL 对象都声明 additionalProperties: true|false，而 oneOf: [schema, schema, ...] 会取代 type，表示恰好匹配一个成员的联合。也接受原始 JSON Schema { type: 'object', properties, required?: […] } 包装层，其中对象默认开放。工具的 `execute` **必须**返回 `output.schema` 声明的无损 JSON 值；`output.render(args, value)` 单独返回 Native／模型内容块。临时 Plugin 可以**组合**：一个 Plugin 可以通过 `ctx.provide('name', value)` 提供服务，另一个则可声明 `inject: ['name']` 来消费它；消费方会在提供方出现前保持等待，提供方卸载后重新回到等待状态。在 `apply` 中注册的一切都会由 cordis_unmount 自动清理。沙箱全局对象：`console`（带 `[cordis:<id>]` 标签，写入 harness 终端）、`harness.defineTool`、`harness.registerTool`、`btoa`、`atob`、`TextEncoder`、`TextDecoder`。Node API 已**禁用**：文件系统／网络／定时工作必须通过 Cordis 服务完成，绝不能使用 Node 内置能力；`require`、`setTimeout`／`setInterval` 和 `fetch` 会抛出重定向错误，`process` 和 `Buffer` 未定义。应改用 inject: ['fs'] + ctx.fs 处理文件、inject: ['web'] + ctx.web 处理 HTTP、inject: ['bash'] + ctx.shell 处理进程、inject: ['timer'] + ctx.setTimeout/ctx.setInterval 处理定时（这些是 fiber effect，卸载时自动清理）；cordis_inspect 的 what:"api" 会展示**当前**运行时提供的能力。请编写**纯** JavaScript，不要使用 TypeScript（不得使用 `as` 或类型注解）。注意事项：(1) waterfall（瀑布式事件）事件（例如 tools/pre-execute）会向监听器传入最后一个 `next` 回调，该回调**必须**被调用；不调用 `next()` 就返回会**短路**此次调用。除非你有意拦截，否则请优先使用普通通知事件。(2) 切勿等待只能在当前轮次之后解析的内容；你的代码运行在该轮次的工具调用**内部**，否则会死锁。(3) 你的 `ctx` 是受限门面：可以注册工具、观察事件、提供／消费服务和使用定时器，但不会提供框架内部能力（ctx.root、ctx.fiber、ctx.extend、ctx.plugin 等）。不过，它并非安全边界：你注入的服务（例如 ctx.shell）会访问真实运行时。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "code": {
+      "description": "Short, readable Package name."
+    },
+    "purpose": {
       "type": "string",
-      "description": "JavaScript body returning a temporary Plugin; evaluated now and saved nowhere."
+      "description": "One-sentence, user-facing description of the Package purpose."
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Plain JavaScript function body that returns the Host-half Cordis Plugin."
+        },
+        "client": {
+          "type": "string",
+          "description": "Plain JavaScript function body that returns the browser Client-half Cordis Plugin."
+        }
+      }
     }
   },
   "required": [
+    "plugin",
+    "name",
+    "purpose",
     "code"
   ]
 }
@@ -306,28 +337,157 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
-### `cordis_unmount`
+### `cordis_inspect_list`
 
-卸载当前进程中由 cordis_mount 创建的临时 Plugin。它会等待该插件的工具、监听器、服务、定时器及其他自有效果全部清理完成。只接受 dyn-N 临时 id；无法移除 Loader、已配置或已安装的 Plugin。
+列出 Host 当前已知的全部 Cordis Inspect Provider，包括本地 Host Provider 和 Client 最近同步的 manifest。每项包含所属平台、用途、只读方法及输入／输出 schema。创建或修改 Package 前先调用本 Tool，再从结果中选择 cordis_inspect_query 的 provider 和 method。不要猜测名称，也不要把 Inspect method 当作 Plugin 代码可调用的业务 Service。
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
+
+### `cordis_inspect_query`
+
+执行 Inspect Provider 显式声明的只读查询。platform、provider 和 method 必须来自 cordis_inspect_list，input 必须符合该方法的 schema。在 cordis_define 前用本 Tool 读取精确 Service 方法、Event mode、Builtin 签名、Tool schema、主题 token，或实时 Slot 树及 props。Host 查询在本地执行；Client 查询等待首个有效页面响应，在页面回答或 Tool 被取消前保持 pending。本 Tool 不能调用业务 Service 方法或修改运行时。查询 Service.listService 和 Event.listEvents 时，先不传 input 浏览紧凑签名目录，再查询精确 service 或 event 获取结构化约定和引用类型。查询 Slots.listSubTree 时，先不传 root 浏览紧凑树，再查询精确 root 获取完整注册约定和 props。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "id": {
+    "platform": {
       "type": "string",
-      "description": "The temporary Plugin id returned by cordis_mount (for example \"dyn-1\"); valid only in this process and invalid after unmount or restart."
+      "description": "Runtime platform that owns the Provider.",
+      "enum": [
+        "host",
+        "client"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "description": "Exact Provider ID returned by cordis_inspect_list."
+    },
+    "method": {
+      "type": "string",
+      "description": "Exact method name declared by the Provider manifest."
+    },
+    "input": {
+      "description": "Optional query input; it must satisfy the method input schema."
     }
   },
   "required": [
-    "id"
+    "platform",
+    "provider",
+    "method"
   ]
 }
 ```
 
 来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
-不在任何随产品发布的树中，需要有意选择启用；临时 Plugin 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。由 cordis_mount 创建的插件在卸载或 DSH 重启之前可以注册**额外的**模型可见工具；发生这类工具集变更时，系统会记录完整且有变动的请求头。
+### `cordis_inspect_self`
+
+按逐层增加的详细程度检查当前 Session 拥有的动态 Cordis 对象。不传 ID 时只列 Plugin 摘要；只传 pluginId 时返回版本指针、最新 Run 和全部 Package 摘要；只有同时传 pluginId 与 packageId 才返回该不可变 Package 的 Host/Client 源码和运行诊断。packageId 不能单独传入。处理 @pluginId、修复异步失败或定义更新版本前，先查询精确 Package。本 Tool 只读，不执行代码，也不改变版本指针。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pluginId": {
+      "type": "string",
+      "description": "Stable Plugin ID returned by cordis_define or injected by @pluginId; omit it to list every current Plugin."
+    },
+    "packageId": {
+      "type": "string",
+      "description": "Exact immutable Package ID owned by pluginId; when specified, source and diagnostics are returned."
+    }
+  }
+}
+```
+
+来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
+
+### `cordis_run`
+
+激活动态 Plugin 的一个精确 Package。首次激活、重启 currentPackageId 或回退使用 mode:"run"；已有 current 时，即使 Plugin 当前已停止，切换到其他 Package 也使用 mode:"update"。未授权的 Client Package 创建审批请求并返回 awaiting-approval；已授权的 Package 返回 starting，并在浏览器中异步继续。两种结果都不会在 Tool 内等待最终结局。currentPackageId 只在完整成功后改变；失败时保留旧 current 和目标 next。异步成功、拒绝或技术失败通过状态与 steering 报告。技术失败后，用 cordis_inspect_self 读取诊断，修正同一 Plugin 并自主重试。用户拒绝后不要再次申请审批。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pluginId": {
+      "type": "string",
+      "description": "Stable Plugin ID returned by cordis_define."
+    },
+    "packageId": {
+      "type": "string",
+      "description": "Exact immutable Package ID to activate under that Plugin."
+    },
+    "mode": {
+      "type": "string",
+      "description": "Use run for the first activation, restarting current, or rollback; use update to switch from current to a different Package.",
+      "enum": [
+        "run",
+        "update"
+      ]
+    }
+  },
+  "required": [
+    "pluginId",
+    "packageId",
+    "mode"
+  ]
+}
+```
+
+来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
+
+### `cordis_stop`
+
+停止动态 Plugin 的当前 Run，并取消尚未完成的审批或激活请求。保留 Plugin、全部不可变 Package、授权、currentPackageId 和 nextPackageId，以便之后直接运行或更新。停止已处于停止状态的 Plugin 会幂等成功。临时禁用副作用使用本 Tool；永久移除使用 cordis_undefine。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pluginId": {
+      "type": "string",
+      "description": "Stable dynamic Plugin ID to stop."
+    }
+  },
+  "required": [
+    "pluginId"
+  ]
+}
+```
+
+来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
+
+### `cordis_undefine`
+
+永久移除当前 Session 拥有的动态 Plugin。如果它正在运行或等待审批，先停止并取消请求，再删除全部 Package、授权和版本指针。返回后，其 pluginId、packageIds、@ 引用和 Package 业务视图均失效；历史卡片只保留“Plugin 已移除”记录。需要保留版本以便重启或回退时不要调用本 Tool，应改用 cordis_stop。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pluginId": {
+      "type": "string",
+      "description": "Stable dynamic Plugin ID to remove permanently."
+    }
+  },
+  "required": [
+    "pluginId"
+  ]
+}
+```
+
+来源：[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
+
+不在任何随产品发布的树中，需要显式选择启用；动态 Package 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。该工具集注入 `@deepseek-ai/dsh-cordis-host-runner` 提供的 `ctx.dynamicCordisRunner`，后者拥有定义注册表和 vm 沙箱；组合缺少它时这些工具不会激活。运行中的 Package 在停止、undefine 或 DSH 重启前可以注册**额外的**模型可见工具；发生这类工具集变化时，系统会记录完整且有变动的请求头。
 
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 

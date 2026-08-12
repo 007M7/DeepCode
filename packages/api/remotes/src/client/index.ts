@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import commandsRemote from '@deepseek-ai/dsh-commands/remote'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+import dynamicRemote from '@deepseek-ai/dsh-cordis-host-runner/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -20,6 +21,7 @@ export type { ApiRemoteForwardedEvent } from '../types.ts'
 // signatures `$on` hands to a listener, so a consumer reads the very
 // declaration the Host emits rather than a flattened restatement of it.
 export type {} from '@deepseek-ai/dsh-commands/types'
+export type {} from '@deepseek-ai/dsh-cordis-host-runner/types'
 export type {} from '@deepseek-ai/dsh-credentials/types'
 export type {} from '@deepseek-ai/dsh-llm/types'
 export type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -40,6 +42,50 @@ export type {
   SubagentAddress, SubagentCatalog, JobView, ToolCallView, ToolEventView, ToolResultView,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
+export type {} from '@deepseek-ai/dsh-api-gateway/client'
+export type {} from '@deepseek-ai/dsh-cordis-host-runner/remote'
+
+// The payload vocabulary of the selected namespaces, re-exported so a Client
+// contribution can name what it sends and receives without importing a Host
+// package: this assembly is the one place both planes legitimately meet.
+export type {
+  ApprovalRequestId,
+  CordisHalfState,
+  CordisDynamicPackageId,
+  CordisDynamicPluginId,
+  CordisDynamicPluginRunId,
+  CordisDynamicRunMode,
+  CordisInspectMethodManifest,
+  CordisInspectPlatform,
+  CordisInspectProviderManifest,
+  CordisInspectProviderView,
+  CordisInspectQueryRequest,
+  CordisInspectQueryResolution,
+  CordisInspectQueryResolved,
+  CordisInspectRequestId,
+  CordisInspectResolveAck,
+  CordisRunDiagnostic,
+  CordisRunStatus,
+  DynamicCordisClientSource,
+  DynamicCordisHostHalfResult,
+  DynamicCordisInventoryRow,
+  DynamicCordisInvokeResult,
+  DynamicCordisPackage,
+  DynamicCordisRequestResolved,
+  DynamicCordisResolveAck,
+  DynamicCordisRetracted,
+  DynamicCordisRunRequest,
+  DynamicCordisRunResolution,
+  DynamicCordisRunAttempt,
+  DynamicCordisRunResponse,
+  DynamicCordisStopResponse,
+  DynamicCordisUndefineReceipt,
+  RequestRunOutcome,
+} from '@deepseek-ai/dsh-cordis-host-runner/types'
+// The JSON vocabulary those payloads are built from, re-exported for the same
+// reason: a Client contribution names what it sends without importing a Host
+// package, and this assembly is where both planes legitimately meet.
+export type { JsonValue } from '@deepseek-ai/dsh-session/types'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -59,13 +105,17 @@ export const inject = ['remote']
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposers: Array<() => Promise<void>> = []
   try {
-    for (const contribution of [commandsRemote, goalsRemote, pluginInventoryRemote, messageFeedbackRemote]) {
+    for (const contribution of [
+      commandsRemote, goalsRemote, dynamicRemote, pluginInventoryRemote, messageFeedbackRemote,
+    ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }
   } catch (error) {
     for (const dispose of disposers.reverse()) await dispose()
     throw error
   }
+  // Unwound in reverse mount order, so a namespace never outlives one mounted
+  // after it.
   return async () => {
     for (const dispose of disposers.reverse()) await dispose()
   }

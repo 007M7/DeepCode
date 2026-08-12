@@ -83,6 +83,7 @@ function makeHost() {
   const versions = new Map<string, number>()
   const subs = new Map<string, Set<() => void>>()
   const live = new Set<StoredEntry>()
+  const abdicated = new Set<StoredEntry>()
   const storeCache = new Map<StoredEntry, Map<string, StoreInstanceLike>>()
   const list = observable<{ ids: string[] }>({ ids: [] })
   const workspaces = observable<{ ids: string[] }>({ ids: [] })
@@ -105,6 +106,28 @@ function makeHost() {
     },
     getVersion: key => versions.get(key) ?? 0,
     entriesOf: key => entries.get(key) ?? [],
+    entriesOfSlot: (key) => {
+      const all = entries.get(key) ?? []
+      const kind = specs.get(key)?.kind
+      if (kind === 'chain') return all
+      // Mirror the ledger projection: first live (non-abdicated) entry per
+      // cell (single — one cell; keyed — per key; list — per id).
+      const heads: StoredEntry[] = []
+      const seen = new Set<string | undefined>()
+      for (const entry of all) {
+        if (abdicated.has(entry)) continue
+        const cell = kind === 'keyed' ? entry.options.key : kind === 'list' ? entry.options.id : undefined
+        if (seen.has(cell)) continue
+        seen.add(cell)
+        heads.push(entry)
+      }
+      return heads
+    },
+    reportEntryError: (key, entry, _error, info) => {
+      if (!info.abdicate || abdicated.has(entry)) return
+      abdicated.add(entry)
+      bump(key)
+    },
     specOf: key => specs.get(key),
     isLive: entry => live.has(entry),
     storeOf: (entry, scopeKey) => {
@@ -147,11 +170,12 @@ function makeHost() {
     add: (key: string, partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }) => {
       const entry = entryOf(partial)
       const next = [...(entries.get(key) ?? []), entry]
-      // Mirror the ledger contract: chain entries arrive priority-sorted
-      // (stable, ascending) — outlets iterate entries() order as-is.
-      if (specs.get(key)?.kind === 'chain') {
-        next.sort((a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
-      }
+      // Mirror the ledger contract: entries arrive priority-sorted (stable,
+      // ascending; list refines equal priorities by order) — outlets iterate
+      // entries() order as-is.
+      next.sort(specs.get(key)?.kind === 'list'
+        ? (a, b) => ((a.options.priority ?? 0) - (b.options.priority ?? 0)) || ((a.options.order ?? 0) - (b.options.order ?? 0))
+        : (a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
       entries.set(key, next)
       live.add(entry)
       bump(key)

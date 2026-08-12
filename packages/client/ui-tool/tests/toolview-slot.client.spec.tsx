@@ -10,7 +10,7 @@
 // the declaration then land through slots.inject when the chat entry appears.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent } from '@testing-library/react'
+import { cleanup } from '@testing-library/react'
 import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
@@ -106,22 +106,25 @@ describe('keyed toolview hole through the real machinery', () => {
   })
 
   it('renders top-level Cordis calls with lifecycle titles over the generic variants', async () => {
-    const code = 'return { name: "audit", apply(ctx) {} }'
     const b = await bench([
-      toolResult(3, 'cordis-1', 'cordis_inspect', '{"what":"api","name":"tools"}'),
-      toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
-      toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
+      toolResult(3, 'cordis-1', 'cordis_runtime_inspect', '{"what":"api","name":"tools"}'),
+      toolResult(4, 'cordis-2', 'cordis_run', '{"id":"dyn-2"}'),
+      toolResult(5, 'cordis-3', 'cordis_stop', '{"id":"dyn-2"}'),
+      toolResult(6, 'cordis-4', 'cordis_undefine', '{"id":"dyn-2"}'),
     ])
     const view = b.runtime.renderRoot()
 
-    expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
-    const mounted = view.container.querySelector('[data-variant="code"]')
-    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
-    expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
-      .toContain('Unmount temporary Plugindyn-2')
-
-    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
-    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
+    // Every one of these rows is user-visible on each model define/run, so each
+    // names its act and carries the package id rather than falling back to the
+    // generic "Tool call · <name> · <id>" row.
+    const rowText = (name: string) => view.container.querySelector(`[data-tool="${name}"]`)?.textContent
+    expect(rowText('cordis_runtime_inspect')).toContain('Inspect')
+    expect(rowText('cordis_run')).toContain('Run Cordis Plugindyn-2')
+    expect(rowText('cordis_stop')).toContain('Stop Cordis Plugindyn-2')
+    expect(rowText('cordis_undefine')).toContain('Remove Cordis Plugindyn-2')
+    // No run-control verb is a code row; the program is cordis_define's, and its
+    // own keyed card owns that rendering.
+    expect(view.container.querySelector('[data-variant="code"]')).toBeNull()
     await b.runtime.dispose()
   })
 

@@ -18,13 +18,26 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  LiveSlotNode, LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   SlotScope, SlotSpec, StoreDecl, StoreFactory, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /** The built-in render-tree root hole (seeded by SlotCore): rendered only by the shell, occupied by a layout entry. */
+    /**
+     * The built-in render-tree root hole (seeded by SlotCore): the one slot the
+     * shell itself renders, and the ancestor of every other seat. OCCUPIED by
+     * ui-layout's AppFrame, which declares the sidebar, conversation, details,
+     * and shell.overlay seats inside it.
+     *
+     * DO NOT register here. This is a single slot, so a second entry does not
+     * sit beside the frame — it shadows it, and a dynamically registered entry
+     * is assigned a lower priority than the shipped one, which makes it the
+     * winner: the page would render your component alone, with every seat the
+     * frame declares gone. For a surface of your own that floats over the whole
+     * app, register into `shell.overlay` instead (a list slot: additive, and
+     * click-through until your entry opts into pointer events).
+     */
     'root': { kind: 'single'; scope: 'root'; owner: RootOwnerProps }
   }
 }
@@ -275,6 +288,43 @@ export class SlotRegistry extends Service {
   }
 
   /**
+   * Shadowing winners per cell for a key: the first live (non-abdicated)
+   * entry of each cell in priority order — what outlets render; chain keys
+   * pass through unchanged (election consumes every entry). The raw
+   * {@link SlotsService.entries} view stays the inspection surface. Fresh
+   * array per call, not a uSES getSnapshot source.
+   * @param key - SlotMap key.
+   * @returns the winning entry per occupied cell.
+   */
+  entriesOfSlot(key: keyof SlotMap & string): readonly StoredEntry[] {
+    return this._core.entriesOfSlot(key)
+  }
+
+  /**
+   * Export the current JSON-safe Slot declaration tree for read-only inspection.
+   * @param root - exact live Slot root; omitted returns all roots.
+   * @returns selected Slot trees.
+   */
+  snapshot(root?: string): LiveSlotNode[] {
+    return this._core.snapshot(root)
+  }
+
+  /**
+   * Observe entry boundary crashes (every render-time entry failure the
+   * boundaries contain, abdicating or not) — the supervision seam for
+   * plugins mirroring contribution health. Fires synchronously per report,
+   * after the registry mutated for abdicating crashes. Callers own the
+   * disposer (wire it through ctx.effect for fiber-lifetime cleanup, as with
+   * {@link SlotsService.subscribe}).
+   * @param fn - called with the slot key, the crashed entry, the crash
+   * cause, and `abdicated`: whether the crash retired the entry from its cell.
+   * @returns unsubscribe.
+   */
+  onEntryError(fn: (key: string, entry: StoredEntry, error: unknown, info: { abdicated: boolean }) => void): () => void {
+    return this._core.onEntryError(fn)
+  }
+
+  /**
    * Look up a declared spec (register-declared or the built-in 'root').
    * @param key - SlotMap key.
    * @returns spec or undefined.
@@ -353,6 +403,8 @@ export class SlotRegistry extends Service {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
       getVersion: key => this._core.getVersion(key),
       entriesOf: key => this._core.entries(key),
+      entriesOfSlot: key => this._core.entriesOfSlot(key),
+      reportEntryError: (key, entry, error, info) => { this._core.reportEntryError(key, entry, error, info) },
       specOf: key => this._core.specDynamic(key),
       isLive: entry => this._core.isLive(entry),
       storeOf: (entry, scopeKey) =>

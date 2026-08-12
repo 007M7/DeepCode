@@ -859,17 +859,39 @@ class FaceAnalyzer {
     const result: ServiceModel[] = []
     for (const member of context.members) {
       if (!ts.isPropertySignature(member) || member.type === undefined) continue
-      const symbol = this.symbolAtType(member.type)
-      if (symbol === undefined) continue
-      const symbolId = this.symbolId(symbol)
-      const exported = bySymbol.get(symbolId)?.find(record => record.model.name === symbol.name)
-        ?? bySymbol.get(symbolId)?.find(record => record.model.name !== 'default')
-        ?? bySymbol.get(symbolId)?.[0]
+      // An OPTIONAL key is not a service: `X | undefined` and `key?: X` both mark
+      // a value the launcher or boot code installs before the tree mounts (a root
+      // accessor, an environment snapshot), which no plugin provides and no
+      // consumer can reach with `inject`. Describing one as a service would answer
+      // "add the plugin that provides it" for a key where no such plugin exists.
+      if (member.questionToken !== undefined
+        || (ts.isUnionTypeNode(member.type)
+          && member.type.types.some(node => node.kind === ts.SyntaxKind.UndefinedKeyword))) continue
+      const authoredSymbol = this.symbolAtType(member.type)
+      if (authoredSymbol === undefined) continue
+      const authoredSymbolId = this.symbolId(authoredSymbol)
+      const exported = bySymbol.get(authoredSymbolId)?.find(record => record.model.name === authoredSymbol.name)
+        ?? bySymbol.get(authoredSymbolId)?.find(record => record.model.name !== 'default')
+        ?? bySymbol.get(authoredSymbolId)?.[0]
       if (exported === undefined) continue
-      const declaration = preferredDeclaration(symbol)
+      let symbol = authoredSymbol
+      let declaration = preferredDeclaration(symbol)
+      const aliases = new Set<ts.Symbol>()
+      while (declaration !== undefined && ts.isTypeAliasDeclaration(declaration)) {
+        if (aliases.has(symbol)) break
+        aliases.add(symbol)
+        const target = this.symbolAtType(declaration.type)
+        if (target === undefined) break
+        symbol = target
+        declaration = preferredDeclaration(symbol)
+      }
       if (declaration === undefined || (!ts.isClassDeclaration(declaration) && !ts.isInterfaceDeclaration(declaration))) {
         this.fail(member, `service ${memberName(member.name)} does not resolve to an exported class or interface`)
       }
+      const memberOwner = this.registrationForFile(member.getSourceFile().fileName)
+      const declarationOwner = this.registrationForFile(declaration.getSourceFile().fileName)
+      if (memberOwner?.name !== declarationOwner?.name) continue
+      const symbolId = this.symbolId(symbol)
       const model = this.ensureDeclaration(symbol, declaration)
       const exposed = model.members
         .filter(exposableMember)
@@ -1990,6 +2012,11 @@ class FaceAnalyzer {
         && member.initializer !== undefined
         && ts.isCallExpression(member.initializer)
         && this.isTypeMetaSymbol(member.initializer.expression, 'bindTypertRemote')) continue
+      if (ts.isMethodDeclaration(member) && member.body !== undefined
+        && members.some(candidate => candidate !== member
+          && (ts.isMethodDeclaration(candidate) || ts.isMethodSignature(candidate))
+          && memberName(candidate.name) === memberName(member.name)
+          && (!ts.isMethodDeclaration(candidate) || candidate.body === undefined))) continue
       const visibility = visibilityOf(member)
       const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword)
       if (visibility !== 'public' || isStatic || ts.isConstructorDeclaration(member)) continue

@@ -6,5 +6,7 @@
     path: ./cordis.yml
     patches:
       - insert:
+          - id: cordis-host-runner
+            name: '@deepseek-ai/dsh-cordis-host-runner'
           - id: tool-cordis
             name: '@deepseek-ai/dsh-tool-cordis'
