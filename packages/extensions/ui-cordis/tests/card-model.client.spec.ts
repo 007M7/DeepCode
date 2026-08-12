@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { cordisDefineCard } from '../src/client/card-model.ts'
+import { cordisActionCard, cordisDefineCard } from '../src/client/card-model.ts'
 
 const ARGS = '{"name":"clock","purpose":"顶栏时钟","code":{"client":"return {}","host":"harness.handle(\'now\', () => Date.now())"}}'
 
@@ -84,5 +84,22 @@ describe('cordisDefineCard', () => {
     const card = cordisDefineCard(settled({ call: null }))
     expect(card.name).toBeNull()
     expect(card.purpose).toBeNull()
+  })
+})
+
+describe('cordisActionCard', () => {
+  it('keeps the Plugin identity and lifecycle result for Stop and Remove cards', () => {
+    const card = cordisActionCard(settled({
+      call: { name: 'cordis_stop', argsRaw: '{"pluginId":"clock-1"}' },
+      content: [{ type: 'text', text: 'Stopped clock-1.' }],
+      meta: undefined,
+    }))
+
+    expect(card).toEqual({
+      pluginId: 'clock-1',
+      output: 'Stopped clock-1.',
+      errorSummary: null,
+      state: 'ok',
+    })
   })
 })

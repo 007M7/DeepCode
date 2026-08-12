@@ -28,9 +28,9 @@
   - img
   - img
   - text: Think No dynamic Plugins are present, so I will define the requested Host and Client Package.
-- button "Define Cordis Plugin snapshot noop does nothing, for the snapshot Ready" [expanded]:
+- button "Register Cordis Plugin snapshot noop does nothing, for the snapshot Ready" [expanded]:
   - img
-  - text: Define Cordis Plugin snapshot noop does nothing, for the snapshot Ready
+  - text: Register Cordis Plugin snapshot noop does nothing, for the snapshot Ready
 - tablist "Plugin source":
   - tab "Client"
   - tab "Host" [selected]
@@ -66,10 +66,10 @@
   - img
   - img
   - text: Context injection cordis-host-runner
-- button "Stop dynamic package snap-1":
-  - img
-  - img
-  - text: Stop dynamic package snap-1
+- img
+- text: Stop Cordis Plugin snap-1
+- button "Inspect"
+- text: Dynamic Plugin snap-1 is stopped; its definition and versions remain.
 - paragraph: CORDIS_UI_DONE
 - button "Copy":
   - img

@@ -62,9 +62,9 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
 const TOOL_TITLES: Record<string, string> = {
   cordis_package_inspect: 'Inspect',
   cordis_runtime_inspect: 'Inspect',
-  cordis_run: 'Run dynamic package',
-  cordis_stop: 'Stop dynamic package',
-  cordis_undefine: 'Discard dynamic package',
+  cordis_run: 'Run Cordis Plugin',
+  cordis_stop: 'Stop Cordis Plugin',
+  cordis_undefine: 'Remove Cordis Plugin',
   pwsh: 'Pwsh',
 }
 

@@ -53,9 +53,9 @@ describe('tool-call-model', () => {
     // Every define/run pair the model makes puts a row in the flow, so the
     // generic "Tool call · cordis_run · dyn-1" fallback is user-visible slop.
     const titleOf = (name: string) => toolRowModel(name, running({ name, argsRaw: '{"id":"dyn-1"}' }))
-    expect(titleOf('cordis_run').title).toBe('Run dynamic package')
-    expect(titleOf('cordis_stop').title).toBe('Stop dynamic package')
-    expect(titleOf('cordis_undefine').title).toBe('Discard dynamic package')
+    expect(titleOf('cordis_run').title).toBe('Run Cordis Plugin')
+    expect(titleOf('cordis_stop').title).toBe('Stop Cordis Plugin')
+    expect(titleOf('cordis_undefine').title).toBe('Remove Cordis Plugin')
     // An owned title takes the tool name out of the summary slot, leaving the
     // package id as the only mutable text.
     expect(titleOf('cordis_run').summary).toBe('dyn-1')
@@ -186,14 +186,14 @@ describe('tool-call-model', () => {
       argsRaw: '{"id":"dyn-2"}',
     }))).toMatchObject({
       variant: 'others',
-      title: 'Run dynamic package',
+      title: 'Run Cordis Plugin',
       summary: 'dyn-2',
     })
     expect(toolRowModel('cordis_undefine', result({
       call: { name: 'cordis_undefine', argsRaw: '{"id":"dyn-2"}' },
     }))).toMatchObject({
       variant: 'others',
-      title: 'Discard dynamic package',
+      title: 'Remove Cordis Plugin',
       summary: 'dyn-2',
     })
   })

@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { InputTriggerService, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from './events.ts'
+import { CordisActionRow } from './CordisActionRow.tsx'
 import { CordisDefineRow } from './CordisDefineRow.tsx'
 import { CordisRunRow } from './CordisRunRow.tsx'
 import { CordisPanel } from './CordisPanel.tsx'
@@ -19,6 +20,7 @@ import { en, NS, zh } from './locales.ts'
 export type { CordisCardFace, CordisPanelFace, CordisRunCardFace, CordisToolViewOwnerProps } from './slots.ts'
 export type { CordisActionResult, CordisDynamicPort, CordisInventoryRow } from './dynamic-port.ts'
 export type { CordisDefineRowProps } from './CordisDefineRow.tsx'
+export type { CordisActionRowProps } from './CordisActionRow.tsx'
 export type { CordisRunRowProps } from './CordisRunRow.tsx'
 export type {
   CordisRunCardPointer, CordisRunCardStore, CordisToolViewKey,
@@ -130,6 +132,15 @@ export function apply(ctx: ClientContext): void {
       }
     },
   }, CordisRunRow))
+
+  ctx.slots.inject('tool.call.toolview', function* () {
+    yield ctx.slots.register({
+      name: 'tool.call.toolview', key: 'cordis_stop', locale: NS,
+    }, CordisActionRow)
+    yield ctx.slots.register({
+      name: 'tool.call.toolview', key: 'cordis_undefine', locale: NS,
+    }, CordisActionRow)
+  })
 
   const rowsOf = (sessionId: SessionId, query: string) => inventory.getSnapshot().rows
     .filter(row => row.agentId === sessionId && String(row.pluginId).includes(query))

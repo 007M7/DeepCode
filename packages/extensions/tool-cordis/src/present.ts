@@ -65,7 +65,7 @@ export function presentDefineCall(args: {
   return {
     card: 'generic',
     kind: 'execute',
-    title: `Define Package "${args.name}" for ${target}: ${args.purpose}`,
+    title: `Register Cordis Plugin "${args.name}" for ${target}: ${args.purpose}`,
     rawInput: args.code,
   }
 }
@@ -76,7 +76,7 @@ export function presentDefineCall(args: {
  * @returns replay-safe generic call presentation.
  */
 export function presentUndefineCall(args: { pluginId: string }): GenericCallView {
-  return { card: 'generic', kind: 'delete', title: `Remove dynamic Plugin ${args.pluginId}` }
+  return { card: 'generic', kind: 'delete', title: `Remove Cordis Plugin ${args.pluginId}` }
 }
 
 /**
@@ -88,7 +88,7 @@ export function presentRunCall(args: { pluginId: string; packageId: string; mode
   return {
     card: 'generic',
     kind: 'execute',
-    title: `${args.mode === 'update' ? 'Update' : 'Run'} ${args.pluginId} · ${args.packageId}`,
+    title: `${args.mode === 'update' ? 'Update' : 'Run'} Cordis Plugin ${args.pluginId} · ${args.packageId}`,
   }
 }
 
@@ -98,5 +98,5 @@ export function presentRunCall(args: { pluginId: string; packageId: string; mode
  * @returns replay-safe generic call presentation.
  */
 export function presentStopCall(args: { pluginId: string }): GenericCallView {
-  return { card: 'generic', kind: 'execute', title: `Stop dynamic Plugin ${args.pluginId}` }
+  return { card: 'generic', kind: 'execute', title: `Stop Cordis Plugin ${args.pluginId}` }
 }

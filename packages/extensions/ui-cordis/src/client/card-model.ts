@@ -1,4 +1,4 @@
-/** Replay-stable view models for `cordis_define` and `cordis_run` calls. */
+/** Replay-stable view models for Cordis lifecycle Tool calls. */
 
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {
@@ -30,6 +30,14 @@ export interface CordisRunCard {
   readonly pluginRunId: CordisDynamicPluginRunId | null
   readonly mode: CordisDynamicRunMode | null
   readonly seq: number | null
+  readonly output: string | null
+  readonly errorSummary: string | null
+  readonly state: CordisToolState
+}
+
+/** Frozen `cordis_stop` or `cordis_undefine` presentation data. */
+export interface CordisActionCard {
+  readonly pluginId: CordisDynamicPluginId | null
   readonly output: string | null
   readonly errorSummary: string | null
   readonly state: CordisToolState
@@ -127,6 +135,25 @@ export function cordisRunCard(block: Block): CordisRunCard {
     pluginRunId: (meta === null ? null : stringAt(meta, 'pluginRunId')) as CordisDynamicPluginRunId | null,
     mode: rawMode === 'run' || rawMode === 'update' ? rawMode : null,
     seq: settled ? block.seq : null,
+    output,
+    errorSummary: state === 'error' && output !== null ? firstLine(output) : null,
+    state,
+  }
+}
+
+/**
+ * Derive one Stop or Remove card from its frozen call/result slice.
+ * @param block - active or settled tool-call block.
+ * @returns normalized lifecycle-action card fields.
+ */
+export function cordisActionCard(block: Block): CordisActionCard {
+  const settled = 'kind' in block
+  const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
+  const args = parseArgs(argsRaw)
+  const state = stateOf(block)
+  const output = settled ? resultText(block) : null
+  return {
+    pluginId: (args === null ? null : stringAt(args, 'pluginId') ?? stringAt(args, 'id')) as CordisDynamicPluginId | null,
     output,
     errorSummary: state === 'error' && output !== null ? firstLine(output) : null,
     state,

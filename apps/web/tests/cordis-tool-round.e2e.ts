@@ -1,6 +1,6 @@
 // Web e2e scenario for the opt-in Cordis tools. Record mode drives a real
 // model through inspect, define, run, and stop; replay pins the same shipped Web
-// composition, durable calls, generic rows, the define card's own source view,
+// composition, durable calls, Cordis-owned rows, the define card's own source view,
 // and conversation accessibility tree.
 //
 // The approval is never in the fixture. The fixture pins what the MODEL said;
@@ -64,7 +64,7 @@ function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
   expect(results.every(event => !event.data.message.content[0].isError)).toBe(true)
 }
 
-describe('web e2e: Cordis tools use the generic row variants', () => {
+describe('web e2e: Cordis tools use their owned cards', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -129,7 +129,7 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     assertCompleteCordisLifecycle(sessionEvents)
   })
 
-  it.skipIf(MODE === 'record')('renders Cordis lifecycle titles over the generic row mechanics', async () => {
+  it.skipIf(MODE === 'record')('renders localized Cordis lifecycle cards', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-cordis-rows'))
     await expect.poll(() => page.getByText('CORDIS_UI_DONE', { exact: true }).count(), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(1)
@@ -153,7 +153,7 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     await runRow.waitFor({ timeout: 10_000 })
     await expect.poll(() => runRow.textContent()).toContain('snap-')
 
-    const stopRow = page.locator('[data-tool="cordis_stop"]').filter({ hasText: 'Stop dynamic package' }).first()
+    const stopRow = page.locator('[data-tool="cordis_stop"]').filter({ hasText: 'Stop Cordis Plugin' }).first()
     await stopRow.waitFor({ timeout: 10_000 })
     await expect.poll(() => stopRow.textContent()).toContain('snap-')
     await expect(stopRow.getAttribute('data-state')).resolves.toBe('ok')
