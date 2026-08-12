@@ -65,6 +65,8 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Process-local background-task admission config forwarded through agent-core. */
+  tasks?: NonNullable<agentCore.Config['tasks']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tools. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
@@ -92,6 +94,7 @@ export const Config: z<Config> = z.object({
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
+  tasks: agentCore.TasksConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
 })

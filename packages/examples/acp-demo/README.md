@@ -34,6 +34,7 @@ The app does not install commands, user interaction, session navigation, configu
 | `workspaceContext` | required | Workspace-instruction byte budget/config, or `false`. |
 | `skills` | owner defaults | Skill registry, local provider, and model-facing skill tool. |
 | `toolBash` | owner defaults | Model-facing bash tool config. |
+| `tasks` | `{ maxConcurrentTasksPerOwner: 10 }` | Process-local per-owner active-task admission. |
 | `toolTasks` | owner defaults | Generic background-task control config, or `false`. |
 | `goals` | owner defaults | Persisted same-session goal domain and model tools, or `false`. |
 

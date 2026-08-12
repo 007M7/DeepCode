@@ -154,7 +154,7 @@ interface TaskRead {
 
 ## Service behavior
 
-The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` and `onTasksChanged` listeners, and when `attachController` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` and `onTasksChanged` listeners, and when `attachController` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup and admission use the exact registered `Agent` instance. The local provider's positive-safe-integer `maxConcurrentTasksPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned tasks; terminal producer settlement releases capacity. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -179,10 +179,11 @@ Implementations must honor these semantics:
 
 ```ts cordis-catalog
 /**
- * Preflight access, validation, and owner cleanup before starting and
- * atomically registering work. A throwing starter leaves nothing registered;
- * after it returns, registration cannot fail. Settlement records the outcome,
- * notifies listeners, and releases waiters.
+ * Preflight access, validation, owner cleanup, and implementation-owned
+ * admission before starting and atomically registering work. Any preflight
+ * rejection leaves no task id or execution resource. A throwing starter
+ * leaves nothing registered; after it returns, registration cannot fail.
+ * Settlement records the outcome, notifies listeners, and releases waiters.
  * @param spec - task identity, owner, and synchronous starter.
  * @returns the registry-issued `<kind>-N` id.
  */
