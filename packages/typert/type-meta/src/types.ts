@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-type-meta/types
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 
 declare const LOOKUP_HOST: unique symbol
 declare const LOOKUP_WIRE: unique symbol
@@ -39,8 +39,48 @@ export interface TypeRTContextMap {}
 /** Merge-extensible direct Remote method signatures generated for consumers. */
 export interface TypeRTRemoteMap {}
 
+/**
+ * One Remote call's failure as the carrier reported it. `code` stays open here:
+ * the closed RPC code union belongs to the carrier package, which already
+ * depends on this one, so naming it would invert that edge.
+ */
+export interface RemoteFailure {
+  readonly code: string
+  readonly message: string
+  readonly details: object
+}
+
+/**
+ * What every generated Remote method resolves to. The Remote face itself folds
+ * carrier failures into the error branch, so no consumer wraps a call to
+ * recover one; only assembly faults (arity, an unmounted method, a missing
+ * Context binder) still reject.
+ * @template T - the Host method's business result.
+ */
+export type RemoteResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: RemoteFailure }
+
 /** Merge-extensible scoped Remote method signatures generated for consumers. */
 export interface TypeRTRemoteScopeMap {}
+
+/**
+ * Cordis event names whose shape a one-way Remote delivery can carry: unbound
+ * from any Scope and returning `void`. Which ones are actually forwarded is the
+ * Host assembly's selection; this predicate only excludes shapes the carrier
+ * cannot represent.
+ */
+export type TypeRTForwardableEvent = {
+  [Event in keyof Events]: unknown extends ThisParameterType<Events[Event]>
+    ? ReturnType<Events[Event]> extends void ? Event : never
+    : never
+}[keyof Events]
+
+/** Merge-extensible forwarding selection declared once by the Host assembly. */
+export interface TypeRTRemoteEventSelection {}
+
+/** Legal `$on` keys: selected events that exist in the current compilation face. */
+export type TypeRTRemoteEvent = Extract<keyof Events, keyof TypeRTRemoteEventSelection>
 
 /**
  * Resolve one direct Remote namespace from the generated flat endpoint map.
@@ -118,6 +158,8 @@ export interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypeRTCodec
+  /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
+  readonly acceptsUndefined?: true
 }
 
 /** Source position retained for diagnostics from generated definitions. */
@@ -184,6 +226,27 @@ export interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
    * @returns disposer after namespace services and concrete methods are ready.
    */
   $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
+  /**
+   * Subscribe to one forwarded Host event; delivery is one-way, in registration
+   * order, and isolates a throwing listener from the rest.
+   * @template Event - forwarded event name selected by the Host assembly.
+   * @param event - forwarded Host event name, unchanged on the wire.
+   * @param listener - receives the Host's argument list as declared by Cordis `Events`.
+   * @returns disposer owned by the calling fiber.
+   */
+  $on<Event extends TypeRTRemoteEvent>(event: Event, listener: Events[Event]): () => void
+  /**
+   * Hand one decoded forwarded frame to the subscription table. The carrier
+   * owning the Host frame sink calls this; a consumer subscribes with
+   * {@link TypeRTClientRemote.$on} and never calls it.
+   *
+   * `event` is a plain string because this is the wire boundary: the name is
+   * whatever the Host assembly's allowlist selected, and one nobody subscribed
+   * to is dropped silently.
+   * @param event - forwarded Host event name, exactly as the Host emitted it.
+   * @param args - the Host argument list, already JSON-decoded.
+   */
+  $dispatch(event: string, args: readonly unknown[]): void
 }
 
 /**

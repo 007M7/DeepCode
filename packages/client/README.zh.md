@@ -18,11 +18,13 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-slots/`](ui-slots/README.md) | 定义 UI 功能注册和组合扩展 slot 的方式。 |
 | [`ui-theme/`](ui-theme/README.md) | 应用所选颜色主题。 |
 | [`ui-primitives/`](ui-primitives/README.md) | 提供共享 React 控件、图标和内容渲染器。 |
+| [`ui-attachment/`](ui-attachment/README.md) | 提供附件展示原子组件：草稿图片栏、消息画廊与灯箱。 |
 | [`ui-layout/`](ui-layout/README.md) | 排列应用的主要区域。 |
 | [`ui-sidebar/`](ui-sidebar/README.md) | 展示 Workspace 与会话导航。 |
 | [`ui-workspace/`](ui-workspace/README.md) | 提供 Workspace 选择与创建界面。 |
 | [`ui-conversation/`](ui-conversation/README.md) | 展示当前会话及其输入界面。 |
 | [`ui-tool/`](ui-tool/README.md) | 编排工具调用树和按工具键控的视图。 |
+| [`ui-workflow-run/`](ui-workflow-run/README.md) | 把持久工作流运行回放为 Chat 嵌套折叠项，并只为实时子 Session 提供导航。 |
 | [`ui-goal/`](ui-goal/README.md) | 展示和管理当前目标。 |
 | [`ui-trajectory/`](ui-trajectory/README.md) | 提供 agent（智能体）活动的其他视图。 |
 | [`ui-command/`](ui-command/README.md) | 提供会话感知的命令发现与分发。 |
@@ -33,11 +35,13 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-model/`](ui-model/README.md) | 在会话界面中提供模型选择。 |
 | [`ui-permission/`](ui-permission/README.md) | 配置默认权限并切换当前会话的访问模式。 |
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |
+| [`ui-plugin-config/`](ui-plugin-config/README.md) | 插件设置分区：把宿主平面的插件配置呈现为可展开卡片。 |
 | [`ui-question/`](ui-question/README.md) | 展示 agent 请求的交互式问题。 |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并创作预设组装。 |
 | [`ui-settings/`](ui-settings/README.md) | 承载设置界面及其扩展区域。 |
 | [`ui-settings-general/`](ui-settings-general/README.md) | 提供常规设置分区。 |
 | [`ui-models/`](ui-models/README.md) | 提供模型提供方配置与 DeepSeek 配置引导。 |
+| [`ui-plugins/`](ui-plugins/README.md) | 在只读设置分区中展示当前 Host Loader 条目。 |
 
 每个子文档负责自身的约定和详细行为。[slot 系统标准](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md)与 [Web 客户端架构 Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md)负责跨包组合与加载决策。
 

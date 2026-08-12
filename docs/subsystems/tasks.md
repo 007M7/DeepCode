@@ -97,7 +97,7 @@ interface TaskOutcome {
 
 ## Consumer views
 
-Snapshots are fresh read-only projections. `ownerSession` carries the shared `SessionId` used for authorization; completion listeners separately receive the exact owner object used for lifecycle cleanup. `reported` suppresses a completion notice after another reporter has delivered or committed to deliver the terminal state.
+Snapshots are fresh read-only projections. `ownerSession` carries the shared `SessionId` used for authorization; completion listeners separately receive the exact owner object used for lifecycle cleanup. `reported` suppresses a completion notice after another reporter has delivered or committed to deliver the terminal state, including the teardown cancel that drains an owner or the service.
 
 ```ts type-equiv
 /**
@@ -128,8 +128,11 @@ interface TaskSnapshot {
   /** Epoch ms when the task settled; absent while `running`/`stopping`. */
   finishedAt?: number
   /**
-   * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion reporters suppress redundant notices when set.
+   * True when a kill, read, wait, or teardown cancel has reported or committed
+   * to report the terminal state. Completion reporters suppress redundant
+   * notices when set. Teardown claims it because the owner or service being
+   * destroyed leaves no reader: a reporter that opens a turn on notice would
+   * otherwise spend a model request per teardown layer.
    */
   reported: boolean
 }
@@ -151,7 +154,7 @@ interface TaskRead {
 
 ## Service behavior
 
-The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` and `onTasksChanged` listeners, and when `attachController` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` and `onTasksChanged` listeners, and when `attachController` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup and admission use the exact registered `Agent` instance. The local provider's positive-safe-integer `maxConcurrentTasksPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned tasks; terminal producer settlement releases capacity. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -169,17 +172,18 @@ Abstract background task registry. Subclass, implement the abstract methods, and
 
 Implementations must honor these semantics:
 
-- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record. Teardown cancellation also marks the record reported, because a record its owner is being destroyed for has no reader left.
 - Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
-- Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
+- Settlement is first-wins: one terminal record, released waiters, and one round of contained listener notification, even against a late producer outcome. Completion is announced last, after the record is committed and every other observer of the settlement has seen it, because a reporter may open a model turn synchronously.
 - start refuses work while no attached task controller serves the spec's owner, so a producer cannot start work that owner cannot collect or stop. One registry serves every composition in the process, so this question — and completion-listener delivery — is owner-relative rather than process-wide: registrations made from an unscoped context serve every owner, and registrations made under an agent composition's scope serve exactly the agents composed under it.
 
 ```ts cordis-catalog
 /**
- * Preflight access, validation, and owner cleanup before starting and
- * atomically registering work. A throwing starter leaves nothing registered;
- * after it returns, registration cannot fail. Settlement records the outcome,
- * notifies listeners, and releases waiters.
+ * Preflight access, validation, owner cleanup, and implementation-owned
+ * admission before starting and atomically registering work. Any preflight
+ * rejection leaves no task id or execution resource. A throwing starter
+ * leaves nothing registered; after it returns, registration cannot fail.
+ * Settlement records the outcome, notifies listeners, and releases waiters.
  * @param spec - task identity, owner, and synchronous starter.
  * @returns the registry-issued `<kind>-N` id.
  */
@@ -282,5 +286,5 @@ abstract attachController(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:62`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -201,15 +201,25 @@ The service stores whole Session rows in the `message_feedback` storage domain t
 
 Plugin disposal closes mutation admission, drains accepted per-Session queue work, and then closes the storage domain.
 
+## Web surface
+
+[`@deepseek-ai/dsh-client-ui-feedback`](../../packages/client/ui-feedback) is the browser consumer. `@deepseek-ai/dsh-api-remotes` mounts the generated `messageFeedback` contribution, so the plugin calls `ctx.remote.messageFeedback` and never touches the transport.
+
+The controls are the `feedback` entry (order 10) of the `conversation.chat.assistant-actions` list slot, which `ui-conversation` declares and renders inside the finalized assistant message's IconActions row. Reaching that render site required one plumbing change: `AssistantMessageNode` now carries the optional `messageId` from the `assistant/message` event. The field is absent on interruption-frozen partials, and the render site skips the slot when it is absent. The strip renders once per turn, on the closing assistant message: the Host accepts every append-origin step message as a target, but earlier steps of a multi-step turn render tool rows rather than a rateable body, so the UI exposes a narrower set than the Host contract allows.
+
+One `FeedbackController` per Session backs every message control in that Session: a single `list` read seeds the whole transcript, deferred to first hover or focus rather than fired on mount. Each mutation sends the version that controller last observed as `ifVersion`; a `version-conflict` reply carries the authoritative item, so the controller reconciles from the reply instead of refetching. Mutations serialize per Session so a queued operation compares against the committed version. A `connection/reset` refreshes only Sessions already read.
+
 ## Boundaries and limitations
 
-- The client Remote aggregate mount and UI consumer are separately owned and deferred.
 - The mutation queue is process-local. Storage-domain has no cross-process conditional write, so multiple Host writers to one storage root have no compare-and-swap or lost-update guarantee.
 - Session persistence has no durable deletion API. The service does not treat `session/disposed` or `host/session-removed` as deletion and therefore performs no fake cascade; orphan sidecar rows may remain after out-of-band log removal.
 - A request in the narrow interval after live detach but before the persistence catalog materializes the header can receive `session-not-found`; callers retry after retirement materialization.
 - Cold requests scan the complete Session snapshot catalog because persistence has no lookup-by-id metadata operation. One Session row also has no item-count or aggregate-byte cap; `maxNoteBytes` bounds only each note until a concrete consumer owns a row policy.
 - Header identity detects a reused id only when `{createdAt, cwd}` differs; a cloned log retaining the same header identity is indistinguishable by this contract.
 - The Host contract records no authenticated actor or audit identity and therefore assumes a trusted caller boundary.
+- The Web controls appear in the chat view only. The trajectory and waterfall views render no feedback entry even though their assistant nodes carry the same `messageId`.
+- The sidecar publishes no live frames, so a second tab's rating becomes visible on reconnect or on the next conflict reply rather than immediately.
+- The note editor does not pre-check `maxNoteBytes`; an oversized note fails on save with `note-too-large` rather than while typing.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

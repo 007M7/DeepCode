@@ -119,3 +119,17 @@ export async function saveFailureShot(page: Page, name: string): Promise<void> {
     // Best-effort evidence: a dead page/browser at failure time must not mask the real assertion error.
   }
 }
+
+/**
+ * The conversation engine's Context key format, restated here rather than
+ * imported: these specs live in the Host compiler aggregate, which must not
+ * reach the Client plane. The engine's own copy is
+ * `conversationContextKey` in dsh-client-runtime; a drift between them makes
+ * the key miss its rendered node, so the assertion fails loudly.
+ * @param kind - Definition kind.
+ * @param id - Definition-local business identity.
+ * @returns the engine-owned Context key.
+ */
+export function conversationContextKey(kind: string, id: string): string {
+  return `${kind.length}:${kind}${id}`
+}

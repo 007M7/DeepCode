@@ -227,8 +227,8 @@ function createStartupFixture(): StartupFixture {
     "export const inject = ['cmdlineArgs']",
     'export function apply(ctx) {',
     "  const program = new Command().name('fixture').option('--generation <value>', 'echoed generation')",
-    '  const values = parseCmdline(ctx, program, parsed => ({ generation: parsed.opts().generation }))',
-    '  if (values !== undefined) ctx.provide(\'fixtureStartup\', values)',
+    "  program.action(() => ctx.provide('fixtureStartup', { generation: program.opts().generation }))",
+    '  parseCmdline(ctx, program)',
     '}',
     '',
   ].join('\n'))
@@ -408,16 +408,15 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
-  it('uses the Harness-home environment and managed credential through the published entry', async () => {
+  it('uses the launching endpoint and managed credential through the published entry', async () => {
     const apiKey = 'built-home-layer-key'
     const server = await startMockLlmServer({
       sequence: ['success'],
       apiKey,
-      successText: 'home environment reached the mock',
+      successText: 'launching endpoint reached the mock',
     })
     const home = mkdtempSync(join(tmpdir(), 'dsh-home-environment-'))
     const project = mkdtempSync(join(tmpdir(), 'dsh-home-project-'))
-    writeFileSync(join(home, '.env'), `DEEPSEEK_BASE_URL=${server.baseURL}\n`)
     writeFileSync(join(home, '.credentials.yaml'), `DEEPSEEK_API_KEY: ${apiKey}\n`, { mode: 0o600 })
     createEnvironmentProbeProfile(home, project)
     try {
@@ -427,7 +426,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
           DSH_HOME: home,
           DSH_TELEMETRY_DISABLED: '1',
           DEEPSEEK_API_KEY: undefined,
-          DEEPSEEK_BASE_URL: undefined,
+          DEEPSEEK_BASE_URL: server.baseURL,
         },
         project,
       )
@@ -435,7 +434,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         result.code,
         `${result.stderr}\nstdout:\n${result.stdout}\nmock requests: ${String(server.requests.length)}`,
       ).toBe(0)
-      expect(result.stdout).toBe('home environment reached the mock')
+      expect(result.stdout).toBe('launching endpoint reached the mock')
       expect(result.stdout).not.toContain(apiKey)
       expect(result.stderr).not.toContain(apiKey)
       expect(server.requests).toHaveLength(1)

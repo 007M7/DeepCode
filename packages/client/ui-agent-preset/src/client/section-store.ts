@@ -14,7 +14,7 @@
  * more than the row it targeted.
  */
 
-import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { beginRosterRead, messageOf, writeDefaultPreset } from './settings-store.ts'
 
@@ -137,9 +137,10 @@ export class AgentPresetSectionController {
     /**
      * Called after this page changes the roster DIRECTORY, so the other
      * surfaces reading the same roster re-read it. A settings field moving is
-     * already announced by the host through `settings/changed`; a directory
-     * copied or deleted here is not, and the new-session chip has no other
-     * way to learn a preset it should offer now exists.
+     * already announced by the host through the forwarded
+     * `settings/document-updated`; a directory copied or deleted here is not,
+     * and the new-session chip has no other way to learn a preset it should
+     * offer now exists.
      */
     private readonly rosterChanged: () => void = () => {},
   ) {}

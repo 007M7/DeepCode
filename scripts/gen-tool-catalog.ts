@@ -50,6 +50,7 @@ import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import PtyService from '@deepseek-ai/dsh-pty'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -114,15 +115,18 @@ const catalogChildScopes = new WeakMap<Context, Agent>()
  * schema harvest, without starting a model, Agent loop, or persistence backend.
  * @param ctx - catalog context owning the scope.
  * @param mountScoped - package installer for the scoped context.
+ * @param key - agent-like scope key exposed to the package's scope selector.
+ * @param inject - services the package installer must await before mounting.
  */
 async function mountCatalogChildScope(
   ctx: Context,
   mountScoped: (childCtx: Context) => void,
+  key: Agent = { id: SessionId('tool-catalog-child') } as Agent,
+  inject: string[] = ['tools', 'systemPrompt', 'subagents'],
 ): Promise<void> {
-  const key = { id: SessionId('tool-catalog-child') } as Agent
   await ctx.plugin(Object.assign((inner: Context) => {
     mountScoped(createScope(inner, key).ctx)
-  }, { inject: ['tools', 'systemPrompt', 'subagents'] }))
+  }, { inject }))
   catalogChildScopes.set(ctx, key)
 }
 
@@ -349,6 +353,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-schedule',
+    dir: 'tool-schedule',
+    source: 'packages/schedule/tool-schedule/src/tools.ts',
+    requires: ['ctx.tools', 'ctx.sessions', 'Session persistence', 'a future live root Agent'],
+    writes: ['tool/call', 'schedule/change create or delete', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionStore)
+      const session = ctx.sessions.create(SessionId('tool-catalog-schedule'))
+      const agent = { id: session.id, session } as Agent
+      await mountCatalogChildScope(ctx, (childCtx) => {
+        ToolSchedule.registerScheduleTools(ctx, childCtx, agent, () => {})
+      }, agent, ['tools', 'systemPrompt'])
+    },
+    scope: ctx => catalogChildScopes.get(ctx) as Agent,
+    note:
+      'Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. '
+      + 'Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, '
+      + 'and discloses session-local delivery; '
+      + 'management reads and mutations require the shared Session persistence barrier.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-lsp',
     dir: 'tool-lsp',
     source: 'packages/lsp/tool-lsp/src/index.ts',
@@ -411,7 +436,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
-    requires: ['ctx.tools', 'ctx.subagents'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
@@ -420,7 +445,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance\'s description and `run_in_background` parameter follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable`, while `subagent_fork` stays `one-shot` — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance\'s description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',

@@ -1,4 +1,3 @@
-import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
@@ -140,7 +139,13 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     host: {
       async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { version: 'v', cwd: '/w', attachedSessions: 0, canOpenPath: true },
+          },
+        }
       },
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
@@ -174,6 +179,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async delete(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { deleted: true as const } } }
       },
+      async insertBefore(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { workspaceIds: [request.payload.workspaceId] } } }
+      },
       async insertSessionBefore(request) {
         return {
           rpcId: request.rpcId,
@@ -182,25 +190,6 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async archiveSession(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { archivedSessionIds: [request.payload.sessionId] } } }
-      },
-    },
-    commands: {
-      async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } } }
-      },
-      async execute(request, signal) {
-        if (request.payload.line === '/hang') {
-          // Cooperative hang: settles only through the carrier signal (sticky
-          // abort checked first — listeners never fire retroactively).
-          if (!signal.aborted) {
-            await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
-          }
-          return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
-        }
-        if (request.payload.line.startsWith('/plan')) {
-          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, commandId: CommandId('cmd-x') } } }
-        }
-        return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
     },
     agentPresets: {
@@ -435,19 +424,13 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.result).toEqual({ ok: true, value: { opened: true } })
   })
 
-  it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
+  it('round-trips skill.list through the wire form', async () => {
     const c = client()
-    const list = await c.commands.list({ sessionId: 's' as never })
-    expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
-    const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
-    expect(hit.result).toEqual({ ok: true, value: { matched: true, commandId: 'cmd-x' } })
-    const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
-    expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
   })
 
-  it('lets command.execute finish after the 30-second default unary deadline', async () => {
+  it('lets host.pickDirectory finish after the 30-second default unary deadline', async () => {
     vi.useFakeTimers()
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
       const controller = new AbortController()
@@ -458,16 +441,13 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })
     try {
       const api = fakeApi()
-      api.commands.execute = async (request) => {
+      api.host.pickDirectory = async (request) => {
         await new Promise(resolve => setTimeout(resolve, 30_001))
-        return {
-          rpcId: request.rpcId,
-          result: { ok: true, value: { matched: true, commandId: CommandId('cmd-slow') } },
-        }
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/slow' } } }
       }
-      const execution = client(api).commands.execute({ sessionId: 's' as never, line: '/slow' })
+      const execution = client(api).host.pickDirectory({})
       const assertion = expect(execution).resolves.toMatchObject({
-        result: { ok: true, value: { matched: true, commandId: 'cmd-slow' } },
+        result: { ok: true, value: { path: '/tmp/slow' } },
       })
 
       await Promise.all([
@@ -503,10 +483,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })).result).toEqual({ ok: true, value: { accepted: true } })
   })
 
-  it('keeps caller and connection aborts on command.execute', async () => {
+  it('keeps caller and connection aborts on a deadline-exempt unary', async () => {
     const api = fakeApi()
     const started = Promise.withResolvers<AbortSignal>()
-    api.commands.execute = async (request, signal) => {
+    api.host.pickDirectory = async (request, signal) => {
       started.resolve(signal)
       if (!signal.aborted) {
         await new Promise<void>((resolve) => {
@@ -519,30 +499,13 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       }
     }
     const controller = new AbortController()
-    const execution = client(api).commands.execute(
-      { sessionId: 's' as never, line: '/hang' },
-      controller.signal,
-    )
+    const execution = client(api).host.pickDirectory({}, controller.signal)
     const handlerSignal = await started.promise
 
     controller.abort(new Error('connection closed'))
 
     await expect(execution).rejects.toThrow('connection closed')
     expect(handlerSignal.aborted).toBe(true)
-  })
-
-  it('propagates the carrier Request signal into command.execute', async () => {
-    const handler = toFetchHandler(fakeApi())
-    const controller = new AbortController()
-    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
-    // The fake's /hang settles only when the invoke-level signal aborts: a
-    // completed response with the cancelled error proves req.signal reached it.
-    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal }))
-    controller.abort()
-    const response = await pending
-    const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
-    expect(parsed.rpcId).toBe('r-sig')
-    expect(parsed.result.error?.code).toBe('cancelled')
   })
 
   it('propagates the carrier Request signal into session.search', async () => {

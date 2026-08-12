@@ -7,7 +7,7 @@ import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
-import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import LocalTaskService, { type Config as TasksConfig } from '@deepseek-ai/dsh-tasks-local'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -76,10 +76,10 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   return { spec, settle, reject, cancels }
 }
 
-async function harness() {
+async function harness(config: TasksConfig = {}) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalTaskService)
+  await ctx.plugin(LocalTaskService, config)
   ctx.tasks.attachController('test-controller')
   return ctx
 }
@@ -164,6 +164,101 @@ describe('LocalTaskService.start', () => {
     expect(() => ctx.tasks.start(producer({ kind: '' as TaskKind }).spec)).toThrow('invalid task kind')
     expect(() => ctx.tasks.start(producer({ label: '' }).spec)).toThrow('invalid task label')
     expect(() => ctx.tasks.start(producer({ outputLimitBytes: 0 }).spec)).toThrow('outputLimitBytes')
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid maxConcurrentTasksPerOwner config: %s',
+    async (maxConcurrentTasksPerOwner) => {
+      const ctx = new Context()
+      await expect(ctx.plugin(LocalTaskService, { maxConcurrentTasksPerOwner }))
+        .rejects.toThrow()
+    },
+  )
+
+  it('accepts the largest safe integer limit', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: Number.MAX_SAFE_INTEGER })
+    expect(ctx.tasks).toBeInstanceOf(LocalTaskService)
+  })
+
+  it('defaults each owner bucket to ten active tasks', async () => {
+    const ctx = await harness()
+    const live = Array.from({ length: 10 }, () => producer())
+    for (const task of live) ctx.tasks.start(task.spec)
+
+    const blocked = producer()
+    const run = vi.fn(() => blocked.spec.run())
+    expect(() => ctx.tasks.start({ ...blocked.spec, run }))
+      .toThrow('background task limit reached for this owner (limit: 10)')
+    expect(run).not.toHaveBeenCalled()
+    for (const task of live) task.settle({ status: 'completed' })
+  })
+
+  it('rejects before producer start and id allocation, then admits immediately after settlement', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const first = producer()
+    expect(ctx.tasks.start(first.spec)).toBe('bash-1')
+
+    const blocked = producer()
+    const run = vi.fn(() => blocked.spec.run())
+    expect(() => ctx.tasks.start({ ...blocked.spec, run }))
+      .toThrow('use task_kill to stop an unneeded task, wait for it to finish, then retry')
+    expect(run).not.toHaveBeenCalled()
+
+    first.settle({ status: 'completed' })
+    await tick()
+    expect(ctx.tasks.start(blocked.spec)).toBe('bash-2')
+  })
+
+  it('keeps a stopping task in the bucket until producer settlement', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const first = producer()
+    const id = ctx.tasks.start(first.spec)
+    expect(ctx.tasks.kill(id)).toBe('requested')
+
+    const replacement = producer()
+    expect(() => ctx.tasks.start(replacement.spec)).toThrow('(limit: 1)')
+
+    first.settle({ status: 'killed' })
+    await tick()
+    expect(ctx.tasks.start(replacement.spec)).toBe('bash-2')
+  })
+
+  it.each(['completed', 'killed', 'failed'] as const)(
+    'releases the bucket after a %s terminal outcome',
+    async (status) => {
+      const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+      const first = producer()
+      ctx.tasks.start(first.spec)
+      first.settle({ status })
+      await tick()
+      expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
+    },
+  )
+
+  it('isolates exact owners, replacement objects with the same session id, and the unowned bucket', async () => {
+    const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
+    const oldOwner = stubAgent(ctx, 'shared-session')
+    const detachOld = ctx.agents.register(oldOwner)
+    const oldTask = producer({ owner: oldOwner })
+    ctx.tasks.start(oldTask.spec)
+
+    const otherOwner = stubAgent(ctx, 'other-session')
+    ctx.agents.register(otherOwner)
+    expect(() => ctx.tasks.start(producer({ owner: otherOwner }).spec)).not.toThrow()
+
+    detachOld()
+    const replacement = stubAgent(ctx, 'shared-session')
+    ctx.agents.register(replacement)
+    expect(() => ctx.tasks.start(producer({ owner: replacement }).spec)).not.toThrow()
+
+    ctx.tasks.start(producer().spec)
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('(limit: 1)')
+    expect(() => ctx.tasks.start(producer({ owner: oldOwner }).spec))
+      .toThrow('is not the registered agent instance')
+
+    oldTask.settle({ status: 'completed' })
+    await tick()
+    await disposeAgentScope(oldOwner)
   })
 
   it('issues kind-prefixed ids from per-kind counters', async () => {
@@ -444,8 +539,9 @@ describe('LocalTaskService.wait', () => {
     const ctx = await harness()
     const controller = new AbortController()
     const seen: TaskSnapshot[] = []
-    // The listener aborts after settlement has assigned delivery to this waiter
-    // but before its resolve microtask; the waiter must still receive the result.
+    // The listener aborts after settlement released this waiter but before its
+    // resolve microtask runs. Releasing waiters ahead of the announcement is
+    // what makes that abort harmless; this is the guard on that ordering.
     ctx.tasks.onTaskDone((snapshot) => {
       seen.push(snapshot)
       controller.abort()
@@ -591,6 +687,51 @@ describe('LocalTaskService owner cleanup', () => {
     expect(cancels).toEqual(['owner disposed'])
     // Snapshots dropped: nothing of the owner's remains, listing is empty.
     expect(ctx.tasks.list(owner)).toEqual([])
+  })
+
+  it('publishes the settled visible set before announcing completion', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const p = producer({ owner })
+    ctx.tasks.start(p.spec)
+    // Registered after start so only the settlement's notifications are ordered.
+    const order: string[] = []
+    ctx.tasks.onTasksChanged(() => void order.push('changed'))
+    ctx.tasks.onTaskDone(() => void order.push('done'))
+
+    p.settle({ status: 'completed' })
+    await tick()
+
+    // A completion reporter may open a turn synchronously. Announcing before
+    // the visible set is published would let a client render that turn while
+    // its task row still reads `running`.
+    expect(order).toEqual(['changed', 'done'])
+  })
+
+  it('reports a teardown-cancelled record so completion reporters stay quiet', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const seen: TaskSnapshot[] = []
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
+
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'subagent',
+      label: 'long research',
+      owner,
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
+    })
+
+    // Observers still receive the terminal record; the report bit is what
+    // keeps a notice reporter from addressing an owner being destroyed.
+    await disposeAgentScope(owner)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.reported).toBe(true)
   })
 
   it('attaches one cleanup per owner and drains all owned tasks with the scope', async () => {

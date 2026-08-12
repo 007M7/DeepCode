@@ -21,6 +21,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../../host/webserver"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -28,6 +31,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../ui-settings"
     }
   ]
 }

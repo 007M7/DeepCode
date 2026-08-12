@@ -7,7 +7,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
-import { type Agent } from '@deepseek-ai/dsh-agent'
+import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -313,6 +313,22 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toBe('late but fine')
   })
 
+  it('keeps continuable guidance empty while its provider is absent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    tool.apply(ctx, {
+      provider: 'later-continuable',
+      backgroundMode: 'continuable',
+      maxDepth: 'provider-managed',
+    })
+
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
+    expect(ctx.tools.schemas().some(schema => schema.name === 'subagent')).toBe(false)
+  })
+
   it('mirrors the provider lifecycle: gone on backend dispose, re-derived wording on re-registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -338,13 +354,26 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
 
-    // Arm 1: a mounted tool dies with its plugin fiber; the provider survives.
-    await mock.mountScriptedProvider(ctx, { name: 'mock' })
-    const mounted = await ctx.plugin(tool, { provider: 'mock' })
+    // Arm 1: a mounted tool and its prompt section die with the plugin fiber;
+    // the provider survives.
+    ctx.subagents.registerProvider({
+      name: 'continuable',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { throw new Error('lifecycle test does not start a child') },
+      prepareContinuable: async () => ({}),
+    })
+    const mounted = await ctx.plugin(tool, {
+      provider: 'continuable',
+      backgroundMode: 'continuable',
+      maxDepth: 'provider-managed',
+    })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:subagent')).toBe(true)
     await mounted.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
-    expect(ctx.subagents.getProvider('mock')).toBeDefined()
+    expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:subagent')).toBe(false)
+    expect(ctx.subagents.getProvider('continuable')).toBeDefined()
 
     // Arm 2: a fiber disposed while WAITING must not react to the provider
     // arriving later — a surviving listener would re-register a tool that no
@@ -563,7 +592,7 @@ describe('dsh-tool-subagent', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    // No SubagentService mounted. The tool injects ['tools','subagents'] so its
+    // No SubagentService mounted. The tool injects its three required services so its
     // apply never runs; the tool is absent rather than half-registered.
     let booted = true
     try {
@@ -578,19 +607,19 @@ describe('dsh-tool-subagent', () => {
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/Config/apply', () => {
-    // Postmortem 0001 guard: this plugin HAS `inject = ['tools','subagents']`, so
+    // Postmortem 0001 guard: this plugin HAS an explicit `inject`, so
     // a stray `export default apply` would collapse the module via
     // `unwrapExports` (`exports.default ?? exports`), DROP `inject`, and crash at
     // load with "cannot get property … without inject". Guard the shape directly.
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent')
-    expect(tool.inject).toEqual(['tools', 'subagents'])
+    expect(tool.inject).toEqual(['tools', 'subagents', 'systemPrompt'])
 
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(tool) as Record<string, unknown>
     expect(unwrapped).toBe(tool)
     expect(unwrapped.name).toBe('tool-subagent')
-    expect(unwrapped.inject).toEqual(['tools', 'subagents'])
+    expect(unwrapped.inject).toEqual(['tools', 'subagents', 'systemPrompt'])
     expect(typeof unwrapped.apply).toBe('function')
     expect(unwrapped.Config).toBeDefined()
   })
@@ -985,21 +1014,31 @@ describe('dsh-tool-subagent continuable background mode', () => {
       signal: testToolSignal,
       callId: CallId('subagent-continuable'),
       name: 'subagent',
-      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+      arguments: { description: 'do work', prompt: 'Reply OK' },
     })).toEqual({ kind: 'parallel' })
   })
 
-  it('starts a continuable child and returns only its durable id, creating no Task', async () => {
+  it('defaults continuable delegation to background and returns only its durable id', async () => {
     const { ctx, parent } = await continuableSetup()
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
     // Continuable delegation has no Task, so the schema promises no collection.
     expect(schema.description).not.toContain('task_output')
     expect(schema.description).not.toContain('task_kill')
     expect(schema.description).toContain('send_message')
+    expect(schema.description).toContain('runs in the background by default')
+    expect(schema.description).not.toContain('never poll or wait on it')
+    const properties = (schema.parameters as {
+      properties: Record<string, { description?: string }>
+    }).properties
+    expect(properties.run_in_background?.description).toContain('Defaults to true')
+    const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
+    const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
+    expect(guidance?.text).toContain('Use subagent in the background by default')
+    expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
 
     const started = await callSubagent(
       ctx,
-      { description: 'continuable work', prompt: 'dig in', run_in_background: true },
+      { description: 'continuable work', prompt: 'dig in' },
       { agent: parent },
     )
     expect(started.isError).toBe(false)
@@ -1016,6 +1055,29 @@ describe('dsh-tool-subagent continuable background mode', () => {
     const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
+  })
+
+  it('hides continuable guidance when the current agent cannot see the tool', async () => {
+    const { ctx, parent } = await continuableSetup()
+    parent.ctx.tools.restrict({ deny: ['subagent'] })
+
+    expect(ctx.tools.get('subagent', parent)).toBeUndefined()
+    const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
+    expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
+  })
+
+  it('waits for a continuable provider only when run_in_background is explicitly false', async () => {
+    const { ctx, parent } = await continuableSetup()
+    const result = await callSubagent(
+      ctx,
+      { description: 'blocking work', prompt: 'dig in', run_in_background: false },
+      { agent: parent },
+    )
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected foreground subagent success')
+    expect(result.value).toMatchObject({ kind: 'foreground' })
+    expect(text(result)).toBe('continuable answer')
+    expect(ctx.tasks.list(parent)).toEqual([])
   })
 
   it('isolates a cancelled continuable preparation from a concurrent sibling', async () => {

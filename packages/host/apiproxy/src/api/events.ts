@@ -11,7 +11,7 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 import type { Message } from '@deepseek-ai/dsh-llm/types'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
 import type { TaskView } from './tasks.ts'
@@ -119,7 +119,8 @@ export type MuxFrame =
  * workspace mutation (create/attach/order change — the client upserts, while
  * `workspace.list` provides the reconnect baseline); workspace-removed is the
  * committed registration-deletion increment and never implies directory or
- * session-log deletion; archived-sessions-changed pushes the full registry
+ * session-log deletion; workspace-order-changed pushes the complete durable
+ * registry order after a reorder; archived-sessions-changed pushes the full registry
  * archive set after every durable change (same full-snapshot posture as
  * workspace-changed — `workspace.list` re-baselines it on reconnect).
  */
@@ -138,42 +139,17 @@ export type HostFrame =
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
+  | { type: 'host/workspace-order-changed'; workspaceIds: WorkspaceView['workspaceId'][] }
   | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
   /**
-   * The command registry changed (`commands/change` passthrough). Pure
-   * invalidation signal, no payload: clients refetch `command.list` in the
-   * background rather than diffing.
+   * One allowlisted host cordis event forwarded verbatim. The allowlist is
+   * owned by `@deepseek-ai/dsh-api-remotes` (`API_REMOTE_FORWARDED_EVENTS`),
+   * which is also the only control point over what a consumer can receive.
+   * `event` is the host's own event name and `args` its argument list: this
+   * path applies no projection, no redaction, and no renaming, so the payload
+   * contract is the owner package's cordis `Events` declaration rather than
+   * anything stated here. Delivery lands on `ctx.remote.$on`, not on a
+   * per-event frame variant.
    */
-  | { type: 'host/commands-changed' }
-  /**
-   * One blank session was recomposed onto another agent preset (the logged
-   * `agent-preset/selected` commit point, read off the session stream). The
-   * registry-wide `host/commands-changed` cannot stand in for it: recomposing
-   * re-parents that agent's scope without registering anything, so a
-   * preset already mounted for another session produces no registry change
-   * at all. Clients refetch the catalogs this session's composition decides
-   * (`command.list`, `skill.list`) for this sessionId alone, and fold the
-   * preset id into their session row — the RPC echo reaches only the client
-   * that issued the switch, so the row is where every other one learns it.
-   */
-  | { type: 'host/session-preset-changed'; sessionId: SessionId; agentPreset: string }
-  /**
-   * One settings namespace's resolved value changed (`settings/updated`
-   * passthrough) — an RPC write, an external `settings.yaml` edit, or a
-   * provider reload all converge here. Clients refetch `settings.describe`;
-   * values never ride the frame (they would need redaction and can go stale).
-   */
-  | { type: 'host/settings-changed'; ns: string }
-  /**
-   * One credential reference's state changed (`credentials/updated`
-   * passthrough): a set/unset over this wire or an external `.env` edit.
-   * The ref is an environment-variable NAME — never a value.
-   */
-  | { type: 'host/credentials-changed'; ref: string }
-  /**
-   * The provider topology changed (`llm/adapters-updated` passthrough):
-   * routes registered or dropped, or the configurable directory moved. Pure
-   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
-   */
-  | { type: 'host/models-changed' }
+  | { type: 'host/remote-event'; event: string; args: JsonValue[] }
   | { type: 'stream/error'; error: RpcError }

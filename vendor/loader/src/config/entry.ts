@@ -3,18 +3,7 @@ import { deepEqual, isNullable } from '@deepseek-ai/cosmokit'
 import { Loader } from '../index.ts'
 import { EntryGroup } from './group.ts'
 import { EntryTree } from './tree.ts'
-import { evaluate } from './utils.ts'
-
-/** Static plugin hook for resolving a container config while preserving nested entry configs. */
-export const EntryConfigResolver = Symbol.for('cordis.loader.entry-config-resolver')
-
-/**
- * Resolve a container's own config while preserving any nested entry configs.
- * @param ctx - the container plugin context.
- * @param config - the container's raw config.
- * @returns the config to validate for this activation.
- */
-export type EntryConfigResolver = (ctx: Context, config: any) => any
+import { evaluate, isJsExpr } from './utils.ts'
 
 /** Serialized plugin entry options stored in loader config files. */
 export interface EntryOptions {
@@ -73,8 +62,6 @@ export class Entry {
 
   _initTask?: Promise<void>
   _disposing = 0
-  private runtimeEnabled = false
-  private runtimeEnableTask?: Promise<void>
 
   constructor(public loader: Loader) {
     this.ctx = loader.ctx.extend({ [Entry.key]: this })
@@ -101,29 +88,23 @@ export class Entry {
   private _disabled(options: EntryOptions) {
     // group is always enabled
     if (options.group) return false
-    if (options.disabled && !this.runtimeEnabled) return true
+    if (this.disabledOf(options)) return true
     let entry = this.parent.ctx.fiber.entry
     while (entry) {
-      if (entry.options.disabled && !entry.runtimeEnabled) return true
+      if (this.disabledOf(entry.options)) return true
       entry = entry.parent.ctx.fiber.entry
     }
     return false
   }
 
   /**
-   * Enable this in-memory entry without rewriting its configured `disabled`
-   * value; the override survives config reapplication for this entry object.
-   * @returns a promise settling after its initial activation attempt.
+   * Effective disabled state: a `!!js` expression evaluates against the loader
+   * context. The raw node stays in the options, so write-back keeps the form.
    */
-  enableRuntime(): Promise<void> {
-    if (this.runtimeEnableTask !== undefined) return this.runtimeEnableTask
-    this.runtimeEnabled = true
-    this.runtimeEnableTask = this.refresh().catch((error: unknown) => {
-      this.runtimeEnabled = false
-      this.runtimeEnableTask = undefined
-      throw error
-    })
-    return this.runtimeEnableTask
+  private disabledOf(options: EntryOptions): boolean {
+    return isJsExpr(options.disabled)
+      ? Boolean(this.evaluate(options.disabled.__jsExpr))
+      : Boolean(options.disabled)
   }
 
   evaluate(expr: string) {

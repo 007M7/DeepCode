@@ -25,6 +25,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../ui-settings"
     }
   ]
 }

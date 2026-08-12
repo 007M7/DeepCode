@@ -127,7 +127,7 @@ register(definition: CommandDefinition): () => void
  * @param agent - exact receiving agent and scoped-layer key.
  * @returns name-sorted descriptors after scoped shadowing.
  */
-list(agent: Agent): readonly CommandDescriptor[]
+@Remote list(agent: Agent): readonly CommandDescriptor[]
 
 /**
  * Resolve one effective command definition.
@@ -156,12 +156,12 @@ find(agent: Agent, name: string): CommandDefinition | undefined
  * @returns the settled execution (result + lifecycle pairing id), or
  *   `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
+@Remote async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
 Types: [Agent](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:267`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:225`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -183,5 +183,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:134`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:72`](../../packages/interaction/commands/src/types.ts)
 <!-- END GENERATED cordis-surface -->

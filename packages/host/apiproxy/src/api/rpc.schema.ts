@@ -37,6 +37,7 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('session-not-found'), message: z.string(), details: z.object({ sessionId: z.string() }) }),
   z.object({ code: z.literal('model-unavailable'), message: z.string(), details: z.object({ provider: z.string(), model: z.string() }) }),
   z.object({ code: z.literal('session-conflict'), message: z.string(), details: z.object({ sessionId: z.string(), requestedCwd: z.string(), existingCwd: z.string().optional() }) }),
+  z.object({ code: z.literal('invalid-time-zone'), message: z.string(), details: z.object({ value: z.string() }) }),
   z.object({ code: z.literal('workspace-attach-failed'), message: z.string(), details: z.object({ sessionId: z.string(), workspaceId: z.string() }) }),
   z.object({ code: z.literal('workspace-not-found'), message: z.string(), details: z.object({ workspaceId: z.string() }) }),
   z.object({ code: z.literal('workspace-invalid-path'), message: z.string(), details: z.object({ path: z.string() }) }),
@@ -90,6 +91,9 @@ export function rpcResultSchema<T>(value: z.ZodType<T>): z.ZodUnion<readonly [z.
 }
 
 // ---- The four wire full-form schemas (payload/result.value slots stay wide — business layer does the second parse) ----
+// The wide value slot is optional: a void business result serializes with no
+// `value` field at all. Each endpoint's own second parse still requires its
+// declared value, so absence never passes for a method that returns data.
 
 /** ClientRequest full form (payload stays wide — the business layer runs the second parse). */
 export const clientRequestSchema = z.object({
@@ -103,7 +107,7 @@ export const clientRequestSchema = z.object({
 export const serverResponseSchema = z.object({
   type: z.literal('server-response'),
   rpcId: rpcIdSchema,
-  result: rpcResultSchema(z.unknown()),
+  result: rpcResultSchema(z.unknown().optional()),
 }) as unknown as z.ZodType<ServerResponse>
 
 /** ServerRequest full form (payload stays wide). */
@@ -118,7 +122,7 @@ export const serverRequestSchema = z.object({
 export const clientResponseSchema = z.object({
   type: z.literal('client-response'),
   rpcId: rpcIdSchema,
-  result: rpcResultSchema(z.unknown()),
+  result: rpcResultSchema(z.unknown().optional()),
 }) as unknown as z.ZodType<ClientResponse>
 
 /** Wire full-form union (discriminated by type). */

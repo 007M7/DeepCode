@@ -6,23 +6,23 @@ Status: implemented
 
 ## 问题
 
-Web surface 同时由两个位置定义与 Claude SWE 兼容的 RL agent（智能体）：进程级 `core-web.cordis.yml` patch，以及逐会话的 `minimal` preset。[agent preset](../architecture/2026-08-03-per-session-agent-presets.md) 成为 agent 组合边界后，preset 中带作用域的 `deployment:persona` 会用陈旧的 coding-agent 文本遮蔽 overlay 修正过的全局 persona。overlay 测试没有挂载 preset，而 preset 测试启动时没有 overlay，因此两者都没有覆盖用户实际选择的组合。
+随附 Web 配置同时由两个位置定义与 Claude SWE 兼容的 RL agent（智能体）：进程级 `core-web.cordis.yml` patch，以及逐会话的 `minimal` preset。[agent preset](../architecture/2026-08-03-per-session-agent-presets.md) 成为 agent 组合边界后，preset 中带作用域的 `deployment:persona` 会用陈旧的 coding-agent 文本遮蔽 overlay 修正过的全局 persona。overlay 测试没有挂载 preset，而 preset 测试启动时没有 overlay，因此两者都没有覆盖用户实际选择的组合。
 
 这种拆分还掩盖了其他偏差。preset 挂载了一次性 Bash，而不是 RL harness 使用的[持久 Bash](../feature/2026-07-29-persistent-bash-str-replace-editor.md)，并且遗漏了 RL 压缩（compaction）策略。保留两个所有者，会使今后每次修改提示词、工具或策略时都必须验证二者的交叉组合。
 
 ## 决策
 
-随附的 Web `minimal` preset 是 RL agent 组合在 Web 中的唯一所有者。它声明 entry 本地的 PTY 注册表与本地后端、带 RL 环境描述且超时为 300 秒的持久 `bash`、`str_replace_editor`，以及 entry 本地的压缩后端。工具呈现仍由部署选择。压缩策略保留 RL 的阈值、绝对保留量、生成上限和重试次数；模型容量来自经路由选定的适配器元数据，因为 `contextWindow` 已不再是 compact-basic 的配置字段。编辑器不接受 `requireAbsolutePath` 设置，因为要求绝对路径是它的无条件约定。
+随附的 Web `minimal` preset 是 RL agent 组合在 Web 中的唯一所有者。它声明 entry 本地的 PTY 注册表与本地后端、带 RL 环境描述且超时为 300 秒的持久 `bash`，以及 `str_replace_editor`。工具呈现仍由部署选择。后续的[裸双工具运行时决策](../feature/2026-08-11-minimal-profiles-bare-two-tool-runtime.md)取代了本记录最初的压缩与文件系统提供方选择：当前 preset 挂载 entry 本地的 `fs-local` 提供方，不挂载压缩后端。编辑器不接受 `requireAbsolutePath` 设置，因为要求绝对路径是它的无条件约定。
 
 preset persona 恰好是 `You are a helpful software engineer assistant.`，并设置 `complete: true`。complete `PromptSection` 参与常规组装，因此工具、上下文、变量和协作式监听器仍会解析；`system-prompt/assemble` waterfall（瀑布式事件）结束后，提示词注册表会将该段落的独立副本恢复为唯一的系统提示词段落。存在多个有效 complete 段时，组装会被拒绝。这项最终注册表约束可防止 harness 身份、Web 定位、工具引导或组装监听器追加提示词文本。
 
-进程级 `core-web.cordis.yml` patch 不再存在。浏览器 UI、workspace 附加、持久化、文件系统、子进程、沙箱、权限、模型路由及其他跨会话服务仍由宿主持有。选择 `minimal` 只会改变一个 agent 面向模型的组合，不会改变 Web 进程中的其他会话。
+进程级 `core-web.cordis.yml` patch 不再存在。浏览器 UI、workspace 附加、持久化、子进程、沙箱、权限、模型路由及其他跨会话服务仍由宿主持有。选择 `minimal` 会改变一个 agent 面向模型的组合，并且仅为该 agent 遮蔽宿主文件系统提供方，不会改变 Web 进程中的其他会话。
 
 ## 验证
 
-系统提示词与 persona 包测试证明了 complete 段的最终约束，包括 waterfall 修改与重复项拒绝。交付 preset 组合测试在默认原生呈现下断言精确的提示词、Bash 描述、要求绝对路径的编辑器 schema 和双工具目录。无密钥 Web 回放通过 `minimal` agent 发送一个真实请求，同时注册全局身份、Web surface 文本和一个测试段落；随后执行两次持久 Bash 调用，证明环境与 cwd 状态能够保留，并通过绝对路径执行编辑器。
+系统提示词与 persona 包测试证明了 complete 段的最终约束，包括 waterfall 修改与重复项拒绝。交付 preset 组合测试在默认原生呈现下断言精确的提示词、Bash 描述、要求绝对路径的编辑器 schema 和双工具目录。无密钥 Web 回放通过 `minimal` agent 发送一个真实请求，同时注册全局身份、Web 定位文本和一个测试段落；它断言 entry 本地文件系统是裸后端且压缩不存在，随后执行两次持久 Bash 调用，证明环境与 cwd 状态能够保留，并通过绝对路径执行编辑器。
 
-独立的 [`minimal.cordis.yml`](../../../../examples/jsonrpc-agent/minimal.cordis.yml) 为内置 JSON-RPC 运行时复现相同的提示词、工具、超时和压缩策略。其无密钥 SDK 回放会断言组装后的系统提示词与双工具目录，跨调用执行持久 Bash，并使用编辑器；Python SDK 教程提供可运行的入口。
+独立的 [`minimal.cordis.yml`](../../../../examples/jsonrpc-agent/minimal.cordis.yml) 是内置 JSON-RPC 运行时的完整双工具组合。[裸双工具运行时决策](../feature/2026-08-11-minimal-profiles-bare-two-tool-runtime.md)说明其启动方式专属的环境配置、裸文件系统和无压缩选择。其无密钥 SDK 回放会断言组装后的系统提示词与双工具目录，跨调用执行持久 Bash，并使用编辑器；Python SDK 教程提供可运行的入口。
 
 ## 考虑过的替代方案
 
@@ -36,4 +36,4 @@ preset persona 恰好是 `You are a helpful software engineer assistant.`，并�
 
 ## 后果
 
-RL 提示词固定不变，不能通过环境覆盖。Web preset 与独立 JSON-RPC 示例分别在各自的启动界面声明相同的约定。模型只看到持久 `bash` 与 `str_replace_editor`；shell 状态按 agent 隔离，并随该 agent 一并消失。preset 为自身的 PTY 与压缩服务实例承担开销，其他 preset 无需承担。持久 shell 的本地后端需要受支持的 POSIX 终端基础环境，因此该 preset 不适用于 Windows agent surface。
+Web RL 提示词固定不变，不能通过环境覆盖；独立 JSON-RPC 提示词由部署选择。Web preset 与独立 JSON-RPC 示例分别在各自的启动路径声明相同的双工具约定。模型只看到持久 `bash` 与 `str_replace_editor`；shell 状态按 agent 隔离，并随该 agent 一并消失。Web preset 为自身的 PTY 与裸文件系统服务实例承担开销，其他 preset 无需承担。持久 shell 的本地后端需要受支持的 POSIX 终端基础环境，因此该 preset 不支持 Windows agent。

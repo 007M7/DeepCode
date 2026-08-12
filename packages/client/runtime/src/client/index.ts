@@ -1,6 +1,10 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: the ctx.remote merge. Deliberately the gateway's Client half rather
+// than api-remotes': that face imports a Host-tsdown-generated artifact, and this
+// project sits in the Host build graph.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
@@ -42,9 +46,12 @@ export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
-export { bindSettingsScope, SettingsScopeController } from './settings-scope.ts'
-export type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './settings-scope.ts'
 export { resolveWorkspacePath } from './workspaces/path.ts'
+// Contract only: the scope implementation and its Host transport belong to
+// dsh-client-ui-settings (see that package's settings-scope.ts).
+export type {
+  SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec,
+} from './contract/settings-scope.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type { AgentContext, ISessions } from './contract/sessions.ts'
@@ -151,47 +158,6 @@ declare module '@deepseek-ai/cordis' {
      */
     'slots/changed'(key: string): void
     /**
-     * The host command registry changed (host/commands-changed passthrough).
-     * Pure invalidation signal: subscribers refetch `command.list` in the
-     * background rather than diffing.
-     * @mode emit
-     */
-    'commands/changed'(): void
-    /**
-     * One settings namespace's resolved value changed on the host
-     * (host/settings-changed passthrough). Subscribers refetch
-     * `settings.describe`; the frame carries no values.
-     * @mode emit
-     * @param ns - the namespace whose resolved value changed.
-     */
-    'settings/changed'(ns: string): void
-    /**
-     * One credential reference's state changed on the host
-     * (host/credentials-changed passthrough). The ref is an
-     * environment-variable NAME — never a value.
-     * @mode emit
-     * @param ref - the reference whose configured state changed.
-     */
-    'credentials/changed'(ref: string): void
-    /**
-     * The host provider topology changed (host/models-changed passthrough).
-     * Subscribers refetch `llm.providers`/`llm.models`/`session.models`.
-     * @mode emit
-     */
-    'models/changed'(): void
-    /**
-     * One session's agent preset changed (host/session-preset-changed
-     * passthrough), so everything its composition decides — the command
-     * catalog, the skill catalog — is stale for that session and no other.
-     * Every connected client observes it, not only the one that issued the
-     * switch. Subscribers refetch their own session-keyed caches; the frame
-     * carries no catalog.
-     * @mode emit
-     * @param sessionId - the session whose composition changed.
-     * @param agentPreset - the preset it now runs.
-     */
-    'session/preset-changed'(sessionId: SessionId, agentPreset: string): void
-    /**
      * A connection generation was (re-)established. Wire-derived caches must
      * treat their state as stale and repull (commands directory; the queue
      * mirrors reset themselves through the session resync path).
@@ -213,7 +179,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Required services: the wire handle and Client TypeRT registry. */
-export const inject = ['connection', 'typert']
+export const inject = ['connection', 'typert', 'remote', 'remote.commands']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
@@ -225,7 +191,7 @@ export function apply(ctx: Context): void {
     views: new ConversationViewRegistry(ctx),
   }
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionsService(ctx, connection.api, conversation)
+  const sessions = new SessionsService(ctx, connection.api, ctx.remote, conversation)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
@@ -241,17 +207,12 @@ export function apply(ctx: Context): void {
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
-      // Typed-event bridge: the session layer ignores registry frames (no
-      // session routing); consumers (command directory caches, the settings
-      // and model services) subscribe on ctx.
+      // Forwarded-event bridge: the session layer ignores registry frames (no
+      // session routing). This plugin owns the frame sink, so it hands the
+      // decoded frame straight to the Remote service, which fans it out to
+      // `ctx.remote.$on` subscribers; no consumer reads a frame.
       const frame = envelope.payload
-      if (frame.type === 'host/commands-changed') ctx.emit('commands/changed')
-      else if (frame.type === 'host/session-preset-changed') {
-        ctx.emit('session/preset-changed', frame.sessionId, frame.agentPreset)
-      }
-      else if (frame.type === 'host/settings-changed') ctx.emit('settings/changed', frame.ns)
-      else if (frame.type === 'host/credentials-changed') ctx.emit('credentials/changed', frame.ref)
-      else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
+      if (frame.type === 'host/remote-event') ctx.remote.$dispatch(frame.event, frame.args)
     },
     onConnected: () => {
       sessions.handleConnected()

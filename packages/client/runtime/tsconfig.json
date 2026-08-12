@@ -21,12 +21,6 @@
       "path": "../web-react"
     },
     {
-      "path": "../connection"
-    },
-    {
-      "path": "../schema-form"
-    },
-    {
       "path": "../../host/apiproxy"
     },
     {
@@ -61,6 +55,9 @@
     },
     {
       "path": "../../typert/registry"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
     }
   ],
   "exclude": [

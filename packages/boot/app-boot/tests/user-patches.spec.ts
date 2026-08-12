@@ -110,21 +110,33 @@ function entryConfig(ctx: Context, id: string): unknown {
 }
 
 describe('Loader config interpolation', () => {
-  it("resolves Include's own !!js options", async () => {
+  it("keeps Include's config literal — a nested row's !!js belongs to that row's fiber", async () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
-    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    writeFileSync(join(dir, 'reader.mjs'), [
+      'export const name = "reader"',
+      'export function apply(ctx, config) { ctx.provide("observedValue", config.value) }',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '- id: reader\n  name: ./reader.mjs\n')
     const ctx = new Context()
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
-    ctx.provide('includePath', pathToFileURL(join(dir, 'cordis.yml')).href)
+    ctx.provide('answer', 42)
     try {
+      // The include is a tree carrier: its own config (path, patches) stays
+      // literal, and the expression nested inside the patched row's config
+      // resolves against the row's fiber, not the include's.
       await ctx.loader.create({
         name: 'cordis:include',
-        config: { path: { __jsExpr: "ctx.get('includePath')" } },
+        config: {
+          path: pathToFileURL(join(dir, 'cordis.yml')).href,
+          patches: [{ id: 'reader', name: './reader.mjs', config: { value: { __jsExpr: "ctx.get('answer')" } } }],
+        },
       })
       await ctx.loader.await()
-      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'noop')).toBe(true)
+      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
+      expect(reader?.options.config).toEqual({ value: { __jsExpr: "ctx.get('answer')" } })
+      expect(ctx.get('observedValue')).toBe(42)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -181,6 +193,74 @@ describe('Loader config interpolation', () => {
       await provider?.update({ disabled: false })
       await ctx.loader.await()
       expect(ctx.get('readerResult')).toEqual({ value: 'recovered' })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('Loader entry disabled interpolation', () => {
+  it('evaluates a !!js disabled expression against the loader context', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: expr-off',
+      '  name: ./noop.mjs',
+      '  disabled: !!js process.version.length > 0',
+      '- id: expr-on',
+      '  name: ./noop.mjs',
+      '  disabled: !!js process.version.length === 0',
+      '',
+    ].join('\n'))
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'))
+    try {
+      const off = [...ctx.loader.entries()].find(entry => entry.options.id === 'expr-off')
+      const on = [...ctx.loader.entries()].find(entry => entry.options.id === 'expr-on')
+      expect(off?.disabled).toBe(true)
+      expect(off?.fiber).toBeUndefined()
+      expect(on?.disabled).toBe(false)
+      expect(on?.fiber).toBeDefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps the raw expression in the options so write-back preserves the !!js form', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: expr\n  name: ./noop.mjs\n  disabled: !!js process.platform === "win32"\n')
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'))
+    try {
+      const entry = [...ctx.loader.entries()].find(item => item.options.id === 'expr')
+      // The evaluated boolean drives the mount decision; the serialized
+      // expression node stays in the options for the file-backed tree.
+      expect(entry?.options.disabled).toEqual({ __jsExpr: 'process.platform === "win32"' })
+      expect(entry?.disabled).toBe(process.platform === 'win32')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('re-evaluates when update() replaces the expression, mounting and unmounting', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: expr\n  name: ./noop.mjs\n  disabled: !!js process.version.length === 0\n')
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'))
+    try {
+      const entry = [...ctx.loader.entries()].find(item => item.options.id === 'expr')
+      expect(entry?.disabled).toBe(false)
+      expect(entry?.fiber).toBeDefined()
+      // The expression form is the file dialect; the typed programmatic API
+      // carries booleans. Include reapplication feeds the raw node through
+      // the untyped file path — simulated here with the serialized shape.
+      const disabledTrue = { __jsExpr: 'process.version.length > 0' } as unknown as boolean
+      const disabledFalse = { __jsExpr: 'process.version.length === 0' } as unknown as boolean
+      await entry?.update({ disabled: disabledTrue })
+      expect(entry?.disabled).toBe(true)
+      expect(entry?.fiber).toBeUndefined()
+      await entry?.update({ disabled: disabledFalse })
+      expect(entry?.disabled).toBe(false)
+      expect(entry?.fiber).toBeDefined()
     } finally {
       await ctx.fiber.dispose()
     }

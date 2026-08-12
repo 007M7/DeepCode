@@ -9,9 +9,6 @@
   ],
   "references": [
     {
-      "path": "../connection"
-    },
-    {
       "path": "../locale"
     },
     {
@@ -43,6 +40,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-settings"
     }
   ]
 }

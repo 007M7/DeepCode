@@ -3,8 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
@@ -16,6 +17,7 @@ import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
 const testToolSignal = new AbortController().signal
 
 const agentRegistryDisposers = new WeakMap<Agent, () => void>()
+const agentScopeFibers = new WeakMap<Agent, { dispose: () => Promise<void> }>()
 
 async function setup(config: ToolTasks.Config = {}) {
   const ctx = new Context()
@@ -27,20 +29,31 @@ async function setup(config: ToolTasks.Config = {}) {
   return { ctx, agentsFiber, toolsFiber }
 }
 
+/** The delivery surface a completion notice may reach on a fake owner. */
+interface FakeDelivery {
+  inject?: (...args: unknown[]) => void
+  followup?: (...args: unknown[]) => void
+  /** Defaults to `running`, the lane that never wakes, so notice-content tests pin one lane. */
+  status?: 'idle' | 'running'
+}
+
 /**
  * A fake agent with the shared agent/session identity, registered in
  * `ctx.agents` with a dedicated lifecycle scope.
  */
-function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
+function fakeAgent(ctx: Context, sessionId: string, delivery: FakeDelivery = {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
   const id = SessionId(sessionId)
   const agent = {
     id,
     ctx: scopeFiber.ctx,
-    inject,
+    inject: delivery.inject ?? (() => {}),
+    followup: delivery.followup ?? (() => {}),
+    status: delivery.status ?? 'running',
     session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   agentRegistryDisposers.set(agent, ctx.agents.register(agent))
+  agentScopeFibers.set(agent, scopeFiber)
   return agent
 }
 
@@ -48,6 +61,13 @@ function detachAgent(agent: Agent): void {
   const dispose = agentRegistryDisposers.get(agent)
   if (dispose === undefined) throw new Error(`missing registry disposer for agent "${agent.id}"`)
   dispose()
+}
+
+/** Dispose the agent's own lifecycle scope, which is what drains its owned tasks. */
+async function disposeAgentScope(agent: Agent): Promise<void> {
+  const fiber = agentScopeFibers.get(agent)
+  if (fiber === undefined) throw new Error(`missing scope fiber for agent "${agent.id}"`)
+  await fiber.dispose()
 }
 
 /** A controllable producer start-spec (settle `done` on demand, record cancels). */
@@ -81,6 +101,16 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
+/** Start and settle `count` owned tasks one at a time, letting each notice land. */
+async function settleTasks(ctx: Context, owner: Agent, count: number): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    const p = producer({ owner })
+    ctx.tasks.start(p.spec)
+    p.settle({ status: 'completed' })
+    await tick()
+  }
+}
+
 describe('tool-tasks setup', () => {
   it('attaches the task controller on load and detaches it with the fiber', async () => {
     const { ctx, toolsFiber } = await setup()
@@ -96,6 +126,35 @@ describe('tool-tasks setup', () => {
     await ctx.plugin(LocalTaskService)
     await expect(ctx.plugin(ToolTasks, { waitTimeoutMs: 100, maxWaitTimeoutMs: 50 }))
       .rejects.toThrow('waitTimeoutMs (100) exceeds maxWaitTimeoutMs (50)')
+  })
+
+  it('defaults delivery to wakeup and rejects an unknown lane', () => {
+    expect(ToolTasks.Config({}).completionDelivery).toBe('wakeup')
+    expect(ToolTasks.Config({}).maxConsecutiveWakes).toBe(3)
+    expect(() => ToolTasks.Config({ completionDelivery: 'loud' as never })).toThrow()
+    expect(() => ToolTasks.Config({ maxConsecutiveWakes: 0 })).toThrow()
+  })
+
+  it('rejects a wake budget that cannot bound anything', async () => {
+    // Reports the load outcome as text: a resolved fiber is not safely printable.
+    const loadWith = async (maxConsecutiveWakes: number): Promise<string> => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(LocalTaskService)
+      try {
+        await ctx.plugin(ToolTasks, { maxConsecutiveWakes })
+        return 'loaded'
+      } catch (error: unknown) {
+        return String(error)
+      }
+    }
+
+    // The field exists to bound runaway waking; a fractional budget counts
+    // nothing and an infinite one removes the bound it was configured for.
+    expect(await loadWith(Number.POSITIVE_INFINITY)).toContain('maxConsecutiveWakes')
+    expect(await loadWith(2.5)).toContain('maxConsecutiveWakes')
+    expect(await loadWith(1)).toBe('loaded')
   })
 
   it('renders status lines with and without producer detail', () => {
@@ -494,11 +553,139 @@ describe('completion notices across scoped mounts', () => {
   })
 })
 
+describe('completion notice delivery', () => {
+  it('opens a turn on an idle owner when a task settles', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+    const p = producer({ owner, label: 'pnpm test' })
+    ctx.tasks.start(p.spec)
+
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    expect(followup).toHaveBeenCalledTimes(1)
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it('never wakes an idle owner under quiet delivery', async () => {
+    const { ctx } = await setup({ completionDelivery: 'quiet' })
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+    const p = producer({ owner })
+    ctx.tasks.start(p.spec)
+
+    p.settle({ status: 'completed' })
+    await tick()
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('degrades to injection once the consecutive wake budget is spent', async () => {
+    const { ctx } = await setup({ maxConsecutiveWakes: 2 })
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+
+    await settleTasks(ctx, owner, 3)
+    // A woken turn that starts another task is the self-exciting case: the
+    // budget stops the chain, and the notice still reaches the inbox.
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(inject).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the wake budget when the owner claims a user message', async () => {
+    const { ctx } = await setup({ maxConsecutiveWakes: 1 })
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+
+    await settleTasks(ctx, owner, 2)
+    expect(followup).toHaveBeenCalledTimes(1)
+
+    emitAgentEvent(ctx, owner, 'agent/inbox/claimed', {
+      message: createUserMessage({ content: [{ type: 'text', text: 'carry on' }], source: { kind: 'user' } }),
+      turn: 1,
+    })
+    await settleTasks(ctx, owner, 1)
+    expect(followup).toHaveBeenCalledTimes(2)
+  })
+
+  it('neither wakes nor injects into an owner its own teardown is draining', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'sleep 60',
+      owner,
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
+    })
+
+    // Disposal cancels and settles the owned task. Waking here would spend a
+    // model request on an agent the host is destroying, once per tree layer.
+    await disposeAgentScope(owner)
+    await tick()
+    expect(followup).not.toHaveBeenCalled()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it('neither wakes nor injects when the teardown cancel itself threw', async () => {
+    const { ctx } = await setup()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'broken producer',
+      owner,
+      run: () => ({
+        cancel() { throw new Error('cancel boom') },
+        done: new Promise<TaskOutcome>(() => {}),
+      }),
+    })
+
+    // The registry force-fails the record instead of deadlocking. That path
+    // settles the task too, so it must claim the report as the ordinary
+    // teardown cancel does — otherwise a throwing producer is all it takes to
+    // spend a model request on an owner being destroyed.
+    await disposeAgentScope(owner)
+    await tick()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('work may be orphaned'))
+    expect(followup).not.toHaveBeenCalled()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it('keeps the budget spent when the owner only claims plugin notices', async () => {
+    const { ctx } = await setup({ maxConsecutiveWakes: 1 })
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { followup, status: 'idle' })
+
+    await settleTasks(ctx, owner, 1)
+    emitAgentEvent(ctx, owner, 'agent/inbox/claimed', {
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'background task bash-1 finished' }],
+        source: { kind: 'plugin', plugin: 'tool-tasks', form: 'notice', summary: 'bash' },
+      }),
+      turn: 1,
+    })
+    await settleTasks(ctx, owner, 1)
+    expect(followup).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('completion notices', () => {
   it('injects a notice into the owning agent when an unreported task settles', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const p = producer({ owner, label: 'pnpm test' })
     ctx.tasks.start(p.spec)
 
@@ -521,7 +708,7 @@ describe('completion notices', () => {
   it('preserves task ids and collection guidance in bounded completion notices', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const first = producer({
       owner,
       kind: 'subagent',
@@ -572,9 +759,10 @@ describe('completion notices', () => {
       const prior = producer({ kind: 'pty-send' })
       ctx.tasks.start(prior.spec)
       prior.settle({ status: 'completed' })
+      await tick()
     }
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const target = producer({
       owner,
       kind: 'pty-send',
@@ -595,7 +783,7 @@ describe('completion notices', () => {
   it('reserves the collection-action tail when a producer supplies a smaller budget', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const tiny = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 8 })
     const short = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 32 })
     ctx.tasks.start(tiny.spec)
@@ -616,7 +804,7 @@ describe('completion notices', () => {
   it('suppresses the notice for a task the model already killed', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const p = producer({ owner })
     ctx.tasks.start(p.spec)
 
@@ -629,7 +817,7 @@ describe('completion notices', () => {
   it('suppresses the notice when a wait returned the terminal state', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
     const p = producer({ owner, kind: 'subagent' })
     ctx.tasks.start(p.spec)
 
@@ -654,13 +842,13 @@ describe('completion notices', () => {
     // terminal state, so the notice lands in the old owner's (detached)
     // session instead of throwing or re-routing.
     const oldInject = vi.fn()
-    const oldOwner = fakeAgent(ctx, 'shared', oldInject)
+    const oldOwner = fakeAgent(ctx, 'shared', { inject: oldInject })
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)
 
     detachAgent(oldOwner)
     const replacementInject = vi.fn()
-    fakeAgent(ctx, 'shared', replacementInject)
+    fakeAgent(ctx, 'shared', { inject: replacementInject })
     p.settle({ status: 'completed' })
     await tick()
 
@@ -671,7 +859,7 @@ describe('completion notices', () => {
   it('surfaces an inject failure through listener containment (a real bug must be visible)', async () => {
     const { ctx } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const owner = fakeAgent(ctx, 'sess-1', () => { throw new Error('unexpected inject bug') })
+    const owner = fakeAgent(ctx, 'sess-1', { inject: () => { throw new Error('unexpected inject bug') } })
     const p = producer({ owner })
     ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
@@ -684,7 +872,7 @@ describe('completion notices', () => {
   it('keeps using the exact owner after the agent registry is gone', async () => {
     const { ctx, agentsFiber } = await setup()
     const inject = vi.fn()
-    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const owner = fakeAgent(ctx, 'sess-1', { inject })
 
     // Settlement must not depend on a later registry lookup: the exact owner
     // supplied at start remains the destination while its own scope is live.

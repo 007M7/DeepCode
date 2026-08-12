@@ -79,8 +79,6 @@ interface GenericSkip {
 const GENERIC_SKIPS: readonly GenericSkip[] = [
   // `vendorPackages` lists vendor/ directory names, joined with 'vendor' below it.
   { file: 'packages/examples/acp-demo/tests/built-bin.e2e.ts', upstream: ['cordis', 'cosmokit', 'schemastery'] },
-  // Mixes join(root, 'vendor', 'cordis') paths with real manifest names.
-  { file: 'packages/scaffold/helper/tests/documents.spec.ts', upstream: ['cordis'] },
   // `Symbol.for('schemastery')` and the `vendor:` metadata field are upstream identifiers.
   { file: 'vendor/schemastery/src/index.ts', upstream: ['schemastery'] },
   // Asserts the vendored-manifest table, which gains an upstream-name column.
@@ -91,9 +89,9 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // the creator flow stages and which id the roster reports.
   { file: 'packages/client/ui-agent-preset/src/client/AgentPresetSection.tsx', upstream: ['cordis'] },
   { file: 'packages/client/ui-agent-preset/src/client/index.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/apply.spec.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/locales.spec.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/section.spec.tsx', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/apply.client.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/locales.client.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/section.client.spec.tsx', upstream: ['cordis'] },
   { file: 'apps/cli/tests/web-agent-presets.e2e.ts', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-presets/tests/session.spec.ts', upstream: ['cordis'] },
@@ -101,6 +99,8 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // the preset a model mounts, so the scoped name would send the model after an
   // id no roster reports.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', upstream: ['cordis'] },
+  // The preset-roster loop names the `cordis` preset id, not a package.
+  { file: 'apps/cli/tests/windows-shell.spec.ts', upstream: ['cordis'] },
   // GROUP_ORDER holds `packages/<group>/` directory names, not package names.
   { file: 'scripts/gen-module-graph.ts', upstream: ['cordis'] },
   { file: 'scripts/gen-doc-graphs.ts', upstream: ['cordis'] },
@@ -121,21 +121,17 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   { file: 'scripts/gen-scoped-events.ts', text: '=== \'@deepseek-ai/cordis\'', count: 1 },
   { file: 'packages/typert/generator/src/analyzer.ts', text: '!== \'@deepseek-ai/cordis\'', count: 2 },
   { file: 'scripts/check-workspace-constraints.ts', text: '?.[\'@deepseek-ai/cordis\']', count: 2 },
-  { file: 'packages/scaffold/helper/src/project/npm-dependency-policy.ts', text: '\'@deepseek-ai/cordis\': \'^4.0.0-rc.7\'', count: 1 },
-  { file: 'packages/scaffold/helper/src/plugins/local-plugin-blueprint.ts', text: '\'@deepseek-ai/cordis\': cordisSpec', count: 2 },
   { file: 'packages/boot/app-boot/tsdown.config.ts', text: '[\'@deepseek-ai/cordis-plugin-include\']', count: 1 },
   { file: 'tsconfig.base.json', text: '"@deepseek-ai/cordis-plugin-loader": ["./vendor/loader/src"]', count: 1 },
-  // One insertion, once: a duplicated log entry is what a non-idempotent apply produced.
+  // The vendored README owns this required entry; reject its deletion or duplication.
   { file: 'vendor/README.md', text: '17. **`@deepseek-ai` rescope**', count: 1 },
   { file: 'knip.json', text: '@cordisjs', count: 0 },
   { file: 'pnpm-workspace.yaml', text: 'cordis@4.0.0-rc.7', count: 0 },
   // The preset ids in this table are product data, not package names.
-  { file: 'packages/client/ui-agent-preset/tests/locales.spec.ts', text: '[\'cordis\', \'presetCordisName\'', count: 1 },
+  { file: 'packages/client/ui-agent-preset/tests/locales.client.spec.ts', text: '[\'cordis\', \'presetCordisName\'', count: 1 },
   // The preset id the shipped composition documents to its own model.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'The `cordis` agent preset', count: 1 },
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'corrupting the `cordis` preset', count: 1 },
-  // The vendor-directory paths in these fixtures must survive the rename.
-  { file: 'packages/scaffold/helper/tests/documents.spec.ts', text: 'join(root, \'vendor\', \'cordis\')', count: 2 },
   { file: 'packages/examples/acp-demo/tests/built-bin.e2e.ts', text: '\'cordis\', \'loader\', \'include\', \'timer\', \'hmr\', \'logger-console\',', count: 1 },
 ]
 
@@ -169,76 +165,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     if (!dev) errors.push(\`\${label}: @deepseek-ai/cordis must also be a devDependency\`)
     if (peer && dev && peer !== dev) {
       errors.push(\`\${label}: @deepseek-ai/cordis peer (\${peer}) and dev (\${dev}) ranges must match\`)`,
-    expect: 1,
-  },
-  {
-    id: 'scaffold-dependency-policy',
-    file: 'packages/scaffold/helper/src/project/npm-dependency-policy.ts',
-    find: '  cordis: \'^4.0.0-rc.7\',',
-    replace: '  \'@deepseek-ai/cordis\': \'^4.0.0-rc.7\',',
-    expect: 1,
-  },
-  {
-    id: 'scaffold-plugin-blueprint',
-    file: 'packages/scaffold/helper/src/plugins/local-plugin-blueprint.ts',
-    find: `        cordis: cordisSpec,
-      },
-      devDependencies: {
-        cordis: cordisSpec,
-      },`,
-    replace: `        '@deepseek-ai/cordis': cordisSpec,
-      },
-      devDependencies: {
-        '@deepseek-ai/cordis': cordisSpec,
-      },`,
-    expect: 1,
-  },
-  {
-    id: 'scaffold-link-workspace-lookup',
-    file: 'packages/scaffold/create-sdk/tests/link-workspace.e2e.ts',
-    find: 'manifest.dependencies.cordis',
-    replace: 'manifest.dependencies[\'@deepseek-ai/cordis\']',
-    expect: 1,
-  },
-  {
-    id: 'documents-spec-manifest-name',
-    file: 'packages/scaffold/helper/tests/documents.spec.ts',
-    find: 'JSON.stringify({ name: \'cordis\' })',
-    replace: 'JSON.stringify({ name: \'@deepseek-ai/cordis\' })',
-    expect: 1,
-  },
-  {
-    id: 'documents-spec-peer-key',
-    file: 'packages/scaffold/helper/tests/documents.spec.ts',
-    find: 'peerDependencies: { cordis: \'^4\' },',
-    replace: 'peerDependencies: { \'@deepseek-ai/cordis\': \'^4\' },',
-    expect: 1,
-  },
-  {
-    id: 'documents-spec-closure-order',
-    file: 'packages/scaffold/helper/tests/documents.spec.ts',
-    find: '      \'@deepseek-ai/dsh-helper\', \'@deepseek-ai/dsh-scripts\', \'cordis\',',
-    replace: '      \'@deepseek-ai/cordis\', \'@deepseek-ai/dsh-helper\', \'@deepseek-ai/dsh-scripts\',',
-    expect: 1,
-  },
-  {
-    id: 'documents-spec-lookups',
-    file: 'packages/scaffold/helper/tests/documents.spec.ts',
-    find: `    expect(manifest.npmDependency('cordis')?.spec).toMatch(/^link:/)
-    expect(pnpmWorkspace.serialize()).toContain('autoInstallPeers: false')
-    expect(workspace.packageDirectory('cordis')).toBe(join(root, 'vendor', 'cordis'))
-    expect(await readFile(join(root, 'vendor', 'cordis', 'package.json'), 'utf8')).toContain('cordis')`,
-    replace: `    expect(manifest.npmDependency('@deepseek-ai/cordis')?.spec).toMatch(/^link:/)
-    expect(pnpmWorkspace.serialize()).toContain('autoInstallPeers: false')
-    expect(workspace.packageDirectory('@deepseek-ai/cordis')).toBe(join(root, 'vendor', 'cordis'))
-    expect(await readFile(join(root, 'vendor', 'cordis', 'package.json'), 'utf8')).toContain('@deepseek-ai/cordis')`,
-    expect: 1,
-  },
-  {
-    id: 'documents-spec-policy-lookup',
-    file: 'packages/scaffold/helper/tests/documents.spec.ts',
-    find: '    expect(resolveNpmDependency(\'cordis\', \'devDependencies\', \'0.0.1\')).toEqual({',
-    replace: '    expect(resolveNpmDependency(\'@deepseek-ai/cordis\', \'devDependencies\', \'0.0.1\')).toEqual({',
     expect: 1,
   },
   {
@@ -313,13 +239,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     file: 'vendor/README.md',
     find: '| Directory | npm name | Version | Upstream repo | Commit |\n|---|---|---|---|---|',
     replace: '| Directory | npm name | Upstream name | Version | Upstream repo | Commit |\n|---|---|---|---|---|---|',
-    expect: 1,
-  },
-  {
-    id: 'vendor-readme-local-modification-log',
-    file: 'vendor/README.md',
-    find: '\n## Sync procedure',
-    replace: '17. **`@deepseek-ai` rescope**: every vendored manifest `name`, every internal dependency entry among the vendored set, and every module specifier that reaches them use the scoped names in the manifest table\'s `npm name` column. Directory names, version numbers, and dependency ranges are unchanged, and no upstream runtime identifier is renamed — `Symbol.for(\'schemastery\')` and Schemastery\'s `vendor:` metadata field keep their upstream values. Re-apply with `pnpm run rescope-vendor --apply` after a sync; the table\'s two name columns are the mapping, restated for consumers in [docs/rescope.md](../docs/rescope.md).\n\n## Sync procedure',
     expect: 1,
   },
   {
@@ -406,7 +325,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\\/(cosmokit|schemastery)(\\/|$)/
   {
     // The real package references in files whose other `cordis` strings are preset ids.
     id: 'agent-preset-spec-framework-import',
-    file: 'packages/client/ui-agent-preset/tests/apply.spec.ts',
+    file: 'packages/client/ui-agent-preset/tests/apply.client.spec.ts',
     find: "import { Context } from 'cordis'",
     replace: "import { Context } from '@deepseek-ai/cordis'",
     expect: 1,

@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { createEnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import LlmService, { createUserMessage,
@@ -9,6 +12,7 @@ import LlmService, { createUserMessage,
   userAgent,
 } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-user-id'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
@@ -17,10 +21,19 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 import type { Behavior } from './mock-server.ts'
 
+const TEST_USER_ID = '00000000-0000-4000-8000-000000000001' as AnonymousUserId
+let testHome: string
+
+beforeEach(() => {
+  testHome = mkdtempSync(join(tmpdir(), 'dsh-llm-deepseek-'))
+  vi.stubEnv('DSH_HOME', testHome)
+})
+
 afterEach(async () => {
   await closeMockServers()
   vi.unstubAllEnvs()
   vi.useRealTimers()
+  rmSync(testHome, { recursive: true, force: true })
 })
 
 async function harness(baseURL: string, config: object = {}) {
@@ -39,6 +52,7 @@ function adapterOf(config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {
   return new DeepSeekAdapter({
     options: () => resolveAdapterOptions(rest),
     resolveApiKey: () => Promise.resolve(apiKey ?? 'k'),
+    resolveUserId: () => TEST_USER_ID,
   })
 }
 
@@ -66,9 +80,10 @@ describe('DeepSeekAdapter against a mock server', () => {
       stream: true,
       stream_options: { include_usage: true },
     })
-    // Attribution reaches the wire: the exact shared User-Agent, and no
-    // provider-specific headers under the User-Agent-only contract.
+    // App attribution and DeepSeek request identity are independent wire facts.
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]?.['x-deepseek-harness-user-id']).toBe(getOrCreateAnonymousUserId())
+    expect(server.headers[0]).not.toHaveProperty('x-deepseek-harness-session-id')
     expect(server.headers[0]).not.toHaveProperty('http-referer')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
@@ -93,7 +108,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(kinds).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
   })
 
-  it('forwards the harness session id for host-side trajectory routing', async () => {
+  it('forwards the harness user and session ids for host-side trajectory routing', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url)
 
@@ -107,6 +122,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     })
 
     expect(server.headers[0]?.['x-deepseek-harness-session-id']).toBe('child-session')
+    expect(server.headers[0]?.['x-deepseek-harness-user-id']).toBe(getOrCreateAnonymousUserId())
   })
 
   it('marks the auxiliary compaction call on the wire', async () => {
@@ -997,12 +1013,14 @@ describe('plugin registration and config', () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const options = vi.fn(() => resolveAdapterOptions({ baseURL: server.url }))
     const resolveApiKey = vi.fn(() => Promise.resolve('per-request-key'))
-    const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+    const resolveUserId = vi.fn(() => TEST_USER_ID)
+    const adapter = new DeepSeekAdapter({ options, resolveApiKey, resolveUserId })
 
     for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
 
     expect(options).toHaveBeenCalledTimes(1)
     expect(resolveApiKey).toHaveBeenCalledTimes(1)
+    expect(resolveUserId).toHaveBeenCalledTimes(1)
     expect(server.headers[0]?.authorization).toBe('Bearer per-request-key')
   })
 

@@ -6,7 +6,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
   RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -21,8 +21,11 @@ import { EMPTY_CHAT_SNAPSHOT } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { Notifier } from './notifier.ts'
+import type { RemoteResult } from '@deepseek-ai/dsh-type-meta'
+import type { SessionRemotes } from './remotes.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
+import { resolvedClientTimeZone } from '../time-zone.ts'
 import { SessionQueueMirror } from './queue-mirror.ts'
 
 /** Messages requested per history page. */
@@ -133,11 +136,13 @@ export class Session implements SessionFace {
   /**
    * @param sessionId - Host session identity (client sessions are always Host-born).
    * @param api - shared wire client.
+   * @param remote - generated Remote namespaces this session calls.
    * @param options - optional manager-owned state observers.
    */
   constructor(
     readonly sessionId: SessionId,
     private readonly api: IApiClient,
+    private readonly remote: SessionRemotes,
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
@@ -194,7 +199,12 @@ export class Session implements SessionFace {
     let result: RpcResult<{ accepted: true }>
     try {
       if (this.address === undefined) {
-        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+        result = (await this.api.sessions.prompt({
+          sessionId: this.sessionId,
+          mode,
+          content,
+          clientTimeZone: resolvedClientTimeZone(),
+        })).result
       } else if (this.address.mode === 'one-shot') {
         result = {
           ok: false,
@@ -220,6 +230,7 @@ export class Session implements SessionFace {
             content: content.flatMap(part => part.type === 'text'
               ? [{ type: 'text' as const, text: part.text }]
               : []),
+            clientTimeZone: resolvedClientTimeZone(),
           })).result
           result = routed.ok ? { ok: true, value: { accepted: true } } : routed
         }
@@ -344,12 +355,10 @@ export class Session implements SessionFace {
    * @param line - the full command line, leading slash included.
    * @returns the admission result, or the error branch on transport failure.
    */
-  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
-    try {
-      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
-    } catch (error) {
-      return transportError(error)
-    }
+  async command(line: string): Promise<RemoteResult<{ matched: boolean }>> {
+    const result = await this.remote.commands.execute(this.sessionId, line)
+    if (!result.ok) return result
+    return { ok: true, value: { matched: result.value !== undefined } }
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -741,7 +750,8 @@ export class Session implements SessionFace {
         ? null
         : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
-        (!this.blankBit && !this.firstPromptPendingTurn)
+        hasVisibleConversationContent(chat)
+          || (!this.blankBit && !this.firstPromptPendingTurn)
           || this.running
           || this.pendingCache.value.length > 0,
         this.promptAttempted,
@@ -774,13 +784,18 @@ function conversationInput(entry: HistoryEntry): ConversationEventInput {
   return { event: entry.event, view: entry.view }
 }
 
+/** A generic command row alone remains control-plane content; every other visible Chat Node activates the conversation. */
+function hasVisibleConversationContent(chat: ChatSnapshot): boolean {
+  return chat.order.some(key => chat.nodes.get(key)?.kind !== 'command')
+}
+
 /**
  * The composerPhase judgment — the single site that knows the predicate
  * (consumers switch on the result, never re-derive). A failed first prompt
  * stays engaging until an authoritative accepted-turn, running, or pending
  * signal arrives (retry semantics — see ComposerPhase).
  * @param hasContent - authoritative non-blank activity beyond a pending first
- *   prompt, a running turn, or a pending interaction.
+ *   prompt, visible non-command Chat content, a running turn, or a pending interaction.
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

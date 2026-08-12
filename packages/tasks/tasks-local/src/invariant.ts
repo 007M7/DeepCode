@@ -15,8 +15,11 @@ export const name = 'tasks-local-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the Service Definition companion in `@deepseek-ai/dsh-tasks` already
- * validates every registry snapshot this implementation publishes.
+ * No runtime invariant: `@deepseek-ai/dsh-tasks/invariant` owns per-snapshot identity, status,
+ * timestamp, and owner checks. This provider's admission decision uses private configuration and
+ * must fail before a backend starter runs; `LocalTaskService.start()` enforces it synchronously
+ * for current producers. Repeating an aggregate after publication would expose private
+ * configuration solely to this companion and would not verify the fail-closed pre-start guarantee.
  */
 const install: InvariantInstaller = () => {}
 

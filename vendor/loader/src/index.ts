@@ -1,12 +1,7 @@
 import { Context, FiberState, Inject, Service, type Fiber } from '@deepseek-ai/cordis'
 import { defineProperty, isNullable, type Dict } from '@deepseek-ai/cosmokit'
 import { ModuleLoader } from './internal.ts'
-import {
-  Entry,
-  EntryConfigResolver,
-  type EntryConfigResolver as ConfigResolver,
-  type EntryOptions,
-} from './config/entry.ts'
+import { Entry, type EntryOptions } from './config/entry.ts'
 import { EntryGroup } from './config/group.ts'
 import isolate from './config/isolate.ts'
 import { EntryTree } from './config/tree.ts'
@@ -97,10 +92,12 @@ export class Loader extends EntryTree {
     ctx.on('internal/config', function (this: Fiber, _config, next) {
       const config = next()
       if (!this.entry || this.parent.fiber?.entry === this.entry) return config
+      // Tree carriers (Group, Include) keep their configs literal: their
+      // entry and patch lists hold other rows' configs, whose `!!js`
+      // expressions belong to those rows' own fibers.
       const plugin = this.runtime?.callback as Record<PropertyKey, unknown> | undefined
       if (plugin?.[EntryGroup.key]) return config
-      const resolve = plugin?.[EntryConfigResolver] as ConfigResolver | undefined
-      return resolve ? resolve(this.ctx, config) : interpolate(this.ctx, config)
+      return interpolate(this.ctx, config)
     }, { global: true })
 
     ctx.on('internal/update', async function (config, noSave, next) {

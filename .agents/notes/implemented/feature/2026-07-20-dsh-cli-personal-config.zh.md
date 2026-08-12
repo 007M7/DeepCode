@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-开发者自己的偏好——TUI 使用哪个提供方和模型、个人凭证、私有的适配器路由——除了改动已提交的文件之外无处安放。要把 TUI 示例指向个人的 Anthropic 代理 Opus 路由，只能在工作区里改 `examples/tui-agent/cordis.yml` 和 `.env`，既有提交密钥的风险，又要在每个 checkout 里重复一遍。也没有可安装的命令：想在任意项目目录里运行这个 agent，必须回到仓库根目录调用示例脚本。Loader 元数据是静态的，所以「条件组合使用 overlay」（AGENTS.md）——但 overlay 此前只以已提交的同级文件形式存在，没有机器级的层。
+开发者自己的偏好——TUI 使用哪个提供方和模型、个人凭证、私有的适配器路由——除了改动已提交的文件之外无处安放。要把 TUI 示例指向个人的 Anthropic 代理 Opus 路由，只能在工作区里改 `examples/tui-agent/cordis.yml` 和 `.env`，既有提交密钥的风险，又要在每个 checkout 里重复一遍。也没有可安装的命令：想在任意项目目录里运行这个 agent，必须回到仓库根目录调用示例脚本。Loader 元数据是静态的——条目 `disabled` 字段除外（见 [loader `disabled` 插值决策](../architecture/2026-08-11-loader-entry-disabled-interpolation.md)）——所以「条件组合使用 overlay」（AGENTS.md）；但 overlay 此前只以已提交的同级文件形式存在，没有机器级的层。
 
 ## Decision
 
@@ -14,7 +14,7 @@ Status: implemented
 
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
-**`dsh` CLI（命令行界面；`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。在源码检出中，根目录的 `pnpm dsh` 脚本先构建仓库，再使用 tsx 的 ESM hook 运行同一入口；该约定由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。
+**`dsh` CLI（命令行界面；`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。在源码检出中，根目录的 `pnpm dsh` 脚本不执行构建，直接使用 tsx 的 ESM hook 运行同一入口；运行方式由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)规定，产物生成由[源码启动与构建分离决策](../simplification/2026-08-12-separate-source-launch-from-build.md)规定。
 
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI、Web 和无头界面使用其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 

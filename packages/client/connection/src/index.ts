@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
-import { bridge } from './http-bridge.ts'
+import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
@@ -42,8 +42,6 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
     )
   }
 }
-/** Default carrier cap for all HTTP RPC bodies. */
-const DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 
 /** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
 export const inject = ['httpServer']

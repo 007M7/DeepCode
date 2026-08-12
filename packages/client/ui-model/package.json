@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-model",
   "description": "Model selection: the /model popupSelect over session.models / session.selectModel",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "publishConfig": {
     "access": "restricted"
   },
@@ -34,7 +34,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-command"
+        "@deepseek-ai/dsh-client-ui-command",
+        "@deepseek-ai/dsh-api-remotes"
       ],
       "platform": "web"
     }
@@ -45,6 +46,7 @@
   },
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
@@ -59,9 +61,11 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-command": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",

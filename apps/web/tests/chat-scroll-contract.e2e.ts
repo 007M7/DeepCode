@@ -168,8 +168,10 @@ async function launchScrollWorld(options: ScrollWorldOptions): Promise<ScrollWor
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Session-list bootstrap can replace the controlled search state. Wait
-    // for the seeded baseline before openSeed starts the lazy content query.
-    await page.getByText(/^\d+ sessions?$/, { exact: true }).waitFor({ timeout: 30_000 })
+    // for the seeded baseline before openSeed starts the lazy content query
+    // (the compact layout dropped group session counts; the Ungrouped bucket
+    // row is the barrier).
+    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
     return {
       events,
       page,
@@ -258,7 +260,10 @@ async function conversationTurns(page: Page): Promise<number> {
 }
 
 async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: string): Promise<void> {
-  const search = page.getByRole('textbox', { name: 'Search name, keywords...', exact: true })
+  // Search collapsed into a header action; expand it before filling.
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
   // Cold summaries initially show the temporary workspace basename, so the
   // persisted first-message marker is the stable user-facing identity. The
   // query itself triggers lazy content-index reconciliation; no transient

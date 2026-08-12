@@ -222,9 +222,89 @@
       "source": "packages/goal/goal/src/domain.ts"
     },
     {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AfterScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "EveryScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "LocalAtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "OneShotScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleCreateChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDeleteChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "OneShotScheduleDispatchChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "EveryScheduleDispatchChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDispatchChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleState",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDeliveryMode",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleView",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandInputDescriptor",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
@@ -239,12 +319,12 @@
     {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandResult",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandDescriptor",
-      "source": "packages/interaction/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
@@ -1288,7 +1368,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowStartRequest",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/workflow.md",
@@ -1303,7 +1383,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowRun",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/lsp.md",
@@ -1483,7 +1563,7 @@
     {
       "doc": "docs/subsystems/settings.md",
       "symbol": "SettingsNamespace",
-      "source": "packages/settings/settings/src/index.ts"
+      "source": "packages/settings/settings/src/types.ts"
     },
     {
       "doc": "docs/subsystems/settings.md",
@@ -1508,7 +1588,7 @@
     {
       "doc": "docs/subsystems/settings.md",
       "symbol": "SettingsUpdateSource",
-      "source": "packages/settings/settings/src/index.ts"
+      "source": "packages/settings/settings/src/types.ts"
     },
     {
       "doc": "docs/subsystems/credentials.md",
@@ -1713,7 +1793,7 @@
     {
       "doc": "docs/subsystems/credentials.md",
       "symbol": "CredentialRef",
-      "source": "packages/credentials/credentials/src/index.ts"
+      "source": "packages/credentials/credentials/src/types.ts"
     },
     {
       "doc": "docs/subsystems/permission.md",

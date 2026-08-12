@@ -6,7 +6,7 @@ English | [中文](2026-07-20-dsh-cli-personal-config.zh.md)
 
 ## Problem
 
-A developer's own preferences — which provider and model the TUI uses, personal credentials, a private adapter route — had nowhere to live except edits to committed files. Pointing the TUI demo at a personal Anthropic-proxy Opus route meant patching `examples/tui-agent/cordis.yml` and `.env` in the working tree, which risks committing secrets and repeats per checkout. There was also no installable command: running the agent in an arbitrary project directory required invoking the repo's demo script from the repo root. Loader metadata is static, so "conditional composition uses overlays" (AGENTS.md) — but overlays only existed as committed sibling files, not as a machine-level layer.
+A developer's own preferences — which provider and model the TUI uses, personal credentials, a private adapter route — had nowhere to live except edits to committed files. Pointing the TUI demo at a personal Anthropic-proxy Opus route meant patching `examples/tui-agent/cordis.yml` and `.env` in the working tree, which risks committing secrets and repeats per checkout. There was also no installable command: running the agent in an arbitrary project directory required invoking the repo's demo script from the repo root. Loader metadata is static except the entry `disabled` field (see the [loader `disabled` interpolation decision](../architecture/2026-08-11-loader-entry-disabled-interpolation.md)), so "conditional composition uses overlays" (AGENTS.md) — but overlays only existed as committed sibling files, not as a machine-level layer.
 
 ## Decision
 
@@ -14,7 +14,7 @@ The entry modes and the personal file's name and location below are superseded b
 
 Two coupled pieces, aligned with the `apps/` assembly tier proposed by the `dsh web` PR (#443):
 
-**The `dsh` CLI (`apps/cli`, npm name `@deepseek-ai/dsh`).** `apps/*` is the product-assembly tier over `packages/*` libraries. One bin dispatches the default interactive TUI, `-p`/`--prompt` headless turns, and the `web` surface. The TUI boots `examples/tui-agent/cordis.yml` (or `--config`) with the invoking directory as the workspace. From a source checkout, the root `pnpm dsh` script builds the repository and runs the same entry with tsx's ESM hook; the [source-launch decision](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md) owns that contract.
+**The `dsh` CLI (`apps/cli`, npm name `@deepseek-ai/dsh`).** `apps/*` is the product-assembly tier over `packages/*` libraries. One bin dispatches the default interactive TUI, `-p`/`--prompt` headless turns, and the `web` surface. The TUI boots `examples/tui-agent/cordis.yml` (or `--config`) with the invoking directory as the workspace. From a source checkout, the root `pnpm dsh` script runs the same entry with tsx's ESM hook without building; the [source-launch decision](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md) owns the runtime vector and the [source-launch/build separation decision](../simplification/2026-08-12-separate-source-launch-from-build.md) owns artifact generation.
 
 **Personal config (`dsh-app-boot`).** The personal overlay lives in the Harness home — `$DSH_HOME`, else `~/.dsh` — resolved by the shared [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md) (`@deepseek-ai/dsh-paths`), the same single root skills and AGENTS.md resolve against. The dsh TUI, Web, and headless surfaces consume its two optional files; the demo bins boot their committed trees verbatim:
 

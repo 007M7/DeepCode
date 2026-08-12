@@ -9,13 +9,13 @@
   ],
   "references": [
     {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
       "path": "../runtime"
-    },
-    {
-      "path": "../connection"
     },
     {
       "path": "../locale"

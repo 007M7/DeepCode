@@ -24,7 +24,7 @@ import {
   type SdkRunSpec,
 } from '../src/run.ts'
 
-const fakeRuntime = fileURLToPath(new URL('../../../scaffold/client/tests/fake-runtime.ts', import.meta.url))
+const fakeRuntime = fileURLToPath(new URL('../../../sdk/client/tests/fake-runtime.ts', import.meta.url))
 
 /** A parent Agent stub. The SDK backend reads exactly one thing off it: the session header's cwd (the workspace its child inherits). */
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent

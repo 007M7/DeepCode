@@ -14,7 +14,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import type {} from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
@@ -79,18 +79,28 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
     { id: 'skill-badge', disabled: false },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
+    // The always-on reload chain waits for the browser roster and bound port
+    // disabled above.
+    { id: 'client-hmr', disabled: true },
     // The shipped `-auto` chooser resolves its interaction from a running
     // host and so waits for the webserver disabled above; the browse variant
     // supplies `directoryPicker` without one.
     { id: 'directory-picker', disabled: true },
-    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    { insert: [
+      { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
+      { id: 'ui-directory-picker', name: '@deepseek-ai/dsh-client-ui-directory-picker' },
+    ] },
     // The roster AppCLIEntry would patch in; only the shipped root, so a
     // developer's own `~/.dsh/.preset` cannot change this test's outcome.
     // `default` here is the COMPOSITION default — the base layer the settings
     // document overrides.
     {
       id: 'agent-presets',
-      config: { default: 'standard', roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }] },
+      config: {
+        default: 'standard',
+        roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }],
+        includeUserRoot: false,
+      },
     },
     ...extra,
   ]
@@ -213,16 +223,8 @@ describe('the shipped Web composition', () => {
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
-      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
-      expect(compact).toBeDefined()
-      expect((compact as BasicCompactService).config).toMatchObject({
-        thresholdRatio: 0.8,
-        retainTokens: 20480,
-        summarizationProvider: '',
-        summarizationModel: '',
-        maxTokens: 8192,
-        compactionRetries: 1,
-      })
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compact')).toBeUndefined()
+      expect(handle.agent.ctx.get('compact')).toBeUndefined()
     } finally {
       await handle.dispose()
     }
@@ -444,6 +446,7 @@ describe('product subagent rows in user presets', () => {
           { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
           { path: userRoot, trust: 'user' },
         ],
+        includeUserRoot: false,
       },
     }])
   }, 120_000)
@@ -626,6 +629,66 @@ describe('a delegated child', () => {
   })
 })
 
+describe('a launcher that configures no writable root', () => {
+  // The claim this default exists for, asserted through the real shipped
+  // bundles rather than a hand-built context: `apps/cli` patches in only the
+  // system root, and a person's own presets are found anyway because the
+  // roster derives `<dshHome>/.agent-presets` itself. `$DSH_HOME` is pointed
+  // at a temp home BEFORE boot — the derived root is resolved when the plugin
+  // is constructed, and an unpinned run would read the developer's own.
+  let derivedCtx: Context
+  let previousHome: string | undefined
+
+  beforeAll(async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-preset-derived-'))
+    previousHome = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    await mkdir(join(home, '.agent-presets', 'derived-mine'), { recursive: true })
+    await writeFile(
+      join(home, '.agent-presets', 'derived-mine', 'agent.cordis.yml'),
+      '- id: tool-todo\n  name: \'@deepseek-ai/dsh-tool-todo\'\n  config:\n    allowParallelInProgress: true\n',
+    )
+    const settingsFile = join(await mkdtemp(join(tmpdir(), 'dsh-preset-derived-settings-')), 'settings.yaml')
+    await writeFile(settingsFile, '{}\n')
+    // Only the shipped root, exactly what `composeProfile` supplies; the
+    // writable one is the roster's own default rather than this patch's job.
+    derivedCtx = await bootWeb(settingsFile, [{
+      id: 'agent-presets',
+      config: {
+        default: 'standard',
+        roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }],
+        includeUserRoot: true,
+      },
+    }])
+  }, 120_000)
+
+  afterAll(async () => {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await derivedCtx.fiber.dispose()
+  })
+
+  it('discovers and mounts a preset the person authored under the harness home', async () => {
+    const listed = await derivedCtx.agentPresets.list()
+
+    const mine = listed.find(preset => preset.id === 'derived-mine')
+    expect(mine).toMatchObject({ trust: 'user' })
+    // Omitted rather than undefined: a healthy row carries no `broken` key.
+    expect(mine?.broken).toBeUndefined()
+    expect(derivedCtx.agentPresets.authorable).toBe(true)
+
+    const handle = await derivedCtx.agents.create({
+      sessionId: SessionId('preset-derived-root'),
+      setup: agentCtx => derivedCtx.agentPresets.mount(agentCtx, 'derived-mine').then(() => undefined),
+    })
+    try {
+      expect(toolNames(derivedCtx, handle.agent)).toContain('todo_write')
+    } finally {
+      await handle.dispose()
+    }
+  })
+})
+
 describe('authoring a preset on the shipped composition', () => {
   let authorCtx: Context
   let userRoot: string
@@ -644,6 +707,7 @@ describe('authoring a preset on the shipped composition', () => {
           // nothing is the normal first-run state.
           { path: userRoot, trust: 'user' },
         ],
+        includeUserRoot: false,
       },
     }])
   })

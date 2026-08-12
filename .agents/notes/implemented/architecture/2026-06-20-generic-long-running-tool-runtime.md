@@ -25,6 +25,8 @@ Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into in
 
 The literal types live on the [tasks subsystem page](../../../../docs/subsystems/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, optional positive `outputLimitBytes`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
 
+The process-local provider also owns bounded admission, whose rationale is recorded in the [bounded background task admission decision](../bug-fix/2026-08-11-bounded-background-task-admission.md). Its positive-safe-integer `maxConcurrentTasksPerOwner` config defaults to `10`; `start()` derives each exact `Agent` object's active count from `running` and `stopping` records, while every unowned task shares one service bucket. Capacity rejection occurs before `run()` and id allocation, and producer `done` settlement is the only event that releases a stopping task's place. The provider does not queue, preempt, or retain a second mutable count.
+
 `outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control APIs apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing controller behavior, so the runtime does not impose a hidden default on unrelated producer families.
 
 A model-facing producer exposes that committed id in its canonical success value, normally `{ kind: 'background', taskId }`; Native rendering may keep human-readable prose. A pre-aborted background call fails rather than returning a no-op because no task exists to satisfy the promised handle. Once registration publishes the id, cancellation belongs to the task's own controller and the task runtime: later cancellation of the producing tool call must not kill the published task. `task_kill`, owner disposal, and service teardown request cancellation; foreground execution remains coupled to the call's `exec.signal`.
@@ -55,7 +57,7 @@ For contract-compliant producers, `AgentHandle.dispose()` resolves only after ow
 
 `TaskService` provides:
 
-- `start(spec)` for preflighted, atomic registration.
+- `start(spec)` for preflighted, provider-admitted, atomic registration.
 - `get(id, caller?)` and `list(caller?)` for non-consuming snapshots.
 - `read(id, caller?)` for a consuming stream delta or an idempotent final result.
 - `kill(id, caller?, reason?)` for cancellation.
@@ -77,7 +79,7 @@ A producer loaded without any controller would let callers start work they canno
 
 Stream reads share one task-scoped consuming cursor because the owning model is the intended reader. A UI or multiple independent readers need a separate non-consuming observation API; sharing this cursor would let readers consume one another's output.
 
-The system prompt tells the model to retain task ids, continue independent work instead of busy-polling or duplicating a running task, collect relevant tasks before its final answer, and kill work that no longer matters. Completion injects a logged `context/message` into the exact owner's session; it becomes durable context for the next request but does not wake an idle agent.
+The system prompt tells the model to retain task ids, continue independent work instead of busy-polling or duplicating a running task, collect relevant tasks before its final answer, and kill work that no longer matters. Completion delivers a logged message to the exact owner's session. A busy owner is injected; an idle owner is woken, under the bounded policy the [idle-owner wake decision](../feature/2026-08-11-background-task-completion-wakes-an-idle-owner.md) owns.
 
 The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown. When a snapshot carries `outputLimitBytes`, `dsh-tool-tasks` preserves UTF-8 boundaries and reuses an existing producer truncation marker rather than duplicating it. Reads reserve status suffixes and retain the output tail; completion notices reserve the stable `background task <id>` prefix and `task_output` instruction before truncating variable kind, label, status, detail, or the truncation marker itself, so the minimum PTY cap still identifies the task to collect. The task controller resolves the caller-visible producer cap in a prepended pre-execute listener before policy can deny or short-circuit dispatch, then applies it through the task definitions' last-mile `finalizeContent` callback so normalized tool errors, outer pipeline failures, and single-text policy results cannot escape the bound; deliberately structured multi-block policy results retain policy ownership of their shape and size.
 
@@ -125,10 +127,12 @@ Authorization, not unguessability, is the access boundary, and ids do not derive
 
 ## Testing
 
-Unit coverage pins preflight atomicity, per-kind ids, output-limit validation and projection, complete UTF-8 result bounds, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-controller fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
+Unit coverage pins preflight atomicity, per-kind ids, per-exact-owner and unowned-bucket admission, `stopping` occupancy, terminal release, output-limit validation and projection, complete UTF-8 result bounds, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-controller fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas, prompt guidance, and an assembled ACP path where the configured limit rejects a second real background Bash task with a `task_kill` recovery action.
 
 ## Consequences
 
 Bash commands and subagents share one id vocabulary, listing, notice format, prompt habit, and set of control tools. New long-running producers implement execution hooks instead of another registry and tool family. The [tool cookbook](../../../../docs/cookbook/adding-a-tool.md) points producers to this contract.
 
-Owned background bash now stops with its agent instead of surviving it. Background processes have no executor timeout; callers must kill irrelevant work or rely on owner/service disposal. Stream reads support one consuming reader, completion notices do not wake idle agents, and a producer that returns from `cancel` without settling `done` can still stall teardown. Durable jobs, independent observation cursors, and foreground promotion remain separate designs.
+One exact owner cannot grow process-local Task-backed work without bound, and another owner does not consume its allowance. A cancellation request keeps capacity occupied until the producer actually releases its resource, so replacing slow-stopping work cannot exceed the configured live-resource budget.
+
+Owned background bash now stops with its agent instead of surviving it. Background processes have no executor timeout; callers must kill irrelevant work or rely on owner/service disposal. Stream reads support one consuming reader, and a producer that returns from `cancel` without settling `done` can still stall teardown. Durable jobs, independent observation cursors, and foreground promotion remain separate designs.

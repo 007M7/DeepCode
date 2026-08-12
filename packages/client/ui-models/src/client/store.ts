@@ -8,7 +8,7 @@
 
 import type {
   ConfigurableProviderView, CredentialView, IApiClient, SettingsNamespaceView,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { getPath, hasPath, nodeAtPath, rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
@@ -189,32 +189,49 @@ export class ModelsSettingsStore {
   }
 }
 
-/** DeepSeek onboarding readiness derived only from the shared Models join. */
-export type DeepSeekReadiness =
+/**
+ * Whether a joined row can serve model requests as it stands: the route is
+ * registered with the adapter registry, and whatever credential its resolved
+ * profile names is stored. A profile naming no reference authenticates through
+ * the provider's own path (the Bedrock chain, Vertex ADC, a gateway that needs
+ * nothing), as does a live route with no settings address at all, so neither
+ * owes this page a key.
+ * @param row - one joined provider row.
+ * @returns whether the user already has this provider to talk to.
+ */
+export function providerUsable(row: ProviderRow): boolean {
+  if (!row.entry.active) return false
+  if (row.apiKeyEnv === undefined) return true
+  return row.credential?.configured === true
+}
+
+/** First-run onboarding readiness derived only from the shared Models join. */
+export type OnboardingReadiness =
   | { kind: 'loading' }
   | { kind: 'adapter-absent' }
-  | { kind: 'configured' }
+  | { kind: 'provider-ready' }
   | { kind: 'credential-missing' }
   | {
     kind: 'unavailable'
     reason:
       | 'load-failed'
       | 'provider-inactive'
-      | 'settings-unavailable'
-      | 'credential-ref-unavailable'
       | 'credentials-unavailable'
       | 'settings-read-only'
       | 'credential-read-only'
   }
 
 /**
- * Project official-DeepSeek readiness from the provider/settings/credential
- * join used by the Models page. A missing official configurable-provider
+ * Project first-run readiness from the provider/settings/credential join used
+ * by the Models page. The step exists to leave the user with a model to talk
+ * to, so ANY usable provider ends it; only when none exists does the official
+ * DeepSeek route — the one route the prompt can offer a key field for — decide
+ * whether prompting can help. A missing official configurable-provider
  * declaration means the adapter is not repairable by navigating to Models.
  * @param state - current shared Models join snapshot.
  * @returns the onboarding state without reading a parallel fact source.
  */
-export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness {
+export function onboardingReadiness(state: ModelsSettingsState): OnboardingReadiness {
   if ((state.status === 'idle' || state.status === 'loading') && state.rows.length === 0) {
     return { kind: 'loading' }
   }
@@ -224,6 +241,7 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       reason: 'load-failed',
     }
   }
+  if (state.rows.some(providerUsable)) return { kind: 'provider-ready' }
   const row = state.rows.find(candidate =>
     candidate.entry.provider === 'deepseek-official'
     && candidate.entry.settingsNs === 'llm-deepseek'
@@ -235,32 +253,13 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       reason: 'provider-inactive',
     }
   }
-  if (!row.configured) {
-    return {
-      kind: 'unavailable',
-      reason: 'settings-unavailable',
-    }
-  }
-  if (row.apiKeyEnv === undefined) {
-    return {
-      kind: 'unavailable',
-      reason: 'credential-ref-unavailable',
-    }
-  }
-  if (state.credentialError !== null) {
+  // Past the usable gate an active route names a reference it has no stored
+  // credential for, so the remaining questions are all about that credential.
+  if (state.credentialError !== null || row.credential === undefined) {
     return {
       kind: 'unavailable',
       reason: 'credentials-unavailable',
     }
-  }
-  if (row.credential === undefined) {
-    return {
-      kind: 'unavailable',
-      reason: 'credentials-unavailable',
-    }
-  }
-  if (row.credential.configured) {
-    return { kind: 'configured' }
   }
   if (!state.writable) {
     return {

@@ -18,9 +18,6 @@
       "path": "../runtime"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../schema-form"
     },
     {
@@ -37,6 +34,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
     }
   ]
 }

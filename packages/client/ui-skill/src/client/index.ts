@@ -29,7 +29,8 @@
  * This browser half also owns the `skill` keyed toolview: a replay-stable
  * accent row derived only from each logged call/result slice.
  */
-import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
+// Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
+import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -53,7 +54,7 @@ interface CatalogFetch {
 }
 
 /** Required services: reference source faces plus the tool-row and locale registries. */
-export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale']
+export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale', 'remote']
 
 /**
  * Client plugin body: register the '/' source, dictionaries, and keyed tool row.
@@ -178,7 +179,7 @@ export function apply(ctx: ClientContext): void {
   const slash = ctx.get('slash') as SlashServiceContract
   // A preset decides which skill providers an agent reads, so a switched
   // session's cached catalog belongs to the composition it no longer runs.
-  ctx.on('session/preset-changed', invalidate)
+  ctx.remote.$on('agent-preset/selected', invalidate)
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = slash.registerSource(source)

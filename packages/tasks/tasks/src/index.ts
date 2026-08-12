@@ -41,12 +41,16 @@ declare module '@deepseek-ai/cordis' {
  * Implementations must honor these semantics:
  * - Registrations outlive producer and controller fibers. Owner and
  *   service disposal cancel live work and await compliant producers; a
- *   throwing teardown cancel force-fails only the record.
+ *   throwing teardown cancel force-fails only the record. Teardown
+ *   cancellation also marks the record reported, because a record its owner
+ *   is being destroyed for has no reader left.
  * - Owned-task access is fenced by the owner's session id. Ids are
  *   predictable, so authorization — not secrecy — is the boundary.
- * - Settlement is first-wins: one terminal record, one round of contained
- *   listener notification, and released waiters, even against a late
- *   producer outcome.
+ * - Settlement is first-wins: one terminal record, released waiters, and one
+ *   round of contained listener notification, even against a late producer
+ *   outcome. Completion is announced last, after the record is committed and
+ *   every other observer of the settlement has seen it, because a reporter
+ *   may open a model turn synchronously.
  * - {@link start} refuses work while no attached task controller serves the
  *   spec's owner, so a producer cannot start work that owner cannot collect
  *   or stop. One registry serves every composition in the process, so this
@@ -67,10 +71,11 @@ export abstract class TaskService extends Service {
   }
 
   /**
-   * Preflight access, validation, and owner cleanup before starting and
-   * atomically registering work. A throwing starter leaves nothing registered;
-   * after it returns, registration cannot fail. Settlement records the outcome,
-   * notifies listeners, and releases waiters.
+   * Preflight access, validation, owner cleanup, and implementation-owned
+   * admission before starting and atomically registering work. Any preflight
+   * rejection leaves no task id or execution resource. A throwing starter
+   * leaves nothing registered; after it returns, registration cannot fail.
+   * Settlement records the outcome, notifies listeners, and releases waiters.
    * @param spec - task identity, owner, and synchronous starter.
    * @returns the registry-issued `<kind>-N` id.
    */

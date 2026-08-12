@@ -29,6 +29,8 @@ function eventLog(text = 'hello'): SessionEvent[] {
 }
 
 class TestPersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listFailure: unknown
   static listOverride: ((signal?: AbortSignal) => Promise<SessionHeader[]>) | undefined
@@ -132,11 +134,8 @@ function expectCode(code: SessionQueryErrorCode): Error {
 }
 
 function rejectUnknown<T>(reason: unknown): Promise<T> {
-  return new Promise<T>((_resolve, reject) => {
-    // Exercise containment for an implementation that violates the Error rejection convention.
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
-    reject(reason)
-  })
+  // Exercise containment for an implementation that violates the Error rejection convention.
+  return Promise.reject(reason) // oxlint-disable-line typescript/prefer-promise-reject-errors
 }
 
 const cancellableSessionListings = [

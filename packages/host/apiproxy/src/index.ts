@@ -17,6 +17,10 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy } from './api-proxy.ts'
+import {
+  DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+  type SessionLogCompressionLevel,
+} from './session-export.ts'
 
 export type * from './api/index.ts'
 export { RpcId } from './api/rpc.ts'
@@ -33,7 +37,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Gateway plugin config for native Host integration. */
+/** Gateway plugin configuration. */
 export interface Config {
   /**
    * Whether this deployment can hand paths to a native desktop opener —
@@ -43,6 +47,12 @@ export interface Config {
    * container whose DISPLAY points nowhere a user can see.
    */
   nativeOpen?: boolean
+  /**
+   * DEFLATE level for every session-log ZIP entry: `0` stores without
+   * compression, `1` favors CPU/latency, and `9` favors archive size.
+   * @default 6
+   */
+  sessionExportCompressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 }
 
 /**
@@ -58,13 +68,14 @@ export class ApiProxyService extends Service implements ApiProxy {
 
   static Config: z<Config> = z.object({
     nativeOpen: z.boolean(),
+    sessionExportCompressionLevel: z.number().step(1).min(0).max(9)
+      .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
   })
 
   readonly sessions: ApiProxy['sessions']
   readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
-  readonly commands: ApiProxy['commands']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
   readonly agentPresets: ApiProxy['agentPresets']
@@ -82,12 +93,14 @@ export class ApiProxyService extends Service implements ApiProxy {
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd: process.cwd(),
       ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
+      ...(config.sessionExportCompressionLevel === undefined
+        ? {}
+        : { sessionExportCompressionLevel: config.sessionExportCompressionLevel }),
     })
     this.sessions = api.sessions
     this.subagents = api.subagents
     this.workspace = api.workspace
     this.host = api.host
-    this.commands = api.commands
     this.goals = api.goals
     this.skills = api.skills
     this.agentPresets = api.agentPresets

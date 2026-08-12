@@ -5,7 +5,7 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { AttachmentIdType, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
@@ -15,15 +15,29 @@ import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /**
+     * The deployment's image-intake limits: the attachments service's config
+     * as this proxy enforces it at prompt admission, constant per host boot.
+     * Clients pre-check count and bytes at intake and show the limits in
+     * upload affordances. Key absence means no attachment service is
+     * composed — clients skip the pre-check and let the host answer.
+     */
+    imageLimits: ImageAttachmentLimits
+  }
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     /**
      * The prompt's rpcId is passed through MessageSource into the `user/message` event
      * (the client uses it to reconcile the optimistically
      * echoed provisional message with the event stream). kind stays `'user'` — the model face
-     * carries no transport vocabulary; rpcId is an extra durable-JSON field passed back to the client with the event.
+     * carries no transport vocabulary; rpcId and the optional Host-validated browser zone are
+     * durable JSON fields passed back to the client with the event.
      */
-    'user-rpc': { kind: 'user'; rpcId: RpcId }
+    'user-rpc': { kind: 'user'; rpcId: RpcId; clientTimeZone?: string }
   }
 }
 
@@ -308,8 +322,19 @@ export interface SessionsApi {
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
-  /** Sends text and temporary image bytes after durable host admission. Session-backed subagents reject with `agent-busy`. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[] }>):
+  /**
+   * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
+   * Browser callers attach their current IANA zone;
+   * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
+   * valid for non-browser callers. Session-backed subagents reject with `agent-busy` and use
+   * `subagent.prompt`.
+   */
+  prompt(request: RpcRequest<{
+    sessionId: SessionId
+    mode: 'queue' | 'steer'
+    content: PromptContentPart[]
+    clientTimeZone?: string
+  }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Reads one durable image after proving that this session's log references its id. */

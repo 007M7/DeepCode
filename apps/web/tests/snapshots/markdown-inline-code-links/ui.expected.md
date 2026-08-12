@@ -26,6 +26,10 @@
 - paragraph: INLINE_CODE_LINK_DONE
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
 - text: {{clock}} Ran for {{duration}}

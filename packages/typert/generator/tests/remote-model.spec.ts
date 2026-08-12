@@ -23,6 +23,7 @@ interface RuntimeDescriptor {
   readonly cancellation?: { readonly parameter: 'signal' }
   readonly parameters: readonly {
     readonly wire: string
+    readonly acceptsUndefined?: true
     readonly codec: { readonly schema: RuntimeSchema }
   }[]
   readonly result: { readonly schema: RuntimeSchema }
@@ -113,15 +114,15 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
 
     expect(artifact?.js).toContain('invocations: [')
     expect(artifact?.remote?.dts).toContain(
-      "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
+      "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
     expect(artifact?.remote?.dts).toContain('interface TypeRTRemoteNamespace$676f616c73 {\n    create:')
     expect(artifact?.remote?.dts).toContain("'goals': TypeRTRemoteNamespace$676f616c73")
     expect(artifact?.remote?.dts).toContain(
-      "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
+      "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
     expect(artifact?.remote?.dts).toContain(
-      "'agent:goals/rename': (request: RenameGoalRequest) => Promise<RenameGoalResult>",
+      "'agent:goals/rename': (request: RenameGoalRequest) => Promise<RemoteResult<RenameGoalResult>>",
     )
 
     const remoteJs = artifact?.remote?.js
@@ -144,6 +145,57 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     expect(declarationMap.names).toContain('create')
 
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap)
+  })
+
+  it('projects authored optionality and absence onto consumers and codecs', async () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+      '\n}\n\nexport type {',
+      `
+
+  @Remote
+  maybe(value: string | undefined): string | undefined {
+    return value
+  }
+
+  @Remote
+  labelled(id: string, label?: string): string {
+    return label ?? id
+  }
+
+  @Remote
+  clear(): void {}
+}
+
+export type {`,
+    ))
+
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toContain(
+      "'goals/maybe': (value: string | undefined) => Promise<RemoteResult<string | undefined>>",
+    )
+    expect(artifact?.remote?.dts).toContain("'goals/clear': () => Promise<RemoteResult<void>>")
+    // An explicit `T | undefined` stays a required argument; only authored
+    // optionality lets a consumer omit the field.
+    expect(artifact?.remote?.dts).not.toContain('value?: string')
+    expect(artifact?.remote?.dts).toContain("'goals/labelled': (id: string, label?: string) => Promise<RemoteResult<string>>")
+
+    const remoteJs = artifact?.remote?.js
+    if (remoteJs === undefined) throw new Error('undefined Remote fixture emitted no Host-for-Client JavaScript')
+    const executable = remoteJs.replace("from 'zod'", `from ${JSON.stringify(import.meta.resolve('zod'))}`)
+    const generated = await import(`data:text/javascript,${encodeURIComponent(executable)}`) as RuntimeRemoteModule
+    const maybe = generated.TYPERT_REMOTE.descriptors.find(descriptor => descriptor.id.endsWith('/maybe'))
+    const clear = generated.TYPERT_REMOTE.descriptors.find(descriptor => descriptor.id.endsWith('/clear'))
+    expect(maybe?.parameters[0]?.acceptsUndefined).toBe(true)
+    expect(maybe?.parameters[0]?.codec.schema.safeParse(undefined).success).toBe(true)
+    expect(maybe?.result.schema.safeParse(undefined).success).toBe(true)
+    expect(clear?.result.schema.safeParse(undefined).success).toBe(true)
+    expect(clear?.result.schema.safeParse(null).success).toBe(false)
+    const labelled = generated.TYPERT_REMOTE.descriptors.find(descriptor => descriptor.id.endsWith('/labelled'))
+    expect(labelled?.parameters[0]?.acceptsUndefined).toBeUndefined()
+    expect(labelled?.parameters[1]?.acceptsUndefined).toBe(true)
+    expect(labelled?.parameters[1]?.codec.schema.safeParse(undefined).success).toBe(true)
+    expect(labelled?.parameters[1]?.codec.schema.safeParse(7).success).toBe(false)
   })
 
   it('evaluates declaration-merged mapped and conditional boundaries for codecs without widening consumer types', async () => {
@@ -204,7 +256,7 @@ export type GenericResult = {
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toContain(
-      "'goals/dispatch': (request: GenericRequest) => Promise<GenericResult>",
+      "'goals/dispatch': (request: GenericRequest) => Promise<RemoteResult<GenericResult>>",
     )
     const remoteJs = artifact?.remote?.js
     if (remoteJs === undefined) throw new Error('generic Remote fixture emitted no Host-for-Client JavaScript')
@@ -254,7 +306,7 @@ export interface BoxPayload {
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toMatch(/import type \{ [^}]*Box[^}]*BoxPayload[^}]* \} from '@fixture\/remote\/types'/)
-    expect(artifact?.remote?.dts).toContain('box: (request: Box<BoxPayload>) => Promise<Box<BoxPayload>>')
+    expect(artifact?.remote?.dts).toContain('box: (request: Box<BoxPayload>) => Promise<RemoteResult<Box<BoxPayload>>>')
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
   })
 
@@ -274,7 +326,7 @@ export interface BoxPayload {
     ))
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
-    expect(artifact?.remote?.dts).toContain("'create-goal': (request: CreateGoalRequest) => Promise<CreateGoalResult>")
+    expect(artifact?.remote?.dts).toContain("'create-goal': (request: CreateGoalRequest) => Promise<RemoteResult<CreateGoalResult>>")
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
   })
 
@@ -436,9 +488,9 @@ export interface ClientMarker {
       message: 'Remote parameters cannot have default values',
     },
     {
-      name: 'optional parameter',
-      edit: (source: string) => source.replace('request: CreateGoalRequest', 'request?: CreateGoalRequest'),
-      message: 'Remote parameters cannot be optional',
+      name: 'optional lookup parameter',
+      edit: (source: string) => source.replace('agent: Agent,', 'agent?: Agent,'),
+      message: 'lookup parameter for agent cannot be optional',
     },
     {
       name: 'wrong cancellation type',
@@ -584,6 +636,7 @@ function assertRemoteConsumerTypechecks(
   const consumerSource = `
 import remote from '@fixture/remote/remote'
 import type {
+  RemoteResult,
   TypeRTRemoteContribution,
   TypeRTRemoteScopeMap,
   TypeRTRemoteMap,
@@ -595,12 +648,12 @@ const contribution: TypeRTRemoteContribution = remote
 declare const create: TypeRTRemoteMap['goals/create']
 declare const createScoped: TypeRTRemoteScopeMap['agent:goals/create']
 declare const rename: TypeRTRemoteScopeMap['agent:goals/rename']
-const created: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' })
-const cancellable: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' }, new AbortController().signal)
-const createdScoped: Promise<CreateGoalResult> = createScoped({ title: 'ship' })
-const renamed: Promise<RenameGoalResult> = rename({ ref: 'goal-1', title: 'land' })
+const created: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' })
+const cancellable: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' }, new AbortController().signal)
+const createdScoped: Promise<RemoteResult<CreateGoalResult>> = createScoped({ title: 'ship' })
+const renamed: Promise<RemoteResult<RenameGoalResult>> = rename({ ref: 'goal-1', title: 'land' })
 declare const ctx: { remote: TypeRTRemoteNamespaceMap }
-const navigated: Promise<CreateGoalResult> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
+const navigated: Promise<RemoteResult<CreateGoalResult>> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
 void contribution
 void created
 void cancellable

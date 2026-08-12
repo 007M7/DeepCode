@@ -8,8 +8,8 @@
 # The web-startup plugin injects `cmdlineArgs` and provides `webStartup` as an
 # ordinary Cordis service. Rows configured from flags inject that service, so
 # Loader resolves their expressions only after it exists. The web runtime then
-# provides bind-dependent `webRuntime` values to the trust fence and client
-# roster. `dsh --profile web --help` provides neither service, so no server binds.
+# provides bind-dependent `webRuntime` values to the trust fence.
+# `dsh --profile web --help` provides neither service, so no server binds.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -80,6 +80,10 @@
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
 
+    # Read-only projection of current Loader entries for trusted client RPCs.
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -105,39 +109,34 @@
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
     # frontend-static fallback owner, registers the web-surface prompt
-    # section and bash runtime variables, and prints the URL line. The webStartup
-    # provider supplies invocation-only values; after the server binds, this row
-    # samples LAN trust once and provides `webRuntime`. A complete agent-preset
-    # persona suppresses the prompt section for that agent while retaining
-    # these host-owned shell variables.
+    # section and the bash runtime variable, and prints the URL line. The
+    # webStartup provider supplies invocation-only values; after the server
+    # binds, this row samples LAN trust once and provides `webRuntime`. A
+    # complete agent-preset persona suppresses the prompt section for that
+    # agent while retaining the host-owned shell variable.
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
       config:
-        mode: !!js ctx.webStartup.mode
         printUrl: true
         surfaceContext: true
         trustedHosts: !!js ctx.webStartup.trustedHosts
 
-    # The client-plugin reload chain: a dev-only row this bundle ships off,
-    # which the runtime row turns on before client discovery. It is a row rather
-    # than a child of web-runtime because its node half is a client-side package,
-    # which a host-side bundle cannot import.
+    # The client-plugin reload chain, always mounted: it is idle until a
+    # rebuild watcher (pnpm run dev:web) actually rewrites client bundles. It
+    # is a row rather than a child of web-runtime because its node half is a
+    # client-side package, which a host-side bundle cannot import.
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
-      inject: [webStartup]
-      disabled: true
 
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
-    # Dual-face: this waits for the runtime row to decide whether HMR belongs
-    # in the first graph. The node half then scans this tree, composes
-    # window.__DSH_BOOT__, and serves /plugins/<id>/client.js; the browser half
-    # is the module table the shell kernel constructs before cordis exists
-    # (adopted as a plugin entry by the kernel, never fetched).
+    # Dual-face: the node half scans this tree, composes window.__DSH_BOOT__,
+    # and serves /plugins/<id>/client.js; the browser half is the module table
+    # the shell kernel constructs before cordis exists (adopted as a plugin
+    # entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
-      inject: [webRuntime]
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client.
@@ -177,12 +176,20 @@
     - id: ui-models
       name: '@deepseek-ai/dsh-client-ui-models'
 
+    - id: ui-plugins
+      name: '@deepseek-ai/dsh-client-ui-plugins'
+
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
+
+    # Durable workflow lifecycle as an independent Chat node after the
+    # existing generic workflow tool row.
+    - id: ui-workflow-run
+      name: '@deepseek-ai/dsh-client-ui-workflow-run'
 
     # Turn tail: the produced-files row under each closing assistant message.
     # Remove this entry to turn the surface off; the tail hole renders empty.
@@ -215,6 +222,11 @@
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'
 
+    # Per-message feedback: Like/Dislike plus an optional note in the
+    # assistant-message action strip, over the messageFeedback Remote.
+    - id: ui-feedback
+      name: '@deepseek-ai/dsh-client-ui-feedback'
+
     # Model selection: the /model popupSelect + composer seat over session.models.
     - id: ui-model
       name: '@deepseek-ai/dsh-client-ui-model'
@@ -226,6 +238,11 @@
     # sessions created later. Absent a roster it renders nothing.
     - id: ui-agent-preset
       name: '@deepseek-ai/dsh-client-ui-agent-preset'
+
+    # Plugin configuration: the host-plane sections a user owns, as expandable
+    # cards. A namespace this deployment does not expose renders nothing.
+    - id: ui-plugin-config
+      name: '@deepseek-ai/dsh-client-ui-plugin-config'
 
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
@@ -255,6 +272,9 @@
 # would never reach the model's shell at all.
 
 - id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
   disabled: true
 
 # The background-task REGISTRY stays on the host plane; only the model-facing
@@ -369,12 +389,15 @@
   disabled: true
 
 # The preset roster. `config/agent-presets/` ships with the deployment and is
-# read-only (its entries carry `system` trust);
-# `$DSH_HOME/.agent-presets` is where a person — or an agent — authors their own, and
-# carries the same trust as shell access because a preset IS a composition.
-# `roots` is an assembly fact, not user config: the shipped preset directory
-# ships beside this file, so AppCLIEntry resolves it and patches it in — the
-# same treatment `distIndex` gets on the webserver row.
+# read-only (its entries carry `system` trust); `$DSH_HOME/.agent-presets` is
+# where a person — or an agent — authors their own, and carries the same trust
+# as shell access because a preset IS a composition.
+#
+# Only the SHIPPED root is an assembly fact: it sits beside the installed app's
+# own config, so `apps/cli`'s `composeProfile` resolves and patches it in — the
+# same treatment `distIndex` gets on the webserver row. The writable root is
+# `dsh-agent-presets`' own default (`includeUserRoot`), so a composition that
+# never reaches that patch still finds a person's presets.
 - insert:
     - id: agent-presets
       name: '@deepseek-ai/dsh-agent-presets'

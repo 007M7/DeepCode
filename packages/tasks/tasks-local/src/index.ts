@@ -10,6 +10,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AnonymousEntries, ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
@@ -22,6 +23,18 @@ import type {
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
+
+/** Default maximum number of active tasks in one exact-owner bucket. */
+const DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER = 10
+
+/** Configuration for the process-local task registry. */
+export interface Config {
+  /**
+   * Maximum `running` plus `stopping` tasks per exact owner or in the shared unowned bucket;
+   * omission defaults to 10.
+   */
+  maxConcurrentTasksPerOwner?: number
+}
 
 /** The registry's mutable per-task record (never handed out — see {@link LocalTaskService.snapshot}). */
 interface TrackedTask {
@@ -76,6 +89,16 @@ class TaskLayer implements ScopeLayer {
  * semantics this implementation honors.
  */
 export class LocalTaskService extends TaskService {
+  static Config: z<Config> = z.object({
+    maxConcurrentTasksPerOwner: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER),
+  })
+
+  /** Schemastery-defaulted active-task limit. */
+  private readonly maxConcurrentTasksPerOwner: number
   private store = new Map<TaskId, TrackedTask>()
   private counters = new Map<string, number>()
   /**
@@ -97,8 +120,10 @@ export class LocalTaskService extends TaskService {
   /** Service context used by detached settlement continuations and teardown. */
   private readonly selfCtx: Context
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config) {
     super(ctx)
+    // Schemastery validates and fills the default before constructing the service.
+    this.maxConcurrentTasksPerOwner = (config as Required<Config>).maxConcurrentTasksPerOwner
     this.selfCtx = ctx
     ctx.effect(() => () => this.disposeAll(), 'tasks teardown')
   }
@@ -114,6 +139,13 @@ export class LocalTaskService extends TaskService {
       throw new Error(`invalid outputLimitBytes: expected a positive safe integer, got ${JSON.stringify(spec.outputLimitBytes)}`)
     }
     if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
+
+    const active = this.activeTaskCount(spec.owner)
+    if (active >= this.maxConcurrentTasksPerOwner) {
+      throw new Error(
+        `background task limit reached for this owner (limit: ${this.maxConcurrentTasksPerOwner}); use task_kill to stop an unneeded task, wait for it to finish, then retry`,
+      )
+    }
 
     const hooks = spec.run()
     const count = (this.counters.get(spec.kind) ?? 0) + 1
@@ -224,10 +256,11 @@ export class LocalTaskService extends TaskService {
           }
           const onAbort = (): void => {
             task.waitResolvers.delete(onSettled)
+            // A settled task cannot reach here: settlement releases every waiter
+            // before it announces completion, and each released waiter detaches
+            // this listener in the same synchronous span, so nothing that reacts
+            // to a settlement can abort a wait the settlement already owed.
             if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
-              resolve()
-            } else if (isTerminal(task.status)) {
-              // Settlement suppressed the notice for this waiter; deliver it.
               resolve()
             } else {
               uncount()
@@ -283,6 +316,15 @@ export class LocalTaskService extends TaskService {
     if (!this.layers.global.controllers.isEmpty()) return true
     return this.layers.chainLayers(owner === undefined ? undefined : scopeOf(owner.ctx))
       .some(layer => !layer.controllers.isEmpty())
+  }
+
+  /** Count authoritative active records for one exact owner or the shared unowned bucket. */
+  private activeTaskCount(owner: Agent | undefined): number {
+    let count = 0
+    for (const task of this.store.values()) {
+      if (task.owner === owner && (task.status === 'running' || task.status === 'stopping')) count += 1
+    }
+    return count
   }
 
   /**
@@ -364,9 +406,12 @@ export class LocalTaskService extends TaskService {
   }
 
   /**
-   * Record the first terminal outcome, notify contained listeners, and release
-   * waiters. First-wins preserves a teardown force-failure against late producer
-   * settlement. Pending waits mark the task reported before listeners run.
+   * Record the first terminal outcome, release waiters, then announce
+   * completion. First-wins preserves a teardown force-failure against late
+   * producer settlement. Pending waits mark the task reported before listeners
+   * run. Completion is announced last because a reporter may open a model turn
+   * synchronously: every other observer of this settlement must already have
+   * seen the committed record.
    */
   private settle(task: TrackedTask, outcome: TaskOutcome): void {
     if (isTerminal(task.status)) return
@@ -375,24 +420,23 @@ export class LocalTaskService extends TaskService {
     task.output = outcome.output
     task.finishedAt = Date.now()
     if (task.waiters > 0) task.reported = true
-    if (!this.listenersClosed) {
-      const snapshot = this.snapshot(task)
-      for (const listener of this.listenersFor(task.owner)) {
-        try {
-          const returned = listener(snapshot, task.owner)
-          void Promise.resolve(returned).catch((error: unknown) => {
-            this.selfCtx.logger.warn(`tasks: onTaskDone listener rejected for ${task.id}: ${String(error)}`)
-          })
-        } catch (error: unknown) {
-          this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
-        }
-      }
-    }
+    const snapshot = this.snapshot(task)
     const waitResolvers = [...task.waitResolvers]
     task.waitResolvers.clear()
     for (const resolveWait of waitResolvers) resolveWait()
     task.markSettled()
     this.notifyChanged(task.owner)
+    if (this.listenersClosed) return
+    for (const listener of this.listenersFor(task.owner)) {
+      try {
+        const returned = listener(snapshot, task.owner)
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.selfCtx.logger.warn(`tasks: onTaskDone listener rejected for ${task.id}: ${String(error)}`)
+        })
+      } catch (error: unknown) {
+        this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
+      }
+    }
   }
 
   /**
@@ -463,6 +507,14 @@ export class LocalTaskService extends TaskService {
   private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
     for (const task of tasks) {
       if (isTerminal(task.status)) continue
+      // Teardown cancellation is a kill without a caller, so it claims the
+      // terminal report the same way `kill()` does. Nothing will read a notice
+      // for a task whose owner or service is being destroyed, and a waking
+      // reporter would spend a model request per teardown layer. This is
+      // decided before the producer runs: the force-failure below settles the
+      // record too, so a throwing cancel must not be the one path that
+      // announces an unreported completion into a disposing owner.
+      task.reported = true
       try {
         task.cancel(reason)
         task.status = 'stopping'

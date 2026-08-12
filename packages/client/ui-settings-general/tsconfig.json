@@ -15,9 +15,6 @@
       "path": "../ui-slots"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../ui-primitives"
     },
     {
@@ -37,6 +34,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-sidebar"
     }
   ]
 }

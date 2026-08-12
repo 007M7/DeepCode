@@ -1,6 +1,6 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--dev`, `--trusted-host`) and its `--help`
+ * family (`--host`, `--port`, `--trusted-host`) and its `--help`
  * text, then provides the immutable values as {@link WEB_STARTUP_SERVICE}.
  * Ordinary rows inject that service before reading it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
@@ -25,8 +25,6 @@ export interface WebStartupValues {
   host?: string
   /** `--port`, absent when the invocation did not name one. */
   port?: number
-  /** Web runtime mode; `--dev` selects development, which also mounts the client-plugin reload chain. */
-  mode: 'production' | 'development'
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
 }
@@ -35,7 +33,6 @@ export interface WebStartupValues {
 interface WebOptions {
   host?: string
   port?: string
-  dev?: boolean
   trustedHost?: string[]
 }
 
@@ -50,41 +47,34 @@ function webCommand(): Command {
     .helpOption('-h, --help', 'show this help')
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
-    .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 0.0.0.0           reach it from another machine on the LAN
-  dsh --profile web --dev                    mount the client-plugin HMR receiver
 `)
 }
 
 /**
- * Turn the parsed flags into the value injected rows read.
- * @param program - the parsed web command.
- * @returns this invocation's immutable Web options.
- */
-function planWebStartup(program: Command): WebStartupValues {
-  const options = program.opts<WebOptions>()
-  if (options.port !== undefined && !/^\d+$/.test(options.port)) {
-    program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
-  }
-  return {
-    ...options.host !== undefined && { host: options.host },
-    ...options.port !== undefined && { port: Number(options.port) },
-    mode: options.dev === true ? 'development' : 'production',
-    trustedHosts: options.trustedHost ?? [],
-  }
-}
-
-/**
- * Parse and provide the Web invocation as an ordinary Cordis service.
+ * Parse and provide the Web invocation as an ordinary Cordis service. The
+ * command's action publishes the flags this invocation named; a non-numeric
+ * `--port` is a usage error, so on rejection (and on `--help`) nothing is
+ * provided.
  * @param ctx - plugin context carrying the command line.
- * @returns nothing once values are provided, or when the command requested exit.
  */
 export function apply(ctx: Context): void {
-  const values = parseCmdline(ctx, webCommand(), planWebStartup)
-  if (values !== undefined) ctx.provide(WEB_STARTUP_SERVICE, values)
+  const program = webCommand()
+  program.action(() => {
+    const options = program.opts<WebOptions>()
+    if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+      program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
+    }
+    ctx.provide(WEB_STARTUP_SERVICE, {
+      ...options.host !== undefined && { host: options.host },
+      ...options.port !== undefined && { port: Number(options.port) },
+      trustedHosts: options.trustedHost ?? [],
+    } satisfies WebStartupValues)
+  })
+  parseCmdline(ctx, program)
 }

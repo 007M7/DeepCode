@@ -16,6 +16,7 @@ import AgentPresets, {
   COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 
 declare module '@deepseek-ai/cordis' {
@@ -37,7 +38,7 @@ const ROOTS = [
  * @param roster - roster config, defaulting to the fixture roots.
  * @returns the booted context.
  */
-async function harness(roster: Config = { default: 'standard', roots: ROOTS }): Promise<Context> {
+async function harness(roster: Config = { default: 'standard', roots: ROOTS, includeUserRoot: false }): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
   await ctx.plugin(Loader)
@@ -93,7 +94,7 @@ describe('composing an agent from a preset', () => {
       join(presetDir, COMPOSITION_FILE),
       `- id: only\n  name: ${plugin}\n  config:\n    tool: absolute\n`,
     )
-    const scoped = await harness({ default: 'absolute', roots: [{ path: root, trust: 'user' }] })
+    const scoped = await harness({ default: 'absolute', roots: [{ path: root, trust: 'user' }], includeUserRoot: false })
     const imported = vi.spyOn(scoped.loader.internal!, 'import')
 
     await agentOn(scoped, 'sess-absolute-plugin')
@@ -346,7 +347,7 @@ describe('composing from a broken preset', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-preset-broken-'))
     await mkdir(join(root, 'damaged'))
     await writeFile(join(root, 'damaged', COMPOSITION_FILE), composition)
-    return await harness({ default: 'damaged', roots: [{ path: root, trust: 'user' as const }] })
+    return await harness({ default: 'damaged', roots: [{ path: root, trust: 'user' as const }], includeUserRoot: false })
   }
 
   it('refuses the mount up front with the discovery-reported reason', async () => {
@@ -379,7 +380,7 @@ describe('a roster with nothing in it', () => {
   it('says so instead of naming an empty list of candidates', async () => {
     const bare = new Context()
     await bare.plugin(Loader)
-    await bare.plugin(AgentPresets, { default: 'standard', roots: [] })
+    await bare.plugin(AgentPresets, { default: 'standard', roots: [], includeUserRoot: false })
 
     await expect(bare.agentPresets.resolve())
       .rejects.toThrow(/preset "standard" not found \(available: none\)/)
@@ -417,7 +418,7 @@ describe('the preset file is an input, never a persistence target', () => {
     await scoped.plugin(ToolRegistry)
     await scoped.plugin(AgentRegistry)
     await scoped.plugin(AgentLoop, { agents: [] })
-    await scoped.plugin(AgentPresets, { default: 'self-disposing', roots: [{ path: root, trust: 'user' as const }] })
+    await scoped.plugin(AgentPresets, { default: 'self-disposing', roots: [{ path: root, trust: 'user' as const }], includeUserRoot: false })
 
     await scoped.agents.create({
       sessionId: SessionId('sess-self-dispose'),
@@ -457,6 +458,18 @@ describe('attributing a service to a subtree', () => {
 })
 
 describe('replacing a composition', () => {
+  it('publishes a committed preset selection for remote consumers', async () => {
+    const agent = await agentOn(ctx, 'sess-selected', 'standard')
+    const selected: Array<[SessionId, string]> = []
+    ctx.on('agent-preset/selected', (sessionId, agentPreset) => {
+      selected.push([sessionId, agentPreset])
+    })
+
+    agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
+
+    expect(selected).toEqual([[SessionId('sess-selected'), 'minimal']])
+  })
+
   it('swaps the agent\'s tools without touching another session', async () => {
     const keeper = await agentOn(ctx, 'sess-keeper', 'standard')
     const handle = await ctx.agents.create({
@@ -515,11 +528,13 @@ describe('replacing a composition', () => {
     expect(warnings).toEqual([])
   })
 
-  it('says nothing when the deployment configures no roster at all', async () => {
+  it('says nothing when the composition opts out of every root', async () => {
     // Presets are optional: every surface except the Web bundle keeps its
     // model-facing rows in the host plane, so an agent with a chain of one is
-    // exactly right there and the diagnostic must stay silent.
-    const rosterless = await harness({ default: 'standard', roots: [] })
+    // exactly right there and the diagnostic must stay silent. Opting out is
+    // what makes this rosterless — empty `roots` alone would still derive the
+    // harness-home root, which is a roster like any other.
+    const rosterless = await harness({ default: 'standard', roots: [], includeUserRoot: false })
     const warnings: string[] = []
     rosterless.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof rosterless.logger.warn
 
@@ -568,7 +583,7 @@ describe('replacing a composition', () => {
     await scoped.plugin(ToolRegistry)
     await scoped.plugin(AgentRegistry)
     await scoped.plugin(AgentLoop, { agents: [] })
-    await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }] })
+    await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }], includeUserRoot: false })
     const handle = await scoped.agents.create({
       sessionId: SessionId('sess-restore-gone'),
       setup: async (agentCtx: Context) => void await scoped.agentPresets.mount(agentCtx, 'first'),
@@ -608,7 +623,7 @@ describe('editing a composition file', () => {
     await mkdir(join(root, id))
     const path = join(root, id, COMPOSITION_FILE)
     await writeFile(path, rowFor('before'))
-    const scoped = await harness({ default: id, roots: [{ path: root, trust: 'user' as const }] })
+    const scoped = await harness({ default: id, roots: [{ path: root, trust: 'user' as const }], includeUserRoot: false })
     return { scoped, path }
   }
 

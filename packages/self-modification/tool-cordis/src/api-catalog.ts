@@ -237,8 +237,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Validate and durably commit one image before its owning session event is appended.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns a durable content-addressed reference.\n */',
       },
       {
-        signature: 'abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>',
-        jsDoc: '/**\n * Read one image and verify that bytes still match the recorded reference.\n * @param ref - durable reference from the session log.\n * @returns the verified bytes and canonical reference.\n */',
+        signature: 'abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>',
+        jsDoc: '/**\n * Read one image and verify that bytes still match the recorded reference.\n * @param ref - durable reference from the session log.\n * @param signal - optional cancellation for backend read and verification work.\n * @returns the verified bytes and canonical reference.\n * @throws the signal reason when aborted, or a storage error when verification fails.\n */',
       },
     ],
   },
@@ -323,7 +323,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
       },
       {
-        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        signature: '@Remote list(agent: Agent): readonly CommandDescriptor[]',
         jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
       },
       {
@@ -331,7 +331,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
       },
       {
-        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
+        signature: '@Remote async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
         jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n *\n * A resolved command\'s lifecycle is logged: `command/run` is appended\n * before the handler is invoked and `command/done` after settlement (a\n * thrown or aborted handler settles as `kind: \'error\'`). Both are direct\n * log-only appends — no turn wraps them, and persistence drains them at\n * ordinary checkpoints. Admission misses (syntax or unknown name) log\n * nothing — they never entered a handler. A `command/run` append failure\n * fails the execution loud; a `command/done` append failure on the\n * handler-failure path is contained so the handler\'s own error stays the\n * reported failure.\n *\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns the settled execution (result + lifecycle pairing id), or\n *   `undefined` when syntax or name does not resolve.\n */',
       },
     ],
@@ -720,7 +720,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
-        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Backends without a\n * per-session artifact (SQLite) inherit the `undefined` default.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent or the backend owns no per-session artifact.\n */',
+        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Callers first test\n * {@link supportsRawArtifacts}; `undefined` then means only that the requested\n * session has no materialized artifact.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent.\n * @throws when this backend does not expose per-session raw artifacts.\n */',
       },
       {
         signature: 'abstract create(meta: SessionHeader): Promise<void>',
@@ -1150,7 +1150,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract start(spec: TaskStart): TaskId',
-        jsDoc: '/**\n * Preflight access, validation, and owner cleanup before starting and\n * atomically registering work. A throwing starter leaves nothing registered;\n * after it returns, registration cannot fail. Settlement records the outcome,\n * notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
+        jsDoc: '/**\n * Preflight access, validation, owner cleanup, and implementation-owned\n * admission before starting and atomically registering work. Any preflight\n * rejection leaves no task id or execution resource. A throwing starter\n * leaves nothing registered; after it returns, registration cannot fail.\n * Settlement records the outcome, notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
       },
       {
         signature: 'abstract list(caller?: Agent): TaskSnapshot[]',
@@ -1385,6 +1385,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
       },
       {
+        signature: 'insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]>',
+        jsDoc: '/**\n * Move one workspace within the durable display order, DOM-insertBefore-like.\n * With an anchor it lands before that workspace; without one it appends.\n * @param id - Workspace to move.\n * @param beforeId - Workspace anchor; omitted appends.\n * @returns the complete committed workspace order.\n */',
+      },
+      {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },
@@ -1404,6 +1408,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent-loop/config-start-failed\'(payload: { sessionId: SessionId; error: unknown }): void',
     jsDoc: '/**\n * A declarative agent entry failed before it could publish a live agent.\n * Consumers that buffer work for the configured identity use this\n * transient signal to reject that work instead of waiting forever. Normal\n * factory teardown suppresses failures from the cancelled startup attempt.\n * @param payload.sessionId - exact shared agent/session identity that failed startup.\n * @param payload.error - persistence, setup, or publication failure.\n * @mode emit\n */',
     summary: 'A declarative agent entry failed before it could publish a live agent.',
+  },
+  {
+    name: 'agent-preset/selected',
+    mode: 'emit',
+    signature: '\'agent-preset/selected\'(sessionId: SessionId, agentPreset: string): void',
+    jsDoc: '/**\n * One session committed a different agent preset to its durable log.\n * Consumers invalidate only state derived from that session\'s composition.\n * @mode emit\n * @param sessionId - the session whose composition changed.\n * @param agentPreset - the preset recorded by the committed selection.\n */',
+    summary: 'One session committed a different agent preset to its durable log.',
   },
   {
     name: 'agent/created',
@@ -1549,7 +1560,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
-    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This payload-free registry notification fires at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
   },
   {
@@ -2259,7 +2270,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvocationParameterDescriptor',
-    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypeRTCodec;\n}',
+    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypeRTCodec;\n    readonly acceptsUndefined?: true;\n}',
   },
   {
     name: 'InvocationSourceLocation',

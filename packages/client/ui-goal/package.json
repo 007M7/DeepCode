@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-goal",
   "description": "Session goal surface: GoalBar docked above the composer, read from the goal session projection",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "publishConfig": {
     "access": "restricted"
   },
@@ -52,6 +52,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-goal": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
@@ -65,6 +66,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-goal": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@testing-library/react": "^16.1.0",

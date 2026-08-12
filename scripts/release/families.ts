@@ -11,7 +11,7 @@
 
 import { globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { hasTypeRTRemoteNavigation, validateTarballPayload } from '../publication-payload.ts'
+import { validateTarballPayload } from '../publication-payload.ts'
 
 /** Dependency sections that constrain publish order: a consumer must publish after its dependency. */
 const ORDER_SECTIONS = ['dependencies', 'optionalDependencies'] as const
@@ -225,9 +225,7 @@ class DshFamily extends ReleaseFamily {
    * @param files - every path inside its tarball.
    */
   validatePayload(member: ReleaseMember, files: readonly string[]): void {
-    validateTarballPayload(files, member.name, {
-      typeRTRemoteNavigation: hasTypeRTRemoteNavigation(member.manifest),
-    })
+    validateTarballPayload(files, member.name)
   }
 
   readonly installedEntry = { packageName: '@deepseek-ai/dsh', binPath: 'lib/bin.js' }

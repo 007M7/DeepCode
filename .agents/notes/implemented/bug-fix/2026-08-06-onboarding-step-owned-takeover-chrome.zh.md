@@ -32,4 +32,4 @@
 
 ## 测试
 
-`packages/client/ui-primitives/tests/onboarding-surface.spec.tsx` 钉住原语行为：内容外的 body portal、遮罩／展示层类名存在、`#root` 的 `inert` 恰好持续挂载生命周期，以及无 `#root` 的组合。`packages/client/ui-settings/tests/settings-root.spec.tsx` 钉住反转后的外壳约定：已挂载步骤什么都不渲染时，无接管界面框架、无 inert。`apps/web/tests/onboarding-deepseek-config.e2e.ts` 新增本缺陷的整装回归钉：已配置世界刷新页面，同时在浏览器网络边界扣住所有 `settings.describe` 响应——把步骤的判定窗口从 loopback 下不可见拉宽到数百毫秒，这正是断言保持非空洞的关键——页内 8ms 采样器证明接管界面框架从未挂载、`#root` 从未变为 inert。该文件的既有场景与步骤 spec（`ui-settings-general`、`ui-models`）原样通过——样式表逐字迁移，遮罩选择器与几何钉子得以幸存。
+`packages/client/ui-primitives/tests/onboarding-surface.client.spec.tsx` 钉住原语行为：内容外的 body portal、遮罩／展示层类名存在、`#root` 的 `inert` 恰好持续挂载生命周期，以及无 `#root` 的组合。`packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` 钉住反转后的外壳约定：已挂载步骤什么都不渲染时，无接管界面框架、无 inert。`apps/web/tests/onboarding-deepseek-config.e2e.ts` 新增本缺陷的整装回归钉：已配置世界刷新页面，同时在浏览器网络边界扣住所有 `settings.describe` 响应——把步骤的判定窗口从 loopback 下不可见拉宽到数百毫秒，这正是断言保持非空洞的关键——页内 8ms 采样器证明接管界面框架从未挂载、`#root` 从未变为 inert。该文件的既有场景与步骤 spec（`ui-settings-general`、`ui-models`）原样通过——样式表逐字迁移，遮罩选择器与几何钉子得以幸存。

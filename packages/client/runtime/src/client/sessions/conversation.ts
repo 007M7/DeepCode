@@ -13,7 +13,7 @@ import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 import type { PendingInteraction } from './pending.ts'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 import type {
@@ -96,6 +96,12 @@ export interface AssistantTiming {
 export interface AssistantMessageNode {
   kind: 'assistant'
   seq: number
+  /**
+   * Stable identity of the finalized model output, carried from the
+   * `assistant/message` event. Absent on interruption-frozen partials: those
+   * were never finalized, so they address no durable message.
+   */
+  messageId?: MessageId
   /** Unix epoch ms from the source session event (or turn/end when frozen from a partial). */
   time: number
   turn: number
@@ -324,8 +330,9 @@ export type OpenState = 'cold' | 'loading' | 'open' | 'error'
  * - `engaging`: a first prompt was attempted, but no accepted turn or other
  *   authoritative activity signal has arrived — the UI keeps the composer
  *   visible through admission and error frames.
- * - `active`: the session is non-blank beyond its pending first prompt, is
- *   running, or owns a pending interaction — the ordinary conversation view.
+ * - `active`: the session is non-blank beyond its pending first prompt,
+ *   contains visible non-command Chat content, is running, or owns a pending
+ *   interaction — the ordinary conversation view.
  *
  * A failed first prompt stays `engaging` (composer + error strip — retry
  * semantics; returning to the hero would discard the error context).

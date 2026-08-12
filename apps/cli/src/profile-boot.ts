@@ -29,18 +29,14 @@ import {
   watchUserPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
-import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 /** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
 const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
 
-/** Harness-home directory holding locally authored agent presets. */
-const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
-import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
-import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
@@ -59,9 +55,6 @@ export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.me
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'telemetry-otel'
-
-/** The one-shot runner row: its presence means this composition exits by itself. */
-const HEADLESS_ROW_ID = 'headless-runner'
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
@@ -114,8 +107,6 @@ interface ComposedProfile {
   profile: Profile
   /** Bundle layers concatenated — the part below the user layers on a live reload. */
   bundlePatches: PatchOptions[]
-  /** The win32 shell platform layer (the base bundle's `windows.cordis.patch.yml`), between bundles and user layers. */
-  windowsShellPatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
   /** Layers above the user layers on a live reload: `--patch` overlays and the telemetry switch. */
@@ -131,7 +122,6 @@ interface ComposedProfile {
 function allPatches(composed: ComposedProfile): PatchOptions[] {
   return [
     ...composed.bundlePatches,
-    ...composed.windowsShellPatches,
     ...composed.profile.patches,
     ...composed.homePatches,
     ...composed.overlays,
@@ -140,10 +130,10 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.profile.bundles` order, the win32 shell platform layer (when the host
- * is Windows), the profile's user layer, the home-level user layer
- * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
- * every profile, so it outranks the per-profile layer), `--patch` overlays,
+ * `dsh.profile.bundles` order (the base bundle gates the shell stacks by
+ * platform on its own rows), the profile's user layer, the home-level user
+ * layer (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply
+ * to every profile, so it outranks the per-profile layer), `--patch` overlays,
  * then the telemetry switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
@@ -157,28 +147,27 @@ function composeProfile(
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
-  const windowsShellPatches = resolveWindowsShellLayer(process.platform, profile.layers, NAME)?.patches ?? []
   const rows = new Map<string, EntryOptions>()
-  for (const row of composeEntries([bundlePatches, windowsShellPatches, profile.patches, homePatches, overlays])) {
+  for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const composedOverlays = [...overlays]
-  // Preset roots belong to every dsh composition that mounts the roster.
+  // The SHIPPED root is the part of the roster only this app can resolve: it
+  // sits beside this app's own config, in both the source and built layouts.
+  // The writable root the roster appends is `dsh-agent-presets`' own, so a
+  // launcher that never reaches this patch still finds a person's presets.
   if (rows.has('agent-presets')) {
     composedOverlays.push({
       id: 'agent-presets',
       config: {
         ...(rows.get('agent-presets')?.config ?? {}) as Record<string, unknown>,
-        roots: [
-          { path: SHIPPED_PRESET_ROOT, trust: 'system' },
-          { path: dshHomePath(USER_PRESET_DIR), trust: 'user' },
-        ],
+        roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
       },
     })
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
-  return { profile, bundlePatches, windowsShellPatches, homePatches, overlays: composedOverlays, rows }
+  return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -193,9 +182,20 @@ export interface RunProfileOptions {
   args: readonly string[]
 }
 
-/** Re-throw setup failures unless this invocation's signal already owns shutdown. */
-function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
-  if (!signal.aborted) throw error
+/**
+ * Re-throw a watcher-setup failure unless a shutdown already owns the tree:
+ * a signal aborted this invocation, or an app requested exit (`ctx.appExit`
+ * from a fast one-shot) and the root's disposal rejected the in-flight setup
+ * await. Either way the failure describes a tree that is exiting as asked,
+ * not a broken watch.
+ * @param ctx - the booted root context.
+ * @param signal - this invocation's signal-shutdown fact.
+ * @param error - the setup failure.
+ */
+function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown): void {
+  if (signal.aborted) return
+  if (ctx.fiber.state !== FiberState.ACTIVE || ctx.get('loader') === undefined) return
+  throw error
 }
 
 /**
@@ -206,11 +206,6 @@ function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void 
  */
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const composed = composeProfile(options.profile, options.patchFiles)
-  // A one-shot composition ends by itself, which changes what a signal means
-  // and makes watching the user's patch layer pointless.
-  const headlessRow = composed.rows.get(HEADLESS_ROW_ID)
-  const oneShot = headlessRow !== undefined && headlessRow.disabled !== true
-
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const signalShutdown = new AbortController()
@@ -220,7 +215,10 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   }
   // Signals own teardown throughout the startup window, not only after boot()
   // settles: an inserted provider can publish before sibling rows finish mounting.
-  process.on('SIGTERM', () => { interrupt(oneShot ? 143 : 0) })
+  // SIGTERM is a supervisor's ordinary stop request and exits 0 on every
+  // surface — the launcher does not know whether the app considered its work
+  // complete; SIGINT is a user interrupt and reports 130.
+  process.on('SIGTERM', () => { interrupt(0) })
   process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => {
     await app.current?.fiber.dispose()
@@ -241,14 +239,10 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // removing the override could never revert the row to the bundle default.
   const composeLive = (): PatchOptions[] => structuredClone([
     ...composed.bundlePatches,
-    ...composed.windowsShellPatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,
   ])
-  // One-shot runs exit through the runner; watching would only hold the
-  // process open after its exit request.
-  const watchProfilePatch = !oneShot
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
@@ -262,22 +256,16 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       args: options.args,
       exit: code => void shutdown.shutdown(code),
     })
-    if (oneShot) {
-      const io: HeadlessIo = {
-        stdout: process.stdout,
-        stderr: process.stderr,
-        exit: (code) => { void shutdown.shutdown(code) },
-      }
-      hostCtx.provide('headlessIo', io)
-    }
   })
   app.current = ctx
   // A surface can dispose the whole tree while boot or this post-boot watcher
-  // setup is still in flight. Loader presence and fiber state own
-  // liveness; the local signal fact distinguishes that expected exit race
-  // from a real HMR error.
-  if (watchProfilePatch
-    && !signalShutdown.signal.aborted
+  // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
+  // presence and fiber state own liveness; the initial check skips a tree
+  // that already exited, and the catch below re-checks for an exit that
+  // landed mid-setup. Watching is unconditional: a one-shot surface exits
+  // through its bounded shutdown, which disposes the watchers before the
+  // loop drains.
+  if (!signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
     try {
@@ -305,7 +293,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         compose: composeLive,
       })
     } catch (error) {
-      suppressSignalShutdownError(signalShutdown.signal, error)
+      suppressShutdownError(ctx, signalShutdown.signal, error)
     }
   }
   return { ctx, shutdown }

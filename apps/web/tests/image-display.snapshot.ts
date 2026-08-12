@@ -4,7 +4,7 @@
 // Opens the fixture history session whose turn 72 carries an image in BOTH a
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
-// sessions.attachment route, the double-click ImageLightbox, and the composer
+// sessions.attachment route, the single-click ImageLightbox, and the composer
 // intake chain (paste → ordered thumbnail rail → image-only send enablement → remove).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
@@ -66,10 +66,10 @@ it('renders the history image pair through the authorized attachment route and o
   `)
   const userImage = document.querySelector<HTMLElement>('[data-align="end"] img')!
 
-  // Double-click opens the original-size lightbox; Escape/close dismisses it.
+  // A single click opens the original-size lightbox; Escape/close dismisses it.
   const frame = userImage.closest('button')
   if (frame === null) throw new Error('image frame button missing')
-  fireEvent.doubleClick(frame)
+  fireEvent.click(frame)
   const lightbox = await screen.findByRole('dialog')
   expect(within(lightbox).getByRole('img').getAttribute('src')?.split(':')[0]).toBe('blob')
   fireEvent.click(within(lightbox).getByRole('button', { name: /Close/ }))
@@ -133,4 +133,65 @@ it('accepts pasted images into the composer rail in order and removes them', asy
   await waitFor(() => {
     expect(document.querySelector('[role="group"][aria-label="Pending images"]')).toBeNull()
   })
+
+  // An unsupported file announces a transient toast (the inline strip is
+  // gone) and the banner dismisses itself after its hold-and-fade lifetime.
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'notes.txt', { type: 'text/plain' }) }],
+      getData: () => '',
+    },
+  })
+  const toast = await screen.findByRole('alert')
+  expect(toast.textContent).toContain('Only PNG, JPG, WebP, and GIF images are supported')
+  await waitFor(() => {
+    expect(screen.queryByRole('alert')).toBeNull()
+  }, { timeout: 6_000 })
+})
+
+it('accepts a whole-page drop under the limits-labeled overlay and refuses an over-limit batch at intake', async () => {
+  mountAssembledApp()
+
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const start = tree.querySelector<HTMLButtonElement>('button[aria-label="New session in fixture"]')
+  if (start === null) throw new Error('fixture Workspace new-session action missing')
+  fireEvent.click(start)
+  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
+
+  // A file drag anywhere over the page raises the full-viewport overlay whose
+  // desc line carries the projected limits — copy that can only render after
+  // the imageLimits projection crossed the real fixture transport.
+  const image = new File([new Uint8Array([137, 80, 78, 71])], 'dropped.png', { type: 'image/png' })
+  const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'none' }
+  fireEvent.dragEnter(document.body, { dataTransfer })
+  const overlay = await screen.findByRole('status')
+  expect(overlay.textContent).toContain('Drag images here to add them')
+  await waitFor(() => {
+    expect(overlay.textContent).toContain('Up to 20 images, 5MB each')
+  })
+
+  // Dropping on the transcript area (not the composer card) lands in the rail.
+  fireEvent.drop(document.body, { dataTransfer })
+  await waitFor(() => {
+    const rail = document.querySelector('[role="group"][aria-label="Pending images"]')
+    if (rail === null) throw new Error('attachment rail missing after page drop')
+    expect([...rail.querySelectorAll('img')].map(img => img.getAttribute('alt'))).toEqual(['dropped.png'])
+  }, { timeout: 5_000 })
+  expect(screen.queryByRole('status')).toBeNull()
+
+  // An intake that would exceed the projected per-message count is refused as
+  // a whole batch at add time: the banner names the limit and the rail keeps
+  // only the previously accepted thumbnail — no submit-time rollback.
+  const batch = Array.from({ length: 20 }, (_, i) =>
+    new File([new Uint8Array([137, 80, 78, 71])], `bulk-${String(i)}.png`, { type: 'image/png' }))
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: batch.map(file => ({ kind: 'file', type: 'image/png', getAsFile: () => file })),
+      getData: () => '',
+    },
+  })
+  const banner = await screen.findByRole('alert')
+  expect(banner.textContent).toContain('A message can include up to 20 images')
+  const rail = document.querySelector('[role="group"][aria-label="Pending images"]')
+  expect([...(rail?.querySelectorAll('img') ?? [])]).toHaveLength(1)
 })

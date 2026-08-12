@@ -14,9 +14,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  enableRow, internals, parseCmdline, provideCmdline, type CmdlinePlan,
-} from '../src/index.ts'
+import { internals, parseCmdline, provideCmdline } from '../src/index.ts'
 
 /** Every value one boot of the fixture tree observed. */
 interface Observed {
@@ -45,8 +43,8 @@ function demoCommand(): Command {
   return new Command().name('demo').exitOverride().option('--port <port>', 'listen port')
 }
 
-/** The fixture app's plan: the resolved values its rows read. */
-const demoPlan: CmdlinePlan<{ port?: number }> = (program) => {
+/** The fixture app's action body: the resolved values its rows read. */
+const resolveDemo = (program: Command): { port?: number } => {
   const port = program.opts<{ port?: string }>().port
   if (port === undefined) return {}
   if (!/^\d+$/.test(port)) program.error(`error: --port must be a number, got ${JSON.stringify(port)}`)
@@ -60,12 +58,12 @@ const expression = (source: string): unknown => ({ __jsExpr: source })
  * Mount a two-row composition the way a profile boot does: both rows at once,
  * with Loader ordering config resolution from their injections.
  * @param args - the invocation's inner arguments.
- * @param plan - the app's plan; defaults to the fixture's own.
+ * @param resolve - the app's action body; defaults to the fixture's own.
  * @returns the booted fixture.
  */
 async function bootFixture(
   args: string[],
-  plan: CmdlinePlan = demoPlan,
+  resolve: (program: Command) => unknown = resolveDemo,
   options: { objectInject?: boolean; withoutProvider?: boolean } = {},
 ): Promise<Fixture> {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-cmdline-'))
@@ -90,8 +88,9 @@ export function apply(ctx) { return globalThis.__provideDemoArgs(ctx) }
   const globals = globalThis as unknown as { __observed: Observed; __provideDemoArgs: (ctx: Context) => void }
   globals.__observed = observed
   globals.__provideDemoArgs = (ctx: Context) => {
-    const values = parseCmdline(ctx, demoCommand(), plan)
-    if (values !== undefined) ctx.provide('demoStartup', values)
+    const program = demoCommand()
+    program.action(() => { ctx.provide('demoStartup', resolve(program)) })
+    parseCmdline(ctx, program)
   }
 
   // The composition, exactly as a profile delivers one: include patches whose
@@ -135,7 +134,7 @@ describe('parseCmdline', () => {
   })
 
   it('recognizes the Loader object form of a provider-service injection', async () => {
-    const { observed } = await bootFixture(['--port', '8080'], demoPlan, { objectInject: true })
+    const { observed } = await bootFixture(['--port', '8080'], resolveDemo, { objectInject: true })
     expect(observed.started).toEqual({ port: 8080 })
   })
 
@@ -146,97 +145,36 @@ describe('parseCmdline', () => {
     expect(observed.exits).toEqual([0])
   })
 
-  it('rejects the invocation from the plan without starting the app', async () => {
+  it('rejects the invocation from the action without starting the app', async () => {
     const { observed } = await bootFixture(['--port', 'abc'])
     expect(observed.out).toContain('--port must be a number')
     expect(observed.started).toBeUndefined()
     expect(observed.exits).toEqual([1])
   })
 
-  it('rethrows a plan failure that is not commander asking to exit', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
-    const plan: CmdlinePlan = () => { throw new Error('plan exploded') }
-    expect(() => { parseCmdline(ctx, demoCommand(), plan) }).toThrow('plan exploded')
+  it('rethrows an action failure that is not commander asking to exit', async () => {
+    const { ctx } = await bootFixture([], resolveDemo, { withoutProvider: true })
+    const program = demoCommand().action(() => { throw new Error('action exploded') })
+    expect(() => { parseCmdline(ctx, program) }).toThrow('action exploded')
   })
 
   it('rethrows a thrown value that is not an object at all', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
-    const plan: CmdlinePlan = () => {
-      const thrown: unknown = 'plan threw a string'
+    const { ctx } = await bootFixture([], resolveDemo, { withoutProvider: true })
+    const program = demoCommand().action(() => {
+      const thrown: unknown = 'action threw a string'
       throw thrown
-    }
-    expect(() => { parseCmdline(ctx, demoCommand(), plan) }).toThrow('plan threw a string')
-  })
-
-  it('returns values without inspecting Loader rows or owning a service', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
-    expect(parseCmdline(ctx, demoCommand())).toEqual({})
-    expect(ctx.get('demoStartup')).toBeUndefined()
-  })
-})
-
-describe('enableRow', () => {
-  it('enables the named Loader row and fails loud when the Loader or row is absent', async () => {
-    const withoutLoader = new Context()
-    await expect(enableRow(withoutLoader, 'client-hmr')).rejects.toThrow('requires the Loader service')
-
-    const ctx = new Context()
-    let enabled = false
-    ctx.provide('loader', {
-      entries: () => [{
-        options: { id: 'client-hmr' },
-        enableRuntime: async () => { enabled = true },
-      }],
-    } as never)
-    await enableRow(ctx, 'client-hmr')
-    expect(enabled).toBe(true)
-    await expect(enableRow(ctx, 'absent')).rejects.toThrow('no "absent" row to enable')
-  })
-
-  it('keeps invocation-only activation through config reapplication', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dsh-runtime-enable-'))
-    const observed = { starts: 0, stops: 0 }
-    ;(globalThis as unknown as { __runtimeEnableObserved: typeof observed }).__runtimeEnableObserved = observed
-    writeFileSync(join(dir, 'conditional.mjs'), `
-export function apply(ctx) {
-  globalThis.__runtimeEnableObserved.starts += 1
-  ctx.effect(() => () => { globalThis.__runtimeEnableObserved.stops += 1 })
-}
-`)
-    writeFileSync(join(dir, 'cordis.yml'), [
-      '- id: conditional',
-      `  name: ${pathToFileURL(join(dir, 'conditional.mjs')).href}`,
-      '  disabled: true',
-      '',
-    ].join('\n'))
-
-    const ctx = new Context()
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    await ctx.loader.create({
-      name: 'cordis:include',
-      config: { path: pathToFileURL(join(dir, 'cordis.yml')).href },
     })
-    await ctx.loader.await()
-    const conditional = [...ctx.loader.entries()].find(entry => entry.options.id === 'conditional')
-    const include = [...ctx.loader.entries()].find(entry => entry.options.name === 'cordis:include')
-    expect(conditional).toBeDefined()
-    expect(include?.fiber).toBeDefined()
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 0, stops: 0 })
+    expect(() => { parseCmdline(ctx, program) }).toThrow('action threw a string')
+  })
 
-    await enableRow(ctx, 'conditional')
-    await ctx.loader.await()
-    expect(conditional?.disabled).toBe(false)
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 1, stops: 0 })
-
-    await include!.fiber!.update(include!.options.config, true)
-    await ctx.loader.await()
-    expect(conditional?.disabled).toBe(false)
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 1, stops: 0 })
-    disposers.push(async () => { await ctx.fiber.dispose() })
+  it('runs the action without inspecting Loader rows or owning a service', async () => {
+    const { ctx } = await bootFixture([], resolveDemo, { withoutProvider: true })
+    let values: unknown
+    const program = demoCommand()
+    program.action(() => { values = resolveDemo(program) })
+    parseCmdline(ctx, program)
+    expect(values).toEqual({})
+    expect(ctx.get('demoStartup')).toBeUndefined()
   })
 })
 
@@ -249,6 +187,28 @@ describe('provideCmdline', () => {
     expect(ctx.cmdlineArgs?.get()).toEqual(['--resume', 'abc'])
   })
 
+  it('refuses at load a program in which no command declares an action', async () => {
+    const { ctx } = await bootFixture([], resolveDemo, { withoutProvider: true })
+    expect(() => { parseCmdline(ctx, demoCommand()) })
+      .toThrow('no command in the program declares an action')
+  })
+
+  it('routes a pre-registered subcommand rejection through the launcher exit request', () => {
+    const ctx = new Context()
+    const exits: number[] = []
+    let err = ''
+    internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
+    provideCmdline(ctx, { args: ['serve'], exit: code => void exits.push(code) })
+    // The root declares no action of its own: the tree-wide guard accepts the
+    // subcommand's, and the subcommand inherits the exit and output routing.
+    const program = new Command().name('demo')
+    const child = program.command('serve')
+    child.action(() => { child.error('error: serve rejected') })
+    parseCmdline(ctx, program)
+    expect(err).toContain('serve rejected')
+    expect(exits).toEqual([1])
+  })
+
   it('fails loud when a parser runs without the launcher values', () => {
     const ctx = new Context()
     expect(() => { parseCmdline(ctx, demoCommand()) })
@@ -258,8 +218,15 @@ describe('provideCmdline', () => {
   it('lets multiple parsers read the same immutable snapshot', () => {
     const ctx = new Context()
     provideCmdline(ctx, { args: ['--port', '8080'], exit: () => {} })
-    expect(parseCmdline(ctx, demoCommand(), demoPlan)).toEqual({ port: 8080 })
-    expect(parseCmdline(ctx, demoCommand(), demoPlan)).toEqual({ port: 8080 })
+    const parseOnce = (): unknown => {
+      let values: unknown
+      const program = demoCommand()
+      program.action(() => { values = resolveDemo(program) })
+      parseCmdline(ctx, program)
+      return values
+    }
+    expect(parseOnce()).toEqual({ port: 8080 })
+    expect(parseOnce()).toEqual({ port: 8080 })
     expect(Object.isFrozen(ctx.cmdlineArgs?.get())).toBe(true)
   })
 })

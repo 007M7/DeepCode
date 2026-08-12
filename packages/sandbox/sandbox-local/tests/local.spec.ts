@@ -32,6 +32,16 @@ async function setup(config: Config = {}, internals: LocalSandboxProvider['inter
   return { ctx, sandbox }
 }
 
+/**
+ * A path inside a fresh temp dir where no file is written, pinning the
+ * built-entry `existsSync` check to false. Without it the resolution depends on
+ * whether the checkout has run `build:lib:host`, which emits
+ * `sandbox-windows-acl/lib/runner.js`.
+ */
+function absentRunnerEntry(): string {
+  return join(mkdtempSync(join(tmpdir(), 'dsh-absent-acl-entry-')), 'runner.js')
+}
+
 /** Write an executable fake `landlock-run` that answers `--probe` with `report`. */
 function fakeLauncher(report = 'landlock: fully enforced'): string {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-landlock-'))
@@ -395,14 +405,30 @@ describe('the windows-acl probe (runner invocation contract)', () => {
   })
 
   it('runs the REAL default probe against the resolved runner invocation when none is injected', async () => {
-    // The default probe spawns the exact runner argv confine would use — the
-    // runner source through tsx on a lib-less checkout. The windows-acl
-    // runner cannot init off win32, so the probe reads unusable and the walk
-    // falls through to the injected bwrap verdict on every host.
+    // No entry injected: this covers the production resolution through
+    // import.meta.resolve. Which arm of the existsSync check it takes depends
+    // on whether the checkout has run build:lib:host (which emits
+    // sandbox-windows-acl/lib/runner.js), so this asserts only what holds
+    // either way — the runner cannot init off win32, so the probe reads
+    // unusable and the walk falls through to the injected bwrap verdict.
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true })
     const confined = sandbox.confine(['true'], RO)
     expect(confined.argv[0]).toBe('bwrap')
   }, 30_000)
+
+  it('falls back to the runner source through tsx when the built entry is absent', async () => {
+    // The absent entry pins the source-through-tsx arm regardless of build
+    // state: on a checkout where build:lib:host has run, the real resolution
+    // above takes the built-entry arm instead and would leave this uncovered.
+    const { sandbox } = await setup({}, {
+      chain: ['windows-acl', 'bwrap'],
+      probeWindowsAcl: () => true,
+      windowsAclRunnerEntry: absentRunnerEntry(),
+    })
+    const confined = sandbox.confine(['true'], RO)
+    expect(confined.argv.slice(0, 3)).toEqual([process.execPath, '--import', 'tsx/esm'])
+    expect(confined.argv[3]).toMatch(/runner\.ts$/)
+  })
 
   it('reads an empty runner invocation as unusable (the probe\'s empty-argv guard)', async () => {
     // windowsAclRunnerInvocation always yields [node, ...] in product; an

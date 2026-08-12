@@ -7,30 +7,38 @@
  * (running/removed/promptError) are self-selected via useSession. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
-import { IconPlusOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import { AttachmentRail, DropOverlay, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
+import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
+// The `imageLimits` projection key merge (intake pre-check) arrives with the
+// wire types: apiproxy's sessions contract declares it, and client-runtime's
+// api-remotes import already places it in every client program.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
+import {
+  attachmentErrorText, attachmentRailLabels, dropOverlayLabels, imageSizeText, lightboxLabels,
+} from '../image-labels.ts'
 import { ContextMeter } from './ContextMeter.tsx'
-import { ImageLightbox } from './ImageLightbox.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
 /** Decoration product of the no-session state (no machine, empty draft). */
 const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
 
-/** Prompt failure surface (derived from promptError). */
-export interface InputBarError {
-  op: 'send' | 'stop'
-  message: string
+/** Rail thumbnail carrying its source attachment for the open/remove callbacks. */
+interface ComposerRailItem extends AttachmentRailItem {
+  attachment: ComposerAttachment
 }
 
 export type InputBarProps = ComposerBarProps
@@ -56,12 +64,6 @@ export function InputBar({
   const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
   // Absent (undefined: no frame yet) and cleared (null) both mean no goal.
   const hasGoal = useProjection('goal', goal => goal != null)
-  // Prompt failures are ordinary failures (no create/attach transaction
-  // exists anymore): the strip renders promptError, the draft stays in the
-  // machine, and the user resubmits.
-  const error: InputBarError | null = promptError === null
-    ? null
-    : { op: promptError.op, message: `${promptError.error.message} (${promptError.error.code})` }
   // Session-maybe: the machine faces are absent together while no session is
   // current; the bar renders the same DOM inert instead of a parallel tree.
   const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
@@ -73,8 +75,34 @@ export function InputBar({
   const empty = draft.trim() === '' && attachments.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
-  const [dropError, setDropError] = useState<string | null>(null)
+  // Transient error banner (image-intake rejections and prompt failures): the
+  // seq keys the Toast so an identical repeated message restarts the
+  // hold-then-fade cycle instead of silently reusing the faded one.
+  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
+  const toastSeq = useRef(0)
+  const showToast = useCallback((text: string) => {
+    toastSeq.current += 1
+    setToast({ seq: toastSeq.current, text })
+  }, [])
+  const dismissToast = useCallback(() => { setToast(null) }, [])
+  // The deployment's image-intake limits (absent while no attachment service
+  // is composed — the pre-check below then defers entirely to the host).
+  const imageLimits = useProjection('imageLimits')
+  // Prompt failures are ordinary failures (no create/attach transaction exists
+  // anymore): the toast announces promptError, the draft stays in the machine,
+  // and the user resubmits. A remount over a session whose machine still holds
+  // an unresolved promptError deliberately re-announces it once — the failure
+  // is still pending, and a transient banner is its only surface. Attachment
+  // rejections show product copy keyed by the wire reason; other codes are
+  // developer-facing and keep the raw message plus code.
+  useEffect(() => {
+    if (promptError === null) return
+    showToast(promptError.error.code === 'attachment-error'
+      ? attachmentErrorText(t, promptError.error.details.reason, imageLimits)
+      : `${promptError.error.message} (${promptError.error.code})`)
+  }, [promptError, showToast, t, imageLimits])
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const mirrorRef = useRef<HTMLDivElement | null>(null)
@@ -369,7 +397,7 @@ export function InputBar({
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0 && addImages !== undefined) setDropError(addImages(files))
+    if (files.length > 0) intakeImages(files)
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
       if (files.length > 0) e.preventDefault()
@@ -388,38 +416,106 @@ export function InputBar({
     keyboard.track(keyboard.snapshot.draft, caret)
   }
 
-  const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    if (locked || machineBusy || addImages === undefined) return
-    dragDepthRef.current += 1
-    setDropError(null)
-    setDragActive(true)
-  }
+  // Intake pre-check (DeepSeek Chat semantics): an addition that would break
+  // a projected limit is refused as a whole batch, announced immediately, and
+  // never enters the rail — no more submit-time failure rolling the rail
+  // back. The host enforces the same limits at submit for callers that bypass
+  // this composer.
+  const intakeImages = useCallback((files: readonly File[]): void => {
+    if (addImages === undefined || files.length === 0) return
+    const rejected = ((): string | null => {
+      if (imageLimits !== undefined) {
+        // Format precedes limits (DeepSeek Chat's filter order): a batch with
+        // a non-image must announce the format problem, not a count or size
+        // it could never pass anyway — addImages rejects it authoritatively.
+        if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
+          return addImages(files)
+        }
+        if (attachments.length + files.length > imageLimits.maxImagesPerMessage) {
+          return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
+        }
+        if (files.some(file => file.size > imageLimits.maxImageBytes)) {
+          return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
+        }
+        const total = attachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
+          + files.reduce((sum, file) => sum + file.size, 0)
+        if (total > imageLimits.maxMessageImageBytes) {
+          return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
+        }
+      }
+      return addImages(files)
+    })()
+    if (rejected !== null) showToast(rejected)
+  }, [addImages, attachments, imageLimits, showToast, t])
 
-  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = locked || machineBusy || addImages === undefined ? 'none' : 'copy'
-  }
-
-  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
-    if (!event.dataTransfer.types.includes('Files') || locked || machineBusy) return
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setDragActive(false)
-  }
-
-  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    dragDepthRef.current = 0
-    setDragActive(false)
-    if (locked || machineBusy || addImages === undefined) return
-    const dropped = [...event.dataTransfer.files]
-    if (dropped.length > 0) setDropError(addImages(dropped))
-  }
+  // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
+  // on the document so a drop anywhere over the window adds images, not only
+  // over the composer card. Safe as document-level state: the composer-bar
+  // slot is `kind: 'single'`, so at most one bar is mounted to bind these.
+  // Text drags carry no 'Files' type and pass through untouched, keeping the
+  // native drop-text-into-textarea path. The overlay layer itself is
+  // pointer-inert, so it never disturbs the enter/leave count.
+  const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  useEffect(() => {
+    const hasFiles = (event: globalThis.DragEvent): boolean =>
+      event.dataTransfer?.types.includes('Files') ?? false
+    const reset = (): void => {
+      dragDepthRef.current = 0
+      setDragActive(false)
+    }
+    const onDragEnter = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      dragDepthRef.current += 1
+      setDragActive(true)
+    }
+    const onDragOver = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event) || event.dataTransfer === null) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+    }
+    const onDragLeave = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+      if (dragDepthRef.current === 0) setDragActive(false)
+      // Leaving through the viewport edge does not balance the count on every
+      // engine; a page-root leave at the border means the drag left the window.
+      const leavingViewport = event.clientX <= 0 || event.clientY <= 0
+        || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
+      if ((event.target === document.documentElement || event.target === document.body) && leavingViewport) reset()
+    }
+    const onDrop = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      reset()
+      if (!canAcceptDrop) return
+      intakeImages([...(event.dataTransfer?.files ?? [])])
+    }
+    document.addEventListener('dragenter', onDragEnter)
+    document.addEventListener('dragover', onDragOver)
+    document.addEventListener('dragleave', onDragLeave)
+    document.addEventListener('drop', onDrop)
+    window.addEventListener('dragend', reset)
+    return () => {
+      document.removeEventListener('dragenter', onDragEnter)
+      document.removeEventListener('dragover', onDragOver)
+      document.removeEventListener('dragleave', onDragLeave)
+      document.removeEventListener('drop', onDrop)
+      window.removeEventListener('dragend', reset)
+    }
+  }, [canAcceptDrop, intakeImages])
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
+
+  // Rail thumbnails with their strings resolved here: the attachment atoms are
+  // zero-cordis and read no locale.
+  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
+    id: attachment.id,
+    previewUrl: attachment.previewUrl,
+    alt: attachment.file.name || t('image.pending'),
+    removeLabel: t('image.remove', { name: attachment.file.name }),
+    attachment,
+  })), [attachments, t])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -543,10 +639,23 @@ export function InputBar({
 
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)}>
-      {error !== null && (
-        <div className={css.error} role="alert">
-          {error.message}
-        </div>
+      {dragActive && (
+        <DropOverlay
+          disabled={!canAcceptDrop}
+          labels={dropOverlayLabels(t, canAcceptDrop, imageLimits === undefined ? undefined : {
+            count: imageLimits.maxImagesPerMessage,
+            size: imageSizeText(imageLimits.maxImageBytes),
+          })}
+        />
+      )}
+      {toast !== null && (
+        <Toast
+          key={toast.seq}
+          text={toast.text}
+          icon={<IconWarningOutline16 />}
+          anchor={cardRef.current}
+          onDone={dismissToast}
+        />
       )}
       {notice !== null && (
         <div className={clsx(css.notice, notice.level === 'error' && css.noticeError)} role="status">
@@ -558,43 +667,23 @@ export function InputBar({
           their pointer events), so the WHOLE capsule is the pick target.
           pointerdown stops here so the Menu's outside-close cannot race the
           click's reopen (close-then-open flickers the chip's open echo). */}
-      {dropError !== null && <div className={css.error} role="alert">{dropError}</div>}
       <div
-        className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger, dragActive && css.dragActive)}
+        ref={cardRef}
+        className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger)}
         data-composer-card
         onClick={workspaceTrigger ? onRequestWorkspace : undefined}
         onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
       >
-        {dragActive && <div className={css.dropHint} role="status">{t('image.dropHint')}</div>}
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
-        {attachments.length > 0 && (
-          <div className={css.attachments} role="group" aria-label={t('image.pending')}>
-            {attachments.map(attachment => (
-              <div key={attachment.id} className={css.attachment}>
-                <button
-                  type="button"
-                  className={css.thumbnail}
-                  title={t('image.openOriginal')}
-                  onDoubleClick={() => { setPreview(attachment) }}
-                >
-                  <img src={attachment.previewUrl} alt={attachment.file.name || t('image.pending')} />
-                </button>
-                <button
-                  type="button"
-                  className={css.remove}
-                  aria-label={t('image.remove', { name: attachment.file.name })}
-                  onClick={() => {
-                    setDropError(null)
-                    removeImage?.(attachment.id)
-                  }}
-                >×</button>
-              </div>
-            ))}
+        {railItems.length > 0 && (
+          <div className={css.attachments}>
+            <AttachmentRail
+              items={railItems}
+              labels={attachmentRailLabels(t)}
+              onOpen={(item) => { setPreview(item.attachment) }}
+              onRemove={(item) => { removeImage?.(item.attachment.id) }}
+            />
           </div>
         )}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
@@ -628,10 +717,7 @@ export function InputBar({
                     ? t('placeholder.steerQueue')
                     : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
-              onChange={(event) => {
-                setDropError(null)
-                onChange(event)
-              }}
+              onChange={onChange}
               onKeyDown={onKeyDown}
               onSelect={onSelect}
               onCopy={(e) => { onCopyOrCut(e, false) }}
@@ -712,8 +798,8 @@ export function InputBar({
         <ImageLightbox
           src={preview.previewUrl}
           alt={preview.file.name || t('image.original')}
+          labels={lightboxLabels(t)}
           onClose={closePreview}
-          t={t}
         />
       )}
       {footer}

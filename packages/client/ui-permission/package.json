@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-permission",
   "description": "Permission surfaces: a new-session default in General settings and a current-session /permission popup over the permissions projection",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "publishConfig": {
     "access": "restricted"
   },
@@ -35,7 +35,9 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-command"
+        "@deepseek-ai/dsh-client-ui-command",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-settings"
       ],
       "platform": "web"
     }
@@ -46,33 +48,38 @@
   },
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-schema-form": "workspace:^",
     "@deepseek-ai/dsh-client-ui-command": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slash": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^",
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-schema-form": "workspace:^",
+    "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-command": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slash": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-client-web-react": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
     "@types/react": "~18.3.1",
-    "@deepseek-ai/cordis": "workspace:^",
     "react": "^18.2.0"
   },
   "files": [

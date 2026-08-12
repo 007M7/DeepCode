@@ -23,14 +23,11 @@ import {
   workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
+  workspaceInsertBeforeRequestSchema, workspaceInsertBeforeValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
   workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
 } from '../src/api/workspace.schema.ts'
-import {
-  commandDescriptorSchema, commandExecuteRequestSchema, commandExecuteValueSchema,
-  commandListRequestSchema, commandListValueSchema,
-} from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import {
   agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -39,6 +36,7 @@ import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../s
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
+import { subagentPromptRequestSchema } from '../src/api/subagents.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -63,6 +61,7 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
     expect(rpcErrorSchema.parse({ code: 'session-conflict', message: 'm', details: { sessionId: 's', requestedCwd: '/a', existingCwd: '/b' } }).code).toBe('session-conflict')
+    expect(rpcErrorSchema.parse({ code: 'invalid-time-zone', message: 'm', details: { value: 'CST' } }).code).toBe('invalid-time-zone')
     expect(rpcErrorSchema.parse({ code: 'workspace-attach-failed', message: 'm', details: { sessionId: 's', workspaceId: 'w' } }).code).toBe('workspace-attach-failed')
     expect(rpcErrorSchema.parse({ code: 'workspace-not-found', message: 'm', details: { workspaceId: 'w' } }).code).toBe('workspace-not-found')
     expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
@@ -78,6 +77,8 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
+    // The credentials producer still emits this code, so the branch has to stay.
+    expect(rpcErrorSchema.parse({ code: 'credential-rejected', message: 'm', details: { ref: 'r' } }).code).toBe('credential-rejected')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -113,9 +114,14 @@ describe('wire full-form schemas', () => {
     expect(() => rpcMessageSchema.parse({ type: 'other', rpcId: 'x' })).toThrow()
   })
 
-  it('rejects a quadrant missing its members', () => {
+  it('rejects a quadrant missing its members but accepts a valueless success result', () => {
     expect(() => clientRequestSchema.parse({ type: 'client-request', rpcId: 'r1' })).toThrow()
-    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1' })).toThrow()
+    expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: {} })).toThrow()
+    // A void business result carries no value field; the endpoint's own second
+    // parse is what requires a value for methods that return data.
+    expect(serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } }).rpcId)
+      .toBe('r1')
   })
 })
 
@@ -248,8 +254,17 @@ describe('sessions domain schemas', () => {
       }],
       failures: [],
     })).toThrow()
-    const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
+    const prompt = sessionPromptRequestSchema.parse({
+      sessionId: 's1',
+      mode: 'queue',
+      content: [{ type: 'text', text: 'hi' }],
+      clientTimeZone: 'Asia/Shanghai',
+    })
     expect(prompt.mode).toBe('queue')
+    expect(prompt.clientTimeZone).toBe('Asia/Shanghai')
+    expect(sessionPromptRequestSchema.parse({
+      sessionId: 's1', mode: 'queue', content: [],
+    }).clientTimeZone).toBeUndefined()
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
     // The command slot appears only when the prompt dispatched a slash command.
@@ -275,14 +290,37 @@ describe('sessions domain schemas', () => {
   })
 })
 
+describe('subagent domain schemas', () => {
+  it('carries optional request-local browser-zone provenance on prompts', () => {
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [{ type: 'text', text: 'continue' }],
+      clientTimeZone: 'Asia/Shanghai',
+    }).clientTimeZone).toBe('Asia/Shanghai')
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [],
+    }).clientTimeZone).toBeUndefined()
+  })
+})
+
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
     const value = hostDescribeValueSchema.parse({
-      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true,
     })
-    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true })
+    expect(hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', attachedSessions: 0, canOpenPath: false,
+    }).provider).toBeUndefined()
+    expect(() => hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', attachedSessions: 0,
+    })).toThrow()
   })
 
   it('validates the browse listing/creation payloads', () => {
@@ -330,6 +368,13 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
+  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
+    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
+    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
+    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+
   it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
     expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
@@ -351,43 +396,15 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
   })
 
-  it('insertSessionBefore accepts an anchored and an anchorless move', () => {
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
-    expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
-    expect(() => workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1' })).toThrow()
-    expect(workspaceInsertSessionBeforeValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
-  })
-})
-
-describe('commands domain schemas', () => {
-  it('validates the catalog request/value pair', () => {
-    expect(commandListRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
-    // The wire is session-addressed only: a sessionId-less payload fails.
-    expect(() => commandListRequestSchema.parse({})).toThrow()
-    expect(commandListValueSchema.parse({ commands: [] }).commands).toEqual([])
-    const value = commandListValueSchema.parse({ commands: [
-      { name: 'plan', description: 'Toggle plan mode' },
-      { name: 'goal', description: 'Set the goal', input: { hint: '<goal>' } },
-    ] })
-    expect(value.commands[1]?.input?.hint).toBe('<goal>')
-    expect(commandDescriptorSchema.parse({ name: 'x', description: 'd' }).input).toBeUndefined()
-    expect(() => commandDescriptorSchema.parse({ name: '', description: 'd' })).toThrow()
-    expect(() => commandDescriptorSchema.parse({ name: 'x', description: 'd', input: {} })).toThrow()
-  })
-
-  it('validates the execute request/value pair with both matched branches', () => {
-    expect(commandExecuteRequestSchema.parse({ sessionId: 's1', line: '/plan off' }).line).toBe('/plan off')
-    // Both members are mandatory: dropping either fails the parse.
-    expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
-    expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
-    expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    // Pure admission: matched plus the optional lifecycle pairing id
-    // (outcomes ride the logged lifecycle events, never this response).
-    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
-      .toEqual({ matched: true, commandId: 'cmd-1' })
-    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
-    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
-    expect(() => commandExecuteValueSchema.parse({})).toThrow()
+  it('insertBefore accepts an anchored or anchorless Workspace move and returns the complete order', () => {
+    expect(workspaceInsertBeforeRequestSchema.parse({
+      workspaceId: 'w1', beforeWorkspaceId: 'w2',
+    }).beforeWorkspaceId).toBe('w2')
+    expect(workspaceInsertBeforeRequestSchema.parse({ workspaceId: 'w1' }).beforeWorkspaceId)
+      .toBeUndefined()
+    expect(() => workspaceInsertBeforeRequestSchema.parse({ beforeWorkspaceId: 'w2' })).toThrow()
+    expect(workspaceInsertBeforeValueSchema.parse({ workspaceIds: ['w2', 'w1'] }).workspaceIds)
+      .toEqual(['w2', 'w1'])
   })
 })
 
@@ -505,8 +522,10 @@ describe('events frame schemas', () => {
         createdAt: '0', updatedAt: '0',
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
-      { type: 'host/commands-changed' },
-      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
+      { type: 'host/remote-event', event: 'commands/change', args: [] },
+      { type: 'host/remote-event', event: 'settings/document-updated', args: ['ns', 3] },
+      { type: 'host/remote-event', event: 'agent-preset/selected', args: ['s', 'minimal'] },
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

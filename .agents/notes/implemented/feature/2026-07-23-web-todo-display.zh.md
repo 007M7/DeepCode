@@ -33,4 +33,4 @@ Status: implemented
 
 ## 后果
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都会自然保持 todos 一致；fx-alpha 第 71 轮的 fixture（测试前置数据）加上 `packages/client/ui-conversation/tests/todo-panel.spec.tsx` 固定整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。自动化专用的 ACP 桥接刻意不做 todo 呈现；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。这个由 host 提供的字段正是冷加载重建的依据：history 尾页附带 `todos`——全量 log 上当前有效的计划（其后没有更晚 `turn/start` 的最近一次 `todo/write`），独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时若计划仍然有效且最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，更晚的 `turn/start` 会清空，而尾页响应不带投影时复位为空。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都会自然保持 todos 一致；fx-alpha 第 71 轮的 fixture（测试前置数据）加上 `packages/client/ui-conversation/tests/todo-panel.client.spec.tsx` 固定整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。自动化专用的 ACP 桥接刻意不做 todo 呈现；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。这个由 host 提供的字段正是冷加载重建的依据：history 尾页附带 `todos`——全量 log 上当前有效的计划（其后没有更晚 `turn/start` 的最近一次 `todo/write`），独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时若计划仍然有效且最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，更晚的 `turn/start` 会清空，而尾页响应不带投影时复位为空。

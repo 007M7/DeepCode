@@ -18,10 +18,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../connection"
+      "path": "../ui-slots"
     },
     {
-      "path": "../ui-slots"
+      "path": "../ui-attachment"
     },
     {
       "path": "../ui-primitives"
@@ -76,6 +76,9 @@
     },
     {
       "path": "../../interaction/permission"
+    },
+    {
+      "path": "../ui-settings"
     }
   ],
   "exclude": [

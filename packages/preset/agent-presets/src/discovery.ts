@@ -20,10 +20,25 @@ import { load } from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
 import { readPresetMetadata } from './metadata.ts'
-import { PRESET_ID, type AgentPreset, type PresetRoot } from './types.ts'
+import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 
 /** The composition file that makes a directory a preset. */
 export const COMPOSITION_FILE = 'agent.cordis.yml'
+
+/**
+ * Harness-home directory holding locally authored presets.
+ *
+ * This package owns the writable root the way `dsh-skill-local` owns
+ * `<dshHome>/skills`. An app must assemble the SHIPPED root, whose path only
+ * the installed app can resolve; where a person's own presets go is the same
+ * place in every deployment that does not say otherwise, so a launcher that
+ * forgets to configure one still finds them.
+ *
+ * Package-internal on purpose: no consumer outside this package addresses the
+ * directory by name, and a test that imported it could not catch this value
+ * being wrong — the expected segment is spelled out where it is asserted.
+ */
+export const USER_PRESET_DIR = '.agent-presets'
 
 /**
  * Why `rows` cannot be an entry list, or undefined when it can.

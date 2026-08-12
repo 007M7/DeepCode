@@ -300,6 +300,28 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards task admission config to the process-local provider', async () => {
+    const ctx = await mount({
+      tasks: { maxConcurrentTasksPerOwner: 1 },
+      workspaceContext: false,
+    })
+    let settle!: (outcome: { status: 'killed' }) => void
+    ctx.tasks.start({
+      kind: 'probe',
+      label: 'hold configured slot',
+      run: () => ({
+        cancel: () => { settle({ status: 'killed' }) },
+        done: new Promise((resolve) => { settle = resolve }),
+      }),
+    })
+    expect(() => ctx.tasks.start({
+      kind: 'probe',
+      label: 'blocked configured task',
+      run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
+    })).toThrow('(limit: 1)')
+    await ctx.fiber.dispose()
+  })
+
   it('tolerates a schema-bypassing direct apply (the ?? fallbacks fire)', async () => {
     // ctx.plugin validates + defaults the bundle config first; a direct apply
     // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.
@@ -716,6 +738,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false as const,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
+      tasks: { maxConcurrentTasksPerOwner: 4 },
       toolTasks: false as const,
       invariants: { enabled: false },
     }
@@ -730,6 +753,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,
+      tasks: appConfig.tasks,
       toolTasks: appConfig.toolTasks,
       invariants: appConfig.invariants,
     })

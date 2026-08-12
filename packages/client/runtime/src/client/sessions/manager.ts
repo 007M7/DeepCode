@@ -5,7 +5,7 @@
 import type {
   IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
   SessionSummary, SubagentAddress, SubagentCatalog, TaskView, WorkspaceId,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -21,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
+import type { SessionRemotes } from './remotes.ts'
 
 /**
  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
@@ -71,6 +72,7 @@ type SessionListMutation =
   | { kind: 'upsert'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
   | { kind: 'status'; sessionId: SessionId; running: boolean }
+  | { kind: 'activity'; sessionId: SessionId; updatedAt: number }
   /** Local first-send flip: the sender clears blank without waiting for a host frame. */
   | { kind: 'engaged'; sessionId: SessionId }
 
@@ -164,6 +166,7 @@ export class SessionManager {
    */
   constructor(
     private readonly api: IApiClient,
+    private readonly remote: SessionRemotes,
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
     private readonly conversation?: ConversationRuntime,
@@ -304,7 +307,7 @@ export class SessionManager {
 
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
-    return new Session(sessionId, this.api, {
+    return new Session(sessionId, this.api, this.remote, {
       ...(address === undefined ? {} : {
         address,
         parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
@@ -680,6 +683,16 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
+    if (
+      frame.type === 'session/event'
+      && frame.event.type === 'user/message'
+      && frame.event.data.source.kind === 'user'
+    ) {
+      // session.list supplies the cold baseline, while a direct prompt or an
+      // admitted steer advances it between pulls. Max keeps replayed or
+      // repaired older user messages from moving the row backwards.
+      this.recordMutation({ kind: 'activity', sessionId: frame.sessionId, updatedAt: frame.event.time })
+    }
     if (frame.type === 'session/projection') {
       // Finished host-computed value: land it in the resident store whether or
       // not the Session is instantiated (list rows read the 'title' key). The
@@ -798,14 +811,6 @@ export class SessionManager {
           && (this.selected === frame.parentSessionId || this.openCatalogs.has(frame.parentSessionId))) {
           this.scheduleCatalogRefresh(frame.parentSessionId)
         }
-        return
-      }
-      case 'host/session-preset-changed': {
-        // Every connected client observes the switch here; only the tab that
-        // issued it also gets the RPC echo. The merge keeps the row's own
-        // updatedAt and lowers `blank` only, so re-applying the switching
-        // tab's own frame is a no-op.
-        this.noteAgentPreset(frame.sessionId, frame.agentPreset)
         return
       }
       case 'host/session-removed': {
@@ -1106,6 +1111,11 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
       return summaries.map(summary => summary.sessionId === mutation.sessionId
         && (summary.running !== mutation.running || (mutation.running && summary.blank))
         ? { ...summary, running: mutation.running, blank: summary.blank && !mutation.running }
+        : summary)
+    case 'activity':
+      return summaries.map(summary => summary.sessionId === mutation.sessionId
+        && mutation.updatedAt > summary.updatedAt
+        ? { ...summary, updatedAt: mutation.updatedAt }
         : summary)
     case 'engaged':
       return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.blank

@@ -15,6 +15,10 @@
 - paragraph: I will read both files before answering.
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation" [disabled]:
   - img
 - text: Available only on the last message of a completed turn 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
@@ -37,6 +41,10 @@
   - img
 - paragraph: DONE
 - button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img

@@ -11,6 +11,8 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | Method | Contract |
 |---|---|
 | `locate(meta): SessionLocation \| undefined` | Resolve an absolute per-session artifact target without I/O or materialization. Backends without an independent local artifact return `undefined`. |
+| `supportsRawArtifacts: boolean` | State explicitly whether this backend exposes one verbatim artifact per session. Consumers check this capability before calling `readRaw`; `false` is not session absence. |
+| `readRaw(id, signal?): Promise<SessionRawArtifact \| undefined>` | Read a supported backend's own artifact text verbatim, decoded from its physical encoding but never reconstructed from events. `undefined` means only that the requested artifact is absent; an unsupported backend rejects. |
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
 | `append(id, events): Promise<void>` | Durably persist a batch. Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
 | `prepare(id, signal?): Promise<SessionPreparation>` | Reserve the exact unpublished Session used by resume. A coordinator reuses an earlier inspection when available, commits pending recovery, and releases an unpublished reservation back to its bounded cache on disposal. |

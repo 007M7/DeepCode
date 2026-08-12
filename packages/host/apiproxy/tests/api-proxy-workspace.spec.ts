@@ -61,7 +61,10 @@ function stubAgent(session: Session): Agent {
 async function harness(
   root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
-  extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
+  extras: {
+    openPath?: (path: string, signal: AbortSignal) => Promise<void>
+    canOpenPath?: () => boolean
+  } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -103,6 +106,7 @@ async function harness(
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd: root,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
+    ...extras.canOpenPath === undefined ? {} : { canOpenPath: extras.canOpenPath },
   })
   return { api, ctx, storageDomain, root }
 }
@@ -225,6 +229,13 @@ describe('host.listDirectory / host.createDirectory', () => {
 })
 
 describe('host.openPath', () => {
+  it('describes whether this deployment can reach a user-visible native desktop', async () => {
+    const visible = await harness(undefined, undefined, { canOpenPath: () => true })
+    const headless = await harness(undefined, undefined, { canOpenPath: () => false })
+    expect(expectOk(await visible.api.host.describe(request({}))).canOpenPath).toBe(true)
+    expect(expectOk(await headless.api.host.describe(request({}))).canOpenPath).toBe(false)
+  })
+
   it('opens through the injected native boundary', async () => {
     const opened: string[] = []
     const { api } = await harness(undefined, undefined, {
@@ -305,6 +316,50 @@ describe('workspace.create', () => {
     expect(secondResult.workspace.workspaceId).not.toBe(firstResult.workspace.workspaceId)
     expect(expectOk(await api.workspace.list(request({}))).items.map(workspace => workspace.path))
       .toEqual([second, first])
+  })
+})
+
+describe('workspace.insertBefore', () => {
+  it('commits the complete order, streams one order frame, and maps unknown ids', async () => {
+    const { api, ctx, root } = await harness()
+    const first = expectOk(await api.workspace.create(request({ path: stageDir(root, 'first') }))).workspace
+    const second = expectOk(await api.workspace.create(request({ path: stageDir(root, 'second') }))).workspace
+    const third = expectOk(await api.workspace.create(request({ path: stageDir(root, 'third') }))).workspace
+
+    const abort = new AbortController()
+    const listWorkspaces = vi.spyOn(ctx.workspace, 'list')
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    expect(listWorkspaces).toHaveBeenCalledTimes(1)
+    const changed = nextHostFrame(stream)
+    const reordered = expectOk(await api.workspace.insertBefore(request({
+      workspaceId: first.workspaceId,
+      beforeWorkspaceId: second.workspaceId,
+    })))
+    expect(reordered.workspaceIds).toEqual([third.workspaceId, first.workspaceId, second.workspaceId])
+    expect(await changed).toMatchObject({
+      payload: {
+        type: 'host/workspace-order-changed',
+        workspaceIds: [third.workspaceId, first.workspaceId, second.workspaceId],
+      },
+    })
+    expect(expectOk(await api.workspace.list(request({}))).items.map(item => item.workspaceId))
+      .toEqual(reordered.workspaceIds)
+
+    const missingSource = await api.workspace.insertBefore(request({
+      workspaceId: 'missing' as WorkspaceId,
+    }))
+    expect(missingSource.result).toMatchObject({
+      ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'missing' } },
+    })
+    const missingAnchor = await api.workspace.insertBefore(request({
+      workspaceId: first.workspaceId,
+      beforeWorkspaceId: 'missing-anchor' as WorkspaceId,
+    }))
+    expect(missingAnchor.result).toMatchObject({
+      ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'missing-anchor' } },
+    })
+    abort.abort()
   })
 })
 

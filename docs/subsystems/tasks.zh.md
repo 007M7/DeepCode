@@ -97,7 +97,7 @@ interface TaskOutcome {
 
 ## 消费方视图
 
-快照是每次新建的只读投影。`ownerSession` 携带用于授权的共享 `SessionId`；完成监听器则会另行收到用于生命周期清理的确切拥有者对象。另一个接口已经交付终止状态或承诺交付时，`reported` 会抑制完成通知。
+快照是每次新建的只读投影。`ownerSession` 携带用于授权的共享 `SessionId`；完成监听器则会另行收到用于生命周期清理的确切拥有者对象。另一个接口已经交付终止状态或承诺交付时，`reported` 会抑制完成通知；排空 owner 或服务的 teardown 取消同样计入。
 
 ```ts type-equiv
 /**
@@ -128,8 +128,11 @@ interface TaskSnapshot {
   /** Epoch ms when the task settled; absent while `running`/`stopping`. */
   finishedAt?: number
   /**
-   * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion reporters suppress redundant notices when set.
+   * True when a kill, read, wait, or teardown cancel has reported or committed
+   * to report the terminal state. Completion reporters suppress redundant
+   * notices when set. Teardown claims it because the owner or service being
+   * destroyed leaves no reader: a reporter that opens a turn on notice would
+   * otherwise spend a model request per teardown layer.
    */
   reported: boolean
 }
@@ -151,7 +154,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachController` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachController` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理与准入会使用确切的已注册 `Agent` 实例。本地 Service provider 的 `maxConcurrentTasksPerOwner` 配置必须是正的安全整数，默认值为 `10`；它按确切 owner 统计 `running` 与 `stopping` 记录，所有无 owner 任务共享一个服务级桶，并在生产方终止结算后释放容量。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期与准入策略见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -169,17 +172,18 @@ Abstract background task registry. Subclass, implement the abstract methods, and
 
 Implementations must honor these semantics:
 
-- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Registrations outlive producer and controller fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record. Teardown cancellation also marks the record reported, because a record its owner is being destroyed for has no reader left.
 - Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
-- Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
+- Settlement is first-wins: one terminal record, released waiters, and one round of contained listener notification, even against a late producer outcome. Completion is announced last, after the record is committed and every other observer of the settlement has seen it, because a reporter may open a model turn synchronously.
 - start refuses work while no attached task controller serves the spec's owner, so a producer cannot start work that owner cannot collect or stop. One registry serves every composition in the process, so this question — and completion-listener delivery — is owner-relative rather than process-wide: registrations made from an unscoped context serve every owner, and registrations made under an agent composition's scope serve exactly the agents composed under it.
 
 ```ts cordis-catalog
 /**
- * Preflight access, validation, and owner cleanup before starting and
- * atomically registering work. A throwing starter leaves nothing registered;
- * after it returns, registration cannot fail. Settlement records the outcome,
- * notifies listeners, and releases waiters.
+ * Preflight access, validation, owner cleanup, and implementation-owned
+ * admission before starting and atomically registering work. Any preflight
+ * rejection leaves no task id or execution resource. A throwing starter
+ * leaves nothing registered; after it returns, registration cannot fail.
+ * Settlement records the outcome, notifies listeners, and releases waiters.
  * @param spec - task identity, owner, and synchronous starter.
  * @returns the registry-issued `<kind>-N` id.
  */
@@ -282,5 +286,5 @@ abstract attachController(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:62`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->

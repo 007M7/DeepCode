@@ -11,6 +11,8 @@
 | 方法 | 约定 |
 |---|---|
 | `locate(meta): SessionLocation \| undefined` | 在不执行 I/O 或实体化的情况下解析绝对的每会话产物目标。没有独立本地产物的后端返回 `undefined`。 |
+| `supportsRawArtifacts: boolean` | 明确说明该后端是否为每个会话暴露一份逐字工件。Consumer 在调用 `readRaw` 前检查此能力；`false` 并不表示会话缺失。 |
+| `readRaw(id, signal?): Promise<SessionRawArtifact \| undefined>` | 读取受支持后端自身的逐字工件文本；只解码物理编码，绝不从事件重建。`undefined` 仅表示所请求工件缺失；不支持的后端会拒绝。 |
 | `create(meta): Promise<void>` | 注册新会话元数据。可以将物理写入延迟到第一次 `append`（延迟实体化）。 |
 | `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并命名违规类型。 |
 | `prepare(id, signal?): Promise<SessionPreparation>` | 预留恢复所使用的那个未发布 Session。协调器会尽可能复用之前的检查结果、提交待处理恢复，并在 dispose 时将未发布 reservation 释放回有界缓存。 |

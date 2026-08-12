@@ -1,10 +1,52 @@
 /**
- * Durable command event vocabulary shared with type-only consumers.
+ * Durable command event vocabulary and the registry's Cordis event
+ * declaration, shared with type-only consumers. Client-safe: nothing here
+ * reaches a Host-only symbol, so a Client compilation face reads the same
+ * `commands/change` signature the Host emits.
  *
  * @module @deepseek-ai/dsh-commands/types
  */
 
 import type { CommandId } from './brand.ts'
+
+/** Immutable metadata for a command's optional unstructured input. */
+export interface CommandInputDescriptor {
+  /** Placeholder shown before the user supplies free-form input. */
+  readonly hint: string
+}
+
+/** Expected command outcome rendered directly by the dispatching UI. */
+export type CommandResult =
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
+  | { readonly kind: 'error'; readonly text: string }
+
+/**
+ * One settled command execution: the handler's normalized result plus the
+ * lifecycle pairing id minted for its `command/run`/`command/done` records,
+ * so a dispatching surface can correlate the Remote acknowledgment with the
+ * flow node those events produce.
+ */
+export interface CommandExecution {
+  /** Pairing id carried by this execution's lifecycle events. */
+  readonly commandId: CommandId
+  /** The handler's normalized outcome. */
+  readonly result: CommandResult
+}
+
+/** Handler-free immutable command view returned to UI adapters. */
+export interface CommandDescriptor {
+  /** Lowercase command name without the leading slash. */
+  readonly name: string
+  /** Human-readable summary used in discovery UI. */
+  readonly description: string
+  /** Optional free-form input hint advertised to capable clients. */
+  readonly input?: CommandInputDescriptor
+}
 
 /**
  * Producer record for one command invocation (the `command/run` event's
@@ -18,6 +60,18 @@ export interface CommandSourceMap {
 
 /** The union over {@link CommandSourceMap} — who issued a command line. */
 export type CommandSource = CommandSourceMap[keyof CommandSourceMap]
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A command was registered or unregistered. This is an unfiltered registry
+     * notification because a global or scoped change may affect any UI view.
+     * Observer failures are contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'commands/change'(): void
+  }
+}
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {

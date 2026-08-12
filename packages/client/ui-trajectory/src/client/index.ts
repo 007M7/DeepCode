@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // owning package) must be in the program for the register calls to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createTrajectoryDurationStore } from './duration-store.ts'
-import { downloadBlob, sessionLogZipFilename } from './export-log.ts'
+import { downloadSessionLog } from './export-log.ts'
 import { en, NS, zh } from './locales.ts'
 import { registerTrajectoryAssistantDefinition } from './trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from './trajectory-compaction-definition.ts'
@@ -60,23 +60,7 @@ export function apply(ctx: Context): void {
           return session.getSnapshot().views.get('trajectory') !== before
         },
         setActualDuration: (value) => { duration.set(value) },
-        exportLog: async () => {
-          // The host streams the ZIP (root + descendant artifacts verbatim)
-          // from GET /api/session.export; the browser downloads the response.
-          // A null origin (no-location Node contexts) falls back like the
-          // carrier's resolveBase so the URL stays valid.
-          const loc = (globalThis as { location?: { origin?: string } }).location
-          const origin = loc?.origin !== undefined && loc.origin !== 'null' ? loc.origin : 'http://dsh.internal'
-          const url = new URL('/api/session.export', origin)
-          url.searchParams.set('sessionId', sessionId)
-          url.searchParams.set('includeDescendants', 'true')
-          const response = await fetch(url)
-          if (!response.ok) {
-            const detail = await response.text().catch(() => '')
-            throw new Error(`Export failed: HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
-          }
-          downloadBlob(await response.blob(), sessionLogZipFilename(sessionId))
-        },
+        exportLog: () => downloadSessionLog(sessionId),
       }
     },
   }, TrajectoryView))

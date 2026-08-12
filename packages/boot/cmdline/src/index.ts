@@ -8,7 +8,8 @@
  * text, and its parse errors instead of the launcher knowing them.
  *
  * Any app plugin can inject `cmdlineArgs` and call {@link parseCmdline}. A
- * provider may publish the parsed values as its own service, and ordinary rows
+ * provider may publish the parsed values as its own service from its program's
+ * commander action, and ordinary rows
  * can inject that service and read it from lazily resolved config —
  * `port: !!js ctx.webStartup.port ?? 3080` — so a flag beats the value written
  * beside it. No row has launcher-level command-line status.
@@ -17,8 +18,6 @@
 
 import type { Command } from 'commander'
 import type { Context } from '@deepseek-ai/cordis'
-// Empty type import carries the Loader Context merge used by enableRow.
-import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 /**
  * The invocation's inner arguments: everything after the launcher's own flags,
@@ -79,34 +78,24 @@ export const internals: { stdout: { write(chunk: string): unknown }; stderr: { w
 }
 
 /**
- * Resolve parsed arguments into an app-owned value. Call
- * `program.error(...)` to reject the invocation with a usage message instead
- * of throwing.
- * @param program - the parsed commander program.
- * @param ctx - the plugin context that received the command line.
- * @returns the value an ordinary provider plugin may publish.
- */
-export type CmdlinePlan<T = unknown> = (program: Command, ctx: Context) => T
-
-/**
  * Parse the launcher's immutable argument snapshot with an app's commander
- * program. The caller decides whether and how to publish the returned value;
- * this helper has no Loader-row or service ownership semantics.
+ * program. Commander runs the program's own synchronous action handler on a
+ * successful parse; app code there publishes its service and rejects an
+ * invalid invocation with `program.error(...)`. This helper has no Loader-row
+ * or service ownership semantics.
  *
- * Help, version, and rejected arguments are terminal for the process: commander
- * writes the text, the helper requests `ctx.appExit`, and it returns
- * `undefined` so the caller publishes nothing.
+ * Help, version, and rejected arguments — from the grammar or from an action
+ * — are terminal for the process: commander writes the text and the helper
+ * requests `ctx.appExit`. The action never runs on help, version, or a
+ * grammar rejection; an action must reject before it publishes, because
+ * statements before its `program.error(...)` have already run.
  * @param ctx - plugin context carrying `cmdlineArgs` and `appExit`.
- * @param program - the app's commander program, with its flags and description already declared.
- * @param plan - this invocation's resolved value; omitted returns an empty object.
- * @returns the resolved value, or `undefined` when the app asked to exit.
- * @throws when the launcher did not provide the command line and exit request.
+ * @param program - the app's commander program, with its flags, description,
+ * actions, and any subcommands already declared.
+ * @throws when the launcher did not provide the command line and exit request,
+ * or when no command in the program declares an action.
  */
-export function parseCmdline<T>(
-  ctx: Context,
-  program: Command,
-  plan: CmdlinePlan<T> = (() => ({}) as T),
-): T | undefined {
+export function parseCmdline(ctx: Context, program: Command): void {
   // Read through the global service store, not the property proxy: appExit is
   // an optional host value and the plugin only needs to inject cmdlineArgs.
   const args = ctx.get('cmdlineArgs')
@@ -114,45 +103,54 @@ export function parseCmdline<T>(
   if (args === undefined || exit === undefined) {
     throw new Error(`${program.name()}: the launcher must provide ctx.cmdlineArgs and ctx.appExit before the tree mounts`)
   }
-  program
+  if (!hasAction(program)) {
+    throw new Error(`${program.name()}: no command in the program declares an action; parseCmdline runs the invoked command's action on a successful parse, and app code there publishes its service`)
+  }
+  configureExitAndOutput(program)
+  try {
+    program.parse(args.get(), { from: 'user' })
+  } catch (error) {
+    // exitOverride turns help, version, a parse error, and the action's own
+    // program.error() into a CommanderError; commander has already written the
+    // text through the output configured above.
+    if (!isCommanderError(error)) throw error
+    exit(error.exitCode)
+  }
+}
+
+/**
+ * Whether any command in the tree declares an action handler.
+ *
+ * The `Command` type cannot express the action precondition, so the handler is
+ * read structurally (as {@link isCommanderError} reads commander's control-flow
+ * errors): without this guard, a program that forgot its action would parse
+ * successfully, publish nothing, and surface only as dependent rows pending on
+ * the absent service.
+ * @param command - the command whose tree is inspected.
+ * @returns true when the command or any registered subcommand has an action.
+ */
+function hasAction(command: Command): boolean {
+  if (typeof (command as unknown as { _actionHandler?: unknown })._actionHandler === 'function') return true
+  return command.commands.some(hasAction)
+}
+
+/**
+ * Route every command's exit and output through the launcher adapter.
+ *
+ * Commander copies `exitOverride` and output configuration into a subcommand
+ * only at registration, so a root-only override would let an
+ * already-registered subcommand's rejection write to the process streams and
+ * call `process.exit` directly, bypassing `ctx.appExit`.
+ * @param command - the root of the command tree to configure.
+ */
+function configureExitAndOutput(command: Command): void {
+  command
     .exitOverride()
     .configureOutput({
       writeOut: text => void internals.stdout.write(text),
       writeErr: text => void internals.stderr.write(text),
     })
-  try {
-    program.parse(args.get(), { from: 'user' })
-    return plan(program, ctx)
-  } catch (error) {
-    // exitOverride turns help, version, a parse error, and a plan's own
-    // program.error() into a CommanderError; commander has already written the
-    // text through the output configured above.
-    if (!isCommanderError(error)) throw error
-    exit(error.exitCode)
-    return undefined
-  }
-}
-
-/**
- * Turn on a row this composition ships disabled, because this invocation asked
- * for it (`dsh web --dev` and its client-plugin reload chain).
- *
- * A row cannot be inserted from inside a mounting plugin — the Loader returns a
- * prefixed id it then fails to resolve — so a conditional row ships disabled
- * and a row mounted beside it enables it after startup resolves the invocation.
- * The Loader keeps that activation in memory, separate from serialized options,
- * so reapplying the composition cannot restore the invocation's row to disabled.
- * @param ctx - plugin context whose Loader tree carries the row.
- * @param id - the row id.
- * @returns nothing once the row has started or is waiting for its dependencies.
- * @throws when the Loader or named row is absent.
- */
-export async function enableRow(ctx: Context, id: string): Promise<void> {
-  const loader = ctx.get('loader')
-  if (loader === undefined) throw new Error('dsh-cmdline: enabling a row requires the Loader service')
-  const entry = [...loader.entries()].find(candidate => candidate.options.id === id)
-  if (entry === undefined) throw new Error(`dsh-cmdline: the composition has no ${JSON.stringify(id)} row to enable`)
-  await entry.enableRuntime()
+  for (const child of command.commands) configureExitAndOutput(child)
 }
 
 /**

@@ -41,9 +41,19 @@ import {
   loadOverlayPatches,
 } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-paths'
-import {
-  WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
-} from '@deepseek-ai/dsh-client-ui-settings-general'
+// Client packages must not be imported here: these e2e type-check in the Host
+// aggregate, so a Client import pulls that package's whole project — and every
+// project it references — into the Host build graph. Mirrored from
+// packages/client/ui-settings-general/src/onboarding-copy.ts; a drift makes the
+// pre-acknowledgement stop suppressing the notice, which fails loudly.
+// import {
+//   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
+// } from '@deepseek-ai/dsh-client-ui-settings-general'
+export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
+export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
+export const WELCOME_NOTICE_VERSION = '2026-07-30.7'
+export const WELCOME_NOTICE_COPY = { zh: { title: '内测声明', continueLabel: '继续' } } as const
+
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -375,7 +385,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // able to change a golden.
     {
       id: 'agent-presets',
-      config: { default: 'standard', roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }] },
+      config: {
+        default: 'standard',
+        roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }],
+        includeUserRoot: false,
+      },
     },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
@@ -416,7 +430,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // (apps/web IS @deepseek-ai/dsh-frontend); only the URL line is silenced.
     // Preserve the composed surface-context choice because a patch replaces
     // the row's complete config.
-    { id: 'web-runtime', config: { mode: 'production', printUrl: false, surfaceContext } },
+    { id: 'web-runtime', config: { printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
       : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
@@ -429,10 +443,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // host: patch `name` is an assertion, not an override, hence the
     // disable+insert pair.
     { id: 'directory-picker', disabled: true },
-    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    { insert: [
+      { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
+      { id: 'ui-directory-picker', name: '@deepseek-ai/dsh-client-ui-directory-picker' },
+    ] },
     ...options.agentPresets === undefined
       ? []
-      : [{ id: 'agent-presets', config: options.agentPresets }],
+      // Never the derived harness-home root: a developer's own presets must not
+      // be able to change a golden, whatever roots a scenario asks for.
+      : [{ id: 'agent-presets', config: { ...options.agentPresets, includeUserRoot: false } }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]

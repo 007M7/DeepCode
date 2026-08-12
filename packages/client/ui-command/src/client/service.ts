@@ -9,8 +9,10 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the ctx.remote merge and the forwarded-event key face
+// (`commands/change` rides the allowlist) into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
   SubmitOutcome,
@@ -93,7 +95,7 @@ function fuzzyCandidates(candidates: readonly SlashCandidate[], rawQuery: string
 
 /** Command surface: session-keyed directory + '/' source + contribution registry + per-session popups. */
 export class CommandService extends Service implements CommandServiceContract {
-  static inject = ['slash', 'sessions', 'connection']
+  static inject = ['slash', 'sessions', 'remote', 'remote.commands']
 
   private readonly directory: CommandDirectory
   private readonly live: LiveState = { contributions: new Map(), decorations: new Map(), popups: new Map() }
@@ -104,13 +106,11 @@ export class CommandService extends Service implements CommandServiceContract {
    */
   constructor(ctx: Context) {
     super(ctx, 'command')
-    const connection = ctx.get('connection') as ConnectionHandle | undefined
-    if (connection === undefined) throw new Error('ui-command: connection service unavailable')
     this.directory = new CommandDirectory(async (sessionId) => {
       if (this.sessions().subagentAddress(sessionId) !== undefined) return []
-      const { result } = await connection.api.commands.list({ sessionId })
+      const result = await ctx.remote.commands.list(sessionId)
       if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
-      return result.value.commands
+      return result.value
     })
     const slash = ctx.get('slash')
     if (slash === undefined) throw new Error('ui-command: slash service unavailable')
@@ -123,12 +123,12 @@ export class CommandService extends Service implements CommandServiceContract {
       matchEnter: (session, line, signal) => this.matchEnter(session, line, signal),
       warm: (session) => { this.directory.warm(session.sessionId) },
     }), 'command: slash source')
-    ctx.on('commands/changed', () => { this.directory.invalidateAll() })
+    ctx.remote.$on('commands/change', () => { this.directory.invalidateAll() })
     // A preset switch changes which commands one session's agent resolves and
     // registers nothing globally, so the registry-wide signal above never
     // fires for it: repull that key alone, soft, so the old snapshot serves
     // the menu until the new one lands.
-    ctx.on('session/preset-changed', (sessionId) => { void this.directory.refresh(sessionId) })
+    ctx.remote.$on('agent-preset/selected', (sessionId) => { void this.directory.refresh(sessionId) })
     ctx.on('connection/reset', () => { this.directory.resetConnected() })
   }
 
@@ -348,10 +348,9 @@ export class CommandService extends Service implements CommandServiceContract {
     session: ClientSessionContext,
     line: string,
   ): Promise<SubmitOutcome> {
-    const connection = this.ctx.get('connection') as ConnectionHandle
-    const { result } = await connection.api.commands.execute({ sessionId: session.sessionId, line })
+    const result = await this.ctx.remote.commands.execute(session.sessionId, line)
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
-    if (!result.value.matched) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
     return { kind: 'success' }
   }
 
