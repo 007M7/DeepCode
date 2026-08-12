@@ -140,8 +140,12 @@ export const sessionStatsProjectionDefinition: ProjectionDefinition<'sessionStat
       case 'tool/call':
         return { ...state, pendingCalls: { ...state.pendingCalls, [event.data.callId]: event.time } }
       case 'tool/result': {
+        // Own-key check: callId is provider-minted (model/tool JSON boundary),
+        // so a prototype property name ('constructor', 'toString') on a result
+        // with no recorded call must read as unmatched, not as an inherited
+        // function that would poison toolMs with NaN.
         const callId = event.data.message.source.callId
-        const dispatched = state.pendingCalls[callId]
+        const dispatched = Object.hasOwn(state.pendingCalls, callId) ? state.pendingCalls[callId] : undefined
         if (dispatched === undefined) return state
         const pendingCalls = Object.fromEntries(
           Object.entries(state.pendingCalls).filter(([id]) => id !== callId),
@@ -175,5 +179,5 @@ export const sessionStatsProjectionDefinition: ProjectionDefinition<'sessionStat
     decodeMs: state.decodeMs,
     decodeTokens: state.decodeTokens,
   }),
-  stateVersion: 2,
+  stateVersion: 1,
 }

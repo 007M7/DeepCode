@@ -354,4 +354,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 28 turns · 28 steps LLM {{duration}} Input 0 tok · Output 0 tok
+- text: 28 turns · 28 steps LLM {{duration}}

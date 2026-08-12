@@ -6,7 +6,7 @@ import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { AssistantTiming } from './conversation.ts'
 
-// The first-token predicate lives with the StreamChunk vocabulary in dsh-llm;
+// The first-token predicate lives beside the StreamChunk type in dsh-llm;
 // re-exported here so Chat Definitions keep their client-runtime import.
 export { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 

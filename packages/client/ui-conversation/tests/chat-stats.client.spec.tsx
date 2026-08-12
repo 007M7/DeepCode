@@ -314,6 +314,17 @@ describe('StatsLine', () => {
     expect(view.container.textContent).toBe('')
   })
 
+  it('hides the zero-token group when steps closed without any billed activity', () => {
+    // A session whose only turn failed before billing (e.g. an auth error):
+    // the counts group renders alone, not an uninformative zero-token group.
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      sessionStats: sessionStats({ turns: 1, steps: 1 }),
+    })} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps')
+  })
+
   it('keeps the counts group over an empty visible window when the projection carries totals', () => {
     // Extends the durable-groups guarantee: full-session counts survive a
     // window that compaction (or paging) left without assistant nodes.

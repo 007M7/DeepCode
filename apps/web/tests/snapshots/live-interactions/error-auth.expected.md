@@ -27,4 +27,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps

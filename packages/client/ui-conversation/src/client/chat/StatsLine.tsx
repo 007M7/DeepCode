@@ -162,12 +162,13 @@ export interface StatsLineProps {
 
 export const StatsLine = memo(function StatsLine({ useSession, useProjection, t }: StatsLineProps) {
   const settledNodes = useSession(s => s.chat.legacy.nodes)
-  const windowStats = useMemo(() => deriveStats(settledNodes), [settledNodes])
   const usage = useProjection('tokenUsage')
   // Every figure rides the durable sessionStats projection, so paging and
   // compaction cannot change any of them; an assembly without the unit falls
-  // back to the window-scoped fold wholesale (same field names).
-  const stats = useProjection('sessionStats') ?? windowStats
+  // back to the window-scoped fold wholesale (same field names), paid only
+  // while no projection value is served.
+  const projected = useProjection('sessionStats')
+  const stats = useMemo(() => projected ?? deriveStats(settledNodes), [projected, settledNodes])
   // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
   const groups: string[] = []
   if (stats.steps > 0) {
@@ -190,9 +191,11 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
   // Context occupancy deliberately lives on the composer's ContextMeter ring,
   // not here — one home per fact.
   // Billing rides the durable projection, so these survive paging and
-  // compaction. Suppress the empty projection on a brand-new session.
+  // compaction. Gated on actual token activity: a session whose steps all
+  // settled without billing (e.g. every request failed) shows its counts
+  // without a zero-token group.
   if (usage !== undefined
-    && (stats.steps > 0 || billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
+    && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
     const cacheHit = cacheHitPercent(usage)
     if (cacheHit !== null) groups.push(t('stats.cacheHit', { percent: cacheHit }))
     groups.push(t('stats.tokens', {

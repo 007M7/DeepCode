@@ -10,7 +10,7 @@ Web 聊天统计条的每个非 token 数字都折算自 `StatsLine` 已加载�
 
 ## 决定
 
-新的函数插件 `@deepseek-ai/dsh-session-stats` 在 `ctx.sessionProjections` 上注册 `sessionStats` 投影单元，作为 web-app bundle 行挂载。值携带统计条完整的非 token 数字集——`{ turns, steps, llmMs, toolMs, ttftMs, ttftSteps, decodeMs, decodeTokens }`，字段名与窗口折叠一一对应以便整体互换。`steps` 统计 `step/end` 事件，`turns` 统计含至少一条该事件的不同 turn（turn 号单调递增，一个 `lastTurn` 槽即可）；`llmMs` 累加 `step/start` → `assistant/message`；TTFT 记录每步首个非空 delta chunk（在步内 `llm/retry` 后保留，与窗口 `resetForRetry` 对齐）；解码时长覆盖首 token → 已组装消息、仅统计上报 usage 的步；`toolMs` 按 callId 配对 `tool/call` → `tool/result`，未解决的调用在 `turn/end` 时丢弃。首 token 谓词 `isTokenDelta` 移入 `@deepseek-ai/dsh-llm/message`（`StreamChunk` 词汇的属主），Host 折叠与客户端计时索引共用同一实现；client-runtime 转发导出。投递完全复用现有投影缝——history 尾页块、`session/projection` 推送帧、列表行——apiproxy、wire schema 与客户端运行时零改动。`StatsLine` 读取 `useProjection('sessionStats')`，键为 undefined（未组合该单元的装配）时整体回退到窗口折叠。客户端 connection fixture 按其「镜像每个已组合键」的既有纪律以 `sessionStatsOf` 平行实现该折叠。
+新的函数插件 `@deepseek-ai/dsh-session-stats` 在 `ctx.sessionProjections` 上注册 `sessionStats` 投影单元，作为 web-app bundle 行挂载。值携带统计条完整的非 token 数字集——`{ turns, steps, llmMs, toolMs, ttftMs, ttftSteps, decodeMs, decodeTokens }`，字段名与窗口折叠一一对应以便整体互换。`steps` 统计 `step/end` 事件，`turns` 统计含至少一条该事件的不同 turn（turn 号单调递增，一个 `lastTurn` 槽即可）；`llmMs` 累加 `step/start` → `assistant/message`；TTFT 记录每步首个非空 delta chunk（在步内 `llm/retry` 后保留，与窗口 `resetForRetry` 对齐）；解码时长覆盖首 token → 已组装消息、仅统计上报 usage 的步；`toolMs` 按 callId 配对 `tool/call` → `tool/result`，未解决的调用在 `turn/end` 时丢弃。首 token 谓词 `isTokenDelta` 移入 `@deepseek-ai/dsh-llm/message`（与其判别的 `StreamChunk` 类型同处），Host 折叠与客户端计时索引共用同一实现；client-runtime 转发导出。投递完全复用现有投影缝——history 尾页块、`session/projection` 推送帧、列表行——apiproxy、wire schema 与客户端运行时零改动。`StatsLine` 读取 `useProjection('sessionStats')`，键为 undefined（未组合该单元的装配）时整体回退到窗口折叠。客户端 connection fixture 按其「镜像每个已组合键」的既有纪律以 `sessionStatsOf` 平行实现该折叠。
 
 计数事件选 `step/end` 而非 `assistant/message`，源于评审直觉方案（按消息计数）时发现的两个正确性问题：
 
@@ -31,8 +31,8 @@ Web 聊天统计条的每个非 token 数字都折算自 `StatsLine` 已加载�
 
 **在客户端折叠全量日志。** 客户端按设计只持有分页窗口；投影 RFC 的「不在客户端折叠」规则正是为了让数字在分页、压缩与冷读之间存活。
 
-**墙钟时间、TTFT 与吞吐保持窗口口径。** 首个交付版本如此，将其解读为「屏幕上有什么」；同样的分页问题立刻落在 LLM 时长上，且全量计数与窗口时间混在一条统计条里读起来是一套自相矛盾的数字。投影现在携带完整集合，窗口折叠降级为无单元时的回退。
+**墙钟时间、TTFT 与吞吐保持窗口口径，解读为「屏幕上有什么」。** 否决：同样的分页问题一样落在 LLM 时长上，且全量计数与窗口时间混在一条统计条里读起来是一套自相矛盾的数字。投影携带完整集合，窗口折叠降级为无单元时的回退。
 
 ## 后果
 
-统计条从第一个尾页起就显示全日志数字；翻页不再改变任何分组。与旧窗口语义的已定义边缘差异记录在包 README 中：未产生可见输出的步（在内容之前失败）仍计入；崩溃恰好截断在 `step/start` 与 `step/end` 之间的步不计；被取消的步计数但不计时（没有组装出消息）；max-tokens 的 usage 宿主消息贡献 surface 上看不到的模型时间。每个 web 尾页与列表行多携带一个小键，且单元内部状态在步边界与首 token chunk 处变化，变更流每步会多发几帧值相同的推送；TUI 与 headless 装配不提供 `sessionStats` 键，其消费者回退窗口折叠。两个曾把统计条当作已加载窗口探针解析的 e2e（`chat-scroll-contract`、`complex-history.perf`）改为统计已挂载的消息流行／turn-tail 页脚。`stats-paged-history` web 场景冷种一份 28 轮日志，钉住整条统计条在不完整尾页上即读出全量数字、且「加载更早」前后不变。
+统计条从第一个尾页起就显示全日志数字；翻页不再改变任何分组。与旧窗口语义的已定义边缘差异记录在包 README 中：未产生可见输出的步（在内容之前失败）仍计入；被崩溃打断的步在重新加载、恢复为其补写合成 `step/end` 后计入（`interruptedTurnClosers`）；被取消的步计数但不计时（没有组装出消息）；max-tokens 的 usage 宿主消息贡献 surface 上看不到的模型时间。每个 web 尾页与列表行多携带一个小键，且单元内部状态在步边界与首 token chunk 处变化，变更流每步会多发几帧值相同的推送；TUI 与 headless 装配不提供 `sessionStats` 键，其消费者回退窗口折叠。两个曾把统计条当作已加载窗口探针解析的 e2e（`chat-scroll-contract`、`complex-history.perf`）改为统计已挂载的消息流行／turn-tail 页脚。`stats-paged-history` web 场景冷种一份 28 轮日志，钉住整条统计条在不完整尾页上即读出全量数字、且「加载更早」前后不变。

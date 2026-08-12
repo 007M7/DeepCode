@@ -237,6 +237,27 @@ describe('sessionStats wall-time fold (controlled timestamps)', () => {
     expect(pruned).toEqual(totals({ turns: 1, steps: 1 }))
   })
 
+  it('pairs only own pendingCalls keys: a prototype-name callId without a recorded call stays unmatched', () => {
+    const result = (callId: string): unknown =>
+      ({ turn: 1, step: 1, message: { source: { kind: 'tool', callId } } })
+    // Crash recovery (TOOL_NOT_STARTED) emits results with no preceding
+    // tool/call; a provider-minted callId colliding with an Object prototype
+    // property must read as absent, not as an inherited function that would
+    // fold toolMs to NaN and fail the value schema.
+    expect(fold([
+      at(1_000, 'step/start', { turn: 1, step: 1 }),
+      at(1_500, 'tool/result', result('toString')),
+      at(2_000, 'step/end', { turn: 1, step: 1 }),
+    ])).toEqual(totals({ turns: 1, steps: 1 }))
+    // The same name pairs normally once its call is recorded.
+    expect(fold([
+      at(1_000, 'step/start', { turn: 1, step: 1 }),
+      at(1_100, 'tool/call', { turn: 1, step: 1, callId: 'constructor', name: 'read', arguments: '{}' }),
+      at(1_600, 'tool/result', result('constructor')),
+      at(2_000, 'step/end', { turn: 1, step: 1 }),
+    ])).toEqual(totals({ turns: 1, steps: 1, toolMs: 500 }))
+  })
+
   it('skips decode for an invalid usage report and ignores a duplicate assembled message', () => {
     const events = [
       at(1_000, 'step/start', { turn: 1, step: 1 }),
