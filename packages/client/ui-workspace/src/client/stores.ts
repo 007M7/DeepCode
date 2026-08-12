@@ -7,6 +7,9 @@
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 
+/** Browser-local order account for the hierarchy-free flat Session list. */
+export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
+
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type WorkspaceGroupBy = 'workspace' | 'flat'
 /** Session order: user-arranged only, or user-arranged plus activity promotion. */
@@ -18,9 +21,9 @@ type WorkspaceViewState = {
   orderBy: WorkspaceOrderBy
   /** Explicit zero-or-five-session state keyed by Workspace group identity. */
   workspaceExpansion: Record<string, boolean>
-  /** Shared editable per-Workspace order; recent-update mode may promote rows within it. */
+  /** Shared editable order per Workspace group plus the browser-local flat-list account. */
   recentSessionOrder: Record<string, string[]>
-  /** Last observed update timestamps used to detect one-time promotion events. */
+  /** Last observed update timestamps per order account for one-time promotion events. */
   recentSessionUpdatedAt: Record<string, Record<string, number>>
 }
 

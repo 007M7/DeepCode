@@ -339,10 +339,11 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onFork - fork a session at its last completed turn.
  * @param props.onArchive - archive a session by id.
  * @param props.drag - optional draggable-row wiring.
+ * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -355,6 +356,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onArchive: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
+  /** The row is rendered without a parent Workspace header. */
+  flat?: boolean | undefined
   t: RowTranslate
 }) {
   const row = node
@@ -362,6 +365,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const selected = node.id === currentId
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
+  const showStatus = primaryStatus.state !== 'done' || row.completed
   const [menuOpen, setMenuOpen] = useState(false)
   // Archive hides the row through the registry-global archive set and never
   // touches the session log, so it is not styled as destructive and needs no
@@ -377,6 +381,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
     <div
       className={clsx(
         css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
+        flat && !showStatus && css.flatSessionRowWithoutStatus,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
       role="treeitem"
@@ -410,16 +415,18 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
       {/* Pending interaction and own or descendant activity outrank the
           finished-but-unviewed reminder, which returns after activity stops
           and is cleared by opening the session. */}
-      <span className={css.slot}>
-        {(primaryStatus.state !== 'done' || row.completed) && (
-          <>
-            <StateDot state={primaryStatus.state} />
-            {statuses.map(status => (
-              <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-            ))}
-          </>
-        )}
-      </span>
+      {(!flat || showStatus) && (
+        <span className={css.slot}>
+          {showStatus && (
+            <>
+              <StateDot state={primaryStatus.state} />
+              {statuses.map(status => (
+                <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
+              ))}
+            </>
+          )}
+        </span>
+      )}
       <span className={css.title}>{title}</span>
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs

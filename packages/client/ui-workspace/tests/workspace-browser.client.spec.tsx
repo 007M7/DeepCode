@@ -8,7 +8,7 @@ import type {
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
-import { createWorkspaceViewStore } from '../src/client/stores.ts'
+import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -130,6 +130,7 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
+    expect(screen.getByRole('separator')).toBeTruthy()
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
       '按工作区', '单列表', '手动排序', '最近更新',
     ])
@@ -145,6 +146,7 @@ describe('WorkspaceBrowser', () => {
 
     // Back to workspace grouping through the same menu.
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    expect(screen.getByRole('menuitem', { name: '手动排序' }).hasAttribute('disabled')).toBe(false)
     fireEvent.click(screen.getByRole('menuitem', { name: '按工作区' }))
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
     expect(screen.getByText('工作区')).toBeTruthy()
@@ -154,6 +156,60 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
+  })
+
+  it('persists flat-list drag order locally and applies Last updated within that account', async () => {
+    const insertSessionBefore = vi.fn(async () => {})
+    const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
+    const workspaces = workspaceState([
+      workspace('alpha', ['one']),
+      workspace('beta', ['two']),
+    ])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaces),
+      insertSessionBefore,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+        .toEqual(['one', 'two', 'three'])
+    })
+
+    const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    const three = screen.getByText('three').closest('[role="treeitem"]') as HTMLElement
+    three.getBoundingClientRect = () => ({
+      top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34,
+      x: 0, y: 150, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(three, 'drop', 180)
+    expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+      .toEqual(['two', 'three', 'one'])
+    expect(insertSessionBefore).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+        .toEqual(['one', 'two', 'three'])
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '手动排序' }))
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(three, 'drop', 180)
+    b.view.unmount()
+
+    const restored = mount({ useSessions: hook(sessions), useWorkspaces: hook(workspaces) })
+    expect(restored.store.getSnapshot().groupBy).toBe('flat')
+    expect(restored.store.getSnapshot().orderBy).toBe('manual')
+    expect(screen.getAllByRole('treeitem').map(row => row.textContent)).toEqual([
+      expect.stringContaining('two'),
+      expect.stringContaining('three'),
+      expect.stringContaining('one'),
+    ])
   })
 
   it('expands a group on click and opens a session row', () => {

@@ -22,6 +22,7 @@ import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -80,6 +81,46 @@ function compareSessionRecency(a: SessionId, b: SessionId, byId: SessionListStat
   return a < b ? -1 : 1
 }
 
+/** Reconcile one editable order account and apply its activity-promotion policy. */
+function nextSessionOrderAccount({
+  sessionIds, previousOrder, previousUpdatedAt, list, orderBy, sortByRecency,
+}: {
+  sessionIds: readonly SessionId[]
+  previousOrder: readonly string[] | undefined
+  previousUpdatedAt: Readonly<Record<string, number>>
+  list: SessionListState
+  orderBy: SessionOrderBy
+  sortByRecency: boolean
+}): { order: SessionId[]; updatedAt: Record<string, number>; changed: boolean } {
+  let order = reconciledSessionOrder(sessionIds, previousOrder)
+  if (sortByRecency) {
+    order.sort((a, b) => compareSessionRecency(a, b, list.byId))
+  } else if (orderBy === 'updated') {
+    const promoted = sessionIds
+      .filter((id) => {
+        const session = list.byId[id]
+        return session !== undefined
+          && (previousUpdatedAt[id] === undefined || session.updatedAt > previousUpdatedAt[id])
+      })
+      .sort((a, b) => compareSessionRecency(a, b, list.byId))
+    if (promoted.length > 0) {
+      const promotedIds = new Set(promoted)
+      order = [...promoted, ...order.filter(id => !promotedIds.has(id))]
+    }
+  }
+  const updatedAt: Record<string, number> = {}
+  for (const id of sessionIds) {
+    const session = list.byId[id]
+    if (session !== undefined) updatedAt[id] = session.updatedAt
+  }
+  const orderChanged = previousOrder === undefined
+    || order.length !== previousOrder.length
+    || order.some((id, index) => id !== previousOrder[index])
+  const timestampsChanged = Object.keys(updatedAt).length !== Object.keys(previousUpdatedAt).length
+    || Object.entries(updatedAt).some(([id, timestamp]) => previousUpdatedAt[id] !== timestamp)
+  return { order, updatedAt, changed: orderChanged || timestampsChanged }
+}
+
 /** Grouping and ordering menu; own open state so it resets with the wide chrome. */
 function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
   groupBy: 'workspace' | 'flat'
@@ -97,8 +138,9 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
         { type: 'label' as const, id: 'group-by', text: t('groupBy.label') },
         { id: 'workspace', label: t('groupBy.workspace') },
         { id: 'flat', label: t('groupBy.flat') },
+        { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
-        { id: 'manual', label: t('orderBy.manual'), disabled: groupBy !== 'workspace' },
+        { id: 'manual', label: t('orderBy.manual') },
         { id: 'updated', label: t('orderBy.updated') },
       ]}
       selectedIds={[groupBy, orderBy]}
@@ -159,7 +201,7 @@ type SessionTreeProps = Pick<
   workspaceExpansion: Readonly<Record<string, boolean>>
   /** Persist one Workspace group's zero-or-five-session state. */
   setWorkspaceExpanded: (key: string, expanded: boolean) => void
-  /** Shared editable orders used by both Session order modes. */
+  /** Shared editable orders used by Workspace groups and the flat-list account. */
   recentSessionOrder: Readonly<Record<string, readonly string[]>>
   /** Last update timestamps observed for one-time recent-update promotions. */
   recentSessionUpdatedAt: Readonly<Record<string, Readonly<Record<string, number>>>>
@@ -246,34 +288,16 @@ function SessionTree({
     for (const { key, sessionIds } of accounts) {
       const previousOrder = recentSessionOrder[key]
       const previousUpdatedAt = recentSessionUpdatedAt[key] ?? {}
-      let nextOrder = reconciledSessionOrder(sessionIds, previousOrder)
-      if (orderBy === 'updated' && (previousOrder === undefined || switchedToUpdated)) {
-        nextOrder.sort((a, b) => compareSessionRecency(a, b, list.byId))
-      } else if (orderBy === 'updated') {
-        const promoted = sessionIds
-          .filter((id) => {
-            const session = list.byId[id]
-            return session !== undefined
-              && (previousUpdatedAt[id] === undefined || session.updatedAt > previousUpdatedAt[id])
-          })
-          .sort((a, b) => compareSessionRecency(a, b, list.byId))
-        if (promoted.length > 0) {
-          const promotedIds = new Set(promoted)
-          nextOrder = [...promoted, ...nextOrder.filter(id => !promotedIds.has(id))]
-        }
-      }
-      const nextUpdatedAt: Record<string, number> = {}
-      for (const id of sessionIds) {
-        const session = list.byId[id]
-        if (session !== undefined) nextUpdatedAt[id] = session.updatedAt
-      }
-      const orderChanged = previousOrder === undefined
-        || nextOrder.length !== previousOrder.length
-        || nextOrder.some((id, index) => id !== previousOrder[index])
-      const timestampsChanged = Object.keys(nextUpdatedAt).length !== Object.keys(previousUpdatedAt).length
-        || Object.entries(nextUpdatedAt).some(([id, updatedAt]) => previousUpdatedAt[id] !== updatedAt)
-      if (orderChanged || timestampsChanged) {
-        syncRecentSessions(key, nextOrder.map(id => id as string), nextUpdatedAt)
+      const next = nextSessionOrderAccount({
+        sessionIds,
+        previousOrder,
+        previousUpdatedAt,
+        list,
+        orderBy,
+        sortByRecency: orderBy === 'updated' && (previousOrder === undefined || switchedToUpdated),
+      })
+      if (next.changed) {
+        syncRecentSessions(key, next.order.map(id => id as string), next.updatedAt)
       }
     }
   }, [list, orderBy, recentSessionOrder, recentSessionUpdatedAt, syncRecentSessions, ungroupedSessionIds, workspaces])
@@ -512,15 +536,90 @@ function SessionTree({
   )
 }
 
-/** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, t }: Pick<
-  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 't'
+/** The flat "In one list" body: every session is one draggable top-level row. */
+function FlatList({
+  useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
+  orderBy, recentSessionOrder, recentSessionUpdatedAt, syncRecentSessions, setRecentSessionOrder, t,
+}: Pick<
+  SessionTreeProps,
+  | 'useSessions'
+  | 'open'
+  | 'forkSession'
+  | 'onSessionRename'
+  | 'onSessionArchive'
+  | 'archivedSessionIds'
+  | 'orderBy'
+  | 'recentSessionOrder'
+  | 'recentSessionUpdatedAt'
+  | 'syncRecentSessions'
+  | 'setRecentSessionOrder'
+  | 't'
 >) {
   const list = useSessions(s => s)
-  const rows = useMemo(
+  const baseRows = useMemo(
     () => deriveFlat(list, archivedSessionIds),
     [list, archivedSessionIds],
   )
+  const sessionIds = useMemo(() => baseRows.map(row => row.id), [baseRows])
+  const previousOrderBy = useRef(orderBy)
+  useEffect(() => {
+    if (list.phase !== 'ready') return
+    const previousOrder = recentSessionOrder[FLAT_SESSION_ORDER_KEY]
+    const previousUpdatedAt = recentSessionUpdatedAt[FLAT_SESSION_ORDER_KEY] ?? {}
+    const switchedToUpdated = previousOrderBy.current !== 'updated' && orderBy === 'updated'
+    previousOrderBy.current = orderBy
+    const next = nextSessionOrderAccount({
+      sessionIds,
+      previousOrder,
+      previousUpdatedAt,
+      list,
+      orderBy,
+      sortByRecency: orderBy === 'updated' && (previousOrder === undefined || switchedToUpdated),
+    })
+    if (next.changed) {
+      syncRecentSessions(FLAT_SESSION_ORDER_KEY, next.order.map(id => id as string), next.updatedAt)
+    }
+  }, [list, orderBy, recentSessionOrder, recentSessionUpdatedAt, sessionIds, syncRecentSessions])
+  const rows = useMemo(() => {
+    const byId = new Map(baseRows.map(row => [row.id, row]))
+    return reconciledSessionOrder(sessionIds, recentSessionOrder[FLAT_SESSION_ORDER_KEY])
+      .flatMap((id) => {
+        const row = byId.get(id)
+        return row === undefined ? [] : [row]
+      })
+  }, [baseRows, recentSessionOrder, sessionIds])
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const dropCommitted = useRef(false)
+  useEffect(() => {
+    if (drag === null) return
+    const acceptDrag = (event: DragEvent): void => {
+      event.preventDefault()
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+    }
+    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
+    document.addEventListener('dragover', acceptDrag)
+    document.addEventListener('drop', acceptDrop)
+    return () => {
+      document.removeEventListener('dragover', acceptDrag)
+      document.removeEventListener('drop', acceptDrop)
+    }
+  }, [drag])
+  const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+    if (dropCommitted.current) return
+    dropCommitted.current = true
+    setDrag(null)
+    const targetIndex = rows.findIndex(row => row.id === over.id)
+    if (targetIndex === -1) return
+    const anchor = over.half === 'before' ? over.id : rows[targetIndex + 1]?.id
+    if (anchor === activeDrag.sessionId) return
+    const sourceIndex = rows.findIndex(row => row.id === activeDrag.sessionId)
+    const anchorIndex = anchor === undefined ? rows.length : rows.findIndex(row => row.id === anchor)
+    if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
+    const nextOrder = rows.map(row => row.id).filter(id => id !== activeDrag.sessionId)
+    const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
+    nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
+    setRecentSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder.map(id => id as string))
+  }
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
@@ -528,19 +627,42 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionAr
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
-        {rows.map(node => (
-          <SessionNodeItem
-            key={node.id}
-            node={node}
-            currentId={list.current}
-            now={now}
-            onOpen={open}
-            onRename={onSessionRename}
-            onFork={forkSession}
-            onArchive={onSessionArchive}
-            t={t}
-          />
-        ))}
+        {rows.map((node) => {
+          const active = drag !== null
+          return (
+            <SessionNodeItem
+              key={node.id}
+              node={node}
+              currentId={list.current}
+              now={now}
+              onOpen={open}
+              onRename={onSessionRename}
+              onFork={forkSession}
+              onArchive={onSessionArchive}
+              flat
+              drag={{
+                start: () => {
+                  dropCommitted.current = false
+                  setDrag({ workspaceKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, over: null })
+                },
+                active,
+                marker: active && drag.over?.id === node.id ? drag.over.half : null,
+                hover: (half) => {
+                  setDrag(current => current === null ? current : { ...current, over: { id: node.id, half } })
+                },
+                drop: (half) => {
+                  if (drag !== null) commitDrag(drag, { id: node.id, half })
+                },
+                end: () => {
+                  if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)
+                  else setDrag(null)
+                  dropCommitted.current = false
+                },
+              }}
+              t={t}
+            />
+          )
+        })}
       </div>
       <span className={css.fade} />
     </div>
@@ -654,9 +776,6 @@ export function WorkspaceBrowser({
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
   const orderBy = useStore(s => s.orderBy)
-  // A flat list has no single Workspace account to drag. Keep the stored
-  // grouped preference intact while presenting the flat list by recency.
-  const effectiveOrderBy = groupBy === 'flat' && orderBy === 'manual' ? 'updated' : orderBy
   const workspaceExpansion = useStore(s => s.workspaceExpansion)
   const recentSessionOrder = useStore(s => s.recentSessionOrder)
   const recentSessionUpdatedAt = useStore(s => s.recentSessionUpdatedAt)
@@ -664,6 +783,7 @@ export function WorkspaceBrowser({
     if (workspacePhase !== 'ready') return
     actions.retainWorkspaceKeys([
       UNGROUPED_KEY,
+      FLAT_SESSION_ORDER_KEY,
       ...workspaces.map(workspace => workspace.workspaceId as string),
     ])
   }, [actions.retainWorkspaceKeys, workspacePhase, workspaces])
@@ -928,7 +1048,7 @@ export function WorkspaceBrowser({
           {wide && (
             <ViewOptionsMenu
               groupBy={groupBy}
-              orderBy={effectiveOrderBy}
+              orderBy={orderBy}
               onGroupPick={(mode) => { actions.setGroupBy(mode) }}
               onOrderPick={(mode) => { actions.setOrderBy(mode) }}
               t={t}
@@ -1011,7 +1131,13 @@ export function WorkspaceBrowser({
               <FlatList
                 useSessions={useSessions} open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
-                archivedSessionIds={archivedSessionIds} t={t}
+                archivedSessionIds={archivedSessionIds}
+                orderBy={orderBy}
+                recentSessionOrder={recentSessionOrder}
+                recentSessionUpdatedAt={recentSessionUpdatedAt}
+                syncRecentSessions={actions.syncRecentSessions}
+                setRecentSessionOrder={actions.setRecentSessionOrder}
+                t={t}
               />
             )
             : (
