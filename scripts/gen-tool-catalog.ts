@@ -43,6 +43,7 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
+import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
@@ -135,7 +136,7 @@ async function mountCatalogChildScope(
  * prompt and registry; each recipe supplies only package-specific seams and
  * config, while `dir` participates in the completeness check.
  */
-interface ToolPackage {
+export interface ToolPackage {
   /** The npm package name, used as the catalog section heading. */
   pkg: string
   /** The `packages/<group>/<dir>` leaf name — matched by the completeness guard. */
@@ -256,13 +257,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-cordis',
     dir: 'tool-cordis',
     source: 'packages/extensions/tool-cordis/src/index.ts',
-    requires: ['ctx.tools'],
-    writes: ['tool/call', 'tool/result', 'process-local temporary Plugin lifecycle'],
+    requires: ['ctx.tools', 'ctx.dynamicCordisRunner'],
+    writes: ['tool/call', 'tool/result', 'process-local dynamic package lifecycle'],
     async mount(ctx) {
+      await ctx.plugin(CordisHostRunner)
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.',
+      'Not in any shipped tree (a deliberate opt-in — dynamic package code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). The toolset injects `ctx.dynamicCordisRunner` from `@deepseek-ai/dsh-cordis-host-runner`, which owns the definition registry and the vm sandbox; a composition missing it never activates the tools. A running package may register ADDITIONAL model-visible tools until it is stopped, undefined, or DSH restarts; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash-persistent',
@@ -588,6 +590,29 @@ export function assertManifestComplete(packages: ToolPackage[] = TOOL_PACKAGES, 
 }
 
 /**
+ * Assert one manifest entry actually registered a tool.
+ *
+ * A tool package that boots without registering anything is a broken boot, not
+ * an empty catalog section. The usual cause is an `inject` the entry's `mount`
+ * does not satisfy: cordis leaves the plugin PENDING, every step here still
+ * succeeds, and the generator writes a catalog missing that package's tools —
+ * with the freshness gate green on it, because the omission is now what the
+ * generator produces. {@link assertManifestComplete} cannot see this: the
+ * package IS listed, it just contributed nothing.
+ * @param entry - the manifest entry that was booted.
+ * @param harvested - how many schemas its boot registered.
+ * @throws when the boot registered no tool at all.
+ */
+export function assertToolsHarvested(entry: ToolPackage, harvested: number): void {
+  if (harvested > 0) return
+  throw new Error(
+    `gen-tool-catalog: ${entry.pkg} booted without registering a single tool. `
+    + 'Its plugin is most likely PENDING on a service this manifest entry does not mount — '
+    + `compare the plugin's inject with mount() and requires: ${entry.requires.join(', ')}.`,
+  )
+}
+
+/**
  * Boot each tool package on a fresh Context and harvest its model-facing
  * schemas. A fresh Context per package keeps attribution clean (each entry's
  * schemas come from exactly that package) and isolates a boot failure to its
@@ -606,6 +631,7 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
       await ctx.plugin(ToolRuntime, entry.toolsConfig ?? {})
       await entry.mount(ctx)
       const schemas = ctx.tools.schemas(entry.scope?.(ctx)).sort((a, b) => a.name.localeCompare(b.name))
+      assertToolsHarvested(entry, schemas.length)
       catalog.push({
         pkg: entry.pkg,
         sources: Object.fromEntries(schemas.map(schema => [

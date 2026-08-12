@@ -260,7 +260,10 @@ describe('the shipped Web composition', () => {
     try {
       const tools = toolNames(ctx, handle.agent)
       // The self-referential toolset is what distinguishes this preset.
-      expect(tools).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
+      expect(tools).toEqual(expect.arrayContaining([
+        'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self',
+        'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine',
+      ]))
       // And it keeps the standard agent's own tools rather than replacing them.
       expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
       expect(tools).not.toContain('str_replace_editor')
@@ -314,7 +317,7 @@ describe('the shipped Web composition', () => {
     })
     try {
       // Editing the live runtime is opt-in per session, not ambient.
-      expect(toolNames(ctx, handle.agent)).not.toContain('cordis_mount')
+      expect(toolNames(ctx, handle.agent)).not.toContain('cordis_define')
     } finally {
       await handle.dispose()
     }

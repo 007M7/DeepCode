@@ -36,11 +36,51 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     // there); these four are the frame's children, declared by the same
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
+    /**
+     * The whole left column. OCCUPIED by ui-sidebar's SidebarRoot, which
+     * declares the workspace and settings seats inside it — registering here
+     * replaces the navigation column outright rather than adding to it, and
+     * the seats it declares disappear with it. To add something to the
+     * sidebar, register into one of those inner seats instead.
+     *
+     * The occupant receives the frame's live column state (collapsed, width)
+     * and is expected to render the compact control rail while collapsed.
+     */
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
-    // Current-session-optional: the occupant owns both the no-session hero
-    // and live conversation states without changing its React identity.
+    /**
+     * The whole center column, across both the no-session hero and a live
+     * conversation. OCCUPIED by ui-conversation's ConversationRoot, which
+     * declares the session body, composer, and input seats inside it —
+     * registering here replaces the entire conversation surface (and removes
+     * every seat it declares) rather than adding to it.
+     *
+     * Current-session-optional: the occupant owns both states without
+     * changing its React identity, so it keeps its own state across a session
+     * switch. It receives no owner props; session facts arrive through the
+     * framework hooks of the `session-maybe` scope.
+     */
     'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
+    /**
+     * The right details column, shown when the layout opens it. OCCUPIED by
+     * ui-conversation's DetailsPanel, which declares the tool-details seat
+     * inside it — registering here replaces the column and takes that seat
+     * with it. Absent an occupant the column renders nothing.
+     *
+     * No owner props: the framework injects the session id and hooks for the
+     * `session` scope, and `ctx.layout` owns whether the column is open.
+     */
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
+    /**
+     * Frame-wide floating layer, above every column and outside their scroll
+     * containers. Deliberately generic and unowned by any feature: a badge, a
+     * toast stack or a status pill all belong here, and entries order among
+     * themselves. The layer itself is click-through — entries opt back into
+     * pointer events — so an occupant never blocks the app underneath.
+     *
+     * This is the additive seat for a frame-wide surface of your own: a fresh
+     * `id` is added beside the shipped entries instead of replacing them.
+     */
+    'shell.overlay': { kind: 'list'; scope: 'root' }
   }
 }
 
@@ -83,6 +123,7 @@ export function apply(ctx: ClientContext): void {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
+        'shell.overlay': { kind: 'list', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
       // entry and delivers useStore/actions to AppFrame as standard props.

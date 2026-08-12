@@ -23,6 +23,7 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-agent-instructions'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 /**
@@ -85,12 +86,18 @@ let keylessCall = 0
 const testToolSignal = new AbortController().signal
 
 /** Execute one outer Code Mode call through the real registry and worker. */
-function runCode(harness: Context, code: string, signal: AbortSignal = testToolSignal): Promise<ToolExecutionResult> {
+function runCode(
+  harness: Context,
+  code: string,
+  signal: AbortSignal = testToolSignal,
+  agent?: Agent,
+): Promise<ToolExecutionResult> {
   return harness.tools.execute({
     callId: CallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
     arguments: { code, description: 'Run the e2e program' },
     signal,
+    ...(agent === undefined ? {} : { agent }),
   })
 }
 
@@ -254,46 +261,77 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
     expect(ctx.jobs.list()).toEqual([])
   }, 15_000)
 
-  it('uses cordis_mount DTO ids directly for running and pending temporary Plugins, then confirms removal', async () => {
+  it('uses versioned Cordis DTO ids directly for running and pending Plugins, then confirms removal', async () => {
     ctx = await typedCodeModeHarness()
+    await ctx.plugin(CordisHostRunner)
     await ctx.plugin(ToolCordis)
+    const agent = {
+      id: SessionId('code-mode-cordis'),
+      session: { append: vi.fn() },
+    } as unknown as Agent
 
     const value = completion(await runCode(ctx, `
-      const active = await tools.cordis_mount({
-        code: "return { name: 'active-code-mode-plugin', apply(ctx) {} }",
+      const activeDefinition = await tools.cordis_define({
+        plugin: { kind: 'new', idPrefix: 'active' },
+        name: 'active-code-mode-plugin',
+        purpose: 'prove an active Host half',
+        code: { host: "return { name: 'active-code-mode-plugin', apply(ctx) {} }" },
       });
-      const pending = await tools.cordis_mount({
-        code: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }",
+      const active = await tools.cordis_run({
+        pluginId: activeDefinition.pluginId,
+        packageId: activeDefinition.packageId,
+        mode: 'run',
       });
-      const before = await tools.cordis_inspect({ what: 'temporary' });
-      const stopped = await tools.cordis_unmount({ id: active.id });
-      const after = await tools.cordis_inspect({ what: 'temporary' });
-      await tools.cordis_unmount({ id: pending.id });
+      const pendingDefinition = await tools.cordis_define({
+        plugin: { kind: 'new', idPrefix: 'queue' },
+        name: 'pending-code-mode-plugin',
+        purpose: 'prove a Host half waiting for a Service',
+        code: { host: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }" },
+      });
+      const pending = await tools.cordis_run({
+        pluginId: pendingDefinition.pluginId,
+        packageId: pendingDefinition.packageId,
+        mode: 'run',
+      });
+      const before = await tools.cordis_inspect_self({});
+      const removed = await tools.cordis_undefine({ pluginId: active.pluginId });
+      const after = await tools.cordis_inspect_self({});
+      await tools.cordis_undefine({ pluginId: pending.pluginId });
       return {
-        active,
-        pending,
-        stopped,
-        beforeContainsId: before.includes(active.id),
-        afterContainsId: after.includes(active.id),
+        active: {
+          pluginId: active.pluginId,
+          packageId: active.packageId,
+          pluginRunId: active.pluginRunId,
+          status: active.host.status,
+        },
+        pending: {
+          pluginId: pending.pluginId,
+          packageId: pending.packageId,
+          pluginRunId: pending.pluginRunId,
+          status: pending.host.status,
+          waitingFor: pending.host.waitingFor,
+        },
+        removed,
+        beforeContainsId: before.plugins.some(plugin => plugin.pluginId === active.pluginId),
+        afterContainsId: after.plugins.some(plugin => plugin.pluginId === active.pluginId),
       };
-    `))
+    `, testToolSignal, agent))
 
     expect(value).toEqual({
       active: {
-        id: 'dyn-1',
-        pluginName: 'active-code-mode-plugin',
-        state: 'active',
-        provides: [],
-        waitingFor: [],
+        pluginId: 'active-1',
+        packageId: 'pkg-1',
+        pluginRunId: 'run-1',
+        status: 'running',
       },
       pending: {
-        id: 'dyn-2',
-        pluginName: 'pending-code-mode-plugin',
-        state: 'pending',
-        provides: [],
+        pluginId: 'queue-2',
+        packageId: 'pkg-2',
+        pluginRunId: 'run-2',
+        status: 'waiting',
         waitingFor: ['missing-code-mode-service'],
       },
-      stopped: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
+      removed: { pluginId: 'active-1', wasRunning: true },
       beforeContainsId: true,
       afterContainsId: false,
     })

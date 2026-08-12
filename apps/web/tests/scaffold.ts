@@ -70,7 +70,6 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -217,7 +216,7 @@ export interface LaunchOptions {
    */
   toolsMode?: 'native' | 'code' | 'both'
   /**
-   * Insert the opt-in self-referential Cordis tools into the shipped tree.
+   * Insert the opt-in model-facing Cordis tool provider into the shipped tree.
    * Record and replay use the same tool surface, so captured request headers
    * remain reconstructable without making the tools a product default.
    */
@@ -460,8 +459,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       // be able to change a golden, whatever roots a scenario asks for.
       : [{ id: 'agent-presets', config: { ...options.agentPresets, includeUserRoot: false } }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
+    // The shipped Web bundle already owns both runners and the Cordis UI. This
+    // scenario adds only the model-facing tools that exercise those services.
     ...options.cordisTools === true
-      ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
+      ? [{ insert: [
+        { id: 'tool-cordis', name: '@deepseek-ai/dsh-tool-cordis' },
+      ] }]
       : [],
     ...options.deepSeekSearch === undefined
       ? []
@@ -513,9 +516,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // and a preset resolving package names from its own directory cannot reach
     // `@deepseek-ai/cordis-plugin-group` by name.
     ctx.loader.builtins.group = Group
-    // The shipped CLI deliberately has no dependency on this opt-in package.
-    // Keep the Loader row real without broadening the product installation.
-    if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(rootConfig).href, patches },

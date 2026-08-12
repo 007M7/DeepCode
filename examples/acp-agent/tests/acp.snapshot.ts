@@ -491,8 +491,9 @@ const SCENARIOS: Scenario[] = [
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
   { name: 'workflow-run', hasModelTurn: true, recorded: true },
-  // Authored counterpart to the packaged Python SDK snapshot: mount a live marker, inspect it
-  // through Code Mode, run direct and workflow children, then unmount it. The extra Code Mode and
+  // Authored counterpart to the packaged Python SDK snapshot: define a host-half marker package and
+  // run it, inspect this session's dynamic packages through Code Mode, run direct and workflow
+  // children, then undefine it. The extra Code Mode and
   // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
   {
     name: 'advanced-toolchain',
