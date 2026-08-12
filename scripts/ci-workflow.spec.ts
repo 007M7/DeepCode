@@ -84,7 +84,7 @@ describe('CI workflow', () => {
     expect(aggregate.needs).not.toContain('serial-windows')
   })
 
-  it('leaves push runs uncancelled, so the self-hosted standby drills reach a verdict', () => {
+  it('exempts push from cancellation, so one master merge does not kill the running drill', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs) || !isRecord(workflow.concurrency)) {
       throw new TypeError('CI workflow must define jobs and a workflow-level concurrency block')
@@ -96,11 +96,13 @@ describe('CI workflow', () => {
     // a drill takes longer than the interval between master merges. The negated
     // form is load-bearing: `== 'pull_request'` would also stop cancelling
     // workflow_dispatch, and a re-dispatched runner benchmark holds up to 12
-    // larger runners for 15 minutes in this same group on master.
+    // larger runners for 15 minutes in this same group on master. The
+    // expression is evaluated against the NEWLY TRIGGERED run, so a dispatch on
+    // master still cancels a mid-flight drill; the runbook records that bound.
     expect(workflow.concurrency['cancel-in-progress']).toBe("${{ github.event_name != 'push' }}")
 
-    // Neither drill may re-introduce a job-level group: it would not help, and
-    // it would imply the run-scoped cancellation had been solved locally.
+    // Neither drill may carry a job-level group: it would not exempt the job
+    // from run-scoped cancellation.
     for (const name of ['serial-linux-selfhosted', 'serial-windows']) {
       const job = workflow.jobs[name]
       if (!isRecord(job)) throw new TypeError(`${name} must be defined`)
@@ -109,9 +111,9 @@ describe('CI workflow', () => {
       expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     }
 
-    // What bounds the cost of never cancelling a push run: a master push may
-    // only carry the cache seeder and the two drills. Any job reachable on push
-    // would start accumulating uncancelled runs, so the set is pinned here.
+    // What bounds the cost of exempting push: a master push may only carry the
+    // cache seeder and the two drills. Any job reachable on push would start
+    // accumulating uncancelled runs, so the set is pinned here.
     //
     // Classification is an exact allowlist of the conditions in use, not a
     // substring match: `github.event_name != 'pull_request'` mentions

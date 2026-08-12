@@ -23,9 +23,9 @@ on:
 # Negated rather than `== 'pull_request'` so workflow_dispatch keeps cancelling:
 # a re-dispatched runner benchmark holds up to 12 larger runners for 15 minutes
 # and shares this group with the drills on master, so queueing it would delay
-# them. This does not promise every push run finishes (a newer pending run still
-# displaces an older one) — only that the lanes periodically reach a verdict.
-# Rationale and the bound on this carve-out:
+# them. The guarantee is narrow — evaluated against the newly triggered run, so a
+# dispatch on master still cancels a mid-flight drill, and a newer pending push
+# displaces an older one. Bounds and rationale:
 # .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

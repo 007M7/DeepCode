@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-10-telemetry-default-off.md
-2026-08-10-telemetry-default-off.md: 4bda346c2b05a94106eb5658c3ee558a4b32407f
-2026-08-10-telemetry-default-off.zh.md: 706f2c18fbbf226e0357fa99bf3fd61c39fce08a
+2026-08-10-telemetry-default-off.md: 3b9cd4bc3e9c98ee96ae036a0e981aa585a02403
+2026-08-10-telemetry-default-off.zh.md: 18f83869243b3d5c65278e654f4ac10e9bfe7d30
