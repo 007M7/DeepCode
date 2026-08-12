@@ -15,7 +15,7 @@ import type {
   ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { WorkspaceId } from './workspace.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -213,7 +213,20 @@ export const sessionProjectionsBlockSchema = z.object({
   // -1 = empty log (the lastSeq convention of session/subscribed).
   asOfSeq: z.number().int().min(-1),
   values: z.record(z.string(), z.unknown()),
-}) as unknown as z.ZodType<SessionProjectionsBlock>
+}) as unknown as z.ZodType<Wire<SessionProjectionsBlock>>
+
+/**
+ * imageLimits projection unit schema (host-side view validation). zod widens
+ * `readonly ImageMediaType[]` to `string[]`; on the JSON wire the two
+ * serialize identically, so the cast records exactly that widening.
+ */
+export const imageLimitsProjectionSchema = z.object({
+  maxImageBytes: z.number().int().positive(),
+  maxImagesPerMessage: z.number().int().positive(),
+  maxMessageImageBytes: z.number().int().positive(),
+  maxImagePixels: z.number().int().positive(),
+  mediaTypes: z.array(z.string()),
+}) as unknown as z.ZodType<ImageAttachmentLimits>
 
 /** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({

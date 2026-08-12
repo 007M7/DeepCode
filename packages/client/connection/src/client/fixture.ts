@@ -979,6 +979,15 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['contextPressure'] = contextPressureOf(log)
   // Always present (token-meter composed): heuristic request composition.
   values['contextBreakdown'] = contextBreakdownOf(log)
+  // Always present (attachment service composed): the deployment image
+  // limits, constant per boot (mirrors the attachment-local defaults).
+  values['imageLimits'] = {
+    maxImageBytes: 10 * 1024 * 1024,
+    maxImagesPerMessage: 20,
+    maxMessageImageBytes: 100 * 1024 * 1024,
+    maxImagePixels: 40_000_000,
+    mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+  }
   return values
 }
 

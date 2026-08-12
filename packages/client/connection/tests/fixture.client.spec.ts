@@ -164,6 +164,13 @@ describe('createFixtureApi', () => {
           toolsTokens: 0,
           messageTokens: 0,
         },
+        imageLimits: {
+          maxImageBytes: 10 * 1024 * 1024,
+          maxImagesPerMessage: 20,
+          maxMessageImageBytes: 100 * 1024 * 1024,
+          maxImagePixels: 40_000_000,
+          mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+        },
       } },
     })
   })
@@ -369,10 +376,14 @@ describe('createFixtureApi', () => {
       value: { systemTokens: 0, toolsTokens: 0 },
     })
     expect((first[8]?.payload as { value: { messageTokens: number } }).value.messageTokens).toBeGreaterThan(0)
-    expect(first[9]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[9]?.rpcId).toBe(first[9]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[10]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[10]?.rpcId).toBe(first[10]?.rpcId)
+    expect(first[9]?.payload).toMatchObject({
+      type: 'session/projection', sessionId: 'fx-alpha', key: 'imageLimits',
+      value: { maxImagesPerMessage: 20, maxImageBytes: 10 * 1024 * 1024 },
+    })
+    expect(first[10]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[10]?.rpcId).toBe(first[10]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[11]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[11]?.rpcId).toBe(first[11]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

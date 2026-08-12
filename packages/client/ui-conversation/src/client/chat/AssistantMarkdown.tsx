@@ -10,6 +10,7 @@
 // turn's transcript tail. Think / tool-head-only nodes stay chrome-free.
 
 import { memo, useMemo } from 'react'
+import type { ReactNode } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -48,34 +49,56 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     || interrupted === true
     || blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
+  const rendered: ReactNode[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    if (block === undefined) continue
+    switch (block.kind) {
+      case 'text':
+        rendered.push(
+          <MarkdownText
+            key={i}
+            text={block.text}
+            streaming={streaming}
+            codeLabels={codeLabels}
+            fileMentions={mentions}
+          />,
+        )
+        break
+      case 'reasoning':
+        rendered.push(<ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />)
+        break
+      case 'image': {
+        // Consecutive image blocks share one gallery so several images tile
+        // into rows instead of each opening a one-image group of its own.
+        const group = [block]
+        while (i + 1 < blocks.length) {
+          const next = blocks[i + 1]
+          if (next === undefined || next.kind !== 'image') break
+          group.push(next)
+          i += 1
+        }
+        rendered.push(<ImageGallery key={i} images={group} load={imageLoader} align="start" labels={messageImageLabels(t)} />)
+        break
+      }
+      // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
+      case 'tool-call':
+        break
+      default:
+        rendered.push(
+          <JsonBlock
+            key={i}
+            label={t('message.unknownBlock')}
+            payload={block.block}
+            truncatedLabel={total => t('json.truncated', { total })}
+          />,
+        )
+    }
+  }
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
       <div className={css.body}>
-        {blocks.map((block, i) => {
-          switch (block.kind) {
-            case 'text': return (
-              <MarkdownText
-                key={i}
-                text={block.text}
-                streaming={streaming}
-                codeLabels={codeLabels}
-                fileMentions={mentions}
-              />
-            )
-            case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
-            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" labels={messageImageLabels(t)} />
-            // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
-            case 'tool-call': return null
-            default: return (
-              <JsonBlock
-                key={i}
-                label={t('message.unknownBlock')}
-                payload={block.block}
-                truncatedLabel={total => t('json.truncated', { total })}
-              />
-            )
-          }
-        })}
+        {rendered}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
     </div>
