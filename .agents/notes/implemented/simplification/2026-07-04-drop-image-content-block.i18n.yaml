@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-04-drop-image-content-block.md
 2026-07-04-drop-image-content-block.md: 5d0357270973ac20234d8ce72c403f27ce2ad0e0
-2026-07-04-drop-image-content-block.zh.md: f781c775e49c06f9b3f4c54d13cc3a1519c15daf
+2026-07-04-drop-image-content-block.zh.md: a13133059cdf4f6e6e8fe44e313a9795a57c10c9

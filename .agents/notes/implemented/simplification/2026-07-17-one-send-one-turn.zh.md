@@ -24,7 +24,7 @@ Status: implemented
 
 上述不合批规则只适用于普通 follow-up 输入。`steer()` 会把输入放入 next-step inbox 并唤醒驱动器。在轮次期间，循环可以在后续步骤边界领取它；agent 空闲时，这个会唤醒的 next-step 批次会启动一个新轮次。批次被领取后才到达的输入会等待后续边界，而取消或 dispose 可以将其丢弃。
 
-`inject()` 继续添加面向模型的上下文，但不提交普通输入，也不唤醒驱动器。即使 agent 空闲，它也始终在 next-step inbox 中等待后续 pre-step；AgentLoop 只会在 enter 决策于轮次内返回它时，将其记录为 `user/message`。`cancel()` 仍是面向整个 agent 的操作，可以清空所有尚未启动的普通输入、steering 和注入，并中止当前步骤。`status` 和 `whenIdle()` 描述的也是整个 agent，而不是某一条消息。
+`inject()` 继续添加面向模型的上下文，但不提交普通输入，也不唤醒驱动器。即使 agent 空闲，它也始终在 next-step inbox 中等待后续 pre-step；AgentLoop 只会在 enter 决策于轮次内返回它时，将其记录为 `user/message`。`cancel()` 仍是面向整个 agent 的操作，可以清空所有尚未启动的普通输入、steering（中途引导）和注入，并中止当前步骤。`status` 和 `whenIdle()` 描述的也是整个 agent，而不是某一条消息。
 
 ## 曾考虑的替代方案
 
@@ -34,7 +34,7 @@ Status: implemented
 
 - 单元测试和基于属性的测试从同一调用栈、相邻微任务、不同生产方和重入回调提交 send；每条消息都会得到一个按 FIFO 排序的独立轮次。
 - stdio 构建产物测试提交两行输入，并观察到两个模型请求和两个轮次边界。
-- 延迟和拒绝第一个轮次的检查点，都能让下一个轮次保持等待，并证明其请求可以看到前一条助手结果。
+- 延迟和拒绝第一个轮次的检查点，都能让下一个轮次保持等待，并证明其请求会看到前一条助手结果。
 - 失败路径测试覆盖 pre-step 拒绝、监听器失败、面向整个 agent 的取消、dispose 和 `turn/start` 之前的失败；首次 pre-step 的各种退出都会关闭边界平衡的无步骤轮次，消息不会合并，之后仍需处理的工作也能继续清空。
 - 其他测试分别覆盖轮次打开时、轮次失败后和空闲时的 `steer()`，以及待处理的 `inject()`、面向整个 agent 的状态和 `whenIdle()`。
 

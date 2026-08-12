@@ -14,8 +14,8 @@ Status: implemented
 
 三项变更，每项对应一个障碍：
 
-1. **`run_code` 新增必填的 `description` 参数**（与 bash 完全相同的约定：主动语态、5-10 个词、展示在 UI 中；仅含空白的取值在执行时被拒绝）。`presentCall` 现在以该 description 作为卡片标题，并把程序文本移入 `rawInput`。提示词侧的成本是每次调用多出几个 token；换来的是每个表面——TUI 卡片、ACP（Agent Client Protocol）标题、Web 行——都无需解析 TypeScript 就能获得可供人阅读的标签。
-2. **`tool/code-dispatch` 记录子调用面向模型的完整结果**（`content: ContentBlock[]` 加 `isError`，即 `tool/result` 的词汇），取代 `resultSummary`，并把摘要与 cwd 归一化机制彻底删除。UI 渲染子调用走的代码路径与渲染原生结果完全相同，包括错误文本和非文本块。该事件保持仅日志（`deriveMessages()` 忽略它）：模型上下文没有任何变化。
+1. **`run_code` 新增必填的 `description` 参数**（与 bash 完全相同的约定：主动语态、5-10 个词、展示在 UI 中；仅含空白的取值在执行时被拒绝）。`presentCall` 现在以该 description 作为卡片标题，并把程序文本移入 `rawInput`。提示词侧的成本是每次调用多出几个 token；换来的是每个界面——TUI 卡片、ACP（Agent Client Protocol）标题、Web 行——都无需解析 TypeScript 就能获得可供人阅读的标签。
+2. **`tool/code-dispatch` 记录子调用面向模型的完整结果**（`content: ContentBlock[]` 加 `isError`，即 `tool/result` 的词汇），取代 `resultSummary`，并把摘要与 cwd 归一化机制彻底删除。UI 渲染子调用走的代码路径与渲染原生结果完全相同，包括错误文本和非文本块。该事件仍仅用于日志（`deriveMessages()` 忽略它）：模型上下文没有任何变化。
 3. **`dsh` 配置树上的 `DSH_TOOLS_MODE` 环境变量**（`native`|`code`|`both`；未设置时保持 schema 默认值）：`tools` 行通过 `!!js` 读取它，worker 代码运行时则无条件挂载（本项交付时 loader 元数据仍是静态的，因此不存在条件行；后来的 [`disabled` 插值决策](../architecture/2026-08-11-loader-entry-disabled-interpolation.md) 让条件行成为可能，但此处不变——native 启动只是注册该服务，worker 要到每次运行时才 spawn）。这是一个明确标注为临时的配置钩子：设计目标是让 Web UI 拥有按会话的工具模式选择，该目标落地后，这个环境变量随即退役。
 
 ## 曾考虑的替代方案
@@ -28,4 +28,4 @@ Status: implemented
 
 ## 后果
 
-会话格式保持 `SESSION_FORMAT_VERSION` 为 0（预发布阶段的变动不递增版本号；携带 `resultSummary` 的旧日志只是多出一个不被读取的字段并缺少 `content`；v0 不作任何兼容性承诺）。既有的 Code Mode 快照 fixture（测试前置数据）已重新录制。模型可见表面扩大了：`run_code` 的 schema（新增一个必填参数）以及每一份 Code Mode 系统提示词／工具 schema 快照都发生了变化。Web UI 工作直接构建在新的事件载荷之上；每个子调用的实时运行状态已把本事件重塑为一对分发 start/end 事件（[实时并行分发](2026-07-26-code-mode-live-parallel-dispatch.md)）。
+会话格式保持 `SESSION_FORMAT_VERSION` 为 0（预发布阶段的变动不递增版本号；携带 `resultSummary` 的旧日志只是多出一个不被读取的字段并缺少 `content`；v0 不作任何兼容性承诺）。既有的 Code Mode 快照 fixture（测试前置数据）已重新录制。模型可见范围扩大了：`run_code` 的 schema（新增一个必填参数）以及每一份 Code Mode 系统提示词／工具 schema 快照都发生了变化。Web UI 工作直接构建在新的事件载荷之上；每个子调用的实时运行状态已把本事件重塑为一对分发 start/end 事件（[实时并行分发](2026-07-26-code-mode-live-parallel-dispatch.md)）。

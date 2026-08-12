@@ -36,15 +36,15 @@ export function apply(ctx: Context): void {
 }
 ```
 
-覆盖层根据当前 `ToolExecution` 计算，并通过专用的 `BashExecRequest.dshEnv` 通道传递。本地执行器在合并该快照前移除所有继承的 `DSH_*`，因此嵌套 harness 与并发的父子 agent 无法泄漏过期的身份。`process.env` 永不被修改。shell 工具的描述只教授通用的 `$DSH_*` 约定，而不是点名持久化相关的变量或添加常驻的 system-prompt 段落。
+覆盖层根据当前 `ToolExecution` 计算，并通过专用的 `BashExecRequest.dshEnv` 通道传递。本地执行器在合并该快照前移除所有继承的 `DSH_*`，因此嵌套 harness 与并发的父子 agent 无法泄漏陈旧身份。`process.env` 永不被修改。shell 工具的描述只教授通用的 `$DSH_*` 约定，而不是点名持久化相关的变量或添加常驻的 system-prompt 段落。
 
 ## Model Experience
 
-Indirectly, through the shell tools (`dsh-tool-bash`, `dsh-tool-pwsh`), which collect this registry's managed `DSH_*` snapshot into every shell-tool call.
+通过 shell 工具（`dsh-tool-bash`、`dsh-tool-pwsh`）间接产生影响；这些工具会把该注册表的受管 `DSH_*` 快照收集进每次 shell 工具调用。
 
 #### KV Cache effect
 
-No direct invalidation; the named consumers own any request-prefix changes.
+不会直接导致缓存失效；任何请求前缀变更均由上述消费方负责。
 
 ## Known Limitations and Deferred Work
 

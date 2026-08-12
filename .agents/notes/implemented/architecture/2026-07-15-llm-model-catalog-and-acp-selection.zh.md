@@ -4,11 +4,11 @@ Status: implemented
 
 [English](2026-07-15-llm-model-catalog-and-acp-selection.md) | 中文
 
-> 目录决策仍然有效。ACP 会话级模型选择已由 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。
+> 目录决策仍然有效。ACP（Agent Client Protocol）会话级模型选择已由 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。
 
 ## 问题
 
-基于提供方路由的适配器允许每次请求选择 `provider + model`，但 `LlmService` 只暴露路由和流式调用。UI 无法发现已注册的提供方，也无法知道适配器愿意推荐哪些模型。因此，ACP 客户端收不到 `model` 会话配置项；即使 LLM 服务已经支持运行时切换，Zed、JetBrains 和 VS Code 集成仍没有模型列表。
+基于提供方路由的适配器允许每次请求选择 `provider + model`，但 `LlmService` 只暴露路由和流式调用。UI 无法发现已注册的提供方，也无法知道适配器愿意推荐哪些模型。因此，ACP 客户端收不到 `model` 会话配置项；即使 LLM（大语言模型）服务已经支持运行时切换，Zed、JetBrains 和 VS Code 集成仍没有模型列表。
 
 模型发现不能变成请求校验。手写 DeepSeek 适配器会把任意模型 ID 原样转发给公开或私有端点，而 pi-ai 的有限安装目录则是其自身请求解析的权威依据。将共享目录视为白名单，会破坏提供方路由需要保留的私有端点能力。
 
@@ -24,7 +24,7 @@ ACP 选择还必须保留提供方维度。同一个模型 ID 可能存在于多
 
 目录成员关系仅提供建议。它驱动选择器与诊断，但不会改变 `stream()` 路由，也不会拒绝原本有效的请求。提供方所有权仍然具有排他性并绑定生命周期；模型 ID 仍是请求时传给适配器的输入。
 
-`dsh-llm-pi-ai` 将已配置提供方的安装目录 `getModels(provider)` 映射为中立目录。其现有请求时目录查询仍是权威依据，未知模型仍以 `UNKNOWN_MODEL` 失败。`dsh-llm-deepseek` 接受可选的 `models` 配置作为展示条目，默认包含名为 `DeepSeek-V4-Flash` 的 `deepseek-v4-flash` 和名为 `DeepSeek-V4-Pro` 的 `deepseek-v4-pro`。显式列表会替换这些默认值，空列表则关闭发现。这些条目改善已知公开或私有模型的选择体验，而所有未列出的模型 ID 仍会原样透传。
+`dsh-llm-pi-ai` 将已配置提供方的 `getModels(provider)` 返回的已安装条目映射为提供方无关的目录。其现有请求时目录查询仍是权威依据，未知模型仍以 `UNKNOWN_MODEL` 失败。`dsh-llm-deepseek` 接受包含展示条目的可选 `models` 配置，默认包含名为 `DeepSeek-V4-Flash` 的 `deepseek-v4-flash` 和名为 `DeepSeek-V4-Pro` 的 `deepseek-v4-pro`。显式列表会替换这些默认值，空列表则关闭发现。这些条目改善已知公开或私有模型的选择体验，而所有未列出的模型 ID 仍会原样透传。
 
 ### 前端内的会话级选择
 

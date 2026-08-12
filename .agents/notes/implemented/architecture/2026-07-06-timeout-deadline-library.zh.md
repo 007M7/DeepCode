@@ -87,7 +87,7 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 | 默认值/最大值*数值* | 各能力的配置 |
 | 超时 `code` 字符串 | 各能力（`WEB_FETCH_TIMEOUT` ≠ `BASH_TIMEOUT`） |
 
-信号只*通知*；终止始终是监听方的职责，而监听方因能力而异。bash 自行编写 `addEventListener('abort', kill)`，因为 OS 进程存在于本运行时之外，没有别的东西会杀死它；web 将 `d.signal` 交给 `fetch`，由 undici 拆除 socket。这也是文件读/写/编辑**不接受** `timeoutMs` 的原因：本地系统调用最多只能尽力中止，超时无法强制 `fsync`/`rename` 停止，添加超时将是一个违反「显式优于隐式」的隐式默认值。两个参考 agent 出于同样的原因对文件 I/O 不设超时。
+信号只*通知*；终止始终是监听方的职责，而监听方因能力而异。bash 自行编写 `addEventListener('abort', kill)`，因为 OS 进程存在于本运行时之外，没有别的东西会杀死它；web 将 `d.signal` 交给 `fetch`，由 undici 拆除 socket。这也是文件读/写/编辑**不接受** `timeoutMs` 的原因：本地系统调用最多只能尽力中止，超时无法强制 `fsync`/`rename` 停止，添加超时将是一个违反「显式优于隐式」的隐式默认值。两个参考 agent（智能体）出于同样的原因对文件 I/O 不设超时。
 
 ### 各能力如何消费该库
 

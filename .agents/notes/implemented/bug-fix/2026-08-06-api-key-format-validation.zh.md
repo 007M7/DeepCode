@@ -8,7 +8,7 @@ Status: implemented
 
 一个含有 HTTP header value 无法承载的字符的 API Key，曾被每个配置入口接受，直到构造请求时才失败——离引发它的那个字段已经很远。
 
-把含 emoji、中文或全角标点的 Key 粘进 Web 模型设置页，保存会报成功。第一轮对话随即失败于 `Cannot convert argument to a ByteString because the character at index 7 has a value of 55357 which is greater than 255`——其中的下标与码点是 UTF-16 内部细节，不附带任何可执行动作，却泄露了 Key 中某一个字符的码点。`llm-deepseek` 之所以产出这句，是因为 `fetch` 在 [adapter.ts](../../../../packages/llm/llm-deepseek/src/adapter.ts) 的 `try` 内部构造 `Bearer` header，而那个 `catch` 把一切失败都标为 `TRANSPORT`；该标签又在 `DEFAULT_RETRYABLE_CODES` 之中，于是一个永久且确定的故障还会被重试三次。
+把含 emoji、中日韩文字或全角标点的 Key 粘进 Web 模型设置页，保存会报成功。首个轮次随即失败，报错为 `Cannot convert argument to a ByteString because the character at index 7 has a value of 55357 which is greater than 255`——其中的下标与码点是 UTF-16 内部细节，不附带任何可执行动作，却泄露了 Key 中某一个字符的码点。`llm-deepseek` 之所以产出这句，是因为 `fetch` 在 [adapter.ts](../../../../packages/llm/llm-deepseek/src/adapter.ts) 的 `try` 内部构造 `Bearer` header，而那个 `catch` 把一切失败都标为 `TRANSPORT`；该标签又在 `DEFAULT_RETRYABLE_CODES` 之中，于是一个永久且确定的故障还会被重试三次。
 
 同样的输入在 `llm-pi-ai` 上更糟。它的探测路径在 [discovery.ts](../../../../packages/llm/llm-pi-ai/src/discovery.ts) 里用裸 `fetch` 构造同一个 header，并把一切失败包装成 `could not reach <url>`，于是一个本地的 Key 故障被报成网络不可达。这条探测在保存之前就够得着：`ProviderEditor` 把用户输入的 `keyDraft` 直接放进探测请求，所以「获取模型列表」按钮会在任何东西落盘之前就把非法 Key 发出去。
 
@@ -18,7 +18,7 @@ Status: implemented
 
 一条规则定义什么是合法 Key：**trim 之后非空，且每个字符都落在 `[\x21-\x7E]`**——可打印 ASCII，不含空格。
 
-这一个断言覆盖了所有已报告的输入：空值、首尾空白、中间空白、C0 控制字符、emoji、中文、全角标点。它同时正是造成 ByteString 失败的那条约束，所以这些故障收敛于同一个定义，而不是两个恰好相关的修复。
+这一个断言覆盖了所有已报告的输入：空值、首尾空白、中间空白、C0 控制字符、emoji、中日韩文字、全角标点。它同时正是造成 ByteString 失败的那条约束，所以这些故障收敛于同一个定义，而不是两个恰好相关的修复。
 
 第二条更窄的规则用于识别整行粘贴的环境变量：匹配 `^[A-Z][A-Z0-9_]*=[^=]` 或首尾成对引号的输入会被拒绝。把前缀限定为全大写可以让真实 Key 与之绝缘——`sk-` 这类形态会在连字符处中断标识符匹配——而要求分隔符之后必须是非 `=` 字符，则让 base64 的 padding 也与之绝缘。它报出的是与非法字符相同的那条格式失败，而不是自己的一句：读到它的人下一步动作完全一样，因此单列一句只会点出一个原因，却不改变该怎么做。
 
@@ -32,9 +32,9 @@ Status: implemented
 
 规则作用于*已提供*的值；至于究竟有没有提供，由各个调用方自行判断。
 
-**未点名凭据。** 省略 `apiKeyEnv` 的 pi-ai profile 可以在 harness 持有的凭据路径之外鉴权。[provider.ts](../../../../packages/llm/llm-pi-ai/src/provider.ts) 中的 `routeAuth` 保留内置 catalog 提供方自身的鉴权，正是为了让 provider 原生的 ambient 发现继续工作；而该 catalog 附带的 `openai-codex` 通过 OAuth 鉴权。`namesCredential` 承载这一区分；省略不是需要校验的值。
+**未点名凭据。** 省略 `apiKeyEnv` 的 pi-ai profile 可以在 harness 持有的凭据路径之外鉴权。[provider.ts](../../../../packages/llm/llm-pi-ai/src/provider.ts) 中的 `routeAuth` 保留内置 catalog 提供方自身的鉴权，正是为了让提供方原生的 ambient 发现继续工作；而该 catalog 附带的 `openai-codex` 通过 OAuth 鉴权。`namesCredential` 承载这一区分；省略不是需要校验的值。
 
-**Web UI 中留空的输入框。** 即便某个 provider 的 Key 已经存好，该输入框也是空着打开的——`keyStored` 的文案写的是「已配置——输入新值以替换」——所以留空意味着*保持已存储的值*。`ProviderEditor` 在草稿为空时完全跳过 `credentials.set`，这一点保持不变：留空绝不拦截提交，否则改一个 base URL 都得重新输一遍 Key。
+**Web UI 中留空的输入框。** 即便某个提供方的 Key 已经存好，该输入框也是空着打开的——`keyStored` 的文案写的是「已配置——输入新值以替换」——所以留空意味着*保持已存储的值*。`ProviderEditor` 在草稿为空时完全跳过 `credentials.set`，这一点保持不变：留空绝不拦截提交，否则改一个 base URL 都得重新输一遍 Key。
 
 **解析得到的值只含空白。** 两个适配器都将其视为非法，因为它无法为请求鉴权。在浏览器中，这同样是字段级失败：字段是人刚刚敲过字的地方，静默丢弃他敲进去的内容永远不是正确答案。
 
@@ -70,11 +70,11 @@ Status: implemented
 
 **在适配器的 `catch` 中嗅探 `TypeError`。** 这只是事后归类 ByteString 失败，header 构造本身仍无防护。它依赖 Node 错误消息的措辞，因而会随运行时版本静默失效；它也帮不到 `llm-pi-ai`——后者的请求 header 构造在 pi-ai SDK 内部。在交出 Key 之前就拒绝，则对两个适配器与探测路径同时有效。
 
-**在 `credentials-local.set` 中执行。** 它能一次性拦住所有写入方，包括手工编辑的文件。它落败于该 provider 存储各种类型的凭据，而一条源自 HTTP header 编码的规则并不属于它。
+**在 `credentials-local.set` 中执行。** 它能一次性拦住所有写入方，包括手工编辑的文件。它落败于该提供方存储各种类型的凭据，而一条源自 HTTP header 编码的规则并不属于它。
 
 **让形状启发式也在 resolver 中运行。** 更对称，且能拦住直接写进 `.env` 的整行环境变量。因上文所述的锁死风险而否决：resolver 中的一次误判会让用户无路可走，浏览器中的一次误判则仍留有环境变量这条路。
 
-**在保存时探测 provider 以证明 Key 可用。** 它能关掉最初报告的那件事——保存报成功、第一轮才失败。因超出范围而否决，且在当时的代码上无法建成：对 pi-ai 恰好自带 catalog 的那些提供方，`discoverModels` 会在任何网络调用之前短路到内置 catalog，因而对 Key 什么都验证不了；而 DeepSeek 卡片根本没有探测。验证器的价值在于分清「Key 被拒」与「无法连通」，而这正是本次改动让其变得可靠的区分；先建验证器只会得到一个分不清自身结果的验证器。同类产品也不在保存时验证，因此保存时的阻断式网络调用会是一个意外行为，而非一处缺失。
+**在保存时探测提供方以证明 Key 可用。** 它能关掉最初报告的那件事——保存报成功、首个轮次才失败。因超出范围而否决，且在当时的代码上无法建成：对 pi-ai 恰好自带 catalog 的那些提供方，`discoverModels` 会在任何网络调用之前短路到内置 catalog，因而对 Key 什么都验证不了；而 DeepSeek 卡片根本没有探测。验证器的价值在于分清「Key 被拒」与「无法连通」，而这正是本次改动让其变得可靠的区分；先建验证器只会得到一个分不清自身结果的验证器。同类产品也不在保存时验证，因此保存时的阻断式网络调用会是一个意外行为，而非一处缺失。
 
 ## 后果
 
@@ -92,10 +92,10 @@ Status: implemented
 
 ## 测试
 
-`packages/llm/llm/tests/api-key.spec.ts` 以整张输入表驱动 `normalizeApiKey` 与 `assertUsableApiKey`——空值、纯空白、带首尾空白、含中间空格、C0 控制字符、emoji、中文、全角、latin-1，以及可打印 ASCII 的边界字符——并钉住一次拒绝携带 `INVALID_CREDENTIAL` 且不含 Key 的任何部分。
+`packages/llm/llm/tests/api-key.spec.ts` 以整张输入表驱动 `normalizeApiKey` 与 `assertUsableApiKey`——空值、纯空白、带首尾空白、含中间空格、C0 控制字符、emoji、中日韩文字、全角、latin-1，以及可打印 ASCII 的边界字符——并钉住一次拒绝携带 `INVALID_CREDENTIAL` 且不含 Key 的任何部分。
 
 `packages/llm/llm-deepseek/tests/` 在 `dynamic-config.spec.ts` 中经真实凭据 seam（而非 stub）端到端覆盖已存储凭据路径。`packages/llm/llm-pi-ai/tests/` 覆盖探测路径，包括不带 Key 的探测不会发出 `authorization` 标头。
 
 `packages/client/ui-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 同时拦截提交与探测、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
 
-用户可见的终态则钉在它真正被组装的位置：`examples/headless-agent/tests/headless.snapshot.ts` 让 one-shot 应用在一个 HTTP 标头无法承载的已存密钥下运行，复用其 missing-credential 兄弟场景的同一套无密钥 composition，并记录该轮以 `INVALID_CREDENTIAL` 结束、消息可操作且既不含密钥也不含 `ByteString` 字样。包级测试无法证明这一点，而 web e2e 只覆盖了浏览器那一半。
+用户可见的终态则钉在它真正被组装的位置：`examples/headless-agent/tests/headless.snapshot.ts` 让 one-shot 应用在一个 HTTP 标头无法承载的已存密钥下运行，复用其 missing-credential 兄弟场景的同一套无密钥 composition，并记录该轮次以 `INVALID_CREDENTIAL` 结束、消息可操作且既不含密钥也不含 `ByteString` 字样。包级测试无法证明这一点，而 web e2e 只覆盖了浏览器那一半。

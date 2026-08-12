@@ -1,4 +1,4 @@
-# Agent Note：code-runtime seam 拥有可移植标识符排除集
+# Agent Note: code-runtime seam 拥有可移植标识符排除集
 
 Status: implemented
 
@@ -21,11 +21,11 @@ Service Definition 包（`@deepseek-ai/dsh-code-runtime`）以四个具名常量
 
 Service Definition 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记录在 `CodeBindingNamespace.global` 与 `CodeBindingErrorClass` 上），去掉 JS 专有的 `$`。worker 直接以这些常量的导出名称消费它们——binding-global 与 error-class 名称用 `PORTABLE_RESERVED_WORDS`、后端拥有槽位用 `RESERVED_BINDING_GLOBALS`、error member 用 `RESERVED_ERROR_MEMBERS` 加 `DUNDER_MEMBER`——不再本地起别名；其 `IDENTIFIER` 正则去掉 `$`。
 
-尽管 worker 是唯一已交付的后端，这些常量仍置于 Service Definition：要点正是该约定与语言无关，且拥有权在任何单一语言之上。违反它的 Service provider 才是 bug，而共享集合正是复审者查看"可移植"含义的地方。
+尽管 worker 是唯一已交付的后端，这些常量仍置于 Service Definition：要点正是该约定与语言无关，且由高于任何单一语言的层级拥有。违反它的 Service provider 才是 bug，而共享集合正是复审者查看「可移植」含义的地方。
 
 ## Scope
 
-本决策只交付 Service Definition 扩展与 worker 对它的采用。`py-types` 渲染器与 Code Mode 的语言分发归[语言分发 note](../feature/2026-07-31-code-mode-language-dispatch.md)所有；Python 后端尚不存在。Service Definition README 因此保留仅描述 worker 的措辞：链接到一个不存在的 `dsh-code-runtime-python` README 会破坏死链 gate。
+本决策只交付 Service Definition 扩展与 worker 对它的采用。`py-types` 渲染器与 Code Mode 的语言分发归[语言分发 note](../feature/2026-07-31-code-mode-language-dispatch.md) 所有；Python 后端尚不存在。Service Definition README 因此保留仅描述 worker 的措辞：链接到一个不存在的 `dsh-code-runtime-python` README 会破坏死链 gate。
 
 `RESERVED_BINDING_GLOBALS` 先于后端本身编码了 Python bootstrap 的具体设计：它恰好 seed `__builtins__`/`__name__`，并把程序包装在 `__dsh_main__` 之下。任何 seed 额外模块 global（`__doc__`、`__loader__`、`__spec__`、`__file__`、`__package__` 等）的 Python 后端必须在同一改动中扩宽此集合，正如新增一门语言即扩宽 `PORTABLE_RESERVED_WORDS`——bootstrap 会 seed 却不在集合中的名称，正是本约定要防止的可移植性分裂。
 
@@ -41,4 +41,4 @@ Service Definition 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0
 
 获得：一个地方——Service Definition 包——定义什么是可移植绑定名称，每个后端通过导入执行同一约定。在一个后端上有效的命名空间列表在所有后端上都有效，这是可验证的，而非取决于调用方测试了哪个后端的巧合。
 
-代价：现有使用含 `$` global 的 worker 调用方现在会在标识符校验时失败。在预发布立场下这是一次被纠正的地基，而非需要 shim 的兼容性破坏。worker 的 Service Definition misuse 测试新增了 `$tools`、Python 异常成员（`args`）、dunder（`__dict__`）与一个 Python 拥有的 global（`__dsh_main__`）等用例，从 worker 侧证明共享集合被执行。
+代价：现有使用含 `$` global 的 worker 调用方现在会在标识符校验时失败。在预发布立场下这是对基础设计的一次纠正，而非需要 shim 的兼容性破坏。worker 的 Service Definition misuse 测试新增了 `$tools`、Python 异常成员（`args`）、dunder（`__dict__`）与一个 Python 拥有的 global（`__dsh_main__`）等用例，从 worker 侧证明共享集合被执行。

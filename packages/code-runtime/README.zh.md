@@ -9,6 +9,6 @@
 | [`code-runtime/`](code-runtime/README.md) | Service Definition 与共享词汇 | `ctx.codeRuntime` |
 | [`code-runtime-worker/`](code-runtime-worker/README.md) | Worker 线程后端 | 注册 `ctx.codeRuntime` |
 
-提供方在不改变 Consumer 的情况下注册该服务。子 README 负责语言、隔离和执行预算细节。
+提供方在不改变Consumer的情况下注册该服务。子 README 负责语言、隔离和执行预算细节。
 
 子系统参考——运行请求/结果、绑定命名空间、失败分类体系——见 [docs/subsystems/code-runtime.md](../../docs/subsystems/code-runtime.md)。

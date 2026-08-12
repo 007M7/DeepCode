@@ -40,7 +40,7 @@ patch 会整体替换目标配置项的 `config` 而不合并。因此，取值�
 
 指名 `@deepseek-ai/dsh-tui-demo` 或 patch `tui-agent` 配置项的 overlay 或 `--config` 树将不再可解析。overlay 现在要 patch 拥有对应键的那一行：模型路由在 `agent-loop`，人设在 `system-prompt`，呈现设置在 `tui`。
 
-若某个 patch 的 `id` 不匹配任何配置项，Loader 仍只告警而不报错。这是有意为之：同一份个人 overlay 会跨 surface 共用，而 `insert` 配置项按设计本就不匹配任何目标，因此仅在 `web` 下存在的配置项不能让 TUI 启动失败。
+若某个 patch 的 `id` 不匹配任何配置项，它仍为空操作而不报错。这是有意为之：同一份个人 overlay 会跨 surface 共用，而 `insert` 配置项按设计本就不匹配任何目标，因此仅在 `web` 下存在的配置项不能让 TUI 启动失败。
 
 `dsh web` 新增 `--config`，作为一份额外 overlay 传入 `AppCLIEntry`。Web 保留沙箱化 Bash 与文件系统提供方，以及审批、权限预设、目录选择和浏览器权限界面；覆盖层会禁用共享的本地提供方，因为补丁可以禁用条目但不能删除条目。TUI 查询索引使用每个进程独有的临时数据库，因为 SQLite 后端要求单写入者所有权。该索引是每个进程重新构建的可丢弃派生数据；`/resume` 直接列出底层语料，不依赖索引复用。`AppCLIEntry` 在为自身 patch 合并恢复配置项默认值时会同时读取 base 与其 surface overlay，因为 flag 覆盖必须保留同一配置项上 overlay 的其他字段。
 

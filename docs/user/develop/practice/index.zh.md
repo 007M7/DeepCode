@@ -6,7 +6,7 @@
 
 ## 概念参考
 
-当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），Harness 会区分三种角色：**Service Definition**、**Service provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
+当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），harness 会区分三种角色：**Service Definition**、**Service provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
 
 ## 以 Bash 为例
 
@@ -30,7 +30,7 @@
 
 ### 提供方可替换
 
-同一个 Service Definition 可以有多个提供方。用户通过 `cordis.yml` 选择：
+同一个 Service Definition 可以有多个提供方，可通过 `cordis.yml` 选择：
 
 ```yaml
 # Local execution
@@ -152,4 +152,4 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [LLM 适配器](./llm-adapter.md)：实现一个 LLM 提供方
+- [LLM（大语言模型）适配器](./llm-adapter.md)：实现一个 LLM 提供方

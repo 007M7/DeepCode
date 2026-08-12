@@ -10,7 +10,7 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 
 该模式**仅存在于编译期**。类型在运行时消失：没有 schema 对象可供校验传入值、解析不可信输入或在运行时枚举变体。[会话持久化约定](../../implemented/architecture/2026-06-14-session-persistence.md)暴露了两个后果：
 
-1. **持久化将 `event.data` 视为不透明 JSON。** JSONL/SQLite 后端对每个事件逐字 `JSON.stringify`/`JSON.parse`；唯一的运行时守卫是 `isJsonValue`（往返可序列化性检查：拒绝 BigInt、函数、循环引用、非有限数等），而非结构校验。一个损坏但仍为合法 JSON 的事件数据（字段类型错误、字段缺失）会静默往返，只有在后续消费方的 `switch` 中才可能被捕获。
+1. **持久化将 `event.data` 视为不透明 JSON。** JSONL/SQLite 后端对每个事件原样执行 `JSON.stringify`/`JSON.parse`；唯一的运行时守卫是 `isJsonValue`（往返可序列化性检查：拒绝 BigInt、函数、循环引用、非有限数等），而非结构校验。一个损坏但仍为合法 JSON 的事件数据（字段类型错误、字段缺失）会静默往返，只有在后续消费方的 `switch` 中才可能被捕获。
 2. **插件新增变体没有运行时约定。** 一个通过声明合并添加新 `SessionEventMap` 键的插件，在自身代码中获得了编译期类型，但没有任何机制校验它产出的值是否符合它所声明的形状——无论是在生产者处、持久化边界处还是重新加载时。
 
 由此引出问题：事件词汇是否应迁移到 **Zod** 或其他运行时 schema 库，使持久化边界和插件边界拥有运行时 schema 而非被擦除的类型。
@@ -23,10 +23,10 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 
 ## 影响范围（已度量）
 
-将事件/词汇表面迁移到运行时 schema，至少涉及：
+将事件/词汇接口迁移到运行时 schema，至少涉及：
 
 - **六个 merge-extensible map**（约 370 行核心类型）：`ContentBlockMap`、`MessageSourceMap`、`FinishReasonMap`（位于 `dsh-llm`）；`TurnTriggerMap`、`TurnEndReasonMap`、`SessionEventMap`（位于 `dsh-session`）。
-- **约 10 处 `declare module` 扩展点**，分布在 `dsh-agent`、`dsh-agent-loop`、`dsh-bash`、`dsh-llm`、`dsh-session`、`dsh-session-persistence`、`dsh-system-prompt`、`dsh-tools` 各包中——每处都将从声明合并改为运行时 `register()` 调用。
+- **约 10 处 `declare module` 声明增补位置**，分布在 `dsh-agent`、`dsh-agent-loop`、`dsh-bash`、`dsh-llm`、`dsh-session`、`dsh-session-persistence`、`dsh-system-prompt`、`dsh-tools` 各包中——每处都将从声明合并改为运行时 `register()` 调用。
 - **事件生产者**——agent loop（智能体循环）中 16 处 `session.append(...)` 调用——形状不变，但现在在边界处被校验。
 - **约 7 个 switch 消费方**，对这些联合类型进行分支：`deriveMessages` 与包自有的不变式 companion（`dsh-session`）、`BlockAssembler`（`dsh-llm`）、两个 LLM（大语言模型）适配器（`dsh-llm-deepseek`、`dsh-llm-pi-ai`）以及工具 schema 层（`dsh-tools`）。`assertNever` 对封闭联合类型的穷举 vs 对可扩展联合类型的 fall-through 约定（一条已记录的 lint 规则）需要重新考量——运行时变体在静态层面不可穷举。
 - **`defineTool` 的 `InferArgs` DSL**（`dsh-tools`），它从编译期 schema 规范派生出零类型转换的 `execute` 参数类型——这是当前方案的标杆用例。
@@ -37,7 +37,7 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 ## 曾考虑的替代方案
 
 ### A. 维持现状——merge-extensible 类型 + 持久化边界处 `isJsonValue`
-保留编译期模式。持久化继续使用不透明 JSON + 可序列化性守卫。插件通过声明合并扩展；事件*形状*的正确性由生产者负责，并由 TypeScript 在编译期保证。启用包自有的不变式 companion 后，它们会检查选定的跨记录关系，但不提供通用运行时形状 schema。
+保留编译期模式。持久化继续使用不透明 JSON + 可序列化性守卫。插件通过声明合并扩展；事件 *形状*的正确性由生产者负责，并由 TypeScript 在编译期保证。启用包自有的不变式 companion 后，它们会检查选定的跨记录关系，但不提供通用运行时形状 schema。
 
 - **优点**：零变动；插件扩展只需一行 `interface` 增补，享有完整类型推断，无需运行时注册仪式；无新运行时依赖；`defineTool` DSL 与 `assertNever` 穷举继续工作。
 - **缺点**：持久化边界和插件边界处无运行时结构校验；格式错误但仍为合法 JSON 的数据被延迟捕获。

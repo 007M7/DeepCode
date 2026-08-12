@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/api-gateway.md
 api-gateway.md: e2878dce4611af562ebc4f30cbb2c5cb529dd61e
-api-gateway.zh.md: 86e63c6e9a4166a38397a445424704dc9e61821f
+api-gateway.zh.md: 62ee241e77a14cafa93fdca88778bf7a64e941c8

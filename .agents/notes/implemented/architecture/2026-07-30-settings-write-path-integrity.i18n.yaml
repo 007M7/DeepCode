@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-30-settings-write-path-integrity.md
 2026-07-30-settings-write-path-integrity.md: d59a4524cc704760d7fbdfa286af84da5cbd1926
-2026-07-30-settings-write-path-integrity.zh.md: 5c4651905ffa0dfc1a0f8e080190b875bd9e4afa
+2026-07-30-settings-write-path-integrity.zh.md: 0553f4e3afe39905f32b99babc6c5060d02ffad6

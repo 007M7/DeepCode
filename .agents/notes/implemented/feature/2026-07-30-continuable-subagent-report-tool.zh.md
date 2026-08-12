@@ -54,7 +54,7 @@ root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以
 
 subagent seam 新增 `registerContinuableSetup(contribution): () => void`，由 `SubagentActivationSetupRegistry` 支撑。每个同步贡献都会接收尚未发布的 child 上下文，并返回其安装的 disposer。继续执行管理器首先应用基础 child 组合，然后通过同一个用于首次创建与冷恢复的设置闭包，按注册顺序应用当前贡献。
 
-注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在所有 setup 的 await 均结算后、紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与会话发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose（资源释放）与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
+注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在每次 setup 的 await 结算后以及紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与会话发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在预配置或驻留的每个 child 安装的实例。注册 dispose（资源释放）与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
 
 该 seam 使继续执行管理器无需知道工具名。report 包只安装 `report` 及其 child 作用域指引 section；`@deepseek-ai/dsh-tool-subagent-control` 则独立安装 parent 侧的 `send_message` 和 `list_agents`。部署时可安装任一方向、同时安装两者或两者均不安装。提供方仍只负责数据，持久化描述符不会对 report 可用性或投递模式建立快照，冷恢复则使用部署当前的贡献与策略。
 

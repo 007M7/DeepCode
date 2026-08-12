@@ -1,4 +1,4 @@
-# Agent Note: 进程管理器是 bash 执行器之下的独立 seam（`dsh-subprocess` / `dsh-subprocess-local`）
+# Agent Note: 进程服务是 bash 执行器之下的独立 seam（`dsh-subprocess` / `dsh-subprocess-local`）
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-bash-local` 原先把两项因不同原因而变化的能力捆绑在一起：*运行一条 bash 命令*（命令默认值补全、超时分类、对模型友好的终端环境、bash 工具所渲染的 stdout/stderr 合并）与*运行并管理一个子进程*（detached 进程组、附带 spill 文件的有界尾部保留输出、凭据清除与 `DSH_*` 合并次序、SIGTERM→宽限期→SIGKILL 升级、先终止再等待退出的 dispose（资源释放））。进程这一半（`run.ts`）约占整个包（package）的一半，却没有属于自己的 seam：未来的非 shell 运行器（直接执行 argv 的执行器、worker supervisor）将不得不重新实现这套机制，或者探入 bash 内部；而共享的 `DSH_*`/`CollectedOutput` 词汇则存放在一个名字承诺 shell 语义的包里。这种捆绑还把后台进程的存续期系在执行器的 fiber 上：重载 bash 执行器会杀死每一个存活的后台进程。这一点不同于兄弟的[任务注册表](2026-07-26-task-registry-seam.md)：后者的注册存续期刻意长于生产方 fiber。
+`dsh-bash-local` 原先把两项因不同原因而变化的能力捆绑在一起：*运行一条 bash 命令*（命令默认值补全、超时分类、对模型友好的终端环境、bash 工具所渲染的 stdout/stderr 合并）与*运行并管理一个子进程*（detached 进程组、附带 spill 文件的有界尾部保留输出、凭据清除与 `DSH_*` 合并次序、SIGTERM→宽限期→SIGKILL 升级、先终止再等待退出的 dispose（资源释放））。进程这一半（`run.ts`）约占整个包的一半，却没有属于自己的 seam：未来的非 shell 运行器（直接执行 argv 的执行器、worker supervisor）将不得不重新实现这套机制，或者探入 bash 内部；而共享的 `DSH_*`/`CollectedOutput` 词汇则存放在一个名字承诺 shell 语义的包里。这种捆绑还把后台进程的存续期系在执行器的 fiber 上：重载 bash 执行器会杀死每一个存活的后台进程。这一点不同于兄弟的[任务注册表](2026-07-26-task-registry-seam.md)：后者的注册存续期刻意长于生产方 fiber。
 
 ## 决策
 
@@ -19,7 +19,7 @@ Status: implemented
 
 每个加载 bash 执行器的组合都同时加载 `@deepseek-ai/dsh-subprocess-local`：CLI（命令行界面）、各示例、Python 捆绑运行时以及各内联测试配置。
 
-后台进程的存续期从执行器移到了管理器：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（管理器的 dispose）仍是先终止再等待退出的边界。一条行为约定随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，管理器会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
+后台进程的存续期从执行器移到了服务：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（服务的 dispose）仍是先终止再等待退出的边界。一条行为约定随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，服务会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
 
 基于已观察到的流与生命周期需求，具备条件的进程消费方随后迁到该 seam：LSP 使用管道化协议流加收集式 stderr 尾部；ACP（Agent Client Protocol）后端使用管道化 ndjson、继承式 stderr 和消费方拥有的 stdin-EOF dispose 阶梯；PTY 使用 `spawnTerminal()`，同时保留就绪与终端策略。`dsh-subagent-subprocess` 与 LSP 私有进程树辅助函数均被删除。MCP 传输 spawn 和刻意保持轻依赖的 test-support 启动器因所有权或执行形状仍留在外部；适用的生产调用方共享凭据清除。
 
@@ -35,7 +35,7 @@ Status: implemented
 
 **改把 `run_in_background`/任务语义放进 subprocess 能力 seam。**否决：那条边界已经存在。`ctx.tasks` 拥有 id、所有权与通知，bash 工具则把 `BashProcess` 适配成任务钩子。subprocess seam 位于 bash 执行器*之下*，而不是与任务注册表并列。
 
-**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入管理器。**否决：通用进程管理器不得把终端呈现策略强加给非终端消费方；对环境中凭据形态名称与 `DSH_*` 名称的清除是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经 spec 的显式 env 表达，而调用方自己的条目依旧优先。
+**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入服务。**否决：通用进程服务不得把终端呈现策略强加给非终端消费方；对环境中凭据形态名称与 `DSH_*` 名称的清除是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经 spec 的显式 env 表达，而调用方自己的条目依旧优先。
 
 ## 后果
 

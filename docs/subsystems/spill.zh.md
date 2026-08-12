@@ -1,8 +1,8 @@
-# 落盘存储
+# spill 存储
 
 [English](spill.md) | 中文
 
-落盘存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存工具的超大文本，并返回面向模型的定位符与检索指引；该能力拆分到三个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中会话作用域的私有文件）和 Consumer（[dsh-spill-policy](../../packages/spill/spill-policy)，`tools/post-execute` 策略）。落盘是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。预览机制仍归 [dsh-retention](../../packages/util/retention) 所有；该 seam 只保存策略交给它的最终文本。
+spill 存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存工具的超大文本，并返回面向模型的定位符与检索指引；该能力拆分到三个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中会话作用域的私有文件）和 Consumer（[dsh-spill-policy](../../packages/spill/spill-policy)，`tools/post-execute` 策略）。spill 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。预览机制仍归 [dsh-retention](../../packages/util/retention) 所有；该 seam 只保存策略交给它的最终文本。
 
 源码：[`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
@@ -38,7 +38,7 @@ interface SpillOwner {
 }
 ```
 
-`SpillOwner.sessionId` 是保存时的存储命名空间。fork 后的会话会从种子日志继承已有的落盘定位符；这些产物不会被复制或重新取得所有权，fork 后产生的落盘则使用子会话 id。保留期清理可以连同其他旧会话产物一起使旧定位符失效；落盘 seam 不定义逐会话的清理策略。
+`SpillOwner.sessionId` 是保存时的存储命名空间。fork 后的会话会从种子日志继承已有的 spill 定位符；这些产物不会被复制或重新取得所有权，fork 后产生的 spill 则使用子会话 id。保留期清理可以连同其他旧会话产物一起使旧定位符失效；spill seam 不定义逐会话的清理策略。
 
 ```ts type-equiv
 /**
@@ -82,7 +82,7 @@ type SpillLocator = Branded<'SpillLocator'>
 
 `SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）是只有一个方法的抽象服务：`saveText(input) → Promise<SpillRef>`。它持久保存完整的 `content`，并在实际存储失败（权限、ENOSPC、后端不可用）时拒绝。该 seam 只负责存储：不负责保留策略、工具结果替换或检索／搜索 API。
 
-本地后端（[dsh-spill-local](../../packages/spill/spill-local)）写入 `<root>/session-<hash>/<random>-<safeName>`：根目录是已配置或延迟创建的私有（0700）目录，会话子目录采用 `sha256(sessionId)`，并通过排他的仅所有者可访问写入（`open(path, 'wx', 0o600)`）防止预先植入的符号链接重定向写入。其 `locator` 是本地路径，`retrievalHint` 则告知模型在该路径上使用 `read` 或 `grep`。策略消费方（[dsh-spill-policy](../../packages/spill/spill-policy)）会把超过 `maxInlineBytes` 的纯文本最终结果替换为保留库生成的首尾预览和落盘引用；该过程尽力而为：保存失败时保留原始内联结果，而不会把成功的调用变成 `isError`。
+本地后端（[dsh-spill-local](../../packages/spill/spill-local)）写入 `<root>/session-<hash>/<random>-<safeName>`：根目录是已配置或延迟创建的私有（0700）目录，会话子目录采用 `sha256(sessionId)`，并通过排他且仅所有者可访问的写入（`open(path, 'wx', 0o600)`）防止预先植入的符号链接重定向写入。其 `locator` 是本地路径，`retrievalHint` 则告知模型在该路径上使用 `read` 或 `grep`。策略消费方（[dsh-spill-policy](../../packages/spill/spill-policy)）会把超过 `maxInlineBytes` 的纯文本最终结果替换为保留库生成的首尾预览和 spill 引用；该过程尽力而为：保存失败时保留原始内联结果，而不会把成功的调用变成 `isError`。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

@@ -1,4 +1,4 @@
-# Agent Note：把命令行接缝收窄到既有接口
+# Agent Note: 把命令行接缝收窄到既有接口
 
 Status: implemented
 

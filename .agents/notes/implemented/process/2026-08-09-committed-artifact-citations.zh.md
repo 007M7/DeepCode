@@ -12,13 +12,13 @@ Status: implemented
 
 持久行文（注释、JSDoc、文档、Agent Note、测试注释与测试标题）只引用已提交的产物，无需 grep 考古即可在仓库内解析：
 
-- 点名归属的 Agent Note（其路径在每个文件里至少出现一次，行内用可检索的名称）、文档页面路径，或 GitHub issue 编号。PR、commit、分支与栈位置依文档标准在文档与代码中仍在禁止之列；issue 是持久且可引用的，Agent Note 与事后分析可依[文档标准](../../../../docs/AGENTS.md)的变更故事归置规则引用已合并的 PR 与 issue 作为证据。
+- 点名归属的 Agent Note（其路径在每个文件里至少出现一次，行内用可检索的名称）、文档页面路径，或 GitHub issue 编号。PR、commit、分支与栈位置依文档标准在文档与代码中仍在禁止之列；issue 是持久且可引用的，Agent Note 与事故复盘（postmortem）可依[文档标准](../../../../docs/AGENTS.md)的变更故事归置规则引用已合并的 PR 与 issue 作为证据。
 - 决策有已提交归属文档的设计会话序号替换为该决策的名称——曾以「决策 21」记录的序号如今是「纯文本引用决策」，归属于 [web 输入状态机 note](../architecture/2026-07-25-web-input-machine-and-slash-pipeline.md)；该序号本身在仓库内无从解析，已全部移除。没有归属文档的序号予以删除，其事实性语句改写为可独立成立的表述。
 - 已修复的回归以现在时反事实句固定下来（「没有 X 就会发生 Y」、「朴素的 X 会……」），绝不写成仓库历史（「过去曾 Y」）。
 - 已实现的 Agent Note 陈述已交付的现实：「推迟到后续 PR」的说法若其目标已经交付，就改为点名那篇已交付的 note。
-- 已录制的 fixture（测试前置数据）、快照与已归档的 Agent Note 不受此约束：已录制的模型输出与封存的历史保持原有行文。在 note 的变更故事段落内，历史阶段名称（「首版交付了 X」）属于安全的现状表述；指示性切次戳（"this cut"）在任何地方都仍被禁止。
+- 已录制的 fixture（测试前置数据）、快照与已归档的 Agent Note 不受此约束：已录制的模型输出与封存的历史保持原有行文。在 note 的变更故事段落内，历史阶段名称（「首版交付了 X」）符合只描述当前状态的要求；「this cut」这类指示当前版本的标记在任何地方都仍被禁止。
 
-一次全仓库清理把这些规则应用到了各个行文表面，包括生成器持有的模板（`scripts/gen-doc-graphs.ts`、`scripts/gen-tool-catalog.ts`、typert 生成器的页面提示语，改后重新生成）、type-equiv 源码 JSDoc（改后把文档页重新粘贴）以及双语对侧文件（改后重新记录配对）。[dsh-trim-cot-leakage 技能](../../../skills/dsh-trim-cot-leakage/SKILL.md)把这些规则落地为可执行工作流：审计分类法、已提交的成批召回检索，以及用于判断保留或删除内容的少样本示例。
+一次全仓库清理把这些规则应用到了各个行文表面，包括生成器持有的模板（`scripts/gen-doc-graphs.ts`、`scripts/gen-tool-catalog.ts`、typert 生成器的页面提示语，改后重新生成）、type-equiv 源码中的 JSDoc（改后重新同步到文档页）以及双语对侧文件（改后重新记录配对）。[dsh-trim-cot-leakage 技能](../../../skills/dsh-trim-cot-leakage/SKILL.md)把这些规则落地为可执行工作流：审计分类法、已提交的成批召回检索，以及用于判断保留或删除内容的少样本示例。
 
 ## 曾考虑的替代方案
 

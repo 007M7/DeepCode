@@ -1,4 +1,4 @@
-# Agent Note: 将 `dsh-fs-policy` 改为事件门控插件，而非方法接口
+# Agent Note: 将 `dsh-fs-policy` 改为事件门禁插件，而非方法接口
 
 Status: implemented
 
@@ -31,9 +31,9 @@ provider contract dsh-fs            ctx.fs: text IO + ATOMIC mutation primitives
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
 
-该模型是叠加式的：裸 `ctx.fs` 执行原子化、无约束的文本 I/O，而 `dsh-fs-policy` 叠加观测状态、先读后编辑和版本守卫。因此移除策略层后工具仍可用，只是不受约束。正式发布的 agent 配置会加载策略；裸模式的存在是为了让策略在服务边界保持可选，而非作为正常部署姿态。
+该模型是叠加式的：裸 `ctx.fs` 执行原子化、无约束的文本 I/O，而 `dsh-fs-policy` 叠加观测状态、先读后编辑和版本守卫。因此移除策略层后工具仍可用，只是不受约束。正式发布的 agent（智能体）配置会加载策略；裸模式的存在是为了让策略在服务边界保持可选，而非作为正常部署姿态。
 
-[文件系统缺失观测后续决策](../bug-fix/2026-08-09-filesystem-absence-observation.md)把记录载荷从仅表示成功的版本细化为显式的存在/缺失状态，并要求带防护的创建以不替换方式发布。事件门禁归属与无 I/O 策略边界保持不变。
+[文件系统缺失观测后续决策](../bug-fix/2026-08-09-filesystem-absence-observation.md)把记录载荷从仅表示成功的版本细化为显式的存在/缺失状态，并要求带防护的创建以不替换方式发布。事件门控归属与无 I/O 策略边界保持不变。
 
 `dsh-tool-fs` 不再注入 `fileContext`。它注入 `fs` 和 `tools`/`systemPrompt`。
 
@@ -130,7 +130,7 @@ interface Events {
 
 ## 策略插件约定（`dsh-fs-policy`）
 
-`dsh-fs-policy` 是插件，不是服务。它不注册 `ctx.fileContext`，没有公开方法面，不暴露 `read`/`write`/`edit`/`resolve` 方法。它通过 `ctx.on()` 注册三个监听器（每个返回一个 disposer 用于 HMR）。它维护观测状态 `WeakMap<owner, Map<targetKey, FsObservation>>`，以及结构化的 owner 推导（将事件中不透明的 `object` actor 收窄为自己的 `{ agent?: { session? } }` 形状），但不注入 `fs`——每个处理器只操作自己的 `WeakMap`，从不操作 `ctx.fs`。
+`dsh-fs-policy` 是插件，不是服务。它不注册 `ctx.fileContext`，没有公开方法面，不暴露 `read`/`write`/`edit`/`resolve` 方法。它通过 `ctx.on()` 注册三个监听器（每个返回一个 disposer 用于 HMR（热模块替换））。它维护观测状态 `WeakMap<owner, Map<targetKey, FsObservation>>`，以及结构化的 owner 推导（将事件中不透明的 `object` actor 收窄为自己的 `{ agent?: { session? } }` 形状），但不注入 `fs`——每个处理器只操作自己的 `WeakMap`，从不操作 `ctx.fs`。
 
 - `fs/write-intent` 监听器：未见/缺失 ⇒ `createIfAbsent`；存在 ⇒ `replaceIfVersion`。它不调用 `next()`：完全占据单一决策槽位。
 - `fs/edit-intent` 监听器：未见 ⇒ `FS_NOT_OBSERVED`；缺失 ⇒ `FS_NOT_FOUND`；存在 ⇒ 返回其版本守卫。同样不调用 `next()`。
@@ -138,7 +138,7 @@ interface Events {
 
 一条观测状态条目是**先前观测记录**，但其可辨识字段会影响决策。成功的 read/write/edit 会记录存在状态及版本，使 create-then-edit 或 edit-then-edit 序列无需中间重新读取即可工作。确认缺失的 read/view 会用缺失状态取代旧的正向版本，因此只允许带防护的创建；随后成功的创建会再用新的存在版本取代缺失状态。只有条目不存在才表示未见，并使 edit 返回 `FS_NOT_OBSERVED`。owner 从 `{ agent?: { session? } }` 结构化推导；dispose 时丢弃所有状态（HMR 安全）。
 
-`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务面——它只通过事件门控影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
+`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务 API——它只通过事件门禁影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
 
 ## 裸提供方行为（无 `dsh-fs-policy`）
 
@@ -168,6 +168,6 @@ interface Events {
 
 - **事件间接层取代方法调用。** 一次 waterfall + emit 不如 `await ctx.fileContext.edit(...)` 直接。收益是移除了工具到策略的方法依赖，同时保留默认策略插件；代价是多一套事件词汇需要学习。通过保持三个事件的窄小范围并在每个事件上记录 default-thunk 语义来缓解。
 - **策略事件位于存储 seam 中。** `dsh-fs` 增加了两个版本决策事件和一个记录事件，尽管它「只是存储」。这是解耦的代价（发射方不能依赖策略插件）。这些事件只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不携带面向模型的概念，因此 seam 不沾染行窗口/观测策略类型，也不沾染 agent/会话所有者结构。
-- **单一策略占位者，按约定先到先得。** `fs/write-intent`/`fs/edit-intent` 槽位恰好容纳一个决策者；先注册（或 `prepend`）的监听器获胜，其余被短路。`dsh-fs-policy` 占据该槽位是部署约定，而非事件系统强制的不变式——一个先注册的第二决策者会绕过它。这是可接受的，因为第二个 fs 版本策略决策者是配置错误，而非功能。如果未来出现*分层* fs 版本策略的需求，那是一个新 Agent Note（可组合的值传递 waterfall），而非在这些事件上静默添加第二个监听器。分层的权限/审计/沙箱拦截已有其归属：`tools/execute`。
+- **单一策略占位者，按惯例先到先得。** `fs/write-intent`/`fs/edit-intent` 槽位恰好容纳一个决策者；先注册（或 `prepend`）的监听器获胜，其余被短路。`dsh-fs-policy` 占据该槽位是部署惯例，而非事件系统强制的不变式——一个先注册的第二决策者会绕过它。这是可接受的，因为第二个 fs 版本策略决策者是配置错误，而非功能。如果未来出现*分层* fs 版本策略的需求，那是一个新 Agent Note（可组合的值传递 waterfall），而非在这些事件上静默添加第二个监听器。分层的权限/审计/沙箱拦截已有其归属：`tools/execute`。
 - **移除读后确认 stat** 使后续*有守卫*的编辑在 read/write 竞争下偶尔为安全起见拒绝写入（`FS_STALE_VERSION` → 重新读取）。这是丢失的 UX 便利，绝非正确性漏洞；提供方锁仍阻止基于错误版本的写入。
 - **裸提供方不做先读后写/编辑，也不做版本检查。** 没有 `dsh-fs-policy` 的部署允许模型无条件覆写或编辑任何已有文件。这正是保持工具独立于策略服务的有意含义：安全纪律存在于 `dsh-fs-policy` 插件中。省略它的部署是有意选择无约束的文件系统；对于发布 fs 工具的配置而言，这不是预期的姿态。

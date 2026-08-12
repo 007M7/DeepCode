@@ -10,7 +10,7 @@ node 半边是一个空 `apply`：它的存在只为让插件出现在 host 的 
 
 ## 模型体验
 
-None, as the directory chooser is browser chrome; nothing here reaches a model request.
+无，因为目录选择器属于浏览器界面；本包中的任何内容都不会进入模型请求。
 
 #### KV Cache 影响
 

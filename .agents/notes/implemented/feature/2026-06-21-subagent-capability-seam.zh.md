@@ -21,11 +21,11 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工�
 
 ### 为何不采用 bash seam 的形状
 
-bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三个包构成的结构（Service Definition / Service provider / Consumer）；只是「一个 vs. 多个实现」这个维度不同。
+bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三类包构成的结构（Service Definition / Service provider / Consumer）；只是「一个 vs. 多个实现」这个维度不同。
 
 ## 决策
 
-### 由三个包构成的边界
+### 由三类包构成的边界
 
 新建包组 `packages/subagent/`：
 
@@ -45,7 +45,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 两类可选能力，两种发现方式
 
-- **启动时功能**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的功能，如果提供方不支持则**明确拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些功能必须在 run 存在之前检查，因此不能是运行时方法。
+- **启动时功能**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的功能，如果提供方不支持则**响亮拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些功能必须在 run 存在之前检查，因此不能是运行时方法。
 - **可继续创建**使用可选的 `SubagentProvider.prepareContinuable` 方法；方法是否存在本身即为能力，TypeScript 类型收窄即为发现机制，因此不需要可能与实现失同步的独立 flag。继续执行管理器直接通过 `AgentHandle` 负责后续投递与冷恢复，而一次性 `SubagentRun` 没有 steering 或 resume 操作，具体由[可继续 subagent](2026-07-28-continuable-subagent-conversations.md) 细化。
 
 ### Fork 与 fresh 是独立后端，而非一个 flag
@@ -66,7 +66,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ## 测试
 
-注册表与工具测试仅用包内脚本化提供方替换非确定性的子 agent，同时运行真实的 `SubagentService`、生命周期、任务集成和面向模型的工具。Loader 回归测试仍覆盖提供方与消费方的 export，以防止[事故复盘（postmortem）0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)中描述的失败。注册表测试覆盖重载安全性、重名和启动时能力拒绝；嵌套 agent 场景通过[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)进行无密钥回放；进程内后端还有真实循环的单元测试和带密钥的 e2e 测试。
+注册表与工具测试仅用包内脚本化提供方替换非确定性的子 agent，同时测试真实的 `SubagentService`、生命周期、任务集成和面向模型的工具。loader 回归测试仍覆盖提供方与消费方的 export，以防止[事故复盘（postmortem）0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md) 中描述的失败。注册表测试覆盖重载安全性、重名和启动时能力拒绝；嵌套 agent 场景通过[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)进行无密钥回放；进程内后端还有真实循环的单元测试和带密钥的 e2e 测试。
 
 ## 后果
 

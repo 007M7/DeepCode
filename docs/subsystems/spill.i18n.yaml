@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/spill.md
 spill.md: 37fd446deb7da94eb09d3f7d198f9f9e44e7856d
-spill.zh.md: e07a16ce3d7b2d94a0a2448b09a20c66e83c1830
+spill.zh.md: 5e8007e6295da7bf25a5678e28c7e720c32dee23

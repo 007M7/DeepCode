@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这三份**默认关闭的参考配置** 通过 [`@deepseek-ai/dsh-mcp-client`](../../packages/mcp/mcp-client/README.md) 将一个记忆系统连接到 DSH。请选择其中一份，或复制相同的通用 MCP 配置项来连接其他服务器。
+这三份**默认关闭的参考配置**通过 [`@deepseek-ai/dsh-mcp-client`](../../packages/mcp/mcp-client/README.md) 将一个记忆系统连接到 DSH。请选择其中一份，或复制相同的通用 MCP 配置项来连接其他服务器。
 
 这些第三方配置仅作为互操作参考；收录不代表 DeepSeek 的认可、推荐、合作关系或持续支持承诺。
 
@@ -52,7 +52,7 @@ dsh web --patch "$PWD/examples/mcp-memory/mcp-reference-memory.cordis.yml"
 
 该参考服务器存储本地知识图谱，并公开实体、关系、观察、读取、搜索和打开工具。它不需要模型或 embedding 服务。该示例将 JSONL 存储在 `$HOME/.dsh-mcp-reference-memory.jsonl`，而不是已安装的 npm 包目录中。若要覆盖该路径，请在启动 DSH 前设置 `MEMORY_FILE_PATH`。
 
-搜索只对实体名称、类型和 observation 进行不区分大小写的子字符串匹配，不是语义检索。该服务器不提供 embedding、自动摘要、冲突消解或遗忘策略。
+搜索只对实体名称、类型和观察进行不区分大小写的子字符串匹配，不是语义检索。该服务器不提供 embedding、自动摘要、冲突消解或遗忘策略。
 
 ### Engram
 
@@ -67,7 +67,7 @@ Engram 负责存储和项目选择：它默认使用 `~/.engram`，从 DSH 工�
 
 如果服务器的工具描述无法可靠触发记忆使用，请将以下简短、与提供方无关的指令添加到你现有的模型指令中：
 
-> 用户要求记住时调用写入工具；涉及历史信息时，主动检索并使用相关记忆。
+> 用户要求记住某事时调用记忆写入工具；历史信息可能相关时，检索记忆并使用相关结果。
 
 这只是附加指导。示例不会替换 DSH 系统提示词中的 persona。
 
@@ -79,7 +79,7 @@ Engram 负责存储和项目选择：它默认使用 `~/.engram`，从 DSH 工�
 2. 在同一个仍在运行的 Host 中创建 DSH 会话 B。不要复制会话 A 的对话。提出：`What is my validation drink? Check memory.`。确认模型调用了提供方的搜索或召回工具，并返回该值。
 3. 继续在会话 B 中提出：`Use that preference to suggest one drink for the meeting.`。确认回答使用了召回的值。
 
-必须新建 DSH 会话，但不需要重启 Host。只有 MCP 子进程崩溃后才需要重启或执行 HMR（热模块替换），因为当前的通用客户端不会自动重连；其工具注册会一直保留到插件完成资源释放或成功重新同步，针对已关闭传输的调用可能失败。初始发现过程是异步的，因此发送第一条验证提示词前，请等待提供方的 `mcp__...` 工具出现。
+必须新建 DSH 会话，但不需要重启 Host。只有 MCP 子进程崩溃后才需要重启或执行 HMR（热模块替换），因为当前的通用客户端不会自动重连；其工具注册会一直保留，直到插件 dispose（资源释放）或成功重新同步，针对已关闭传输的调用可能失败。初始发现过程是异步的，因此发送第一条验证提示词前，请等待提供方的 `mcp__...` 工具出现。
 
 ## 接入其他 MCP 服务器
 

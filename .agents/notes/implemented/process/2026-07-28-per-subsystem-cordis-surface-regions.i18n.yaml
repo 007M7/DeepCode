@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-28-per-subsystem-cordis-surface-regions.md
 2026-07-28-per-subsystem-cordis-surface-regions.md: f6d4494d4195ba27f2898eecb27af32b433af88b
-2026-07-28-per-subsystem-cordis-surface-regions.zh.md: 358c7ee949173861c4d248268d3906b4da938daa
+2026-07-28-per-subsystem-cordis-surface-regions.zh.md: a83cb1c75d280ef7603605f16e9e9e486d575879

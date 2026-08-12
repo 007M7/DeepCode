@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-react-loop 简化在保持 `SESSION_FORMAT_VERSION` 为 0 的同时更改了持久事件。该变更基线所存储的会话包含 steering（中途引导）事件 `steering/message` 和 `turn/start.trigger`；其终止原因还使用粗粒度 `aborted`、独立的 `disposed` 和两种旧版错误载荷。当前 surface 和轮次不变量无法直接回放这些记录。
+react-loop 简化在保持 `SESSION_FORMAT_VERSION` 为 0 的同时更改了持久事件。该变更基线所存储的会话包含 steering（中途引导）事件 `steering/message`，以及 `turn/start.trigger` 字段；其终止原因还使用粗粒度 `aborted`、独立的 `disposed` 和两种旧版错误载荷。当前表层和轮次不变量无法直接回放这些记录。
 
 新的持久 inbox 不属于此兼容性问题。该基线会发出进程本地 inbox 通知，但不会产生 `agent/inbox/*` 会话事件，因此将旧历史回放为待处理工作会让已经领取或丢弃的提示词再次执行。
 

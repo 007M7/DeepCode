@@ -6,7 +6,7 @@ PTY 后端、`ctx.pty` 与面向模型的消费方共享的类型。[持久 PTY 
 
 ## 标识与就绪
 
-`PtySessionId` 是由服务铸造的品牌化 id。可选名称是拥有者本地的显示元数据；授权比较的是拥有该会话的确切 `Agent`，而不是名称或猜测的 id。
+`PtySessionId` 是由服务铸造的branded id。可选名称是拥有者本地的显示元数据；授权比较的是拥有该会话的确切 `Agent`，而不是名称或猜测的 id。
 
 `PtyWaitReason` 说明一次发送为何返回。它与 `PtySessionStatus` 无关：一次发送可能因静默或超时而返回，但顶层 shell 仍然存活；`session_exit` 表示该 shell 已退出，而不是某个任意的前台子进程已退出。
 

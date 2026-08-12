@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-30-interception-extension-points.md
 2026-06-30-interception-extension-points.md: b6e7e8c94bfff8f483dc9faf7b195b130a7e9953
-2026-06-30-interception-extension-points.zh.md: 262793dd7a297f343391a22fb8d9f1d57a9ff531
+2026-06-30-interception-extension-points.zh.md: 5801992e47cc4bf3d3a32aebc944117eaa5de77c

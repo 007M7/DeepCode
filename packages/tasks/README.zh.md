@@ -12,4 +12,4 @@
 
 参见[后台任务运行时](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和[任务注册表](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)决策。
 
-子系统参考——id 方案、拥有者围栏约定、快照——见 [docs/subsystems/tasks.md](../../docs/subsystems/tasks.md)；设计见[后台任务运行时](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与[任务注册表约定](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md) Agent Note。
+子系统参考文档——id 方案、所有者隔离约定、快照——见 [docs/subsystems/tasks.md](../../docs/subsystems/tasks.md)；设计见[后台任务运行时](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与[任务注册表约定](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)两篇 Agent Note。

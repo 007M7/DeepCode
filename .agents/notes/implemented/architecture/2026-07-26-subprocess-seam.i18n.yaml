@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md
 2026-07-26-subprocess-seam.md: f43b55b0b760c2aabe317abacdb800b755de059b
-2026-07-26-subprocess-seam.zh.md: df8c3ddab80933882bf3587a9f01e019eb721a87
+2026-07-26-subprocess-seam.zh.md: 2efc76f6407c0938e3181f07e1dcab82bcd08c3c

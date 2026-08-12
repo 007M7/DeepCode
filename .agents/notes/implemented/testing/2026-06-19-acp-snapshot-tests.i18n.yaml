@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md
 2026-06-19-acp-snapshot-tests.md: b34770fb448062d997197c60c4b557a574cbbd62
-2026-06-19-acp-snapshot-tests.zh.md: 59033a2fd85bc08bfe4abe34e8fd9aff9a67c87e
+2026-06-19-acp-snapshot-tests.zh.md: 22ee8ee75682e60171560d928796d27e936bb685
