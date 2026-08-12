@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
-import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconChevronDownOutline14,
   IconSearchOutline16,
@@ -11,10 +11,9 @@ import css from './PluginSettingsSection.module.css'
 /** Registration-side Remote face used by the section. */
 export interface PluginSettingsSectionInjected {
   /** Read a current Host inventory snapshot. */
-  list: ClientRemote['pluginInventory']['list']
+  list: () => Promise<PluginInventorySnapshot>
 }
 
-type PluginInventorySnapshot = Awaited<ReturnType<PluginSettingsSectionInjected['list']>>
 type PluginInventoryEntry = PluginInventorySnapshot['entries'][number]
 type PluginFiberPhase = PluginInventoryEntry['fiberPhase']
 
@@ -119,7 +118,7 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
               value={query}
               placeholder={t('search')}
               aria-label={t('search')}
-              onChange={event => setQuery(event.currentTarget.value)}
+              onChange={(event) => { setQuery(event.currentTarget.value) }}
             />
           </label>
           <div className={css.catalogHeading}>

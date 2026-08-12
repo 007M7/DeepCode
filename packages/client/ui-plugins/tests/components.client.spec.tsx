@@ -27,7 +27,7 @@ function props(list: PluginSettingsSectionInjected['list']): PluginSettingsSecti
 const SNAPSHOT = {
   entries: [
     { entryId: '8a1b2c3d', moduleName: '@deepseek-ai/cordis-plugin-hmr', enabled: true, fiberPhase: 'active' },
-    { entryId: 'pending', moduleName: '@fixture/pending-name', enabled: true, fiberPhase: 'pending' },
+    { entryId: 'pending', moduleName: 'cordis:pending-name', enabled: true, fiberPhase: 'pending' },
     { entryId: 'loading', moduleName: '@fixture/loading-name', enabled: true, fiberPhase: 'loading' },
     { entryId: 'failed', moduleName: '@fixture/failed-name', enabled: true, fiberPhase: 'failed' },
     { entryId: 'unloading', moduleName: '@fixture/unloading-name', enabled: true, fiberPhase: 'unloading' },
@@ -69,6 +69,14 @@ describe('PluginSettingsSection', () => {
     expect(screen.getByText(en.cordis)).toBeTruthy()
     fireEvent.click(active)
     expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
+
+    fireEvent.click(active)
+    fireEvent.change(screen.getByRole('searchbox', { name: en.search }), {
+      target: { value: 'disabled-entry' },
+    })
+    expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'directory-picker-native, Not mounted, Disabled' }))
+    expect(screen.getAllByText(en.disabledTag)).toHaveLength(2)
   })
 
   it('filters by module name or Loader entry id', async () => {
@@ -111,5 +119,10 @@ describe('PluginSettingsSection', () => {
     const pending = render(<PluginSettingsSection {...props(() => deferred.promise)} />)
     pending.unmount()
     await act(async () => { deferred.resolve(SNAPSHOT) })
+
+    const deferredFailure = Promise.withResolvers<Snapshot>()
+    const pendingFailure = render(<PluginSettingsSection {...props(() => deferredFailure.promise)} />)
+    pendingFailure.unmount()
+    await act(async () => { deferredFailure.reject(new Error('late failure')) })
   })
 })

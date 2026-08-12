@@ -7,6 +7,7 @@ import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote
 import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
 
 export type { TypeRTClientRemote as ClientRemote } from '@deepseek-ai/dsh-type-meta'
+export type { PluginInventorySnapshot } from '@deepseek-ai/dsh-host-plugin-inventory/types'
 export type {} from '@deepseek-ai/dsh-commands/remote'
 export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'

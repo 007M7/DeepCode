@@ -14,6 +14,9 @@ usePinnedBrowserLanguages('zh-CN')
 afterEach(cleanup)
 
 const EMPTY = { entries: [] }
+type ListResult =
+  | { readonly ok: true; readonly value: typeof EMPTY }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 async function bench() {
   const ctx = new Context()
@@ -26,7 +29,8 @@ async function bench() {
     }
   }
   new RemoteService(ctx)
-  const list = vi.fn(() => Promise.resolve(EMPTY))
+  const list = vi.fn<() => Promise<ListResult>>()
+    .mockResolvedValue({ ok: true, value: EMPTY })
   ctx.provide('remote.pluginInventory', { list })
   return { ctx, slots: ctx.get('slots') as SlotsService, locale, list }
 }
@@ -58,6 +62,8 @@ describe('ui-plugins browser plugin', () => {
     const injected = (entry.inject as unknown as () => PluginSettingsSectionInjected)()
     await expect(injected.list()).resolves.toEqual(EMPTY)
     expect(b.list).toHaveBeenCalledOnce()
+    b.list.mockResolvedValueOnce({ ok: false, error: { code: 'REMOTE_ERROR', message: 'unavailable' } })
+    await expect(injected.list()).rejects.toThrow('pluginInventory.list failed: REMOTE_ERROR: unavailable')
     await b.ctx.fiber.dispose()
   })
 
