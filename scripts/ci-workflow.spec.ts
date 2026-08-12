@@ -92,6 +92,26 @@ describe('CI workflow', () => {
     expect(config).not.toContain('packages/lsp/lsp-local/src/instance.ts')
   })
 
+  it('requires one release-shaped Python runtime target on every pull request', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    const pythonRuntime = workflowJob(workflow, 'python-runtime')
+    const aggregate = workflowJob(workflow, 'all-checks-passed')
+    if (!Array.isArray(aggregate.needs)) {
+      throw new TypeError('CI aggregate must define required job dependencies')
+    }
+
+    expect(pythonRuntime).toMatchObject({
+      if: "github.event_name == 'pull_request'",
+      name: 'python runtime / release-shaped Linux x64',
+      uses: './.github/workflows/build-exe-for-python-sdk.yml',
+      with: {
+        targets: 'node24-linux-x64',
+        ci: true,
+      },
+    })
+    expect(aggregate.needs).toContain('python-runtime')
+  })
+
   it('keeps every Vitest project process-isolated on native Windows', () => {
     const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
 
@@ -220,7 +240,14 @@ describe('Python release workflows', () => {
     const macosCheck = buildSteps.find(step => isRecord(step) && step.name === 'Check macOS deployment target')
     const manylinuxSmoke = buildSteps.find(step => isRecord(step) && step.name === 'Run wheel in a manylinux 2.28 container')
     expect(call.inputs).toHaveProperty('targets')
-    expect(call.inputs).toMatchObject({ release: { type: 'boolean', default: false } })
+    expect(call.inputs).toMatchObject({
+      ci: { type: 'boolean', default: false },
+      release: { type: 'boolean', default: false },
+    })
+    expect(workflow.concurrency).toMatchObject({
+      group: 'build-single-exe-${{ github.workflow }}-${{ github.ref }}',
+    })
+    expect(plan.if).toContain('inputs.ci')
     expect(plan.if).toContain('inputs.release')
     expect(JSON.stringify(plan.steps)).toContain('pep440_version')
     expect(JSON.stringify(workflow)).toContain('macosx_14_0_arm64')

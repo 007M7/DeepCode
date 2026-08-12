@@ -20,6 +20,11 @@ on:
         type: boolean
         required: false
         default: false
+      ci:
+        description: Run as the required Linux x64 Python runtime pull-request check.
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       targets:
@@ -35,8 +40,9 @@ on:
 
 concurrency:
   # Keep the called workflow distinct from its caller's concurrency group;
-  # github.workflow identifies the caller inside a reusable workflow.
-  group: build-single-exe-${{ github.ref }}
+  # github.workflow identifies the caller inside a reusable workflow and keeps
+  # an ordinary CI run from cancelling a full release validation on the same ref.
+  group: build-single-exe-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -52,7 +58,7 @@ jobs:
   # construct the matrix before the dependent jobs.
   plan:
     name: plan targets
-    if: inputs.release || github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
+    if: inputs.ci || inputs.release || github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
