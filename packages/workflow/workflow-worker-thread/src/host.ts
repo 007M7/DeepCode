@@ -44,7 +44,7 @@ interface ChildRecord {
  */
 export function workerSpawnEnv(
   platform: NodeJS.Platform = process.platform,
-  tsconfigPath: string | undefined = undefined,
+  tsconfigPath?: string,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   if (platform === 'win32') {
