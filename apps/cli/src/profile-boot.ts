@@ -75,7 +75,7 @@ export const PROFILE_ROOT_FILENAME = 'cordis.yml'
  * switch set.
  * @param disabledEnv - the raw `DSH_TELEMETRY_DISABLED` value (`undefined` when unset).
  * @param hasRow - whether the composition carries the telemetry row.
- * @returns the disable patch, or `undefined` when telemetry stays enabled or is not mounted.
+ * @returns the disable patch, or `undefined` when no hard-disable patch is required.
  */
 export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: boolean): PatchOptions | undefined {
   if ((disabledEnv ?? '') === '' || !hasRow) return undefined

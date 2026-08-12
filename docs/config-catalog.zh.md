@@ -1607,7 +1607,7 @@ export interface Config {
  * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
 export interface Config {
-  /** Sharing policy; defaults to immediate `FULL` delivery. */
+  /** Sharing policy; defaults to local-only `DISABLED` behavior. */
   mode?: TelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
