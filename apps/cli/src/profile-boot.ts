@@ -29,13 +29,11 @@ import {
   watchUserPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
-import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 /** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
 const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
 
-/** Harness-home directory holding locally authored agent presets. */
-const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
@@ -154,16 +152,16 @@ function composeProfile(
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const composedOverlays = [...overlays]
-  // Preset roots belong to every dsh composition that mounts the roster.
+  // The SHIPPED root is the part of the roster only this app can resolve: it
+  // sits beside this app's own config, in both the source and built layouts.
+  // The writable root the roster appends is `dsh-agent-presets`' own, so a
+  // launcher that never reaches this patch still finds a person's presets.
   if (rows.has('agent-presets')) {
     composedOverlays.push({
       id: 'agent-presets',
       config: {
         ...(rows.get('agent-presets')?.config ?? {}) as Record<string, unknown>,
-        roots: [
-          { path: SHIPPED_PRESET_ROOT, trust: 'system' },
-          { path: dshHomePath(USER_PRESET_DIR), trust: 'user' },
-        ],
+        roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
       },
     })
   }
