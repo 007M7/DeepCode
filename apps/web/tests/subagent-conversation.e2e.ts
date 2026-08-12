@@ -31,6 +31,8 @@ const ONE_SHOT_LABEL = 'event-sourcing reviewer'
 const NESTED_LABEL = 'example editor'
 const PARENT_PROMPT = 'Ask a research subagent to explain event sourcing.'
 const INITIAL_PROMPT = 'Explain event sourcing in one sentence.'
+/** The grandchild's own first message; its arrival is what says its history finished loading. */
+const NESTED_PROMPT = 'Give one concrete event sourcing example.'
 const FOLLOWUP = 'Now give the same explanation to a human reader.'
 const POST_FORK_FOLLOWUP = 'Continue the original conversation after the fork.'
 
@@ -176,7 +178,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         seq: 1,
         time: authoredAt + 1,
         data: {
-          content: [{ type: 'text', text: 'Give one concrete event sourcing example.' }],
+          content: [{ type: 'text', text: NESTED_PROMPT }],
           source: { kind: 'user' },
         },
         surfaceOp: 'append',
@@ -404,6 +406,11 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     )
     await nestedRow.click()
     await page.getByText('The parent session is offline; reopen it to continue sending messages.').waitFor()
+    // The offline banner renders from the descriptor alone, so it says nothing
+    // about the transcript below it. The golden pins that transcript, and
+    // `captureStableAria` calls two identical polls stable — including two of
+    // "Loading history…". Wait for the message the golden asserts.
+    await page.getByText(NESTED_PROMPT).waitFor()
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
     const crumbs = await hierarchy.getByRole('button').allTextContents()
     expect(crumbs.slice(-2)).toEqual([LABEL, NESTED_LABEL])

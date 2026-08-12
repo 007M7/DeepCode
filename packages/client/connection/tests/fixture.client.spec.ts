@@ -271,7 +271,12 @@ describe('createFixtureApi', () => {
     await consuming
     if (!created.result.ok) throw new Error('create failed')
     const createdId = created.result.value.sessionId
-    expect(seen).toEqual([{ type: 'host/session-added', sessionId: createdId, blank: true, cwd: '/tmp/fixture' }])
+    expect(seen).toHaveLength(1)
+    const added = seen[0]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: createdId, blank: true, cwd: '/tmp/fixture',
+    })
     const list = await api.sessions.list(req({}))
     if (!list.result.ok) throw new Error('list failed')
     expect(list.result.value.items.some(s => s.sessionId === createdId)).toBe(true)
@@ -710,7 +715,11 @@ describe('createFixtureApi', () => {
     await consuming
     // The session lands with the workspace's path as cwd, and the account
     // write pushes the fresh workspace snapshot after session-added.
-    expect(seen[0]).toEqual({ type: 'host/session-added', sessionId: id, blank: true, cwd: '/tmp/fixture' })
+    const added = seen[0]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: id, blank: true, cwd: '/tmp/fixture',
+    })
     expect(seen[1]).toMatchObject({
       type: 'host/workspace-changed',
       workspace: { workspaceId: 'fx-ws-fixture', sessionIds: [id, 'fx-alpha', 'fx-beta', 'fx-gamma'] },
@@ -739,7 +748,12 @@ describe('createFixtureApi', () => {
     expect(frames[0]).toMatchObject({
       type: 'host/workspace-changed', workspace: { sessionIds: [preallocated] },
     })
-    expect(frames[1]).toEqual({ type: 'host/session-added', sessionId: preallocated, blank: true, cwd: made.result.value.workspace.path })
+    const added = frames[1]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: preallocated, blank: true,
+      cwd: made.result.value.workspace.path,
+    })
 
     const retried = await api.sessions.create(req({
       workspaceId: made.result.value.workspace.workspaceId,

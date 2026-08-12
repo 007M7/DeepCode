@@ -197,8 +197,13 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   it.skipIf(MODE === 'record')('materialized a real Workspace and Session over the wire', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-materialize'))
     // Browser: the sidebar tree now carries the auto-created workspace group
-    // with its one session, and the opened session is the selected row.
-    await expect.poll(() => page.getByText('1 session', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
+    // with its one session, and the opened session is the selected row. The
+    // compact layout dropped group session counts, so the group row itself is
+    // the barrier.
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-expanded]').filter({ hasText: 'workspace' }).count(),
+      { timeout: 15_000 },
+    ).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     // Host: the session's durable header cwd is the folder the workspace

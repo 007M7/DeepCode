@@ -1,52 +1,28 @@
-# Introduction
+# Use the Web UI
 
 English | [中文](index.zh.md)
 
-DeepSeek Harness is a **plugin-based agent development framework** built on the [Cordis](https://github.com/cordiverse/cordis) microkernel. Its central idea is simple: **everything is a plugin**.
+Start the Web UI through the [root README](../../../README.md#run); the command prints its URL. This guide begins after that server is running.
 
-## What it is
+The invoking directory is the default workspace, so the agent can inspect and modify the project where you started `dsh`.
 
-Harness implements every capability an AI agent needs—including LLM calls, tool execution, session management, and subtask delegation—as a composable plugin. A `cordis.yml` file declares which plugins to load and how to configure them, assembling a complete agent.
+## Configure a model
 
-```yaml
-# Select the LLM backend
-- name: '@deepseek-ai/dsh-llm-deepseek'
+Open **Settings → Models**, enter a DeepSeek API key, and save it. The model route becomes usable immediately without restarting the server.
 
-# Compose one configured agent
-- id: agent-spine
-  name: '@deepseek-ai/dsh-agent-spine-demo'
-  config:
-    agents:
-      - id: main
-        provider: deepseek-official
-        model: deepseek-v4-flash
-    workspaceContext: false
-```
+The [model configuration guide](./providers.md) covers other providers and custom OpenAI-compatible endpoints.
 
-## Who it is for
+## Run a task
 
-### Application users
+Start a session and send:
 
-To run an existing agent application, such as a coding assistant or conversational agent:
+> Summarize this repository and identify its main packages.
 
-1. Copy an example template.
-2. Add an API key.
-3. Run it.
+The agent can read and edit workspace files, run commands, delegate work, and maintain a plan. The Web UI asks before operations that require approval under the active permission policy.
 
-No code is required. See the [quick start](./quickstart.md).
+## Continue
 
-### Plugin developers
-
-To add a custom tool, a new LLM adapter, or another execution backend, write a plugin. Harness provides explicit extension interfaces and a type-safe development experience. See [development](../develop/basic/).
-
-## Core features
-
-- **Configuration only** — `cordis.yml` selects the capability set; changing a model or adding a tool is a configuration edit.
-- **Hot replacement (HMR)** — edit plugin code during development without restarting the process.
-
-## Technology
-
-- **Runtime**: Node.js ^22.19 or >= 24
-- **Language**: TypeScript (ESM)
-- **Framework**: Cordis
-- **Package manager**: pnpm workspaces (the repository pins pnpm 11)
+- [Configure models](./providers.md)
+- [Use the Python SDK](./python-sdk.md)
+- [Use other CLI modes](../../../apps/cli/README.md)
+- [Develop a plugin](../develop/basic/)

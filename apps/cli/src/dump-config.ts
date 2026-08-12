@@ -15,7 +15,6 @@ import {
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
 import { homePatchPath, prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
-import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
@@ -34,12 +33,6 @@ export function runDumpConfig(profile: string, defaultOnly: boolean, patches: re
     label: layer.packageName,
     patches: layer.patches,
   }))
-  // The win32 shell platform layer rides between bundles and user layers,
-  // exactly where the boot applies it.
-  const windowsShellLayer = resolveWindowsShellLayer(process.platform, loaded.layers, NAME)
-  if (windowsShellLayer !== undefined) {
-    layers.push({ label: windowsShellLayer.label, patches: windowsShellLayer.patches })
-  }
   if (!defaultOnly) {
     if (existsSync(loaded.patchPath)) {
       layers.push({ label: loaded.patchPath, patches: loaded.patches })

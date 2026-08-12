@@ -262,6 +262,9 @@
 - id: tool-bash
   disabled: true
 
+- id: tool-pwsh
+  disabled: true
+
 # The background-task REGISTRY stays on the host plane; only the model-facing
 # `task_*` controls move. Its producers — `tool-bash` here, `tool-pty` and a
 # non-continuable `tool-subagent` elsewhere — are preset rows that resolve it
@@ -374,12 +377,15 @@
   disabled: true
 
 # The preset roster. `config/agent-presets/` ships with the deployment and is
-# read-only (its entries carry `system` trust);
-# `$DSH_HOME/.agent-presets` is where a person — or an agent — authors their own, and
-# carries the same trust as shell access because a preset IS a composition.
-# `roots` is an assembly fact, not user config: the shipped preset directory
-# ships beside this file, so AppCLIEntry resolves it and patches it in — the
-# same treatment `distIndex` gets on the webserver row.
+# read-only (its entries carry `system` trust); `$DSH_HOME/.agent-presets` is
+# where a person — or an agent — authors their own, and carries the same trust
+# as shell access because a preset IS a composition.
+#
+# Only the SHIPPED root is an assembly fact: it sits beside the installed app's
+# own config, so `apps/cli`'s `composeProfile` resolves and patches it in — the
+# same treatment `distIndex` gets on the webserver row. The writable root is
+# `dsh-agent-presets`' own default (`includeUserRoot`), so a composition that
+# never reaches that patch still finds a person's presets.
 - insert:
     - id: agent-presets
       name: '@deepseek-ai/dsh-agent-presets'

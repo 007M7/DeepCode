@@ -2522,6 +2522,38 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         emitHost({ type: 'host/workspace-removed', workspaceId })
         return ok(request, { deleted: true as const })
       },
+      insertBefore: (request) => {
+        const { workspaceId, beforeWorkspaceId } = request.payload
+        const source = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+        const anchor = beforeWorkspaceId === undefined
+          ? workspaces.length
+          : workspaces.findIndex(workspace => workspace.workspaceId === beforeWorkspaceId)
+        const missing = source === -1 ? workspaceId : anchor === -1 ? beforeWorkspaceId : undefined
+        if (missing !== undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${missing}`,
+            details: { workspaceId: missing },
+          })
+        }
+        if (beforeWorkspaceId !== workspaceId) {
+          const previousOrder = workspaces.map(candidate => candidate.workspaceId)
+          const [workspace] = workspaces.splice(source, 1)
+          /* v8 ignore next -- source was resolved from the same array immediately above. */
+          if (workspace === undefined) throw new Error(`fixture lost workspace ${workspaceId}`)
+          const at = beforeWorkspaceId === undefined
+            ? workspaces.length
+            : workspaces.findIndex(candidate => candidate.workspaceId === beforeWorkspaceId)
+          workspaces.splice(at, 0, workspace)
+          if (workspaces.some((candidate, index) => candidate.workspaceId !== previousOrder[index])) {
+            emitHost({
+              type: 'host/workspace-order-changed',
+              workspaceIds: workspaces.map(candidate => candidate.workspaceId),
+            })
+          }
+        }
+        return ok(request, { workspaceIds: workspaces.map(candidate => candidate.workspaceId) })
+      },
       insertSessionBefore: (request) => {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
         const workspace = workspaces.find(w => w.workspaceId === workspaceId)
@@ -2968,6 +3000,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
+      case 'workspace.insertBefore': return this.api.workspace.insertBefore(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'skill.list': return this.api.skills.list(request)
