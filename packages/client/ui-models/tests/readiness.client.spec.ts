@@ -1,8 +1,8 @@
-/** Pure official-DeepSeek readiness projection over the shared Models join. */
+/** Pure first-run readiness projection over the shared Models join. */
 import { describe, expect, it } from 'vitest'
 import type { CredentialView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelsSettingsState, ProviderRow } from '../src/client/store.ts'
-import { deepSeekReadiness } from '../src/client/store.ts'
+import { onboardingReadiness, providerUsable } from '../src/client/store.ts'
 
 const missingCredential: CredentialView = { configured: false, writable: true }
 
@@ -23,6 +23,24 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
   }
 }
 
+/** A second provider the user configured themselves. */
+function otherRow(overrides: Partial<ProviderRow> = {}): ProviderRow {
+  return {
+    entry: {
+      provider: 'hfai',
+      displayName: 'HFAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'hfai'],
+      active: true,
+    },
+    configured: true,
+    removable: true,
+    apiKeyEnv: 'HFAI_API_KEY',
+    credential: { configured: true, source: 'file', writable: true },
+    ...overrides,
+  }
+}
+
 function state(overrides: Partial<ModelsSettingsState> = {}): ModelsSettingsState {
   return {
     status: 'ready',
@@ -35,12 +53,25 @@ function state(overrides: Partial<ModelsSettingsState> = {}): ModelsSettingsStat
   }
 }
 
-describe('deepSeekReadiness', () => {
+describe('providerUsable', () => {
+  it('requires a registered route and a stored key for every named reference', () => {
+    expect(providerUsable(otherRow())).toBe(true)
+    expect(providerUsable(otherRow({ entry: { ...otherRow().entry, active: false } }))).toBe(false)
+    expect(providerUsable(otherRow({ credential: missingCredential }))).toBe(false)
+    expect(providerUsable(otherRow({ credential: undefined }))).toBe(false)
+  })
+
+  it('treats a reference-free registered route as provider-native authentication', () => {
+    expect(providerUsable(otherRow({ apiKeyEnv: undefined, credential: undefined }))).toBe(true)
+  })
+})
+
+describe('onboardingReadiness', () => {
   it('waits for the first join and skips onboarding when the adapter directory entry is absent', () => {
-    expect(deepSeekReadiness(state({ status: 'idle', rows: [] }))).toEqual({ kind: 'loading' })
-    expect(deepSeekReadiness(state({ status: 'loading', rows: [] }))).toEqual({ kind: 'loading' })
-    expect(deepSeekReadiness(state({ rows: [] }))).toEqual({ kind: 'adapter-absent' })
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({ status: 'idle', rows: [] }))).toEqual({ kind: 'loading' })
+    expect(onboardingReadiness(state({ status: 'loading', rows: [] }))).toEqual({ kind: 'loading' })
+    expect(onboardingReadiness(state({ rows: [] }))).toEqual({ kind: 'adapter-absent' })
+    expect(onboardingReadiness(state({
       rows: [row({
         entry: {
           ...row().entry,
@@ -51,45 +82,47 @@ describe('deepSeekReadiness', () => {
   })
 
   it('reports a missing writable effective credential', () => {
-    expect(deepSeekReadiness(state())).toEqual({ kind: 'credential-missing' })
+    expect(onboardingReadiness(state())).toEqual({ kind: 'credential-missing' })
+  })
+
+  it('ends onboarding once any other registered provider can serve requests', () => {
+    expect(onboardingReadiness(state({ rows: [row(), otherRow()] }))).toEqual({ kind: 'provider-ready' })
+    // A provider the user cannot reach yet leaves the prompt in place.
+    expect(onboardingReadiness(state({
+      rows: [row(), otherRow({ credential: missingCredential })],
+    }))).toEqual({ kind: 'credential-missing' })
   })
 
   it('accepts file and process-environment credentials without prompting', () => {
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({
       rows: [row({ credential: { configured: true, source: 'file', writable: true } })],
-    }))).toEqual({ kind: 'configured' })
-    expect(deepSeekReadiness(state({
+    }))).toEqual({ kind: 'provider-ready' })
+    expect(onboardingReadiness(state({
       rows: [row({ credential: { configured: true, source: 'env', writable: false } })],
-    }))).toEqual({ kind: 'configured' })
+    }))).toEqual({ kind: 'provider-ready' })
   })
 
-  it('turns missing capabilities and inconsistent descriptors into diagnostics', () => {
-    expect(deepSeekReadiness(state({ status: 'error', error: 'settings down' }))).toEqual({
+  it('turns missing capabilities into diagnostics that never block the product', () => {
+    expect(onboardingReadiness(state({ status: 'error', error: 'settings down' }))).toEqual({
       kind: 'unavailable',
       reason: 'load-failed',
     })
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({
       rows: [row({ entry: { ...row().entry, active: false } })],
     }))).toEqual({ kind: 'unavailable', reason: 'provider-inactive' })
-    expect(deepSeekReadiness(state({
-      rows: [row({ configured: false })],
-    }))).toEqual({ kind: 'unavailable', reason: 'settings-unavailable' })
-    expect(deepSeekReadiness(state({
-      rows: [row({ apiKeyEnv: undefined })],
-    }))).toEqual({ kind: 'unavailable', reason: 'credential-ref-unavailable' })
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({
       credentialError: 'credentials service is absent',
     }))).toEqual({
       kind: 'unavailable',
       reason: 'credentials-unavailable',
     })
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({
       rows: [row({ credential: undefined })],
     }))).toEqual({ kind: 'unavailable', reason: 'credentials-unavailable' })
-    expect(deepSeekReadiness(state({
+    expect(onboardingReadiness(state({
       rows: [row({ credential: { configured: false, writable: false } })],
     }))).toEqual({ kind: 'unavailable', reason: 'credential-read-only' })
-    expect(deepSeekReadiness(state({ writable: false }))).toEqual({
+    expect(onboardingReadiness(state({ writable: false }))).toEqual({
       kind: 'unavailable',
       reason: 'settings-read-only',
     })

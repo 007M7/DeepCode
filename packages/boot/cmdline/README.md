@@ -15,15 +15,16 @@ An embedding host with no command line provides an empty list; that is the hones
 
 ## Ordinary providers and injected config
 
-Any app plugin may inject `cmdlineArgs`, parse it, and publish an ordinary app-owned service. `parseCmdline(ctx, program, plan)` is only a commander adapter; the caller owns the returned value and service:
+Any app plugin may inject `cmdlineArgs`, parse it, and publish an ordinary app-owned service. `parseCmdline(ctx, program)` is only a commander adapter; the program's own action owns validation and the published service:
 
 ```ts ignore
 export const name = 'web-startup'
 export const inject = ['cmdlineArgs']
 
 export function apply(ctx: Context): void {
-  const values = parseCmdline(ctx, webCommand(), planWebStartup)
-  if (values !== undefined) ctx.provide('webStartup', values)
+  const program = webCommand()
+  program.action(() => ctx.provide('webStartup', webValuesFrom(program)))
+  parseCmdline(ctx, program)
 }
 ```
 
@@ -45,7 +46,7 @@ Every row configured from those values uses ordinary service injection and direc
     port: !!js ctx.webStartup.port ?? 3080
 ```
 
-`parseCmdline` parses the immutable arguments and asks `plan` for the app-owned value. On `--help`, `--version`, a parse error, or a `program.error(...)` from the plan, it writes commander's text, requests exit, and returns `undefined`; the provider publishes nothing, so dependent rows never activate.
+`parseCmdline` refuses at load a program in which no command declares an action, routes every command's exit and output through the launcher (commander copies those settings into subcommands only at registration), and parses the immutable arguments; commander runs the invoked command's synchronous action on success. An action rejects an invalid invocation with `program.error(...)` — before publishing, since statements ahead of the rejection have already run. On `--help`, `--version`, a parse error, or that rejection, the helper writes commander's text and requests exit; the provider publishes nothing, so dependent rows never activate.
 
 ### How injection orders config
 

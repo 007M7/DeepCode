@@ -8,6 +8,8 @@ The audience is agent developers. You do not need deep TypeScript experience; th
 
 If you want the condensed concept reference instead of a walkthrough, read the [Cordis primer](../cordis-primer.md). The exhaustive API reference lives in the generated `cordis-surface` regions on the [subsystem pages](../subsystems/core.md) and the [Cordis core API](../cordis-api/context.md) pages.
 
+To write plugins for the harness itself — loaded from a `cordis.yml` and driven from the Web UI rather than the launcher below — start from [your first Harness plugin](../user/develop/basic/index.md).
+
 ## Setup
 
 You need a clone of this repository with dependencies installed; the [development guide](../development.md#setup-tutorial) lists the prerequisites. No API key is needed for this tutorial; every example runs keylessly.
