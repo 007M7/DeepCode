@@ -1,6 +1,6 @@
 /**
  * ui-subagent browser half: source registration (duplicate-name proof) +
- * fiber-teardown removal (HMR safety) against the real SlashService, then
+ * fiber-teardown removal (HMR safety) against the real InputTriggerService, then
  * the source behavior contract driven directly on the captured source with
  * real ClientSessionContext projections — zero-RPC candidates from the root
  * session list (running children of the projected session, label-contains
@@ -15,12 +15,12 @@ import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { describe, expect, it } from 'vitest'
 import {
-  SlotsService, type ConversationSnapshot, type SessionId, type SessionListState,
+  SlotRegistry, type ConversationSnapshot, type SessionId, type SessionListState,
   type SessionSummary, type SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
-import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import {
   SubagentCatalogAction, type SubagentCatalogInjected,
@@ -70,7 +70,7 @@ function sessionsWith(sessions: SessionSummary[]) {
 }
 
 async function provideSlotFaces(ctx: Context): Promise<void> {
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
     name: 'root',
     children: {
@@ -83,9 +83,9 @@ async function provideSlotFaces(ctx: Context): Promise<void> {
 /** Boot the plugin over fake slash/sessions faces; returns the captured source and the list face. */
 async function fullBench(sessions: SessionSummary[]) {
   const ctx = new Context()
-  let captured: SlashSource | undefined
+  let captured: InputTriggerSource | undefined
   const face = sessionsWith(sessions)
-  ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
+  ctx.provide('inputTriggers', { registerSource: (src: InputTriggerSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   // ui-theme's Appearance row binds a durable scope through these two.
@@ -98,7 +98,7 @@ async function fullBench(sessions: SessionSummary[]) {
 }
 
 /** Source-only bench for the behavior-contract suites. */
-async function bench(sessions: SessionSummary[]): Promise<SlashSource> {
+async function bench(sessions: SessionSummary[]): Promise<InputTriggerSource> {
   return (await fullBench(sessions)).source
 }
 
@@ -119,12 +119,12 @@ const req = (query: string) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions', 'slots', 'locale'])
+    expect(inject).toEqual(['inputTriggers', 'sessions', 'slots', 'locale'])
   })
 
   it('registers the "@" subagent source; disposal frees the name (HMR safety)', async () => {
     const ctx = new Context()
-    await ctx.plugin(SlashService).await()
+    await ctx.plugin(InputTriggerService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     // ui-theme's Appearance row binds a durable scope through these two.
@@ -134,7 +134,7 @@ describe('apply', () => {
     await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const slash = ctx.get('slash') as SlashService
+    const inputTriggers = ctx.get('inputTriggers') as InputTriggerService
     const rival = {
       trigger: '@' as const,
       name: 'subagent',
@@ -142,10 +142,10 @@ describe('apply', () => {
       onPick: () => undefined,
     }
     // Live registration holds the (trigger, name) seat…
-    expect(() => slash.registerSource(rival)).toThrow(/already registered/)
+    expect(() => inputTriggers.registerSource(rival)).toThrow(/already registered/)
     // …and fiber teardown releases it.
     await fiber.dispose()
-    expect(() => slash.registerSource(rival)).not.toThrow()
+    expect(() => inputTriggers.registerSource(rival)).not.toThrow()
   })
 
   it('registers catalog actions and selects read-only subagent composers from session facts', async () => {

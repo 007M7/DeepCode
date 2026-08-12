@@ -252,7 +252,7 @@ The implementation depends on the existing message log, canonical tool output, t
 
 **Extend `userInteraction.ask()` with a large form.** Rejected for this contract. `ask()` is a blocking request/response operation used when a running tool cannot continue without a short answer. A Task Surface ends the turn, may remain open across refreshes, and submits its result as the next visible user turn.
 
-**Register one dynamic `conversation.view` per call.** Rejected because the view ledger is global while its render scope is per Session, and because transient task identity would become registration identity. One static Session-scoped Dock owns interaction, and one static keyed row summarizes the logged occurrence; neither registration uses occurrence identity.
+**Register one dynamic `conversation.view` per call.** Rejected because the view ledger is global while its render scope is per Session, and because transient job identity would become registration identity. One static Session-scoped Dock owns interaction, and one static keyed row summarizes the logged occurrence; neither registration uses occurrence identity.
 
 **Keep the model only in the canonical tool value.** Rejected because canonical values are not persisted. Replay requires the normalized model in `presentationMeta`.
 

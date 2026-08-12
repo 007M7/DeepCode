@@ -36,10 +36,10 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../bash/bash"
+      "path": "../../shell/shell"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

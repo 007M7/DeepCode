@@ -143,7 +143,7 @@ describe('Inbox', () => {
 })
 
 describe('AgentRegistry', () => {
-  it('contributes Agent lookup and scoped Context providers while TypeRT is live', async () => {
+  it('contributes Agent lookup and scoped Context providers while Typert is live', async () => {
     const ctx = new Context()
     const agentFiber = ctx.plugin(AgentRegistry)
     await agentFiber

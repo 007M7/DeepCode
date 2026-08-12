@@ -1,7 +1,7 @@
 // Web e2e scenario: startup auto-selection keeps the hero on screen.
 //
 // A page load with a workspace already registered runs
-// `WorkspacesService.startInitialSelection`: it connects the most recent
+// `WorkspaceRuntime.startInitialSelection`: it connects the most recent
 // workspace and opens its blank session. `openState` flips to `loading` the
 // moment `open()` lands; driving `data-phase=settling` on the conversation
 // root from that flip would hide the composer seat and the header

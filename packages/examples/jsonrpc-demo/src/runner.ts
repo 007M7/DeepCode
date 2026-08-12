@@ -1,7 +1,7 @@
 /**
  * Shared process lifecycle for the generic and closed-runtime JSON-RPC bins.
  *
- * @module @deepseek-ai/dsh-jsonrpc-demo/runner
+ * @module @deepseek-ai/dsh-sdk-jsonrpc-demo/runner
  */
 
 import { existsSync } from 'node:fs'

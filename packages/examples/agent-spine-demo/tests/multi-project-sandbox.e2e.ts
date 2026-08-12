@@ -5,8 +5,8 @@ import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
-import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
-import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
@@ -53,14 +53,14 @@ beforeEach(async () => {
   ctx = new Context()
   await ctx.plugin(LocalSandboxProvider, {})
   await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: fallbackRoot })
-  await ctx.plugin(LocalSubprocessService)
+  await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxBashExecutor, { cwd: fallbackRoot, timeoutMs: 30_000 })
   await ctx.plugin(SandboxedFileSystem, { cwd: fallbackRoot })
   await ctx.plugin(agentSpine, {
     workspaceContext: false,
     skills: { enabled: false },
     toolBash: { enableRunInBackground: false },
-    toolTasks: false,
+    toolJobs: false,
   })
   await new Promise(resolve => setTimeout(resolve, 50))
   await ctx.plugin(FsPolicy)

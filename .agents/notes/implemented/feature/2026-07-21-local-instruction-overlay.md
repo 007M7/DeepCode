@@ -6,7 +6,7 @@ English | [中文](2026-07-21-local-instruction-overlay.zh.md)
 
 ## Problem
 
-Personal, git-ignored guidance (`AGENTS.local.md` / `CLAUDE.local.md`) is a Claude Code convention for per-developer overrides that are deliberately not committed. The [workspace-context plugin](2026-06-24-workspace-context.md) loaded only one candidate per directory, so a `.local.` name could only be reached by adding it to `instructionFileCandidates`, where — because a directory has one winner — it would *shadow* the committed base file instead of supplementing it. That inverts the additive "base plus personal overlay" model the names evoke, and it was off by default.
+Personal, git-ignored guidance (`AGENTS.local.md` / `CLAUDE.local.md`) is a Claude Code convention for per-developer overrides that are deliberately not committed. The [agent-instructions plugin](2026-06-24-workspace-context.md) loaded only one candidate per directory, so a `.local.` name could only be reached by adding it to `instructionFileCandidates`, where — because a directory has one winner — it would *shadow* the committed base file instead of supplementing it. That inverts the additive "base plus personal overlay" model the names evoke, and it was off by default.
 
 ## Decision
 

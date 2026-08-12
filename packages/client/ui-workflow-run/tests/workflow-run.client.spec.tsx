@@ -3,7 +3,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
+  ConversationEventRegistry, ConversationNodeAssembler, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ChatConversationViewNode, ConversationEventInput, ConversationMatch, ConversationNodeDefinition,
@@ -272,7 +272,7 @@ const listState = (overrides: Partial<SessionListState> = {}): SessionListState 
   current: PARENT_ID,
   phase: 'ready',
   subagentsByParent: {},
-  tasksBySession: {},
+  jobsBySession: {},
   currentAddress: undefined,
   ...overrides,
 })
@@ -545,7 +545,7 @@ class TestSessions extends Service {
 describe('plugin lifecycle', () => {
   it('registers and removes the Definition and keyed renderer with its fiber', async () => {
     const ctx = new Context()
-    await ctx.plugin(SlotsService).await()
+    await ctx.plugin(SlotRegistry).await()
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     ctx.provide('remote', { $on: () => () => {} } as never)
     ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)

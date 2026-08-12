@@ -34,7 +34,7 @@ export type {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    web: WebService
+    web: WebRuntime
   }
 }
 
@@ -52,7 +52,7 @@ interface Selection<P> {
  * provider auto-selects). Operational overrides such as environment variables
  * must feed these same fields rather than introduce a hidden priority chain.
  */
-export interface WebServiceConfig {
+export interface WebRuntimeConfig {
   /** Explicit search provider id. Omitted = auto-select when exactly one usable. */
   readonly searchProvider?: string
   /** Explicit fetch provider id. Omitted = auto-select when exactly one usable. */
@@ -71,13 +71,13 @@ export interface WebServiceConfig {
  * - No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.
  * - No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
  */
-export class WebService extends Service {
+export class WebRuntime extends Service {
   /**
    * Provider selection config. Operational env overrides feed the SAME fields:
    * `$DSH_WEB_SEARCH_PROVIDER` / `$DSH_WEB_FETCH_PROVIDER` are equivalent to
    * `searchProvider` / `fetchProvider` and are NOT a hidden priority chain.
    */
-  static Config: z<WebServiceConfig> = z.object({
+  static Config: z<WebRuntimeConfig> = z.object({
     searchProvider: z.string(),
     fetchProvider: z.string(),
   })
@@ -87,7 +87,7 @@ export class WebService extends Service {
   private readonly searchProviderId: string | undefined
   private readonly fetchProviderId: string | undefined
 
-  constructor(ctx: Context, config: WebServiceConfig = {}) {
+  constructor(ctx: Context, config: WebRuntimeConfig = {}) {
     super(ctx, 'web')
     this.searchProviderId = config.searchProvider ?? process.env.DSH_WEB_SEARCH_PROVIDER
     this.fetchProviderId = config.fetchProvider ?? process.env.DSH_WEB_FETCH_PROVIDER
@@ -199,4 +199,4 @@ function capSources(result: WebSearchResult, maxResults: number | undefined): We
   return { ...result, sources: result.sources.slice(0, maxResults), truncated: true }
 }
 
-export default WebService
+export default WebRuntime

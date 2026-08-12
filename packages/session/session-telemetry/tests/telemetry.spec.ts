@@ -11,10 +11,10 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
-  TelemetryCoordinator,
-  type TelemetryBackend,
-  type TelemetryCapture,
-  type TelemetryRecord,
+  SessionTelemetryCoordinator,
+  type SessionTelemetrySink,
+  type SessionTelemetryCapture,
+  type SessionTelemetryRecord,
 } from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -28,15 +28,15 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-class FakeBackend implements TelemetryBackend {
-  records: TelemetryRecord[] = []
+class FakeBackend implements SessionTelemetrySink {
+  records: SessionTelemetryRecord[] = []
   calls: string[] = []
   emitError: Error | undefined
   rejectSeq: number | undefined
   shutdownError: Error | undefined
   shutdownResolved = false
 
-  emit(record: TelemetryRecord): void {
+  emit(record: SessionTelemetryRecord): void {
     if (this.emitError) throw this.emitError
     if (this.rejectSeq !== undefined && record.attributes['event.seq'] === this.rejectSeq) {
       throw new Error(`backend rejected seq ${this.rejectSeq}`)
@@ -54,23 +54,23 @@ class FakeBackend implements TelemetryBackend {
     this.shutdownResolved = true
   }
 
-  ledger(): TelemetryRecord[] {
+  ledger(): SessionTelemetryRecord[] {
     return this.records.filter(r => r.channel === 'ledger')
   }
 }
 
 async function setup(
   backend: FakeBackend = new FakeBackend(),
-  capture: TelemetryCapture = 'live',
+  capture: SessionTelemetryCapture = 'live',
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  let coordinator!: TelemetryCoordinator
+  let coordinator!: SessionTelemetryCoordinator
   const fiber = await ctx.plugin({
     name: 'fake-telemetry',
     inject: ['sessions'],
     apply: (inner: Context) => {
-      coordinator = new TelemetryCoordinator(inner, backend, capture)
+      coordinator = new SessionTelemetryCoordinator(inner, backend, capture)
     },
   })
   return { ctx, backend, coordinator, fiber }
@@ -87,7 +87,7 @@ function appendTurn(session: Session): void {
   }), { surfaceOp: 'append' })
 }
 
-describe('TelemetryCoordinator capture', () => {
+describe('SessionTelemetryCoordinator capture', () => {
   it('hands every appended event over with envelope identity and cloned body', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx, 'cap')
@@ -178,7 +178,7 @@ describe('TelemetryCoordinator capture', () => {
   })
 })
 
-describe('TelemetryCoordinator on-demand capture', () => {
+describe('SessionTelemetryCoordinator on-demand capture', () => {
   it('captures one canonical-log prefix at a time without following later events', async () => {
     const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'on-demand')
     const session = liveSession(ctx, 'on-demand-prefix')
@@ -207,7 +207,7 @@ describe('TelemetryCoordinator on-demand capture', () => {
     const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'on-demand')
     const session = liveSession(ctx, 'on-demand-redacted')
     session.append('turn/start', { turn: 1 })
-    const disposeRule = ctx.on('telemetry/record', (_record, next) => ({
+    const disposeRule = ctx.on('session-telemetry/record', (_record, next) => ({
       ...next(),
       body: { scrubbed: true },
     }))
@@ -244,12 +244,12 @@ describe('TelemetryCoordinator on-demand capture', () => {
     expect(first.records).toEqual([])
 
     const second = new FakeBackend()
-    let coordinator!: TelemetryCoordinator
+    let coordinator!: SessionTelemetryCoordinator
     await ctx.plugin({
       name: 'fake-telemetry-after-on-demand-reload',
       inject: ['sessions'],
       apply: (inner: Context) => {
-        coordinator = new TelemetryCoordinator(inner, second, 'on-demand')
+        coordinator = new SessionTelemetryCoordinator(inner, second, 'on-demand')
       },
     })
     coordinator.captureSession(session)
@@ -258,8 +258,8 @@ describe('TelemetryCoordinator on-demand capture', () => {
 
   it('registers no continuous capture, flush, or ops listeners', async () => {
     const { ctx, backend, coordinator, fiber } = await setup(new FakeBackend(), 'on-demand')
-    const redact = vi.fn((_record: TelemetryRecord, next: () => TelemetryRecord) => next())
-    ctx.on('telemetry/record', redact)
+    const redact = vi.fn((_record: SessionTelemetryRecord, next: () => SessionTelemetryRecord) => next())
+    ctx.on('session-telemetry/record', redact)
     const session = liveSession(ctx, 'on-demand-ledger-only')
     session.append('turn/start', { turn: 1 })
     await ctx.parallel('session/flush', session)
@@ -276,7 +276,7 @@ describe('TelemetryCoordinator on-demand capture', () => {
   })
 })
 
-describe('TelemetryCoordinator adoption', () => {
+describe('SessionTelemetryCoordinator adoption', () => {
   it('exports an unpublished suffix without re-exporting constructor history', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
@@ -286,7 +286,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     const child = ctx.sessions.prepare(SessionId('seeded'), { seed: [...parent.events], meta: {} })
     child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -311,7 +311,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     const ofResumed = () => backend.ledger()
       .filter(r => r.attributes['session.id'] === 'resumed')
@@ -341,7 +341,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const record = backend.ledger().find(r => r.attributes['session.id'] === 'stitch-child')!
@@ -363,7 +363,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     expect(backend.ledger()).toHaveLength(2)
     ctx.sessions.announce(session)
@@ -387,7 +387,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry-2',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, second),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, second),
     })
     // Only the window events past the cursor are re-handed, and the mid-step
     // continuation is re-dropped because ≤cursor events rebuilt the projection.
@@ -410,7 +410,7 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     expect(backend.ledger().map(r => r.attributes['event.seq'])).toEqual([0, 2])
     expect(warn).toHaveBeenCalled()
@@ -425,13 +425,13 @@ describe('TelemetryCoordinator adoption', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     expect(backend.ledger().map(r => r.attributes['event.seq'])).toEqual([0, 1])
   })
 })
 
-describe('TelemetryCoordinator lifecycle and containment', () => {
+describe('SessionTelemetryCoordinator lifecycle and containment', () => {
   it('forwards session/flush as a hint without awaiting backend work', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
@@ -466,7 +466,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
-      apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+      apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
     })
     expect(() => ctx.sessions.create(SessionId('vetoed'), { meta: {} })).toThrow('vetoed')
     expect(backend.records.filter(r => r.channel === 'ops')).toHaveLength(0)

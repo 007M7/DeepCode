@@ -40,10 +40,42 @@ describe('tool-call-model', () => {
     expect(classifyTool('grep')).toBe('search')
     expect(classifyTool('write')).toBe('write')
     expect(classifyTool('edit')).toBe('edit')
-    expect(classifyTool('cordis_inspect')).toBe('read')
-    expect(classifyTool('cordis_mount')).toBe('code')
-    expect(classifyTool('cordis_unmount')).toBe('others')
+    expect(classifyTool('cordis_runtime_inspect')).toBe('read')
+    // The v3 run-control verbs: `others` is the decided intent, not an
+    // unclassified default (there is no program to show and no file to open).
+    expect(classifyTool('cordis_run')).toBe('others')
+    expect(classifyTool('cordis_stop')).toBe('others')
+    expect(classifyTool('cordis_undefine')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
+  })
+
+  it('names each cordis verb instead of leaving it a bare tool call', () => {
+    // Every define/run pair the model makes puts a row in the flow, so the
+    // generic "Tool call · cordis_run · dyn-1" fallback is user-visible slop.
+    const titleOf = (name: string) => toolRowModel(name, running({ name, argsRaw: '{"id":"dyn-1"}' }))
+    expect(titleOf('cordis_run').title).toBe('Run Cordis Plugin')
+    expect(titleOf('cordis_stop').title).toBe('Stop Cordis Plugin')
+    expect(titleOf('cordis_undefine').title).toBe('Remove Cordis Plugin')
+    // An owned title takes the tool name out of the summary slot, leaving the
+    // package id as the only mutable text.
+    expect(titleOf('cordis_run').summary).toBe('dyn-1')
+  })
+
+  it('leaves cordis_define to its own keyed toolview', () => {
+    // ui-cordis registers a keyed `tool.call.toolview` entry for cordis_define,
+    // and a keyed hit replaces the generic row (this model is only reached
+    // through the dispatch fallback). A mapping here would be unreachable, and a
+    // title here would be a second answer to what the card already renders.
+    const model = toolRowModel('cordis_define', running({ name: 'cordis_define', argsRaw: '{"name":"clock"}' }))
+    expect(model.variant).toBe('others')
+    expect(model.title).toBe('Tool call')
+  })
+
+  it('has dropped the v2 mount verbs that no longer exist', () => {
+    // Keeping them would be a mapping for a tool nothing can call.
+    expect(classifyTool('cordis_mount')).toBe('others')
+    expect(toolRowModel('cordis_mount', running({ name: 'cordis_mount', argsRaw: '{}' })).title).toBe('Tool call')
+    expect(toolRowModel('cordis_unmount', running({ name: 'cordis_unmount', argsRaw: '{}' })).title).toBe('Tool call')
   })
 
   it('gives the pwsh shell row the bash family treatment with its own title', () => {
@@ -141,28 +173,27 @@ describe('tool-call-model', () => {
   })
 
   it('gives Cordis lifecycle tools action titles over their generic variants', () => {
-    expect(toolRowModel('cordis_inspect', running({
-      name: 'cordis_inspect',
+    expect(toolRowModel('cordis_runtime_inspect', running({
+      name: 'cordis_runtime_inspect',
       argsRaw: '{"what":"api","name":"tools"}',
     }))).toMatchObject({
       variant: 'read',
       title: 'Inspect',
       summary: 'api',
     })
-    expect(toolRowModel('cordis_mount', running({
-      name: 'cordis_mount',
-      argsRaw: '{"code":"return { name: \\"audit\\", apply(ctx) {} }"}',
-    }))).toMatchObject({
-      variant: 'code',
-      title: 'Mount temporary Plugin',
-      summary: 'return { name: "audit", apply(ctx) {} }',
-      body: 'return { name: "audit", apply(ctx) {} }',
-    })
-    expect(toolRowModel('cordis_unmount', result({
-      call: { name: 'cordis_unmount', argsRaw: '{"id":"dyn-2"}' },
+    expect(toolRowModel('cordis_run', running({
+      name: 'cordis_run',
+      argsRaw: '{"id":"dyn-2"}',
     }))).toMatchObject({
       variant: 'others',
-      title: 'Unmount temporary Plugin',
+      title: 'Run Cordis Plugin',
+      summary: 'dyn-2',
+    })
+    expect(toolRowModel('cordis_undefine', result({
+      call: { name: 'cordis_undefine', argsRaw: '{"id":"dyn-2"}' },
+    }))).toMatchObject({
+      variant: 'others',
+      title: 'Remove Cordis Plugin',
       summary: 'dyn-2',
     })
   })

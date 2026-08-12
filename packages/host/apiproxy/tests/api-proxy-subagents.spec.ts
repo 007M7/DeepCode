@@ -96,7 +96,7 @@ function bench(options: {
   // The gateway's own projection push feed subscribes at construction; the
   // no-op disposer keeps that feed quiet while these tests pin history reads.
   ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
-  ctx.provide('userInteraction', { registerProvider: () => () => {} })
+  ctx.provide('userQuestions', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
   })

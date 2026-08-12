@@ -34,9 +34,9 @@ export function apply(ctx: Context): void {
   ctx.inject(['settings'], (settingsCtx) => {
     settingsCtx.settings.register(THEME_NAMESPACE, ThemeSettingsSchema)
   })
-  ctx.inject(['httpServer'], (httpCtx) => {
+  ctx.inject(['webServer'], (httpCtx) => {
     httpCtx.effect(
-      () => httpCtx.httpServer.tapIndex(html => injectBootTheme(html, readPreference(ctx))),
+      () => httpCtx.webServer.tapIndex(html => injectBootTheme(html, readPreference(ctx))),
       'client-ui-theme: initial theme bootstrap',
     )
   })

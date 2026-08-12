@@ -136,7 +136,7 @@ export type {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    tools: ToolRegistry
+    tools: ToolRuntime
   }
 
   interface Events {
@@ -149,7 +149,7 @@ declare module '@deepseek-ai/cordis' {
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
-    'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+    'tools/pre-execute'(this: Scoped<ToolRuntime>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
     /**
      * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
      * a normalized result; wrappers may change only `exec.signal`, while call
@@ -160,7 +160,7 @@ declare module '@deepseek-ai/cordis' {
      * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
      * @mode waterfall
      */
-    'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+    'tools/execute'(this: Scoped<ToolRuntime>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
      * Accept, replace, enrich, or block a normalized dispatch result. `next()`
      * accepts it unchanged; thrown tools still reach this waterfall as errors. Async
@@ -172,7 +172,7 @@ declare module '@deepseek-ai/cordis' {
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
      */
-    'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+    'tools/post-execute'(this: Scoped<ToolRuntime>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
      * Allow a listener to replace content in the DURABLE LOG COPY of one
      * `run_code` sub-dispatch outcome before the bridge appends its
@@ -186,7 +186,7 @@ declare module '@deepseek-ai/cordis' {
      * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
      * @mode waterfall
      */
-    'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
+    'tools/code-dispatch-log'(this: Scoped<ToolRuntime>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
     /**
      * Observe the frozen, lossless-JSON final outcome. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
@@ -194,7 +194,7 @@ declare module '@deepseek-ai/cordis' {
      * @param result - a deep-frozen snapshot of the final returned result.
      * @mode emit
      */
-    'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
+    'tools/result'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
     /**
      * A tool was registered or unregistered, or a scoped restriction changed
      * (the available tool set changed — possibly for one scope only). An
@@ -247,7 +247,7 @@ export interface ToolDefinition extends ToolSchema {
   finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
-   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * Enforced by `@deepseek-ai/dsh-tool-call-timeout-policy` (a `tools/execute` wrapper); it
    * is NEVER sent to the model — `schemas()` whitelists only name/description/
    * parameters. Declaring it asserts this tool forwards `exec.signal` to a
    * cooperative implementation that can reach quiescence when the signal aborts.
@@ -307,7 +307,7 @@ declare const toolExecutionTokenBrand: unique symbol
 export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 
 /**
- * Caller-supplied description of one tool call. {@link ToolRegistry.execute}
+ * Caller-supplied description of one tool call. {@link ToolRuntime.execute}
  * adds the registry-owned token to form a pipeline {@link ToolExecution};
  * callers do not choose that token.
  */
@@ -330,7 +330,7 @@ export interface ToolExecutionInput {
    * The token also marks the call as a transport sub-dispatch rather than a
    * model-direct call: under `mode: 'code'`, only calls WITH a parent may
    * execute a native tool name — a model-direct call (no parent) is denied as
-   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRegistry.execute}.
+   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRuntime.execute}.
    */
   readonly parent?: ToolExecutionToken
   /** Required caller-owned cancellation for this invocation. */
@@ -435,7 +435,7 @@ export type ScheduledToolPreparation =
 
 /**
  * Scheduler-only dispatch result. A `post-result` still receives post-execute;
- * a `final-result` already matches {@link ToolRegistry.execute} failure semantics.
+ * a `final-result` already matches {@link ToolRuntime.execute} failure semantics.
  * @internal
  */
 export type ScheduledToolDispatch =
@@ -444,11 +444,11 @@ export type ScheduledToolDispatch =
 
 /**
  * Symbol-keyed scheduler view that keeps pre/post policy ordered while
- * overlapping dispatch. Ordinary callers use {@link ToolRegistry.execute};
+ * overlapping dispatch. Ordinary callers use {@link ToolRuntime.execute};
  * this is not a plugin extension point.
  * @internal
  */
-export interface ToolRegistryScheduler {
+export interface ToolRuntimeScheduler {
   /** Materialize input, run the ordered pre-execute/guard gate, and decide what stage follows. */
   prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>
   /** Run only the around-dispatch/body stage. */
@@ -463,7 +463,7 @@ export interface ToolRegistryScheduler {
  * Scheduler entry point omitted from the generated named service API.
  * @internal
  */
-export const TOOL_REGISTRY_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
 
 /** Canonical error code for cancellation after a tool body was invoked. */
 export const TOOL_ABORTED = 'ABORTED'
@@ -784,7 +784,7 @@ function resolveMaxParallelSubCalls(value: number | undefined): number {
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
  */
-export class ToolRegistry extends Service {
+export class ToolRuntime extends Service {
   static inject = ['systemPrompt']
 
   static Config: z<Config> = z.object({
@@ -793,7 +793,7 @@ export class ToolRegistry extends Service {
   })
 
   /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
-  readonly [TOOL_REGISTRY_SCHEDULER]: ToolRegistryScheduler = {
+  readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler = {
     prepare: exec => this.prepareScheduledExecution(exec),
     dispatch: exec => this.dispatchScheduledExecution(exec),
     finalize: (exec, result) => this.finalizeScheduledExecution(exec, result),
@@ -948,7 +948,7 @@ export class ToolRegistry extends Service {
     if (scopeOf(ctx) === undefined) {
       throw new Error('tools.presentAs() requires a scoped context (agent.ctx): a context-global presentation is the `mode` config field on the tools row')
     }
-    const dispose = ctx.effect(function* (this: ToolRegistry) {
+    const dispose = ctx.effect(function* (this: ToolRuntime) {
       yield this.layers.effect(
         ctx,
         (layer) => {
@@ -1019,7 +1019,7 @@ export class ToolRegistry extends Service {
   private requireCodeRuntime(mode: ToolPresentationMode): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')
     if (!runtime) {
-      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker-thread) or set tools mode to "native"`)
     }
     if (!Object.hasOwn(SDK_RENDERERS, runtime.language)) {
       const known = Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')
@@ -1314,7 +1314,7 @@ export class ToolRegistry extends Service {
    *
    * Resolved through {@link modeFor}, NOT `defaultMode`: an agent given `code`
    * by an agent preset under a native deployment is the composition
-   * `dsh-agent-tool-mode` exists for, and reading the deployment default would
+   * `dsh-agent-tool-presentation` exists for, and reading the deployment default would
    * leave exactly that agent uncollapsed — announcing one surface while
    * executing another, which is the bypass this collapse closes.
    * @param name - the tool name as registered.
@@ -1943,4 +1943,4 @@ function toolAbortedBeforeDispatchResult(prior?: ToolExecutionResult): ToolExecu
   }
 }
 
-export default ToolRegistry
+export default ToolRuntime

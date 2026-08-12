@@ -33,7 +33,7 @@
       "path": "../../storage/storage-domain"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

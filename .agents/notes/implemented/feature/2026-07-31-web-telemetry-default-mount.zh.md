@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-共享 dsh 基础组合包（`packages/bundle/base/cordis.patch.yml`）挂载带有内置生产 endpoint 的 `telemetry-otel` 配置行，使每个 profile 都具有一致的遥测能力。[默认关闭决策](2026-08-10-telemetry-default-off.md)让该配置行保持 `DISABLED` 模式，除非部署方显式选择 `FULL` 或 `FEEDBACK_ONLY`；仅配置 endpoint 不构成上报授权。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md)，在启动器 5 秒上限到期前，先给已启用的后端 3 秒关闭截止时间完成排空。
+共享 dsh 基础组合包（`packages/bundle/base/cordis.patch.yml`）挂载带有内置生产 endpoint 的 `session-telemetry-otel` 配置行，使每个 profile 都具有一致的遥测能力。[默认关闭决策](2026-08-10-telemetry-default-off.md)让该配置行保持 `DISABLED` 模式，除非部署方显式选择 `FULL` 或 `FEEDBACK_ONLY`；仅配置 endpoint 不构成上报授权。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md)，在启动器 5 秒上限到期前，先给已启用的后端 3 秒关闭截止时间完成排空。
 
 | 决策项 | 取值 | 理由 |
 |---|---|---|
@@ -37,5 +37,5 @@ Status: implemented
 ## 后果
 
 - 开发者运行没有遥测配置的 `dsh web` 时，不会发出遥测网络请求。内部部署需设置 `DSH_TELEMETRY_MODE`，并可让 `DSH_TELEMETRY_OTLP_URL` 指向其他 collector。
-- **没有挂载任何脱敏规则**：显式启用的导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须先挂载 `telemetry/record` 规则；脱敏规则、其余身份 Resource 属性和使用情况指标仍是独立的部署工作。匿名 user id 由[匿名 user id Note](2026-07-31-telemetry-anonymous-user-id.md)交付。
+- **没有挂载任何脱敏规则**：显式启用的导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须先挂载 `session-telemetry/record` 规则；脱敏规则、其余身份 Resource 属性和使用情况指标仍是独立的部署工作。匿名 user id 由[匿名 user id Note](2026-07-31-telemetry-anonymous-user-id.md)交付。
 - 测试载具默认将数据留在本地；显式启用上传模式的测试提供自己的 collector 和模式。

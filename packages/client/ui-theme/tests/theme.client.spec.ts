@@ -2,22 +2,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ThemeSettings, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type {
+  ThemeSettings,
+  ThemeSnapshot,
+  ThemeTokenOverrides,
+} from '@deepseek-ai/dsh-client-ui-theme/client'
+import { ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 
 const make = (host = stubSettingsScope<ThemeSettings>()): {
   ctx: Context
-  theme: ThemeService
+  theme: ThemeRuntime
   events: ThemeSnapshot[]
   host: StubSettingsScope<ThemeSettings>
 } => {
   const ctx = new Context()
   const events: ThemeSnapshot[] = []
   ctx.on('theme/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, theme: new ThemeService(ctx, host.scope), events, host }
+  return { ctx, theme: new ThemeRuntime(ctx, host.scope), events, host }
 }
 
-describe('ThemeService', () => {
+describe('ThemeRuntime', () => {
   it('defaults to the system preference resolved against prefers-color-scheme', () => {
     const { theme } = make()
     const snapshot = theme.getTheme()
@@ -101,6 +105,91 @@ describe('ThemeService', () => {
     const dispose = theme.register({ id: 'sepia', colorScheme: 'dark', tokens: {} })
     dispose()
     expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
+  })
+
+  it('stacks reversible token overrides in call order and selects the active palette value', () => {
+    const { theme } = make()
+    const firstTokens: ThemeTokenOverrides = {
+      '--shared': { light: 'first-light', dark: 'first-dark' },
+      '--first': { light: 'first-only-light', dark: 'first-only-dark' },
+    }
+    const disposeFirst = theme.overrideTokens('first', firstTokens)
+    firstTokens['--shared']!.light = 'mutated-after-call'
+    const disposeSecond = theme.overrideTokens('second', {
+      '--shared': { light: 'second-light', dark: 'second-dark' },
+    })
+
+    expect(theme.getTheme().active.tokens).toMatchObject({
+      '--first': 'first-only-light',
+      '--shared': 'second-light',
+    })
+    theme.setTheme('dark')
+    expect(theme.getTheme().active.tokens).toMatchObject({
+      '--first': 'first-only-dark',
+      '--shared': 'second-dark',
+    })
+
+    disposeSecond()
+    expect(theme.getTheme().active.tokens['--shared']).toBe('first-dark')
+    disposeFirst()
+    expect(theme.getTheme().active.tokens['--shared']).toBeUndefined()
+  })
+
+  it('replacing one source leaves its stale disposer harmless', () => {
+    const { theme, events } = make()
+    const stale = theme.overrideTokens('package', {
+      '--old': { light: 'old-light', dark: 'old-dark' },
+    })
+    const current = theme.overrideTokens('package', {
+      '--new': { light: 'new-light', dark: 'new-dark' },
+    })
+    stale()
+    expect(theme.getTheme().active.tokens).toEqual({ '--new': 'new-light' })
+    current()
+    current()
+    expect(theme.getTheme().active.tokens).toEqual({})
+    expect(events).toHaveLength(3)
+  })
+
+  it('exports sorted built-in, registered, and override-only token descriptions as copies', () => {
+    const { theme } = make()
+    theme.register({
+      id: 'custom',
+      colorScheme: 'light',
+      tokens: {
+        '--dsw-alias-bg-base': 'duplicate-built-in',
+        '--registered': 'registered',
+      },
+    })
+    theme.overrideTokens('package', {
+      '--registered': { light: 'duplicate-registered', dark: 'duplicate-registered' },
+      semanticAccent: { light: 'pink', dark: 'red' },
+    })
+
+    const tokens = theme.exportInspectTokens()
+    expect(tokens.map(token => token.name)).toEqual([...tokens.map(token => token.name)].sort())
+    expect(tokens.find(token => token.name === '--registered')).toMatchObject({
+      valueType: 'CSS value',
+      cssVariable: '--registered',
+    })
+    const semantic = tokens.find(token => token.name === 'semanticAccent')
+    expect(semantic).toMatchObject({ valueType: 'CSS value' })
+    expect(semantic).not.toHaveProperty('cssVariable')
+    expect(tokens.filter(token => token.name === '--dsw-alias-bg-base')).toHaveLength(1)
+
+    tokens[0]!.description = 'caller mutation'
+    expect(theme.exportInspectTokens()[0]!.description).not.toBe('caller mutation')
+  })
+
+  it('rejects every malformed token override value with a teaching error', () => {
+    const { theme } = make()
+    const override = (value: unknown): void => {
+      theme.overrideTokens('package', { '--bad': value } as unknown as ThemeTokenOverrides)
+    }
+    expect(() => { override('red') }).toThrow(/bare string.*light.*dark/)
+    for (const value of [1, null, {}, { light: 1, dark: 'dark' }, { light: 'light' }]) {
+      expect(() => { override(value) }).toThrow(/must map to a \{ light, dark \} pair/)
+    }
   })
 
   it('context dispose releases the scope subscription', async () => {

@@ -1,4 +1,4 @@
-# Agent Note: 拆分文件系统 seam——提供方文本变更操作与 `dsh-fs-policy` 插件
+# Agent Note: 拆分文件系统 seam——提供方文本变更操作与 `dsh-fs-observation-policy` 插件
 
 Status: implemented
 
@@ -15,7 +15,7 @@ Status: implemented
 
 这还造成了一个真实的用户体验死胡同：窗口化读取记录 `view: partial`，而 partial 视图无法授权 `edit`。一个模型读取了大文件的第 100-150 行，如果想编辑第 120 行，就必须先获取一次 `full` 读取，而对于超过读取上限的文件这可能做不到。字面编辑实际上只需要新鲜度：被匹配的字节仍然来自模型所读取的那个版本即可。
 
-旧 Agent Note 已经推迟了独立的 `@deepseek-ai/dsh-fs-policy` 包。本决策构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
+旧 Agent Note 已经推迟了独立的 `@deepseek-ai/dsh-fs-observation-policy` 包。本决策构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
 
 ## 决策
 
@@ -23,14 +23,14 @@ Status: implemented
 
 ```text
 tool          dsh-tool-fs       model-facing schemas + read windowing + text rendering; the EXECUTOR (reads/writes/edits via ctx.fs, dispatches the fs/* events)
-policy        dsh-fs-policy  observed-state + read-before-edit + write/edit freshness, contributed through the fs/* event gate (no service)
+policy        dsh-fs-observation-policy  observed-state + read-before-edit + write/edit freshness, contributed through the fs/* event gate (no service)
 provider contract dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
 
-`dsh-tool-fs` 保持相同的面向模型的 `read`/`write`/`edit` schema。它是执行器：注入 `fs`（不是策略服务）并直接访问 `ctx.fs`，拥有读取窗口化逻辑，并分发 `fs/*` 事件以便 `dsh-fs-policy` 进行门控和记录。
+`dsh-tool-fs` 保持相同的面向模型的 `read`/`write`/`edit` schema。它是执行器：注入 `fs`（不是策略服务）并直接访问 `ctx.fs`，拥有读取窗口化逻辑，并分发 `fs/*` 事件以便 `dsh-fs-observation-policy` 进行门控和记录。
 
-本 Agent Note 决定了四层拆分、提供方约定和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；提供方的版本守卫可选（省略即无条件裸提供方）。
+本 Agent Note 决定了四层拆分、提供方约定和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-observation-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；提供方的版本守卫可选（省略即无条件裸提供方）。
 
 ## 提供方约定
 
@@ -69,9 +69,9 @@ type FsWriteIntent =
 
 ## 策略约定
 
-`@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。
+`@deepseek-ai/dsh-fs-observation-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。
 
-观测状态以 `WeakMap<owner, Map<targetKey, FsVersion>>` 的形式存放于此。当且仅当 owner 读取、写入或编辑过该目标时，条目才存在（每次成功都会发出 `fs/observed`），因此条目的存在*本身就是*先前观测的记录——没有单独的 `hasRead` 标志。owner 从不透明的事件 actor（`{ agent?: { session? } }`）结构化派生，该形状定义在 `dsh-fs-policy` 中而非 `dsh-fs` 中。
+观测状态以 `WeakMap<owner, Map<targetKey, FsVersion>>` 的形式存放于此。当且仅当 owner 读取、写入或编辑过该目标时，条目才存在（每次成功都会发出 `fs/observed`），因此条目的存在*本身就是*先前观测的记录——没有单独的 `hasRead` 标志。owner 从不透明的事件 actor（`{ agent?: { session? } }`）结构化派生，该形状定义在 `dsh-fs-observation-policy` 中而非 `dsh-fs` 中。
 
 该插件决定三个 `fs/*` 事件：
 
@@ -85,9 +85,9 @@ type FsWriteIntent =
 
 `dsh-tool-fs` 保持相同的 schema 和提示词表面。`read` 仍然暴露 `file_path`、`offset` 和 `limit`；`write` 和 `edit` 不变。它是执行器：验证模型参数，通过 `ctx.fs` 直接读取/写入/编辑，拥有行窗口化和结果渲染（`N: text`、页脚、`<path>/<content>` 封装），并分发 `fs/*` 事件。
 
-每个变更操作先分发其 intent waterfall（瀑布式事件），带有 `undefined` 裸提供方默认值，然后调用 `ctx.fs`，再发出 `fs/observed`。例如 `write` 执行 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` → `ctx.fs.writeText(target, content, intent)` → `ctx.emit('fs/observed', …)`。`read` 先 stat 一次，然后读取/流式读取，构建窗口，最后发出 `fs/observed`。将 `exec` 作为 actor 传递，让 `dsh-fs-policy` 无需工具深入策略即可派生 owner。
+每个变更操作先分发其 intent waterfall（瀑布式事件），带有 `undefined` 裸提供方默认值，然后调用 `ctx.fs`，再发出 `fs/observed`。例如 `write` 执行 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` → `ctx.fs.writeText(target, content, intent)` → `ctx.emit('fs/observed', …)`。`read` 先 stat 一次，然后读取/流式读取，构建窗口，最后发出 `fs/observed`。将 `exec` 作为 actor 传递，让 `dsh-fs-observation-policy` 无需工具深入策略即可派生 owner。
 
-由于策略通过带有 `undefined` 默认值的事件贡献，`dsh-tool-fs` 不与 `dsh-fs-policy` 产生方法耦合：在插件缺席时，每个 intent waterfall 都落到 `undefined`（无条件裸提供方写入/编辑），`fs/observed` 没有监听器。加载插件后即可叠加读后写/编辑策略。
+由于策略通过带有 `undefined` 默认值的事件贡献，`dsh-tool-fs` 不与 `dsh-fs-observation-policy` 产生方法耦合：在插件缺席时，每个 intent waterfall 都落到 `undefined`（无条件裸提供方写入/编辑），`fs/observed` 没有监听器。加载插件后即可叠加读后写/编辑策略。
 
 ## 并发边界
 
@@ -101,7 +101,7 @@ type FsWriteIntent =
 
 本 Agent Note 推翻[文件系统能力 seam](../architecture/2026-06-17-filesystem-capability-seam.md)中的两项决策，并收窄第三项：
 
-- 读后写/编辑策略从 `ctx.fs` 移出，进入 `dsh-fs-policy` 插件（通过 `fs/*` 事件门控）。
+- 读后写/编辑策略从 `ctx.fs` 移出，进入 `dsh-fs-observation-policy` 插件（通过 `fs/*` 事件门控）。
 - 文本读取不再返回后端编号的行记录或 `full`/`partial` 视图；授权基于版本新鲜度，因此窗口化读取在文件未变时即可授权编辑。
 - 字面编辑不再位于旧的 `applyEdit` API 之后（该 API 混合了后端变更与 seam 拥有的观测策略）。它作为 `editText` 保留为提供方原语，因为版本守卫 + 字面匹配 + 原子重写必须留在提供方的变更临界区内。
 
@@ -109,7 +109,7 @@ type FsWriteIntent =
 
 ## 验证
 
-`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测约定成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-policy` 具有 HMR（热模块替换）/dispose（资源释放）测试覆盖。
+`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测约定成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-observation-policy` 具有 HMR（热模块替换）/dispose（资源释放）测试覆盖。
 
 ## 后续扩展
 

@@ -16,7 +16,7 @@
       "path": "../../client/connection/tsconfig.client.json"
     },
     {
-      "path": "../../typert/type-meta"
+      "path": "../../typert/protocol"
     }
   ]
 }

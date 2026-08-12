@@ -14,18 +14,18 @@ subagent 需要与其他长时间运行的工具相同的启动、收集、列�
 
 每个 `dsh-tool-subagent` 实例都可以公开 `run_in_background`，由 `enableRunInBackground` 控制，且默认启用。禁用该功能的实例不包含此参数，并会在执行时拒绝强制传入的后台参数。提供方选择仍属于部署配置，因此一个实例仍然只为一个提供方注册一个名称可区分的工具。
 
-后台 subagent 使用[通用后台任务运行时](../architecture/2026-06-20-generic-long-running-tool-runtime.md)。`task_output`、`task_list` 和 `task_kill` 负责收集、列出、取消、完成通知和提示词引导；系统不提供 subagent 专用的配套工具。
+后台 subagent 使用[通用后台任务运行时](../architecture/2026-06-20-generic-long-running-tool-runtime.md)。`job_output`、`job_list` 和 `job_kill` 负责收集、列出、取消、完成通知和提示词引导；系统不提供 subagent 专用的配套工具。
 
 前台调用保留其同步约定：等待提供方启动和 `run.result`；仅当状态为 `completed` 时返回最终文本；将其他终止原因映射为出错的工具结果；并且始终在返回前释放该运行。
 
-对于后台调用，工具会验证父级，并在调用 `ctx.tasks.start()` 前拒绝已中止的执行信号。任务运行时会在调用生产者启动器前，预检控制 API 和拥有者清理。该启动器创建独立的 `AbortController` 并启动 `ctx.subagents.start()`；返回 id 之后，工具调用的信号不再拥有该子级。
+对于后台调用，工具会验证父级，并在调用 `ctx.jobs.start()` 前拒绝已中止的执行信号。任务运行时会在调用生产者启动器前，预检控制 API 和拥有者清理。该启动器创建独立的 `AbortController` 并启动 `ctx.subagents.start()`；返回 id 之后，工具调用的信号不再拥有该子级。
 
 任务注册按以下方式映射 subagent seam：
 
 - `kind` 为 `subagent`，`label` 为模型提供的描述，`owner` 为父 agent（智能体）。
 - `cancel(reason?)` 中止任务自有的控制器。同一个信号同时覆盖尚未完成的提供方启动和已发布 run 的剩余工作。
 - `done` 等待提供方启动、子级结果和 `run.dispose()`。已完成的运行返回最终文本，已中止的运行变为 `killed`，其他停止原因变为 `failed`。启动、结果和资源释放失败会转换为失败结果，而不是被拒绝的任务 Promise。
-- `readOutput` 不存在。任务存活期间，`task_output` 只返回状态；结算后，它以幂等方式返回最终输出。中间的子级活动仍保留在子会话中。
+- `readOutput` 不存在。任务存活期间，`job_output` 只返回状态；结算后，它以幂等方式返回最终输出。中间的子级活动仍保留在子会话中。
 
 ## 生命周期
 
@@ -35,7 +35,7 @@ subagent 需要与其他长时间运行的工具相同的启动、收集、列�
 
 ## 模型引导
 
-通用任务提示词教会模型一套共享的做法：保留 id；继续独立工作，而不是忙等轮询；在回答前收集相关任务；终止无关工作。subagent schema 只补充说明：后台模式返回 task id，且 `task_output` 用于收集结果。无论模型是否遵循提示词，授权和拥有者清理都会强制执行运行时边界。
+通用任务提示词教会模型一套共享的做法：保留 id；继续独立工作，而不是忙等轮询；在回答前收集相关任务；终止无关工作。subagent schema 只补充说明：后台模式返回 job id，且 `job_output` 用于收集结果。无论模型是否遵循提示词，授权和拥有者清理都会强制执行运行时边界。
 
 ## 备选方案
 

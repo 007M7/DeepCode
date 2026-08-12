@@ -22,7 +22,7 @@
 import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { SessionLineageNode, SessionQueryService } from '@deepseek-ai/dsh-session-query'
+import type { SessionLineageNode, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 
@@ -34,7 +34,7 @@ export const DEFAULT_SESSION_LOG_COMPRESSION_LEVEL: SessionLogCompressionLevel =
 
 /** The services a session-log export needs (the live-session store is optional). */
 export interface SessionLogExportDeps {
-  readonly sessionQuery: SessionQueryService | undefined
+  readonly sessionQuery: SessionQueryEngine | undefined
   readonly sessionPersistence: SessionPersistence | undefined
   readonly attachments: AttachmentStore | undefined
   readonly sessions: SessionStore | undefined
@@ -42,7 +42,7 @@ export interface SessionLogExportDeps {
 
 /** The export services narrowed to the mounted ones streaming actually reads. */
 export interface SessionLogExportReady {
-  readonly sessionQuery: SessionQueryService
+  readonly sessionQuery: SessionQueryEngine
   readonly sessionPersistence: SessionPersistence
   readonly attachments: AttachmentStore
   readonly sessions: SessionStore | undefined

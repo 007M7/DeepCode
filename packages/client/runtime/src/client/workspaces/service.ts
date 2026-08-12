@@ -1,4 +1,4 @@
-/** WorkspacesService projects the Workspace object manager for UI consumers. */
+/** WorkspaceRuntime projects the Workspace object manager for UI consumers. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
@@ -48,7 +48,7 @@ export class DirectoryBrowseError extends Error {
 }
 
 /** Real Workspace object layer and Host actions. */
-export class WorkspacesService implements IWorkspaces {
+export class WorkspaceRuntime implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */

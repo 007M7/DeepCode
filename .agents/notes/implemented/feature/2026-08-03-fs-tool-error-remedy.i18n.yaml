@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-03-fs-tool-error-remedy.md
-2026-08-03-fs-tool-error-remedy.md: 1829a47363079aacc2090e166e94b5c524c87deb
-2026-08-03-fs-tool-error-remedy.zh.md: 11413b9fac48671da1083081b52f8461236b6590
+2026-08-03-fs-tool-error-remedy.md: 66d47b750afdd43c4e2b830e73e21a3341f26c4b
+2026-08-03-fs-tool-error-remedy.zh.md: 09d8220a972c32c0fc2a951627f1cdcd172dbdba

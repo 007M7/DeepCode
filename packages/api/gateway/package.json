@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-gateway",
-  "description": "TypeRT Remote Host dispatcher and Client API endpoint",
-  "version": "0.0.1-rc.2",
+  "description": "Typert Remote Host dispatcher and Client API endpoint",
+  "version": "0.0.1-rc.3",
   "publishConfig": {
     "access": "restricted"
   },
@@ -56,7 +56,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@deepseek-ai/dsh-type-meta": "workspace:^"
+    "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-connection": "workspace:^",

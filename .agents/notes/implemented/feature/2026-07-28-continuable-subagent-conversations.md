@@ -10,7 +10,7 @@ This record replaces the Task-backed continuation manager from [Continuable back
 
 The previous continuation manager made one Task, one provider execution, and one result boundary the same object lifetime. Task settlement disposed the child Agent, Task completion injected the completion notice, and later input reconstructed another Agent. That coupled a generic background-work abstraction to conversation delivery even though a continuable subagent already has a Session and an Agent inbox.
 
-Giving queued continuation requests to the manager while the Agent retained its own inbox would create two FIFOs with no single ordering authority. Giving all messages to Tasks instead duplicated the Agent loop's admission, cancellation, and quiescence machinery. `Agent.whenIdle()` cannot recover a per-request Task result because one running interval may drain multiple queued turns, and broad `Agent.cancel()` cannot remove one queued request exactly.
+Giving queued continuation requests to the manager while the Agent retained its own inbox would create two FIFOs with no single ordering authority. Giving all messages to Jobs instead duplicated the Agent loop's admission, cancellation, and quiescence machinery. `Agent.whenIdle()` cannot recover a per-request Task result because one running interval may drain multiple queued turns, and broad `Agent.cancel()` cannot remove one queued request exactly.
 
 The runtime lifetime is also wider than one turn. A subagent can finish its own turn while a child it created is still running. Disposing the parent runtime at that point removes the Agent that still owns descendant teardown. Keeping every historical subagent resident instead would make memory use unbounded.
 
@@ -131,7 +131,7 @@ Parent-originated delivery requires the parent to be live when admitted and keep
 
 ### Durability, disposal, and recovery
 
-Without Tasks there is no `task_output`, `task_kill`, Task status, or per-message result promise. The caller signal can abort start or follow-up only before inbox acceptance. After acceptance, the parent cannot cancel the accepted message or dispose the Activation through `ctx.subagents`; the only public stop is the later [current-turn interrupt](2026-08-06-continuable-subagent-interrupt.md), which cancels the live target's current turn with `keepInbox` and leaves residency, pending work, and descendants intact.
+Without Jobs there is no `job_output`, `job_kill`, Task status, or per-message result promise. The caller signal can abort start or follow-up only before inbox acceptance. After acceptance, the parent cannot cancel the accepted message or dispose the Activation through `ctx.subagents`; the only public stop is the later [current-turn interrupt](2026-08-06-continuable-subagent-interrupt.md), which cancels the live target's current turn with `keepInbox` and leaves residency, pending work, and descendants intact.
 
 Host and manager teardown remains the lifecycle stop path. Manager unload applies it globally; a host applies it only below the exact top-level Agents it owns. Each form closes the applicable admission scope, stops the selected visible Activations, awaits admitted materializations in that scope, releases child-first, and preserves the durable Sessions.
 
@@ -149,7 +149,7 @@ It adds no host-user continuation, subagent steering operation, durable mailbox,
 
 ## Alternatives considered
 
-**Keep Task-backed Activations.** Tasks provide generic status, result collection, and cancellation, but using them for conversation delivery creates a second queue and duplicates turn ownership. This design gives up those generic Task controls so the Agent inbox remains the only execution order.
+**Keep Task-backed Activations.** Jobs provide generic status, result collection, and cancellation, but using them for conversation delivery creates a second queue and duplicates turn ownership. This design gives up those generic Task controls so the Agent inbox remains the only execution order.
 
 **Create one Activation per `next-turn`.** This restores independent result and cancellation boundaries, but it requires a manager FIFO beside the Agent inbox and makes a retained Agent cross artificial Activation boundaries. One Activation per residency epoch is smaller and follows the `AgentHandle` lifetime directly.
 
@@ -195,7 +195,7 @@ The implementation pins these behaviors:
 - Manager teardown closes admission globally; a host owning selected top-level Agents instead closes admission only below their exact identities until those roots leave the registry. Both track admitted materializations by exact ancestry, install one memoized disposal cutoff per selected visible Activation, propagate cancellation top-down, release handles child-first, await every selected branch despite individual failures, and only then dispose the corresponding top-level Agents or manager scope.
 - The base lifecycle has no implicit report behavior; the optional report package contributes an explicit child-scoped tool through the setup hook.
 - Session logs reconstruct only messages that were actually written, with the source that supplied each message; inbox-accepted but unlogged messages have no restart guarantee.
-- No continuable-subagent path creates or depends on a Task, `TaskId`, Task completion notice, Task cancellation, or intermediate result-bearing execution wrapper.
+- No continuable-subagent path creates or depends on a Task, `JobId`, Task completion notice, Task cancellation, or intermediate result-bearing execution wrapper.
 - Unit coverage pins the `startContinuable()` inbox-acceptance return boundary, complete rollback for each pre-acceptance and lifecycle-publication failure, global and parent-scoped drain quiescence for materialization caught between Agent publication and Activation registration, sibling-forest isolation, exact ancestry after an intermediate Agent leaves the registry, provider-independent cold resume, final exact-parent reauthorization after cold-resume materialization, caller-signal and teardown ownership on both sides of acceptance, and the absence of automatic replay for accepted-but-unlogged messages.
 - Unit coverage pins the residency-only routing table, single-inbox ordering, `MessageId` correlation through inbox events, follow-up during an open turn, waiting wakeup, cold resume, ownership registration and release, child-first disposal, send-versus-dispose races, best-effort final flush with absent and failing listeners, and the absence of public subagent cancellation and steering.
 - Report-package unit coverage separately pins child-only visibility, setup revocation, authority, delivery modes, stable message identity, and lifecycle races.
@@ -203,7 +203,7 @@ The implementation pins these behaviors:
 
 ### Accepted costs
 
-Removing Tasks gives up generic background-work inspection, result collection, and exact Task cancellation. If those product features become requirements, they need a request ticket or inbox capability that does not reintroduce a second execution queue.
+Removing Jobs gives up generic background-work inspection, result collection, and exact Task cancellation. If those product features become requirements, they need a request ticket or inbox capability that does not reintroduce a second execution queue.
 
 Retaining an Activation while descendants run consumes Agent resources proportional to the unfinished ownership graph. The existing delegation-depth policy still bounds nesting, but this version adds no live-Activation or total-descendant limit; settled historical Sessions retain no `AgentHandle`.
 

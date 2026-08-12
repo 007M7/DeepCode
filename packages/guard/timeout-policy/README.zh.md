@@ -1,4 +1,4 @@
-# dsh-timeout-policy
+# dsh-tool-call-timeout-policy
 
 [English](README.md) | 中文
 
@@ -10,7 +10,7 @@
 
 ```yaml
 - id: timeout-policy
-  name: '@deepseek-ai/dsh-timeout-policy'
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 ```
 
 每工具预算由工具插件声明（例如 `dsh-tool-web` 的 `fetchTimeoutMs`／`searchTimeoutMs` 配置，会附加为 `ToolDefinition.timeoutMs`）；此插件只负责强制执行，因此不可能拼错工具名。

@@ -16,7 +16,7 @@ The same `scaffold/` group also contained the independently used SDK protocol, T
 
 The SDK project toolchain is deleted. The `@deepseek-ai/create-sdk`, `@deepseek-ai/dsh-scripts`, `@deepseek-ai/dsh-helper`, and `@deepseek-ai/dsh-telemetry` packages, their binaries, tests, templates, feature catalog, project-editing model, package-manager support, launcher telemetry, and repository creation skill have no replacement or compatibility layer. Their workspace, build, test, packaging, documentation-generator, vendoring-rescope, and dependency records are removed with them.
 
-The runtime SDK remains. `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and `@deepseek-ai/dsh-jsonrpc` move unchanged from `packages/scaffold/` to `packages/sdk/`; their npm names and wire behavior do not change. Consumers continue to provide an executable plus an external `cordis.yml`, and the JSON-RPC server remains an ordinary plugin selected by that configuration.
+The runtime SDK remains. `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and `@deepseek-ai/dsh-sdk-jsonrpc-server` move unchanged from `packages/scaffold/` to `packages/sdk/`; their npm names and wire behavior do not change. Consumers continue to provide an executable plus an external `cordis.yml`, and the JSON-RPC server remains an ordinary plugin selected by that configuration.
 
 The canceled developer-project, project-editing, and follow-up-capabilities proposals are deleted rather than retained as active or rejected records. This note preserves the motivation they shared, the decision not to ship that product, the capability given up, and the condition for reconsideration. Frozen archived Agent Notes remain historical snapshots and are not edited.
 
@@ -32,7 +32,7 @@ The workspace contains none of the four deleted package names or either removed 
 
 **Delete the runtime SDK stack too.** Rejected because the Python SDK, the out-of-process Harness subagent provider, and the JSON-RPC example are current consumers of the protocol, client, and server.
 
-**Leave the runtime stack under `packages/scaffold/`.** Rejected because nothing left in that group scaffolds a project. `packages/sdk/` states the surviving role directly even though the repository as a whole is also an SDK.
+**Leave the runtime stack under `packages/scaffold/`.** Rejected because nothing left in that group scaffolds a project. `packages/sdk/` states the surviving role directly because `SDK` has one repository meaning: the JSON-RPC client/server protocol used by the supported Python and TypeScript SDKs. DeepSeek Harness itself is not an SDK project.
 
 ## Consequences
 

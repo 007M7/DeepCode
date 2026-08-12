@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentDefaultModelService, { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '../src/index.ts'
-import { Settings } from '@deepseek-ai/dsh-settings'
+import AgentDefaultModelConfig, { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '../src/index.ts'
+import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 /** The smallest real provider: one in-memory document, always writable. */
-class MemorySettings extends Settings {
+class MemorySettings extends SettingsProvider {
   doc: Record<string, unknown> = {}
 
   get writable(): boolean {
@@ -28,19 +28,19 @@ class MemorySettings extends Settings {
 async function boot(): Promise<{
   ctx: Context
   settingsFiber: Context['fiber']
-  defaultModel: AgentDefaultModelService
+  defaultModel: AgentDefaultModelConfig
 }> {
   const ctx = new Context()
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
-  await ctx.plugin(AgentDefaultModelService, {
+  await ctx.plugin(AgentDefaultModelConfig, {
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
   })
   return { ctx, settingsFiber, defaultModel: ctx.agentDefaultModel }
 }
 
-describe('AgentDefaultModelService', () => {
+describe('AgentDefaultModelConfig', () => {
   it('resolves the user layer over the composition entry', async () => {
     const bench = await boot()
     expect(bench.defaultModel.currentSelection()).toEqual({
@@ -90,7 +90,7 @@ describe('AgentDefaultModelService', () => {
 
   it('keeps the composition entry when no settings provider is mounted', async () => {
     const ctx = new Context()
-    await ctx.plugin(AgentDefaultModelService, { provider: 'p', model: 'm' })
+    await ctx.plugin(AgentDefaultModelConfig, { provider: 'p', model: 'm' })
     await ctx.agentDefaultModel.saveSelection({ provider: 'other', model: 'other' })
     expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'p', model: 'm' })
     await ctx.fiber.dispose()

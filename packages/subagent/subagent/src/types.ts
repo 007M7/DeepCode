@@ -149,7 +149,7 @@ export interface SubagentStartRequest {
 }
 
 /**
- * Provider-facing one-shot request after {@link SubagentService.start} resolves
+ * Provider-facing one-shot request after {@link SubagentRuntime.start} resolves
  * the durable child descriptor.
  */
 export interface ResolvedSubagentStartRequest extends SubagentStartRequest {

@@ -9,7 +9,7 @@ A service is a capability one plugin exposes to other plugins. `inject` declares
 In Harness, `tools`, `llm`, and `agents` are services. Each is a named capability mounted on `ctx`:
 
 ```ts ignore-check
-ctx.tools    // ToolRegistry service
+ctx.tools    // ToolRuntime service
 ctx.llm      // LLM service
 ctx.agents   // Agent service
 ```

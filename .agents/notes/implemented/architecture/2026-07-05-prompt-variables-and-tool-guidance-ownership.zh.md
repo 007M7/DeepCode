@@ -10,7 +10,7 @@ Status: implemented
 
 **模型无法知道自己的名字。** `AgentOptions.model` 驱动每个请求，但没有任何提示词文本携带它——也不可能携带：`dsh-system-prompt` 中的 section 是上下文全局的，而模型名称因 agent（智能体）而异，`assemble()` 根本不接受任何 per-agent 输入。
 
-**工具指导是 leaf YAML 中的手写行文。** bash/subagent/todo_write 的使用指导存放在 coding-agent 和 ACP（Agent Client Protocol）的 persona 字符串里——两份漂移的副本（ACP 那份已经被删减）——而 `dsh-tool-fs` 和 `dsh-tool-web` 则通过 `ctx.systemPrompt.section()` 贡献各自的指导。加载或卸载一个工具插件意味着手动编辑每个部署的 persona，旧终端欢迎横幅也手动枚举了工具集。
+**工具指导是 leaf YAML 中的手写行文。** shell/subagent/todo_write 的使用指导存放在 coding-agent 和 ACP（Agent Client Protocol）的 persona 字符串里——两份漂移的副本（ACP 那份已经被删减）——而 `dsh-tool-fs` 和 `dsh-tool-web` 则通过 `ctx.systemPrompt.section()` 贡献各自的指导。加载或卸载一个工具插件意味着手动编辑每个部署的 persona，旧终端欢迎横幅也手动枚举了工具集。
 
 **Persona 渲染在工具指导之后。** agent loop（智能体循环）将 `agent.options.systemPrompt` 字符串拼接在已组装的 section 之后，于是模型先读到「Use the read tool…」再读到「You are a coding agent」——与 identity-first 约定（Claude Code、Codex）相反，且是 section 流水线之外的第二条组合路径。
 
@@ -58,7 +58,7 @@ Status: implemented
 
 ## 交付的不变式
 
-- tui-agent 的提示词通过一条组装路径依次渲染 identity、带插值模型名的 persona，然后是 fs/bash/web 指导。
+- tui-agent 的提示词通过一条组装路径依次渲染 identity、带插值模型名的 persona，然后是 fs/shell/web 指导。
 - fork 和 fresh subagent 的描述反映提供方是否继承已完成的对话轮次；工具随提供方生命周期变化而出现、消失和重新措辞。
 - 未知、无值、格式错误或不平衡的变量引用会指明 section 名称并抛出异常；重复的 section、变量和工具注册同样抛出异常。
 - 快照回放与提示词无关：它按轮次和步骤索引已记录的分片流，不比较发出的请求。

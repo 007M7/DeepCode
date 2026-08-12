@@ -22,7 +22,7 @@ Every committed session-format fixture uses the canonical packed physical layout
 
 ### Replay derives the model script from the log
 
-`llm-replay` short-circuits the provider-agnostic `llm/stream` waterfall. `deriveReplayScript()` splits recorded `assistant/chunk` events at terminal `finish` chunks and uses `(turn, step)` changes to reject an unterminated prior call. A `compact/summary` with `llmStreamCall: true` contributes one call at its durable log position: replay reconstructs canonical block boundaries from `rawOutput`, retains recorded usage when present, and supplies a terminal `stop`. The marker distinguishes that local call from template or remote summaries whose retained `rawOutput` did not consume this context's adapter.
+`llm-replay` short-circuits the provider-agnostic `llm/stream` waterfall. `deriveReplayScript()` splits recorded `assistant/chunk` events at terminal `finish` chunks and uses `(turn, step)` changes to reject an unterminated prior call. A `compaction/summary` with `llmStreamCall: true` contributes one call at its durable log position: replay reconstructs canonical block boundaries from `rawOutput`, retains recorded usage when present, and supplies a terminal `stop`. The marker distinguishes that local call from template or remote summaries whose retained `rawOutput` did not consume this context's adapter.
 
 ### The in-memory replay entry honors the full LLM contract
 

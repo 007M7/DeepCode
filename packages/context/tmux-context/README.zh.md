@@ -17,7 +17,7 @@
 
 ## 如何读取 tmux
 
-插件前置注册一个 `agent/pre-step` 监听器，仅在每轮的第一个步骤运行。当需要注入时，它通过 `ctx.bash` 执行器服务运行一条只读命令：
+插件前置注册一个 `agent/pre-step` 监听器，仅在每轮的第一个步骤运行。当需要注入时，它通过 `ctx.shell` 执行器服务运行一条只读命令：
 
 ```sh
 [ -n "$TMUX_PANE" ] || exit 1
@@ -27,7 +27,7 @@ pane_tty=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_tty}') || exit 1
 exec tmux display-message -t "$TMUX_PANE" -p '<format>'
 ```
 
-仅凭 `$TMUX_PANE` 并不足够：从 tmux shell 启动的终端（VS Code 集成终端、桌面启动器）会从该祖先进程**继承** `$TMUX` 与 `$TMUX_PANE`，因此即使进程并不位于那个 pane 中，这些变量依然存在。为此该命令还会把 pane 的 `#{pane_tty}` 与本进程自己的控制终端（对其 pid 执行 `ps -o tty=`）作比较：真正的 pane 拥有本进程的 tty，而继承而来的环境指向的是另一个 pane 的 tty。通过 `ctx.bash` 运行会应用部署方的沙箱与策略；插件不拥有任何子进程代码。当 `ctx.bash` 缺失、进程不在真实的 tmux pane 内（`$TMUX_PANE` 未设置，或 tty 不匹配 ⇒ 非零退出）或读取结果格式非法时，本次尝试为空操作，绝不报错。由于位置信息是可选的，执行器的拒绝——`resolve()` 的策略拒绝或 `run()` 的基础设施故障——会被兜住并记录为警告，而不会使该轮失败。
+仅凭 `$TMUX_PANE` 并不足够：从 tmux shell 启动的终端（VS Code 集成终端、桌面启动器）会从该祖先进程**继承** `$TMUX` 与 `$TMUX_PANE`，因此即使进程并不位于那个 pane 中，这些变量依然存在。为此该命令还会把 pane 的 `#{pane_tty}` 与本进程自己的控制终端（对其 pid 执行 `ps -o tty=`）作比较：真正的 pane 拥有本进程的 tty，而继承而来的环境指向的是另一个 pane 的 tty。通过 `ctx.shell` 运行会应用部署方的沙箱与策略；插件不拥有任何子进程代码。当 `ctx.shell` 缺失、进程不在真实的 tmux pane 内（`$TMUX_PANE` 未设置，或 tty 不匹配 ⇒ 非零退出）或读取结果格式非法时，本次尝试为空操作，绝不报错。由于位置信息是可选的，执行器的拒绝——`resolve()` 的策略拒绝或 `run()` 的基础设施故障——会被兜住并记录为警告，而不会使该轮失败。
 
 状态在每个符合条件的轮次拉取——pane 被移动、改名或重新布局都会被感知，无需任何 tmux hook 或后台进程。插件仅在渲染出的 tmux 状态与上次注入不同时才重新注入，因此位置不变时不会新增任何内容。
 

@@ -3,13 +3,13 @@
  * recovery after an HMR collapse of the declaring entry. */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { SettingsScopeService } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   apply, inject, SETTINGS_NS,
 } from '@deepseek-ai/dsh-client-locale/client'
-import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import type { LanguageRowInjected, LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { LOCALE_SETTINGS_NAMESPACE, LocaleSettingsSchema } from '../src/locale-settings.ts'
 import { LanguageRow } from '../src/client/LanguageRow.tsx'
 import type { createLanguageRowStore } from '../src/client/settings-store.ts'
@@ -18,7 +18,7 @@ const SLOT = 'settings.general.item'
 
 async function bench() {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   let preference: string | undefined
   let revision = 0
   const namespace = () => ({
@@ -47,15 +47,15 @@ async function bench() {
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback: true } as never)
   // The settings transport and the forwarded-event port the plugin injects.
   new TestRemote(ctx)
-  await ctx.plugin(SettingsScopeService).await()
+  await ctx.plugin(SettingsScopeBinder).await()
   return {
-    ctx, slots: ctx.get('slots') as SlotsService, describe, mutate,
+    ctx, slots: ctx.get('slots') as SlotRegistry, describe, mutate,
     setHostPreference: (next: string | undefined) => { preference = next; revision += 1 },
   }
 }
 
 /** Stand in for the settings shell: declare the General item slot from root. */
-function declareItems(slots: SlotsService): () => void {
+function declareItems(slots: SlotRegistry): () => void {
   return slots.register(
     { name: 'root', children: { [SLOT]: { kind: 'list', scope: 'root' } } } as never,
     () => null,
@@ -64,7 +64,7 @@ function declareItems(slots: SlotsService): () => void {
 
 /** Mirror the framework's inject choreography: bake a real instance from the
  * declared handle and hand its actions to the entry's inject factory. */
-function faceOf(slots: SlotsService) {
+function faceOf(slots: SlotRegistry) {
   const entry = slots.entries(SLOT).find(e => e.component === LanguageRow)!
   const handle = entry.store as ReturnType<typeof createLanguageRowStore>
   const instance = handle.create()
@@ -91,7 +91,7 @@ describe('locale apply', () => {
     const before = await bench()
     declareItems(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
-    const locale = before.ctx.get('locale') as LocaleService
+    const locale = before.ctx.get('locale') as LocaleRuntime
     // Base dictionaries are registered: the (ns, locale) seats are occupied.
     expect(() => locale.register('common', 'zh', {})).toThrow('already has locale')
     expect(() => locale.register('common', 'en', {})).toThrow('already has locale')
@@ -112,7 +112,7 @@ describe('locale apply', () => {
     const b = await bench()
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const locale = b.ctx.get('locale') as LocaleService
+    const locale = b.ctx.get('locale') as LocaleRuntime
     // An event ahead of any inject hits the unbound-actions arm.
     locale.setLocale('en')
 
@@ -136,7 +136,7 @@ describe('locale apply', () => {
     b.setHostPreference('en')
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const locale = b.ctx.get('locale') as LocaleService
+    const locale = b.ctx.get('locale') as LocaleRuntime
     await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
     b.setHostPreference(undefined)
     b.ctx.remote.$dispatch('settings/document-updated', [LOCALE_SETTINGS_NAMESPACE, 0])

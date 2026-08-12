@@ -15,7 +15,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 declare global {
   interface ImportMeta {
@@ -47,7 +47,7 @@ export const testInvariantCompanions: Readonly<Record<string, () => Promise<Test
 
 /** Manual-topology suites whose names cannot follow the focused invariant convention. */
 const MANUAL_INVARIANT_TEST_EXCEPTIONS = [
-  '/packages/support/invariants/tests/service.spec.ts',
+  '/packages/runtime-diagnostics/invariants/tests/service.spec.ts',
   '/packages/examples/agent-spine-demo/tests/agent-core.spec.ts',
 ] as const
 
@@ -174,7 +174,7 @@ function startInvariantHost(root: Context): InvariantHost {
   // awaits ready, so none starts ahead of its package checks. Tests plugging
   // a companion directly must await an earlier root plugin first — the
   // duplicate-mount failure otherwise is loud (owner name already reserved).
-  const serviceFiber = mount(InvariantService, { enabled: true })
+  const serviceFiber = mount(InvariantRegistry, { enabled: true })
   const testPath = expect.getState().testPath ?? ''
   const companionPaths = testInvariantCompanionPaths(testPath)
   const ready = requireActive(serviceFiber, 'invariant service').then(async () => {

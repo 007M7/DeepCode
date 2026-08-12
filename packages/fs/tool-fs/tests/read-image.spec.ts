@@ -12,13 +12,13 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import { CallId, LlmAdapter, LlmService } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { Config as ToolConfig } from '@deepseek-ai/dsh-tools'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -100,7 +100,7 @@ interface SetupOptions {
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry, { mode: options.toolMode ?? 'native' })
+  await ctx.plugin(ToolRuntime, { mode: options.toolMode ?? 'native' })
   if (options.toolMode === 'code' || options.toolMode === 'both') {
     await ctx.plugin(FakeRuntime)
   }
@@ -110,7 +110,7 @@ async function setup(options: SetupOptions = {}) {
     await ctx.plugin(LocalAttachmentStore, { dshHome: home, ...options.storeConfig })
   }
   if (options.llm !== false) {
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     ctx.llm.registerAdapter(['visual'], new CatalogAdapter(options.models ?? [
       { provider: 'visual', id: 'vision-model', name: 'Vision', inputModalities: ['text', 'image'] },
       { provider: 'visual', id: 'text-model', name: 'Text', inputModalities: ['text'] },
@@ -444,7 +444,7 @@ describe('registration surface', () => {
   it('withdraws read_image when the tool-fs fiber or the attachment store is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry, { mode: 'native' })
+    await ctx.plugin(ToolRuntime, { mode: 'native' })
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     await ctx.plugin(FsPolicy)
     const attachmentsFiber = await ctx.plugin(LocalAttachmentStore, { dshHome: home })

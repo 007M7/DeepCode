@@ -25,7 +25,7 @@
 | MCP | MCP | | | |
 | PR | PR | PR（Pull Request） | | |
 | RAG | RAG | RAG（检索增强生成） | | |
-| SDK | SDK | | | |
+| SDK | SDK | | | 只指受支持的 Python 与 TypeScript SDK 所使用的 JSON-RPC 客户端／服务器协议；DeepSeek Harness 项目本身不是 SDK |
 | SSE | SSE | SSE（Server-Sent Events） | | |
 
 ## 英文类（中英文文本中均使用英文）
@@ -56,15 +56,16 @@
 | Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
-| seam | seam | | 接缝 | 一个可替换能力的整体，包含 Service Definition / Service provider / Consumer 三种角色；角色需要独立演化时才拆包，也可由同一包承担多个角色。以 `packages/bash` 为范例；Service Definition 是 Cordis `Service`（抽象类或具体 registry 服务），不是 TypeScript interface。任何单一角色、普通边界或扩展点都不能称为 seam。本仓库正文保留英文；与 `extension point` 是不同概念 |
+| seam | seam | | 接缝 | 一个可替换能力的整体，包含 Service Definition / Service provider / Consumer 三种角色；角色需要独立演化时才拆包，也可由同一包承担多个角色。以 `packages/shell` 为范例；Service Definition 是 Cordis `Service`（抽象类或具体 registry 服务），不是 TypeScript interface。任何单一角色、普通边界或扩展点都不能称为 seam。本仓库正文保留英文；与 `extension point` 是不同概念 |
 | skill | skill | skill（技能） | | |
 | slot | slot | | 坑位、孔位 | 客户端架构中的具名可注册位置，保留英文 |
 | spill | spill | | | 工具输出超限落盘机制；组合词写 `spill 文件`、`spill 路径` |
 | spawn | spawn | | | |
 | steering | steering | steering（中途引导） | | |
-| task id | task id | | 任务 id | 保留英文 |
+| job id | job id | | 任务 id | 保留英文 |
 | subagent | subagent | | | |
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
+| Typert | Typert | | TypeRT、typeRT、Type RT | DeepSeek Harness 类型图、生成器、loader 与运行时 registry 的产品拼写 |
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
 | wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
@@ -79,7 +80,18 @@
 | append-only | 仅追加 | | | |
 | artifact | 产物 | | 制品 | |
 | backend | 后端 | | | |
-| background task | 后台任务 | | | |
+| binder | 绑定器 | | | 命名角色：把已声明接口绑定到调用方 context 或生命周期 |
+| config | 配置 | | | 命名角色：一个已解析配置值或边界严格的配置记录 |
+| controller | 控制器 | | | 命名角色：接受意图并改变一项既有领域或展示状态 |
+| directory | 目录 | | | 命名角色：暴露供发现或选择的条目及元数据 |
+| engine | 引擎 | | | 命名角色：实现领域算法或有状态执行模型 |
+| gateway | 网关 | | | 命名角色：适配进程、网络、RPC 或 API 边界 |
+| handle | 句柄 | | | 命名角色：引用并控制或观察一个实时资源 |
+| policy | 策略 | | | 命名角色：决定允许、选择、限制或观察什么 |
+| presenter | 展示转换器 | | | 命名角色：把领域值纯转换为渲染意图 |
+| resolver | 解析器 | | | 命名角色：根据输入计算或定位一个答案 |
+| store | 存储 | | | 命名角色：拥有一组数据并主要提供数据操作 |
+| background job | 后台任务 | | | |
 | block | 块 | | | |
 | build target | 构建目标 | | | |
 | cancel | 取消 | | | |

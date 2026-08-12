@@ -38,7 +38,7 @@ Workspace domain 以 durable marker 区分「从未初始化」和「已初始�
 - 前端 Session 创建时预分配 SessionId，并在对象内持有 Intent target 与 `pendingPrompt`；Host `session.create` 成功后仍是同一个 Session 对象。
 - 前端 Workspace 在 materialize 前没有 WorkspaceId，并在对象内持有 create input、phase 与 error；Host `workspace.create` 成功后同一个 Workspace 对象 adopt 返回的 view。
 - `SessionManager` 与 `WorkspaceManager` 负责对象索引、Host 基线和增量合并；对象是 Intent 与 Host view 的唯一状态源。
-- `SessionsService` 提供 Session 对象、真实 selection、scope 与列表投影；`WorkspacesService` 依赖 `SessionsService`，负责默认 Workspace、跨对象 New Session 动线和 Workspace materialize。
+- `SessionRuntime` 提供 Session 对象、真实 selection、scope 与列表投影；`WorkspaceRuntime` 依赖 `SessionRuntime`，负责默认 Workspace、跨对象 New Session 动线和 Workspace materialize。
 
 页面至多有一个前端 Session Intent 和一个仅在零 Workspace 状态下配套的 Workspace Intent。Intent 只存在于当前页面，刷新后消失；真实 Session selection 可以持久恢复。选择真实 Session 或启动另一个 Session Intent 会放弃旧 Intent 的自动发送资格，但已经由 Host 发布的 Session 和已经接受的消息不会回滚。
 

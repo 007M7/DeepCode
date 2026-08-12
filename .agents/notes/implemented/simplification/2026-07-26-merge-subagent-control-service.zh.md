@@ -12,11 +12,11 @@ Status: implemented
 
 ## 决策
 
-`SubagentService` 是唯一的公开服务。它公开普通的 `start(name, request)`、由 Task 支撑的 `startContinuable(spec)`，以及按意图命名的 `followup(...)`；提供方的 resume 分发仍封装在其继续执行管理器内部。独立的 `@deepseek-ai/dsh-subagent-control` 包和 `ctx.subagentControl` 键均不存在；可选的 `@deepseek-ai/dsh-tool-subagent-control` 包则直接注入 `ctx.subagents`。
+`SubagentRuntime` 是唯一的公开服务。它公开普通的 `start(name, request)`、由 Task 支撑的 `startContinuable(spec)`，以及按意图命名的 `followup(...)`；提供方的 resume 分发仍封装在其继续执行管理器内部。独立的 `@deepseek-ai/dsh-subagent-control` 包和 `ctx.subagentControl` 键均不存在；可选的 `@deepseek-ai/dsh-tool-subagent-control` 包则直接注入 `ctx.subagents`。
 
 合并后的服务及其提供方公开一套 `SubagentError` 分类体系。稳定错误码把提供方查找失败和能力相关失败，与继续执行路由、鉴权、取消、持久化和送达失败区分开来；已移除的服务不保留单独的错误类。
 
-继续执行的实现仍是内部管理器，不会扩展提供方注册表的核心状态。`SubagentService` 通过 `ctx.inject(['tasks', 'agents'], ...)` 创建该管理器，因此注入的 Cordis child fiber 拥有自身的 Task 完成监听器和拆卸 effect。加载提供方注册表不要求 Task 或持久化。只有 Task 和 Agent 可用时，该管理器才会存在；每项继续执行操作都在需要持久性时解析会话持久化服务。dispose（资源释放）该 fiber 会先取消并结算活跃的继续执行，再释放其关联。
+继续执行的实现仍是内部管理器，不会扩展提供方注册表的核心状态。`SubagentRuntime` 通过 `ctx.inject(['tasks', 'agents'], ...)` 创建该管理器，因此注入的 Cordis child fiber 拥有自身的 Task 完成监听器和拆卸 effect。加载提供方注册表不要求 Task 或持久化。只有 Task 和 Agent 可用时，该管理器才会存在；每项继续执行操作都在需要持久性时解析会话持久化服务。dispose（资源释放）该 fiber 会先取消并结算活跃的继续执行，再释放其关联。
 
 `startContinuable` 与底层 `start` 保持分离，因为二者的所有权与时序约定不同：前者分配持久化 child id、创建 Task，并同步返回两个 id，而启动过程继续在 Task 内运行；底层 `start` 则等待提供方发布，并移交一个由持有方负责的 run。若通过标志或返回值联合类型将该方法并入 `start`，会扩大底层约定，改动反而多于保留现有的显式入口。
 

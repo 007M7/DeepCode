@@ -7,9 +7,9 @@
 | 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`subagent/`](subagent/README.md) | 定义提供方注册、委派和继续执行 | `ctx.subagents` |
-| [`subagent-inprocess/`](subagent-inprocess/README.md) | 提供共享的进程内运行驱动器 | 无 |
-| [`subagent-spawn/`](subagent-spawn/README.md) | 启动全新的进程内子 agent | 注册到 `ctx.subagents` |
-| [`subagent-fork/`](subagent-fork/README.md) | 从父 agent 已完成的历史记录启动进程内子 agent | 注册到 `ctx.subagents` |
+| [`subagent-inprocess/`](subagent-in-process-driver/README.md) | 提供共享的进程内运行驱动器 | 无 |
+| [`subagent-spawn-in-process/`](subagent-spawn-in-process/README.md) | 启动全新的进程内子 agent | 注册到 `ctx.subagents` |
+| [`subagent-fork-in-process/`](subagent-fork-in-process/README.md) | 从父 agent 已完成的历史记录启动进程内子 agent | 注册到 `ctx.subagents` |
 | [`subagent-acp/`](subagent-acp/README.md) | 通过 ACP（Agent Client Protocol）启动进程外子 agent | 注册到 `ctx.subagents` |
 | [`subagent-codex/`](subagent-codex/README.md) | 启动真实的 Codex app-server 子 agent | 注册到 `ctx.subagents` |
 | [`subagent-claude-code/`](subagent-claude-code/README.md) | 通过官方 Claude Agent SDK 启动真实的 Claude Code 子 agent | 注册到 `ctx.subagents` |

@@ -2,7 +2,7 @@
  * SessionInput shell over the pure input machine: the sole machine caller
  * and effect executor. Owns the InputState store (machine state + the queue
  * overlay), the notice channel, and the submit transaction plumbing
- * (adjudicate via the session's SlashController; claim.submit; default
+ * (adjudicate via the session's InputTriggerController; claim.submit; default
  * sink). Package-private; the hub alone constructs it and wires the scoped
  * event listeners onto it.
  */
@@ -10,8 +10,8 @@ import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
-  ReferenceInsert, SlashController, TokenSpan,
-} from '@deepseek-ai/dsh-client-ui-slash/client'
+  ReferenceInsert, InputTriggerController, TokenSpan,
+} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
   DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
@@ -34,7 +34,7 @@ export interface SessionInputDeps {
   /** Session-scope ctx handed to claim.submit transactions. */
   actx: ClientContext
   /** Enter adjudication face resolver; absent/undefined answer = every '/' line falls to the default sink. */
-  slash?: (() => SlashController | undefined) | undefined
+  inputTriggers?: (() => InputTriggerController | undefined) | undefined
   /** PopupSelect shell face resolver (dismissal on submit lock / escape). */
   popup?: (() => PopupDismissFace | undefined) | undefined
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
@@ -204,7 +204,7 @@ export class SessionInputShell implements SessionInput {
     const phase = this.snapshot.phase
     if (phase === 'adjudicating' || phase === 'submitting') {
       this.deps.popup?.()?.dismiss()
-      this.deps.slash?.()?.track(this.snapshot.draft, 0, { tier: 'frozen' }, this.snapshot.draftRev)
+      this.deps.inputTriggers?.()?.track(this.snapshot.draft, 0, { tier: 'frozen' }, this.snapshot.draftRev)
     }
   }
 
@@ -215,7 +215,7 @@ export class SessionInputShell implements SessionInput {
    * @param caret - caret position in draft coordinates.
    */
   track(draft: string, caret: number): void {
-    this.deps.slash?.()?.track(draft, caret, { tier: guardOf(this.snapshot.phase) }, this.snapshot.draftRev)
+    this.deps.inputTriggers?.()?.track(draft, caret, { tier: guardOf(this.snapshot.phase) }, this.snapshot.draftRev)
   }
 
   /**
@@ -225,7 +225,7 @@ export class SessionInputShell implements SessionInput {
    * @returns the menu's verdict; 'pass' when no pipeline is mounted.
    */
   arbitrate(key: ArbitrateKey, composing: boolean): ArbitrateOutcome {
-    return this.deps.slash?.()?.arbitrate(key, composing) ?? 'pass'
+    return this.deps.inputTriggers?.()?.arbitrate(key, composing) ?? 'pass'
   }
 
   /**
@@ -243,15 +243,15 @@ export class SessionInputShell implements SessionInput {
    * @returns true = a claim/insert was applied — the caller preventDefaults.
    */
   space(): boolean {
-    const slash = this.deps.slash?.()
-    if (slash === undefined) return false
-    const consumed = slash.onSpace()
+    const inputTriggers = this.deps.inputTriggers?.()
+    if (inputTriggers === undefined) return false
+    const consumed = inputTriggers.onSpace()
     // Machine-driven draft replacement never passes through onChange, so
     // re-track: the caret lands after the token, where detection sees
     // whitespace and closes the menu.
     if (consumed) {
       const next = this.snapshot
-      slash.track(next.draft, next.draft.length, { tier: guardOf(next.phase) }, next.draftRev)
+      inputTriggers.track(next.draft, next.draft.length, { tier: guardOf(next.phase) }, next.draftRev)
     }
     return consumed
   }
@@ -270,8 +270,8 @@ export class SessionInputShell implements SessionInput {
    * subscribers never fire.
    */
   readonly lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>> = {
-    getSnapshot: () => this.deps.slash?.()?.lexicon.getSnapshot() ?? EMPTY_LEXICON,
-    subscribe: fn => this.deps.slash?.()?.lexicon.subscribe(fn) ?? (() => {}),
+    getSnapshot: () => this.deps.inputTriggers?.()?.lexicon.getSnapshot() ?? EMPTY_LEXICON,
+    subscribe: fn => this.deps.inputTriggers?.()?.lexicon.subscribe(fn) ?? (() => {}),
   }
 
   /**
@@ -420,11 +420,11 @@ export class SessionInputShell implements SessionInput {
       this.deps.defaultSink(draft.trim(), imageIds, mode)
       return
     }
-    const slash = this.deps.slash?.()
+    const inputTriggers = this.deps.inputTriggers?.()
     const controller = new AbortController()
     void Promise.all(occurrences.map(async (o) => {
-      if (slash === undefined) throw new Error(`no serializer for reference source "${o.source}"`)
-      return { offset: o.offset, text: await slash.serializeReference(o.source, o.ref, controller.signal) }
+      if (inputTriggers === undefined) throw new Error(`no serializer for reference source "${o.source}"`)
+      return { offset: o.offset, text: await inputTriggers.serializeReference(o.source, o.ref, controller.signal) }
     })).then(
       (parts) => {
         if (this.disposed) return
@@ -450,13 +450,13 @@ export class SessionInputShell implements SessionInput {
 
   /** Enter adjudication: poll the session controller; failure = notice + draft retained (never a silent downgrade). */
   private adjudicate(attempt: SubmitAttempt, draft: string): void {
-    const slash = this.deps.slash?.()
-    if (slash === undefined) {
+    const inputTriggers = this.deps.inputTriggers?.()
+    if (inputTriggers === undefined) {
       // No pipeline mounted: the '/' line is an ordinary message.
       this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome: undefined }))
       return
     }
-    slash.adjudicate(draft.trim(), attempt.signal).then(
+    inputTriggers.adjudicate(draft.trim(), attempt.signal).then(
       (outcome: PickOutcome) => {
         if (this.dead(attempt)) return
         this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome }))

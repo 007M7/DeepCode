@@ -8,11 +8,11 @@ import {
   type EntryInfo,
   type Sandbox,
 } from '@deepseek-ai/dsh-e2b'
-import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import type E2BRuntime from '@deepseek-ai/dsh-e2b'
 import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import E2BFileSystem from '@deepseek-ai/dsh-fs-e2b'
 import * as E2BFsInvariant from '../src/invariant.ts'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { describe, expect, it, vi } from 'vitest'
 
 interface RemoteNode {
@@ -309,7 +309,7 @@ async function setup(remote = new FakeRemote()): Promise<{ ctx: Context; fs: E2B
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
     getSandbox: async () => remote.sandbox,
-  } as unknown as E2BSandboxService
+  } as unknown as E2BRuntime
   ctx.provide('e2b', runtime)
   await ctx.plugin(E2BFileSystem)
   return { ctx, fs: ctx.fs as E2BFileSystem, remote }
@@ -799,7 +799,7 @@ describe('E2B filesystem adapter integration edges', () => {
 
   it('registers the package-owned empty invariant installer', async () => {
     const ctx = new Context()
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     const fiber = await ctx.plugin(E2BFsInvariant).await()
     await fiber.dispose()
   })

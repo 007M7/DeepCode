@@ -8,7 +8,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 服务 API
 
-`SubagentService` 具有以下操作：
+`SubagentRuntime` 具有以下操作：
 
 | 成员 | 含义 |
 |---|---|
@@ -131,7 +131,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 ##### 委派范围声明
 
 ```markdown
-You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the job needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
 ```
 
 #### Token 影响

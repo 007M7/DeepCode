@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md
-2026-07-30-queued-manual-compaction.md: 3aa4e17bd673417569990090abec0ec29427665a
-2026-07-30-queued-manual-compaction.zh.md: 3eecb82097724e200cc34c822f460ada6514e469
+2026-07-30-queued-manual-compaction.md: 3efd1a490148b34b0ee76800ed795dfaab280743
+2026-07-30-queued-manual-compaction.zh.md: 1f516de4fad23294a20d1c674785cd8093d75bf4

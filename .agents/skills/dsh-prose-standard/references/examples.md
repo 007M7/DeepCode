@@ -106,7 +106,7 @@ Remove migration tasks and test narration. Keep the tiers, behaviors they pin, r
 
 **Over-trimmed:** “Mounted plugins share the host's authority.”
 
-**Balanced:** “Mounted plugins share the host's authority; for example, access to `ctx.bash` permits commands with the host executor's privileges.”
+**Balanced:** “Mounted plugins share the host's authority; for example, access to `ctx.shell` permits commands with the host executor's privileges.”
 
 **Over-detailed:** A list of every service a plugin could misuse and every hypothetical exploit.
 

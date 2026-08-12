@@ -15,7 +15,7 @@ export const name = 'api-gateway-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: Host calls re-read authoritative Cordis and TypeRT
+ * No runtime invariant: Host calls re-read authoritative Cordis and Typert
  * state, while Client methods, descriptors, and `$on` subscriptions mutate in
  * one owned effect.
  */

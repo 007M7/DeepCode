@@ -36,7 +36,7 @@ Status: proposed
 
 接口包以能力命名。实现包增加机制、协议、环境或供应商限定词，以区分不同实现。只有同主机执行属于约定时，才能使用 `local`。如果提供方只是通过可替换的 `ctx.fs` 读取看似本地的路径，或通过可替换的 `ctx.subprocess` 启动工作，就不得使用该词。
 
-如果对象是单个引擎、运行时、策略、控制器、解析器、存储或当前配置，使用单数 `ctx` 键。如果对象是注册表，或服务拥有多个具名成员，使用复数键。类的职责和键的单复数必须一致。复数键本身不能证明对象是注册表；应由其操作和所有权决定。
+如果对象是单个引擎、运行时、策略、控制器、解析器、存储或当前配置，使用单数 `ctx` 键。如果对象是注册表，或服务拥有多个具名成员，使用复数键。类的职责和键的单复数必须一致。复数键本身不能证明对象是注册表；应由其操作和所有权决定。不得让不兼容的 host 与 client 声明复用同一个 Cordis `Context` 键。即使二者使用独立的运行时上下文，TypeScript 声明合并仍会同时看到两种类型。如果自然复数已经属于另一个端面，就增加职责后缀。
 
 仅当没有更精确的职责词能够如实描述对象时，才使用 `Service`。`GoalService` 和 `SessionTitleService` 是保留的有效名称，因为它们各自拥有领域服务，其工作无法准确归约为存储、注册或单一执行机制。
 
@@ -106,7 +106,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | 公开的高层 `Pty*` 会话和后端名称 | `Terminal*` 名称 | 公开抽象是终端会话。保留底层 `SubprocessTerminal*` 名称，因为它们已经说明底层机制。 |
 | `@deepseek-ai/dsh-pty-local`, `LocalPtyBackend` | `@deepseek-ai/dsh-terminal-bash`, `BashTerminalBackend` | 该提供方依赖 Bash 提示符和 shell 行为。`local` 隐藏了实际方言。 |
 | `@deepseek-ai/dsh-tool-pty` | `@deepseek-ai/dsh-tool-terminal` | 面向模型的工具已使用 `terminal_*`；包应采用相同的产品名词。 |
-| `packages/pty/tool-bash-persistent` | `shell/tool-bash-persistent/` | 该工具是 Bash 工具，应与 shell 工具放在一起。保留其 NPM 名称：`persistent` 将它与一次性 `bash` 区分开来，而 `bash-terminal` 会混淆产品工具与终端会话系列。 |
+| 原 PTY 系列中的 `tool-bash-persistent` | `shell/tool-bash-persistent/` | 该工具是 Bash 工具，应与 shell 工具放在一起。保留其 NPM 名称：`persistent` 将它与一次性 `bash` 区分开来，而 `bash-terminal` 会混淆产品工具与终端会话系列。 |
 | `docs/subsystems/pty.md` | `docs/subsystems/terminal.md` | 该页面记录终端会话，而不是原始 PTY 分配。 |
 
 保留 Bash 和 PowerShell 专用的叶层包、插件 id、类型和工具。这些方言名称准确无误。
@@ -121,6 +121,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | 公开的 `TaskId`、`TaskKindMap`、`TaskStart`、`TaskHooks`、`TaskOutcome`、`TaskSnapshot`、`TaskRead` 和 `TaskDoneListener` 名称 | 对应的 `Job*` 名称 | 这些类型属于重命名后的作业领域。`JobId` 比 `BackgroundTaskId` 或 `BgTaskId` 更短、更清晰。 |
 | `@deepseek-ai/dsh-tasks-local`, `LocalTaskService` | `@deepseek-ai/dsh-jobs-local`, `LocalJobRegistry` | 这是作业注册表的进程内提供方。此处的 `local` 有明确含义，因为作业和回调都存在于同一进程。 |
 | `@deepseek-ai/dsh-tool-tasks` | `@deepseek-ai/dsh-tool-jobs` | 消费方控制作业注册表，应使用相同的领域名词。 |
+| `ToolTasks`、`toolTasks`、`ToolTasksConfigSchema`、`PublicTaskSnapshot`、`publicTask`、`validateTaskId` | 对应的 `*Jobs`、`*Job*` 与 `validateJobId` 名称 | import、转发配置、公开工具值与辅助函数都属于同一个作业领域。包重命名后继续保留 `Task`，会为同一功能制造第二套词汇。 |
 | `task_output`, `task_list`, `task_kill` | `job_output`, `job_list`, `job_kill` | 这些模型工具操作的是作业，而不是用户任务。`run_in_background` 返回 `JobId`。 |
 | `@deepseek-ai/dsh-client-ui-task`、`client/ui-task/` | `@deepseek-ai/dsh-client-ui-jobs`、`client/ui-jobs/` | 该客户端包呈现后台作业集合，而不是一项用户任务。 |
 | `TaskView`、线路帧 `session/tasks`、`tasksBySession` | `JobView`、线路帧 `session/jobs`、`jobsBySession` | 浏览器约定及其镜像应采用与注册表和工具相同的作业领域名称。 |
@@ -163,7 +164,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 | 当前名称 | 提议名称 | 理由 |
 |---|---|---|
-| Host `ctx.workspace` | Host `ctx.workspaces` | `WorkspaceRegistry` 拥有多个工作区。复数键与注册表职责一致。现有 Client `ctx.workspaces` 在独立的 Cordis 上下文中运行，因此共享拼写是有意设计的，不会在运行时冲突。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
+| Host `ctx.workspace` | Host `ctx.workspaceRegistry` | `WorkspaceRegistry` 拥有多个工作区，但 Client `ctx.workspaces` 已经使用不兼容的类型。即使二者运行时上下文独立，两份声明仍会在编译时合并进同一个 Cordis `Context` 接口。职责后缀明确指出 host 服务，并避免该冲突。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
 | `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | 该包为 agent（智能体）加载分层的 `AGENTS.md` 和 `CLAUDE.md` 文件。它并非通用工作区上下文。 |
 | 插件名称和持久来源名称 `workspace-context` 与 `workspace-instructions` | `agent-instructions` | 记录的来源是一类具体的 agent 指令。以 `AgentInstruction*` 替换公开的 `WorkspaceInstruction*` 名称。该术语不包括系统消息、开发者消息或用户消息。 |
 | `ctx.telemetry`、抽象类 `Telemetry` | `ctx.sessionTelemetry`、`SessionTelemetryBackend` | 该服务捕获会话账本遥测，并交给报告后端。它不是仓库级指标或追踪服务。 |
@@ -172,7 +173,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `telemetry/record` | `session-telemetry/record` | 事件名称必须说明所属领域。 |
 | `TelemetryOtel`、`TelemetryMode`，插件 `telemetry-otel` | `OpenTelemetrySessionBackend`、`SessionTelemetryMode`，插件 `session-telemetry-otel` | 提供方名称同时说明 OpenTelemetry 机制和会话作用域。保留包名 `dsh-session-telemetry` 和 `dsh-session-telemetry-otel`。 |
 | `docs/subsystems/telemetry.md` | `docs/subsystems/session-telemetry.md` | 该页面记录会话遥测，而不是仓库级可观测性。 |
-| `session/user-id/`, `@deepseek-ai/dsh-user-id` | `session/anonymous-user-id/`, `@deepseek-ai/dsh-anonymous-user-id` | 该值是随机关联 id，并非经过身份验证的用户身份。 |
+| `session/user-id/`, `@deepseek-ai/dsh-user-id` | `identity/anonymous-user-id/`, `@deepseek-ai/dsh-anonymous-user-id` | 该值是遥测、反馈和 DeepSeek 请求共用的随机关联 id。它既不属于 Session 领域，也不是经过身份验证的用户身份。 |
 | `USER_ID_FILE_NAME`、`.userid`，反馈标签 `User` | `ANONYMOUS_USER_ID_FILE_NAME`、`.anonymous-user-id`，反馈标签 `Anonymous user` | 文件和 UI 不得暗示账户身份。保留现有 `AnonymousUserId` 函数和标准 OTel 属性 `user.id`。 |
 | `util/environment/`, `@deepseek-ai/dsh-environment` | `util/launch-environment/`, `@deepseek-ai/dsh-launch-environment` | 该包在启动时捕获一份不可变的分层快照。它不是通用环境 API。 |
 | 公开的 `Environment*`、`createEnvironmentSnapshot`、`environmentOf`、`DSH_ENVIRONMENT_KEY` | `LaunchEnvironment*`、`createLaunchEnvironmentSnapshot`、`launchEnvironmentOf`、`DSH_LAUNCH_ENVIRONMENT_KEY` | 这些名称说明快照的生命周期和用途。 |
@@ -182,6 +183,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 | 当前名称 | 提议名称 | 理由 |
 |---|---|---|
+| `@deepseek-ai/dsh-tool-schedule`、`schedule/tool-schedule/`、插件 `tool-schedule` | `@deepseek-ai/dsh-schedule`、`schedule/schedule/`、插件 `schedule` | 该包拥有持久 Schedule 领域、持久化屏障、管理工具、定时器、后续轮次和运行时生命周期。`tool-` 只描述其中一部分。 |
 | `ScheduleOwner` | `ScheduleRuntime` | 该逐 agent 对象运行实时定时器、持久化投影、分派、空闲等待和资源释放。`Owner` 没有说明这一执行职责。耦合的私有 `owner*` 名称也改用 `runtime*`。 |
 | `WorkflowService`, `ctx.workflows` | `WorkflowEngine`, `ctx.workflowEngine` | 一个引擎负责解析并执行工作流程序。复数键错误地暗示这是注册表。保留 `@deepseek-ai/dsh-workflow` 以及工作流事件和工具。 |
 | `@deepseek-ai/dsh-workflow-workerthread`, `WorkerWorkflowEngine` | `@deepseek-ai/dsh-workflow-worker-thread`, `WorkerThreadWorkflowEngine` | `worker thread` 是准确的 Node 机制，仓库拼写要求使用完整单词。 |
@@ -206,6 +208,8 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `AgentDefaultModelService` | `AgentDefaultModelConfig` | 该对象存储一项默认模型选择。它不运行服务，也不是通用注册表。保留其包、键、设置命名空间和类型。 |
 | `SessionReferenceService`, `ctx.sessionReferences` | `SessionReferenceResolver`, `ctx.sessionReferenceResolver` | 它从 URI 或输入解析一个会话引用，并不拥有引用集合。 |
 | `SessionQueryService`, `SessionQuerySqlite` | `SessionQueryEngine`, `SqliteSessionQueryEngine` | 这些类执行查询模型及其 SQLite 实现。保留包名、键和工具。 |
+| `@deepseek-ai/dsh-session-export`, `session-export/`, Loader id `session-export`, `ctx.sessionExport` | `@deepseek-ai/dsh-session-log-download`, `session-log-download/`, Loader id `session-log-download`, `ctx.sessionLogDownload` | 该包不实现通用 Session 导出。它控制 Web 下载一个由 Host 流式输出的 Session 日志 ZIP。名称必须说明对象和浏览器副作用。 |
+| `SessionExportDownloadController`, 其他 `SessionExport*` 浏览器类型、`useSessionExport`、`SessionExportHeader` | `SessionLogDownloadController`, 对应的 `SessionLogDownload*` 类型、`useSessionLogDownload`、`SessionLogDownloadHeaderAction` | 该 controller 拥有预检、重复请求合并、弹窗状态和浏览器保存。`ExportDownload` 重复表达同一动作，该组件贡献的是一个 Header action，不是整个 Header。 |
 | 宿主命令包中的 `CommandService` | `CommandRuntime` | 该对象跨实时调用注册并执行宿主命令。保留其包、键、类型和事件。 |
 | `TokenMeterService` | `TokenMeter` | 该对象测量 token 用量。`Service` 没有补充作用域信息。 |
 | `LlmService` | `LlmRuntime` | 该对象选择提供方并运行实时模型请求。保留包、键、适配器和事件。 |
@@ -255,7 +259,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `PlanModeService` | `PlanModeController` | 该对象控制进入和退出计划模式的状态转换，而不是通用执行运行时。 |
 | `packages/self-modification/` | `packages/extensions/` | 该组包含仓库插件检查和挂载工具。`extensions` 说明稳定的包职责，但不声称 agent 会修改自身。保留包名 `tool-cordis` 和仓库插件名称。 |
 | `packages/support/` | `packages/test-support/` | 该组仅包含测试基础设施，其路径必须明确说明这一点。 |
-| `packages/support/invariants/` | `runtime-diagnostics/invariants/` | 尽管交付预设未包含不变量检查，它们仍可在生产诊断中运行，因此不属于测试支持。 |
+| 原 support 系列中的 `invariants/` | `runtime-diagnostics/invariants/` | 尽管交付预设未包含不变量检查，它们仍可在生产诊断中运行，因此不属于测试支持。 |
 | `InvariantService` | `InvariantRegistry` | 该对象拥有已注册的不变量检查。保留 `@deepseek-ai/dsh-invariants` 和 `ctx.invariants`。 |
 | `packages/client/test-runtime/` | `packages/test-support/client-runtime/` | 该包是客户端测试基础设施。如果现有 NPM 名称已经说明这一约定，则予以保留。 |
 
@@ -269,6 +273,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `util/retention/`, `@deepseek-ai/dsh-retention` | `util/output-retention/`, `@deepseek-ai/dsh-output-retention` | 该策略保留命令和工具输出，而不是通用数据保留框架。 |
 | `E2BSandboxService` | `E2BRuntime` | 该类创建、复用和释放文件系统与子进程适配器所使用的 E2B 执行环境。它比单个沙箱句柄的职责更广，又比通用所有者更具体。保留 `@deepseek-ai/dsh-e2b`、`ctx.e2b` 和 `e2b/` 组。 |
 | `@deepseek-ai/dsh-frontend-static` | `@deepseek-ai/dsh-host-frontend-static` | 该包是提供前端资源的 Host 插件。此前缀可将它与前端应用代码区分开。 |
+| `PluginInventoryService` | `PluginInventoryGateway` | 该类只负责把实时 Loader 树适配到 `pluginInventory/list` RPC。它不拥有同进程服务、缓存、历史或修改路径。`Gateway` 准确说明现有角色。 |
 | `@deepseek-ai/dsh-jsonrpc-demo` | `@deepseek-ai/dsh-sdk-jsonrpc-demo` | 该示例演示通过 JSON-RPC 使用运行时 SDK，属于 SDK 的唯一含义。 |
 | `@deepseek-ai/dsh-frontend` | `@deepseek-ai/dsh-web-frontend` | 该应用是 Web 前端。保留其物理目录 `apps/web/`。 |
 
@@ -281,6 +286,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `SlotsService` | `SlotRegistry` | 该对象拥有具名 slot 声明和注册项。 |
 | `SessionsService` | `SessionRuntime` | 该对象拥有实时客户端会话协调职责，而不是被动的会话列表。 |
 | `WorkspacesService` | `WorkspaceRuntime` | 该客户端对象协调实时工作区选择和操作。如果清单未点名更改某个现有 `ctx` 键，则该键保持不变。 |
+| `WorkspaceGroupBy`、`WorkspaceOrderBy`、`workspaceExpansion`、`setWorkspaceExpanded`、`expandedProjects`、`projectLabel`、`recentSessionOrder`、`recentSessionUpdatedAt`、`syncRecentSessions`、`setRecentSessionOrder`、`retainWorkspaceKeys`、`workspaceKey` | `SessionGroupBy`、`SessionOrderBy`、`groupExpansion`、`setGroupExpanded`、`expandedGroups`、`workspaceLabel`、`sessionOrderByAccount`、`sessionUpdatedAtByAccount`、`syncSessionOrderAccount`、`setSessionOrder`、`retainAccountKeys`、`accountKey` | 这些名称描述的是会话列表查看状态。其 account 包括真实工作区、未分组项和平铺列表。因此，`Workspace`、`project` 和 `recent` 指向了错误的对象或机制。保留 `WorkspaceViewState`；该存储仍属于工作区浏览器。 |
 | `LocaleService` | `LocaleRuntime` | 该对象协调区域设置定义、选择、持久化和变更发布。 |
 | `ThemeService` | `ThemeRuntime` | 该对象协调主题、偏好解析、系统感知和变更发布。 |
 | `LayoutService` | `LayoutController` | 该对象控制当前 UI 布局状态。 |
@@ -289,11 +295,16 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `SettingsScopeService` | `SettingsScopeBinder` | 它唯一的操作把一份命名空间规范绑定到调用方的传输层和生命周期，并返回 `SettingsScopeController`。保留 `ctx.settingsScope`；它命名的是单一绑定能力，而不是 scope 集合。 |
 | `@deepseek-ai/dsh-client-ui-models` | `@deepseek-ai/dsh-client-ui-settings-models` | 该包拥有 Models 设置面板。保留 `ModelsSettingsStore`；它保存一个具有数据操作和订阅能力的设置视图模型，确实是存储。 |
 | `@deepseek-ai/dsh-client-ui-plugin-config`、`client/ui-plugin-config/` | `@deepseek-ai/dsh-client-ui-settings-plugins`、`client/ui-settings-plugins/` | 该包拥有 Plugins 设置分区，而不是通用的插件配置系统。目标名称归入 `ui-settings-*` 系列，并采用该分区的复数产品名。 |
-| `PluginConfigSection`、`PluginConfigSectionProps`、`PluginConfigSectionInjected`、`settings.pluginConfig` | `PluginsSettingsSection`、`PluginsSettingsSectionProps`、`PluginsSettingsSectionInjected`、`settings.plugins` | 这些名称描述 Plugins 设置呈现。每张卡片仍编辑一个插件的配置，但该分区本身是设置 UI。 |
+| `PluginConfigSection`、`PluginConfigSectionProps`、`PluginConfigSectionInjected`、`PluginSettingsTabRow`、`PluginConfigKey`、`settings.pluginConfig` | `PluginsSettingsSection`、`PluginsSettingsSectionProps`、`PluginsSettingsSectionInjected`、`PluginsSettingsTabEntry`、`PluginsSettingsLocaleKey`、`settings.plugins` | 该分区拥有 Plugins 设置呈现和 tab 清单。元数据值表示一项 slot entry，而不是一条渲染行。每张卡片仍编辑一个插件的配置。 |
+| `@deepseek-ai/dsh-client-ui-plugins`、`client/ui-plugins/`、Loader id `ui-plugins`、`client-ui-plugins-invariant` | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory`、`client/ui-settings-plugin-inventory/`、Loader id `ui-settings-plugin-inventory`、`client-ui-settings-plugin-inventory-invariant` | 这个后来加入的包拥有 Plugins 设置分区中的只读 Plugin Inventory tab。`ui-plugins` 作用域过宽，也无法将该清单与可编辑插件设置区分开。 |
+| 原 `ui-plugins` 包中的 `PluginSettingsSection`、`PluginSettingsSectionProps`、`PluginSettingsSectionInjected`、`PluginsKey`、`settings.plugins` | `PluginInventorySettingsTab`、`PluginInventorySettingsTabProps`、`PluginInventorySettingsTabInjected`、`PluginInventoryLocaleKey`、`settings.pluginInventory` | 该组件现在贡献一个 tab，而不是设置分区。其余名称明确说明清单主题，并避免与 `PluginsSettingsSection` 及其 `settings.plugins` 区域设置命名空间冲突。保留共享的 `settings.plugins.tab` slot 名；两个 tab 都通过该 slot 向 Plugins 分区贡献内容。 |
+| `@deepseek-ai/dsh-client-ui-feedback`、`client/ui-feedback/`、Loader id `ui-feedback`、`client-ui-feedback-invariant` | `@deepseek-ai/dsh-client-ui-message-feedback`、`client/ui-message-feedback/`、Loader id `ui-message-feedback`、`client-ui-message-feedback-invariant` | 这个包通过 `messageFeedback` Remote 展示 assistant 消息的评分和说明。旧名称看起来还涵盖 command feedback 和以后可能出现的其他反馈界面，但实际并非如此。 |
+| 原 `ui-feedback` 包中的 `FeedbackController`、`FeedbackStatus`、`FeedbackView`、`FeedbackActionResult`、`FeedbackInjected`、`FeedbackActionProps`、`FeedbackActions`、`FeedbackKey` | `MessageFeedbackController`、`MessageFeedbackStatus`、`MessageFeedbackView`、`MessageFeedbackActionResult`、`MessageFeedbackInjected`、`MessageFeedbackActionProps`、`MessageFeedbackActions`、`MessageFeedbackKey` | 这些名称会从 Client 包导出。增加 `Message` 限定词，避免它们声称代表所有反馈领域。保留 `Controller`：该对象接受评分和说明操作，并协调一个 Session 的加载、修改、冲突、重连和释放状态。 |
 | `agent-loop-store.ts`、`bash-store.ts`、`web-search-store.ts` | `agent-loop-card-controller.ts`、`bash-card-controller.ts`、`web-search-card-controller.ts` | 每个模块都导出一个卡片控制器。私有 `SnapshotStore` 字段不会让模块成为存储。 |
 | `card-store.ts` | `card-form.ts` | 该模块拥有暂存表单、字段转换和表单操作。它返回的快照存储是呈现适配器，而不是模块的主要职责。 |
 | `@deepseek-ai/dsh-client-ui-question` | `@deepseek-ai/dsh-client-ui-user-questions` | UI 呈现用户问题 seam，而不是任意问题领域。 |
 | `@deepseek-ai/dsh-client-ui-command`, `ui-command/` | `@deepseek-ai/dsh-client-ui-commands`, `ui-commands/` | 该包呈现并运行一组命令。 |
+| `@deepseek-ai/dsh-client-ui-directory-picker`、`client/ui-directory-picker/`、Loader id `ui-directory-picker`、`client-ui-directory-picker-invariant` | `@deepseek-ai/dsh-client-ui-directory-picker-browse`、`client/ui-directory-picker-browse/`、Loader id `ui-directory-picker-browse`、`client-ui-directory-picker-browse-invariant` | 客户端包现已拆成 `browse` 和 `native` 两种目录选择器呈现。未加限定词的包实际只是 browse 实现，并非两者的共同定义。目标名称与 Host 后端系列一致，不改变边界。 |
 | 客户端 `ctx.command`、`CommandService`、`CommandServiceContract` | `ctx.commandUi`、`CommandUiRuntime`、`CommandUiContract` | Host 已拥有 `ctx.commands`。该客户端服务是命令发现和执行的 UI 运行时。现有 `CommandUiSpec` 确立了 `Ui` 大小写格式。 |
 | `ConversationService` | `ConversationController` | 该对象控制当前对话状态和用户操作。 |
 | `InputService` | `SessionInputResolver` | 该接口为一个会话作用域解析输入外观。它既不是全局输入注册表，也不是执行服务。保留 `InputHub` 作为具体中枢，并保留 `ctx.conversation.input` 作为对外接口。 |
@@ -307,6 +318,7 @@ PascalCase 标识符内部使用 `Ui`，不要使用 `UI`。除非清单明确�
 - 保留完整的 sandbox 系列和 `ctx.sandbox`。不得引入 `processSandbox`。
 - 保留 `@deepseek-ai/dsh-api-gateway`、`ctx.typertGateway` 和 `TypertGatewayService`。
 - 保留会话投影名称。投影并不只是归约函数。
+- 保留 `@deepseek-ai/dsh-session-stats`、`sessionStats` 和 `SessionStatsProjection`。这些名称准确表示全会话统计数据及承载它们的持续维护读模型。
 - 保留 `GoalService`；它拥有目标状态机、裁决权、比较并设置行为、事件和远程操作，不只是存储。
 - 保留 `SessionTitleService`；它的职责是由多个标题提供方共享的领域服务。
 - 保留 `PermissionPresetSettingsController`，即使它很长。每个词都在限定其职责。
@@ -317,7 +329,15 @@ PascalCase 标识符内部使用 `Ui`，不要使用 `UI`。除非清单明确�
 - 保留已弃用的 Host `ApiProxy` 和客户端连接名称，直至 API 替代方案将其移除。
 - Host 服务器和提供方无关的 Web 能力都保留 `Web`。仅直接抓取提供方使用 `HTTP`。
 - 保留 `E2B` 作为包名和上下文名称，不改为 `E2B sandbox`。
-- 保留 MCP、Todo、目录选择器、应用启动、基础组合包、web-app 组合包和 CLI 名称。
+- 保留 MCP、Todo、应用启动、基础组合包、web-app 组合包和 CLI 名称。保留目录选择器能力和 Host 后端名称；只重命名未加限定词的 Client `browse` 呈现。
+- 保留 `@deepseek-ai/dsh-client-ui-directory-picker-native`；其后缀说明它是在重命名后的 `-browse` 变体旁使用原生选择器的呈现。保留 `SURFACE_PACKAGES`；在目录选择器自动选择器中，它是客户端呈现端面的包映射，并与 `BACKEND_PACKAGES` 对照。
+- 保留 `@deepseek-ai/dsh-host-plugin-inventory`、`ctx.pluginInventory`、`pluginInventory/list` Remote 以及 `PluginInventory*` 载荷类型。它们准确命名由 Host 拥有的只读清单；只有适配器类和作用域过宽的客户端呈现名称需要修改。
+- 保留 `ConfigurablePluginsTab`。该 tab 渲染具有可编辑配置的插件，不拥有完整的 Plugins 设置分区。
+- 保留共享的 `settings.plugins.tab` slot。它属于 Plugins 设置分区。清单包只把自己的 locale namespace 改为 `settings.pluginInventory`，不会创建独立的 tab slot。
+- 保留 `@deepseek-ai/dsh-message-feedback` 能力、`messageFeedback` Remote、assistant-action entry id `feedback`、hook key `feedback` 和 locale namespace `feedback`。它们所在的接口已经把作用域限定为消息反馈或本地 assistant-message slot。只修改作用域过宽的 Client 包名和导出的 UI 名称。
+- 保留 `RemoteFailure`、`RemoteResult` 和 `SessionRemotes`。前两者是 Typert 载体结果值，后者是客户端 Session 集群使用的一组 Remote 命名空间。它们都不是 store、controller、registry 或 runtime。
+- 保留用户命令 `/export`、Host 路由 `/api/session.export`、`DownloadsApi` 及其 `sessionLog` 操作。命令说明用户动作，Host 路由导出归档，API 则归类直接 HTTP 下载。重命名的 Client controller 拥有独立的浏览器下载步骤。
+- 测试文件名保留 `.client` 和 `.host`。它们标识测试进入的编译端面，不声称产品职责。
 
 ## 考虑过的替代方案
 

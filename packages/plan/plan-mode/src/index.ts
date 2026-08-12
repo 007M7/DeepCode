@@ -31,7 +31,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
+import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 // Type-only edge: resolves `ctx.commands` for the optional command child.
 import type {} from '@deepseek-ai/dsh-commands'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
@@ -56,7 +56,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    planMode: PlanModeService
+    planMode: PlanModeController
   }
 }
 
@@ -181,7 +181,7 @@ function planModeAtLastHeader(events: readonly SessionEvent[]): boolean | undefi
  * the `plan:policy` section, the `/plan` command, and the stable exit tool.
  * UIs observe committed flips through `session/event`; there is no live mirror.
  */
-export class PlanModeService extends Service {
+export class PlanModeController extends Service {
   static inject = ['tools', 'systemPrompt']
 
   /** Validated deployment-owned guidance. */
@@ -327,9 +327,9 @@ export class PlanModeService extends Service {
         if (!/^#\s+\S/.test(args.plan.trim())) {
           throw new Error(`${EXIT_PLAN_MODE} requires a non-empty markdown plan starting with a # heading`)
         }
-        const interaction = ctx.get('userInteraction')
+        const interaction = ctx.get('userQuestions')
         if (interaction === undefined) {
-          throw new Error('no user-interaction channel is available to review the plan; ask the user to switch the session mode instead')
+          throw new Error('no user-questions channel is available to review the plan; ask the user to switch the session mode instead')
         }
         const answer = await interaction.ask({
           questions: [{
@@ -354,7 +354,7 @@ export class PlanModeService extends Service {
           // generic channel message names ask_user_question, which the model
           // never called. An abort (turn cancel, provider teardown) keeps its
           // own message — there is no user to wait for.
-          if (cause instanceof UserInteractionError && cause.code === 'ASK_CANCELLED') {
+          if (cause instanceof UserQuestionError && cause.code === 'ASK_CANCELLED') {
             throw new Error('The user dismissed the plan review to speak instead; '
               + 'stay in plan mode, stop here, and wait for their message.')
           }
@@ -474,4 +474,4 @@ export class PlanModeService extends Service {
   }
 }
 
-export default PlanModeService
+export default PlanModeController

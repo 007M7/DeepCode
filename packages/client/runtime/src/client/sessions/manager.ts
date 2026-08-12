@@ -1,10 +1,10 @@
 // SessionManager: the instance cluster Map<SessionId, Session> (lazy-built, resident) + the frame
-// dispatch entry + list state, constructed and held by SessionsService (one per client runtime).
+// dispatch entry + list state, constructed and held by SessionRuntime (one per client runtime).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
 import type {
   IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
-  SessionSummary, SubagentAddress, SubagentCatalog, TaskView, WorkspaceId,
+  SessionSummary, SubagentAddress, SubagentCatalog, JobView, WorkspaceId,
 } from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -49,8 +49,8 @@ export interface SessionListSnapshot {
   phase: SessionListPhase
   error: RpcError | null
   subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
-  /** Background tasks per session; an absent key is an empty set. */
-  tasksBySession: Readonly<Record<SessionId, readonly TaskView[]>>
+  /** Background jobs per session; an absent key is an empty set. */
+  jobsBySession: Readonly<Record<SessionId, readonly JobView[]>>
   currentAddress: SubagentAddress | undefined
 }
 
@@ -88,7 +88,7 @@ function bufferedRequestKey(envelope: RpcRequest<MuxFrame>): string | undefined 
   }
 }
 
-/** Match ui-question's binary plan-review routing at the wire boundary. */
+/** Match ui-user-questions's binary plan-review routing at the wire boundary. */
 function questionInteractionStatus(
   questions: Extract<MuxFrame, { type: 'question/requested' }>['questions'],
 ): PendingInteractionStatus {
@@ -143,10 +143,10 @@ export class SessionManager {
   private readonly openCatalogs = new Set<SessionId>()
   private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
   /**
-   * Background tasks per session, last-wins from `session/tasks`. An empty set
+   * Background jobs per session, last-wins from `session/jobs`. An empty set
    * is stored as an absent key, so absence and `[]` are one representation.
    */
-  private readonly tasksBySession = new Map<SessionId, readonly TaskView[]>()
+  private readonly jobsBySession = new Map<SessionId, readonly JobView[]>()
 
   private selected: SessionId | undefined
 
@@ -702,12 +702,12 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
-    if (frame.type === 'session/tasks') {
+    if (frame.type === 'session/jobs') {
       // Whole-set snapshot, so last-wins with no reconciliation. The Host omits
       // the baseline for an empty set, which is the same fact an emptying change
       // reports as `[]` — both land as an absent key.
-      if (frame.tasks.length === 0) this.tasksBySession.delete(frame.sessionId)
-      else this.tasksBySession.set(frame.sessionId, frame.tasks)
+      if (frame.jobs.length === 0) this.jobsBySession.delete(frame.sessionId)
+      else this.jobsBySession.set(frame.sessionId, frame.jobs)
       this.notifier.markDirty()
       return
     }
@@ -718,7 +718,7 @@ export class SessionManager {
       // Same re-baseline reasoning as the queue below: this generation sends a
       // task baseline only when the set is non-empty, so a mirror kept from the
       // previous generation would survive as a phantom list.
-      this.tasksBySession.delete(frame.sessionId)
+      this.jobsBySession.delete(frame.sessionId)
       this.notifier.markDirty()
       // New mux-generation baseline: discard the previous queue snapshot.
       // The host omits session/queue when the live queue is empty, so retaining
@@ -833,7 +833,7 @@ export class SessionManager {
         // the mux stream while this frame rides the host stream, so the two have
         // no relative order. Clearing here makes a detached Activation's rows
         // disappear whichever arrives first.
-        this.tasksBySession.delete(frame.sessionId)
+        this.jobsBySession.delete(frame.sessionId)
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
         // A pull already in flight was requested before this removal and can
         // carry the pre-removal parentAvailable:true, which would resurrect
@@ -1070,7 +1070,7 @@ export class SessionManager {
       phase: this.listPhase,
       error: this.listError,
       subagentsByParent: Object.fromEntries(this.catalogs),
-      tasksBySession: Object.fromEntries(this.tasksBySession),
+      jobsBySession: Object.fromEntries(this.jobsBySession),
       currentAddress: current === undefined ? undefined : this.addresses.get(current),
     }
   }

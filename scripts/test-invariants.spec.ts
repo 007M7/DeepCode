@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context, FiberState, Service, ValidationError } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import z from '@deepseek-ai/schemastery'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { packageInvariantOwners } from './package-invariants.ts'
 import {
@@ -154,7 +154,7 @@ describe('global test invariant host', () => {
   it('recognizes focused invariant suites without a package inventory', () => {
     expect(usesManualInvariantTree('/repo/packages/core/session/tests/invariant.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/core/session/tests/request-invariant-hmr.spec.ts')).toBe(true)
-    expect(usesManualInvariantTree('C:\\repo\\packages\\support\\invariants\\tests\\service.spec.ts')).toBe(true)
+    expect(usesManualInvariantTree('C:\\repo\\packages\\runtime-diagnostics\\invariants\\tests\\service.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/examples/agent-spine-demo/tests/agent-core.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/core/session/tests/session.spec.ts')).toBe(false)
   })
@@ -297,9 +297,9 @@ describe('global test invariant host', () => {
         expect(order.at(-1)).toBe('nested')
 
         if (delayedCompanion === undefined) throw new Error('delayed companion did not load')
-        await ctx.plugin(InvariantService, { enabled: true })
+        await ctx.plugin(InvariantRegistry, { enabled: true })
         await ctx.plugin(delayedCompanion)
-        expect(ctx.registry.get(InvariantService)?.fibers).toHaveLength(1)
+        expect(ctx.registry.get(InvariantRegistry)?.fibers).toHaveLength(1)
         expect(ctx.registry.get(delayedCompanion)?.fibers).toHaveLength(1)
       },
     )

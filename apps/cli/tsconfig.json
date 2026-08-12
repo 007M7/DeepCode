@@ -51,25 +51,25 @@
       "path": "../../packages/core/tools"
     },
     {
-      "path": "../../packages/util/environment"
+      "path": "../../packages/util/launch-environment"
     },
     {
-      "path": "../../packages/util/paths"
+      "path": "../../packages/util/home-paths"
     },
     {
       "path": "../../packages/mcp/mcp-client"
     },
     {
-      "path": "../../packages/support/loader-smoke"
+      "path": "../../packages/test-support/loader-smoke"
     },
     {
       "path": "../../packages/session-query/session-query-sqlite"
     },
     {
-      "path": "../../packages/bash/bash-env"
+      "path": "../../packages/shell/shell-env"
     },
     {
-      "path": "../../packages/bash/tool-bash"
+      "path": "../../packages/shell/tool-bash"
     }
   ]
 }

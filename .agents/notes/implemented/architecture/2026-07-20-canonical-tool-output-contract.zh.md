@@ -47,9 +47,9 @@ type ToolExecutionResult =
 | `grep` | `{ matches: [{ path, lineNumber, line }] }` |
 | `web_search` ／ `web_fetch` | 归一化后的 `WebSearchResult` ／ `WebFetchResult` |
 | `lsp` | `{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }` |
-| `bash` | `{ kind: "background", taskId }` 或 `{ kind: "foreground" } & BashRunResult` |
+| `bash` | `{ kind: "background", jobId }` 或 `{ kind: "foreground" } & ShellRunResult` |
 | `terminal_open` ／ `terminal_list` ／ `terminal_send` ／ `terminal_read` ／ `terminal_signal` ／ `terminal_close` | 公开会话快照、有界的读取／发送 DTO、信号／关闭操作结果，或后台任务句柄 |
-| `task_output` ／ `task_list` ／ `task_kill` | 不含所有者或通知管理信息的公开任务快照 |
+| `job_output` ／ `job_list` ／ `job_kill` | 不含所有者或通知管理信息的公开任务快照 |
 | `subagent` | 后台任务句柄或 `{ kind: "foreground", runId, output: JsonValue[] }` |
 | `workflow` ／ `ralph` | `{ runId, agentsStarted, result: JsonValue }` |
 | `skill` | `{ name, provider, resourceBase?, content }` |
@@ -66,7 +66,7 @@ MCP 桥接层通过 `McpResult<{...}> = { content: JsonValue[]; structuredConten
 
 ## 备选方案
 
-- **向 Code Mode 返回渲染后的文本：**不予采纳。调用方仍需从自然语言中提取 task id、挂载 id、路径和结构化提供方结果。
+- **向 Code Mode 返回渲染后的文本：**不予采纳。调用方仍需从自然语言中提取 job id、挂载 id、路径和结构化提供方结果。
 - **在 `tool/result` 上持久化规范值：**不予采纳。嵌套执行值不属于模型历史记录，无需在回放后继续存在；持久化还会引入与 Native 重建无关的会话格式和存储承诺。
 - **允许工具同时返回值和内容：**不予采纳。由作者分别维护的两份结果可能互相矛盾，策略也无法说明哪一份才是权威结果。渲染器会根据已校验值确定性地产生展示。
 - **将内容替换视为值脱敏：**不予采纳。展示内容和程序化访问面向不同消费方；只隐藏前者会制造虚假的安全边界。

@@ -14,7 +14,7 @@ import { delimiter, extname, isAbsolute, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
-import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
@@ -34,7 +34,7 @@ import { LocalTerminalHandle } from './terminal.ts'
  * SIGTERM→grace→SIGKILL escalation, plus synchronous final termination during
  * JavaScript-observable host exit.
  */
-export class LocalSubprocessService extends SubprocessService {
+export class LocalSubprocessRuntime extends SubprocessRuntime {
   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
   private live = new Set<LocalSubprocessHandle>()
   /** Live terminals retained through normal quiescence or host-exit finalization. */
@@ -192,4 +192,4 @@ function environmentValue(env: NodeJS.ProcessEnv, name: 'PATH' | 'PATHEXT'): str
   return Object.entries(env).find(([key]) => key.toUpperCase() === normalized)?.[1]
 }
 
-export default LocalSubprocessService
+export default LocalSubprocessRuntime

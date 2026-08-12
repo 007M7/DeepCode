@@ -18,10 +18,10 @@
       "path": "../../util/brand"
     },
     {
-      "path": "../../typert/type-meta"
+      "path": "../../typert/protocol"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

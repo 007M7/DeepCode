@@ -8,7 +8,7 @@ English | [中文](2026-07-07-mcp-client-plugin.zh.md)
 
 The harness had no way to consume tools from the MCP (Model Context Protocol) ecosystem. MCP is the emerging standard for tool servers — GitHub, filesystem, databases, code search, and hundreds of community servers expose tools via MCP. Users want to point the harness at one or more MCP servers and have their tools appear as native model-facing tools, without writing per-server glue code.
 
-The `ToolRegistry` already accepts raw JSON Schema tool definitions (documented in `dsh-tools` README: "Raw JSON-Schema tool definitions (from MCP servers) are still accepted by `ToolRegistry.register()` directly"), and the extension cookbook sketches the intended pattern ("MCP | one plugin per server: discover tools → `ctx.tools.register()`"). The infrastructure was ready; the bridge plugin was missing.
+The `ToolRuntime` already accepts raw JSON Schema tool definitions (documented in `dsh-tools` README: "Raw JSON-Schema tool definitions (from MCP servers) are still accepted by `ToolRuntime.register()` directly"), and the extension cookbook sketches the intended pattern ("MCP | one plugin per server: discover tools → `ctx.tools.register()`"). The infrastructure was ready; the bridge plugin was missing.
 
 ## Decision
 
@@ -90,7 +90,7 @@ Boot-time from `cordis.yml`. HMR (`@cordisjs/plugin-hmr`) provides hot-swap: edi
 Every MCP tool has two names:
 
 - `rawName` — the exact MCP `Tool.name`, used only on the wire (`tools/call`).
-- `publicName` — the globally unique model-facing name registered in the `ToolRegistry`:
+- `publicName` — the globally unique model-facing name registered in the `ToolRuntime`:
 
       mcp__<serverName>__<rawName>
 
@@ -179,7 +179,7 @@ Rejected — this was the original proposal, built on the premise that "most MCP
 
 ### Server-only namespace (`github__create_issue`, no `mcp__` marker)
 
-Rejected for v1. It prevents cross-server collisions but does not separate MCP registrations from native harness tools, and it forfeits MCP-wide policy shapes (`mcp__*`). The marker costs 5 characters; the `mcp__<server>__<tool>` spelling matches Claude Code and Codex, maximizing model familiarity. If the ToolRegistry later grows source-aware namespaces, dropping the literal marker can be revisited as a naming-policy change.
+Rejected for v1. It prevents cross-server collisions but does not separate MCP registrations from native harness tools, and it forfeits MCP-wide policy shapes (`mcp__*`). The marker costs 5 characters; the `mcp__<server>__<tool>` spelling matches Claude Code and Codex, maximizing model familiarity. If the ToolRuntime later grows source-aware namespaces, dropping the literal marker can be revisited as a naming-policy change.
 
 ### Deriving the namespace from the server-announced `serverInfo.name`
 

@@ -11,7 +11,7 @@ export const name = 'api-remotes-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** No runtime invariant: TypeRT and the Agent/Session registries own the observed relationships. */
+/** No runtime invariant: Typert and the Agent/Session registries own the observed relationships. */
 const install: InvariantInstaller = () => {}
 
 /**

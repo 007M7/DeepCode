@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import type { HttpServerService } from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
 
 vi.mock('node:os', async importOriginal => ({
@@ -43,8 +43,8 @@ function stageDist(): string {
   return index
 }
 
-/** A fake httpServer capturing the fallback seat and index taps. */
-function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: HttpServerService; seat: () => unknown } {
+/** A fake webServer capturing the fallback seat and index taps. */
+function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
   let fallback: unknown
   const server = {
     host,
@@ -54,7 +54,7 @@ function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: 
       return () => { fallback = undefined }
     },
     applyIndexTaps: (html: string) => html,
-  } as unknown as HttpServerService
+  } as unknown as WebServer
   return { server, seat: () => fallback }
 }
 
@@ -74,9 +74,9 @@ describe('web-app runtime glue', () => {
     stageDist()
     const ctx = new Context()
     const { server, seat } = fakeHttpServer('0.0.0.0')
-    ctx.provide('httpServer', server)
+    ctx.provide('webServer', server)
     const contributions: BashContribution[] = []
-    ctx.provide('bashEnv', {
+    ctx.provide('shellEnv', {
       register: (contribution: BashContribution) => {
         contributions.push(contribution)
         return () => {}
@@ -110,7 +110,7 @@ describe('web-app runtime glue', () => {
   it('stays quiet with printUrl off', async () => {
     stageDist()
     const ctx = new Context()
-    ctx.provide('httpServer', fakeHttpServer().server)
+    ctx.provide('webServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
@@ -125,9 +125,9 @@ describe('web-app runtime glue', () => {
   it('skips the surface context when disabled (the one-shot layer): no prompt section, no bash variables', async () => {
     stageDist()
     const ctx = new Context()
-    ctx.provide('httpServer', fakeHttpServer().server)
+    ctx.provide('webServer', fakeHttpServer().server)
     const contributions: BashContribution[] = []
-    ctx.provide('bashEnv', {
+    ctx.provide('shellEnv', {
       register: (contribution: BashContribution) => {
         contributions.push(contribution)
         return () => {}
@@ -146,7 +146,7 @@ describe('web-app runtime glue', () => {
   it('prints the loopback-only URL line when no LAN snapshot exists', async () => {
     stageDist()
     const ctx = new Context()
-    ctx.provide('httpServer', fakeHttpServer().server)
+    ctx.provide('webServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -159,7 +159,7 @@ describe('web-app runtime glue', () => {
     // Settlement path: the line waits for loader.await() so supervisors can
     // RPC immediately after observing it.
     const settled = new Context()
-    settled.provide('httpServer', fakeHttpServer().server)
+    settled.provide('webServer', fakeHttpServer().server)
     let release: () => void
     const settlement = new Promise<void>((resolve) => { release = resolve })
     provideLoader(settled, () => settlement)
@@ -176,7 +176,7 @@ describe('web-app runtime glue', () => {
     // for a process that is about to exit.
     log.mockClear()
     const failed = new Context()
-    failed.provide('httpServer', fakeHttpServer().server)
+    failed.provide('webServer', fakeHttpServer().server)
     provideLoader(failed, async () => { throw new Error('boot failed') })
     apply(failed, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -188,14 +188,14 @@ describe('web-app runtime glue', () => {
     log.mockClear()
     const torn = new Context()
     const child = torn.plugin((childCtx: Context) => {
-      childCtx.provide('httpServer', fakeHttpServer().server)
+      childCtx.provide('webServer', fakeHttpServer().server)
     })
     await child
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
     provideLoader(torn, () => tornSettlement)
     apply(torn, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
-    await child.dispose() // the httpServer service goes away
+    await child.dispose() // the webServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
@@ -209,11 +209,11 @@ describe('web-app runtime glue', () => {
     // section must throw, never render a URL with an undefined port.
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
-    ctx.provide('httpServer', server)
+    ctx.provide('webServer', server)
     apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
-    await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')
+    await expect(ctx.systemPrompt.assemble()).rejects.toThrow('webServer service missing')
     await ctx.fiber.dispose()
   })
 

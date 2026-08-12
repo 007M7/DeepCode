@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-可继续后台委派是模型唯一一种能够发起、却无法抵达终点的异步操作。其他每一种形态都有取回原语或返回值：后台 bash 命令与一次性后台 subagent 都通过 Task 结算，`task_output(wait: true)` 可以阻塞等待；workflow 与前台 subagent 会把结果返回给调用方。可继续后台 child 只返回它持久化的 id，而父级既没有可等待的对象，也不会被交付任何东西。
+可继续后台委派是模型唯一一种能够发起、却无法抵达终点的异步操作。其他每一种形态都有取回原语或返回值：后台 bash 命令与一次性后台 subagent 都通过 Task 结算，`job_output(wait: true)` 可以阻塞等待；workflow 与前台 subagent 会把结果返回给调用方。可继续后台 child 只返回它持久化的 id，而父级既没有可等待的对象，也不会被交付任何东西。
 
 [报告义务](2026-08-06-continuable-child-report-obligation.md)通过要求 child 在结束前上报，补上了这一缺口中协作的那一半。指令无法补上其余部分。被 token 上限、模型失败、取消或拆卸终止的 child 永远走不到能够遵守的那一步——不是很少，而是从不——而这些恰恰是等待中的父级最需要被告知的结束方式。可观察到的下游症状包括：父级忙轮询 `list_agents`、向已经结算的 child 反复发送消息，以及部署放弃 `subagent` 转用 `workflow`，因为 workflow 至少会返回点什么。
 
@@ -96,7 +96,7 @@ Status: implemented
 
 当父级紧接着被 dispose 时（每个拆卸调用方都会这么做），在拆卸期间被 inject 的通知不会被模型读到：dispose 的 cancel 会清除这条未被认领的消息，而日志保留 insert/cancel 这一对作为记录。要让拆卸期投递在 resume 之后仍可读，要么需要上面那套离线 mailbox，要么需要改变 dispose 对持久待处理工作的处理方式。dispose 会丢弃每一条未被认领的 inbox 项，用户输入也不例外，因此改变该行为是一个 core-agent 决策，而不是结算投递的细节。resume 后的父级可以发现 child，但不会收到结局：`list_agents` 只报告存在性与「在线/仅存储」状态——`SubagentListEntry.activity` 就是这么写的——要取回结局，必须通过 `send_message` 去问那个 child。
 
-终止原因的归因是对日志既有 splice 词汇的尽力而为，偏向永不高估成功。`Inbox.remove()` 与拆卸的 `clear()` 写出的取消 splice 完全相同，因此删除一条内容仍保留在别处的消息——`workspace-context` 清理待处理的 instructions 刷新、或结算自身的 cancel 清掉一条仍在挂起的这类消息——可能被读作「工作被丢弃且从未运行」，把已完成的 child 报成被停下。区分二者需要 `dsh-agent` 提供更丰富的删除词汇；在该词汇可用前，这项误读的范围很窄，且错的方向是让父级复查一个已完成的 child，而永远不是信任一个未完成的 child。
+终止原因的归因是对日志既有 splice 词汇的尽力而为，偏向永不高估成功。`Inbox.remove()` 与拆卸的 `clear()` 写出的取消 splice 完全相同，因此删除一条内容仍保留在别处的消息——`agent-instructions` 清理待处理的 instructions 刷新、或结算自身的 cancel 清掉一条仍在挂起的这类消息——可能被读作「工作被丢弃且从未运行」，把已完成的 child 报成被停下。区分二者需要 `dsh-agent` 提供更丰富的删除词汇；在该词汇可用前，这项误读的范围很窄，且错的方向是让父级复查一个已完成的 child，而永远不是信任一个未完成的 child。
 
 对于深或宽的树，轮次放大是真实存在的，而且按设计不可配置。step 边界的批量语义只能约束同时结算的情形，无法约束分散结算的 child。
 

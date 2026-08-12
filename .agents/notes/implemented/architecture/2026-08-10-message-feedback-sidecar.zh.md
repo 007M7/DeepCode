@@ -24,7 +24,7 @@ Status: implemented
 
 按 Session 划分的变更队列覆盖生命周期检查、伴随记录读取、冲突判断与整行写入。这使同一个服务实例的变更串行化，并在单个 Host 进程内保持逐消息 compare-and-swap 约定。Plugin disposal 会关闭接纳、排空已进入队列的工作，然后关闭 storage domain。底层 storage-domain API 不提供跨进程条件写，因此实现不承诺跨进程线性一致性或防止丢失更新。
 
-`maxNoteBytes` 是必填的部署选择，用于限制可选备注的 UTF-8 字节长度；Web Host bundle 将其显式设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 直接发布 Host `messageFeedback.list`、`messageFeedback.put` 与 `messageFeedback.delete` 约定。客户端 Remote 聚合挂载与 UI 由各自边界负责并保持延后；后续适配层只是该 Host 约定的薄消费者。
+`maxNoteBytes` 是必填的部署选择，用于限制可选备注的 UTF-8 字节长度；Web Host bundle 将其显式设为 `8192`。该包通过 `TypertRemoteService` 与 `@Remote` 直接发布 Host `messageFeedback.list`、`messageFeedback.put` 与 `messageFeedback.delete` 约定。客户端 Remote 聚合挂载与 UI 由各自边界负责并保持延后；后续适配层只是该 Host 约定的薄消费者。
 
 服务不伪造删除级联。`session/disposed` 与 `host/session-removed` 表示脱离 live ownership，而非持久删除，Session persistence 当前也没有删除接口。因此在带外移除日志后，伴随记录可能继续存在；不同的 `{createdAt, cwd}` 可阻止此类遗留记录变成后来复用该 id 的 Session 反馈。
 

@@ -4,7 +4,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage, CallId, type GenerateOptions, LlmAdapter, type StreamChunk  } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as checkpointPolicy from '../../src/index.ts'
 
 function waitForCrash(): Promise<never> {
@@ -38,7 +38,7 @@ class CrashAdapter extends LlmAdapter {
 const ctx = new Context()
 await mountAgentLoopTestDependencies(ctx)
 await ctx.plugin(AgentLoop, { agents: [] })
-await ctx.plugin(SessionPersistenceJsonl, { root: persistenceRoot, compression: 'none' })
+await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
 await ctx.plugin(checkpointPolicy)
 ctx.llm.registerAdapter(['crash'], new CrashAdapter())
 ctx.tools.register({

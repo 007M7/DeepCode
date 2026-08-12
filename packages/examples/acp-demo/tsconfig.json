@@ -36,7 +36,7 @@
       "path": "../agent-spine-demo"
     },
     {
-      "path": "../../context/workspace-context"
+      "path": "../../context/agent-instructions"
     },
     {
       "path": "../../session/session-checkpoint-policy"
@@ -45,7 +45,7 @@
       "path": "../../session/session-persistence-jsonl"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

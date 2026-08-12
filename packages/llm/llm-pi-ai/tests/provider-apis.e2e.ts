@@ -8,7 +8,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmService, { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiReplayState } from '../src/replay.ts'
@@ -54,7 +54,7 @@ const contexts: Context[] = []
 async function harness(image?: StoredImageAttachment): Promise<Context> {
   const ctx = new Context()
   contexts.push(ctx)
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, {
     providers: Object.fromEntries(providerCases.map(profile => [profile.provider, {
       ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },

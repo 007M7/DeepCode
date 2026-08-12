@@ -16,7 +16,7 @@ Status: implemented
 
 删除 SDK 项目工具链。`@deepseek-ai/create-sdk`、`@deepseek-ai/dsh-scripts`、`@deepseek-ai/dsh-helper` 和 `@deepseek-ai/dsh-telemetry` 包及其二进制文件、测试、模板、功能目录、项目编辑模型、包管理器支持、启动器遥测和仓库项目创建 skill 均不提供替代实现或兼容层。与其对应的 workspace、构建、测试、打包、文档生成器、vendor scope 重写和依赖记录也一并移除。
 
-保留运行时 SDK。`@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 和 `@deepseek-ai/dsh-jsonrpc` 保持原样，从 `packages/scaffold/` 移至 `packages/sdk/`；其 npm 名称和协议交互行为保持不变。消费方继续提供一个可执行文件和一份外置 `cordis.yml`，JSON-RPC 服务器仍是由该配置选择的普通插件。
+保留运行时 SDK。`@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 和 `@deepseek-ai/dsh-sdk-jsonrpc-server` 保持原样，从 `packages/scaffold/` 移至 `packages/sdk/`；其 npm 名称和协议交互行为保持不变。消费方继续提供一个可执行文件和一份外置 `cordis.yml`，JSON-RPC 服务器仍是由该配置选择的普通插件。
 
 被取消的开发者项目、项目编辑和后续能力提案予以删除，而不是保留为活跃或已否决记录。本 Agent Note 保留这些提案共有的动机、不交付该产品的决策、放弃的能力，以及重新考虑这一决定的条件。已冻结的归档 Agent Note 仍是历史快照，不作修改。
 
@@ -32,7 +32,7 @@ workspace 中不再存在上述 4 个已删除包名或 2 套已移除的命令�
 
 **同时删除运行时 SDK 栈。** 不予采纳，因为 Python SDK、进程外 Harness subagent 提供方和 JSON-RPC 示例目前仍是协议、客户端和服务器的消费方。
 
-**将运行时栈继续留在 `packages/scaffold/` 下。** 不予采纳，因为该分组剩余内容均不再负责搭建项目。尽管整个仓库同样是一套 SDK，`packages/sdk/` 仍直接说明了保留内容的职责。
+**将运行时栈继续留在 `packages/scaffold/` 下。** 不予采纳，因为该分组剩余内容均不再负责搭建项目。`packages/sdk/` 直接说明了保留内容的职责，因为 `SDK` 在仓库中只有一个含义：受支持的 Python 与 TypeScript SDK 所使用的 JSON-RPC 客户端／服务器协议。DeepSeek Harness 本身不是 SDK 项目。
 
 ## 后果
 

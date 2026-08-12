@@ -35,7 +35,7 @@ The Web assembly had no model-visible identity for the current GUI, canonical UR
 
 The wrong startup path looked legitimate because bare Vite returned HTTP 200. `window.__DSH_BOOT__` is injected only by the full host, so transport readiness did not imply application readiness. The first regression test repeated this mistake in another form: a timeout killed Vite and satisfied a nonzero-exit assertion. Live reproduction exposed that false positive.
 
-Background process semantics were also bypassed with shell `&`, so task identity, completion notices, collection, and cleanup did not apply. Verifying port 3334 therefore proved only that a second service worked.
+Background process semantics were also bypassed with shell `&`, so job identity, completion notices, collection, and cleanup did not apply. Verifying port 3334 therefore proved only that a second service worked.
 
 ## Guardrails added
 

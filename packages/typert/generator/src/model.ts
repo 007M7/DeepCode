@@ -124,7 +124,7 @@ export interface InvocationParameterModel {
   readonly boundary: RemoteBoundaryModel
 }
 
-/** One strictly analyzed Host method exported through TypeRT Gateway. */
+/** One strictly analyzed Host method exported through Typert Gateway. */
 export interface InvocationModel {
   readonly id: string
   readonly service: string

@@ -5,7 +5,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { apply, inject, SettingsScopeService } from '../src/client/index.ts'
+import { apply, inject, SettingsScopeBinder } from '../src/client/index.ts'
 
 /** Boot the browser half over a bare root context; it injects nothing. */
 function bench() {
@@ -17,7 +17,7 @@ describe('settings domain base plugin', () => {
   it('mounts the scope service under settingsScope', async () => {
     const { ctx, fiber } = bench()
     await fiber.await()
-    expect(ctx.get('settingsScope')).toBeInstanceOf(SettingsScopeService)
+    expect(ctx.get('settingsScope')).toBeInstanceOf(SettingsScopeBinder)
   })
 
   it('fiber disposal retires the service', async () => {

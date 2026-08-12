@@ -29,17 +29,17 @@ host 侧，cordis 插件装载站在 Node 的模块机制之上——require cac
 什么让一个包成为插件？只有一条规则：**一个包的消费方式一旦是 cordis 依赖注入，它就是插件包；在此之前它是普通包。**代码怎么到达页面不属于分类体系——到达方式由包的类别推得，而不是反过来定义类别。
 
 - **普通包**是模块系统自身所需的绝对基座，加上尚未转成 DI 的库：react 家族、cordis、`@deepseek-ai/dsh-client-modules`（模块系统本身——它永远不可能是插件，因为模块先于一切模块）、web 壳内核，以及——暂时——ui-slots、web-react、ui-primitives。普通包打进壳 bundle、播种进模块表、对 host 图不可见。
-- **插件包**是其余一切。每个都携带 `dsh.client` manifest（元数据清单）声明（`{ platform, inject, immediately? }`）和同一种统一形态：共享 tsdown 预设产出 `lib/client.js`，`exports["./client"]` 指向该 bundle。每个都是 host 编写的图里受治理的 entry。当前包括：connection、runtime、ui-theme、i18n、hmr（仅进 dev 图）、ui-layout、ui-sidebar、ui-conversation、ui-model-selector、ui-question、ui-trajectory。
+- **插件包**是其余一切。每个都携带 `dsh.client` manifest（元数据清单）声明（`{ platform, inject, immediately? }`）和同一种统一形态：共享 tsdown 预设产出 `lib/client.js`，`exports["./client"]` 指向该 bundle。每个都是 host 编写的图里受治理的 entry。当前包括：connection、runtime、ui-theme、i18n、hmr（仅进 dev 图）、ui-layout、ui-sidebar、ui-conversation、ui-model-selector、ui-user-questions、ui-trajectory。
 
 manifest 拥有包的装载约定：它的 `inject` 依赖边，加可选的 `immediately` 预取标记（缺省即 lazy）。负责组合的 app 只拥有名册。
 
 新增一个插件包：声明 `dsh.client`，经共享预设产出 `./client` bundle，把包名加进负责组合的 app 的名册。除此之外无需任何交接。
 
-普通包何时升格为插件？升级法则，记录在案让迁移路径保持诚实：**普通包在其消费方改用 cordis DI 之时升格为插件包，绝不提前。**三项升格在排队：ui-slots（现居 runtime 的 slots 机件——SlotsService、渲染器约定、root slot）、web-react（渲染器安装移入自己的 `apply`）、ui-primitives（组件经 slot/服务供给之时）。在那之前它们保持普通包身份，符号导出保持普通的静态 import。
+普通包何时升格为插件？升级法则，记录在案让迁移路径保持诚实：**普通包在其消费方改用 cordis DI 之时升格为插件包，绝不提前。**三项升格在排队：ui-slots（现居 runtime 的 slots 机件——SlotRegistry、渲染器约定、root slot）、web-react（渲染器安装移入自己的 `apply`）、ui-primitives（组件经 slot/服务供给之时）。在那之前它们保持普通包身份，符号导出保持普通的静态 import。
 
 四条边规则治理横跨两类包的 import。没有一条依赖任何单包标记：
 
-- **插件 ↔ 插件的值 import 是构建错误。**与两侧的 `immediately` 声明无关——规则不得依赖一个人人可翻转的标记。协作走 cordis inject/服务。`import type` 豁免；类型链分毫未动。这条规则正是 `scopeOf` 是 `SessionsService` 方法、`transportError` 住在 `dsh-host-apiproxy` wire 层（它的 `RpcResult` 老家，内联安全）的原因。
+- **插件 ↔ 插件的值 import 是构建错误。**与两侧的 `immediately` 声明无关——规则不得依赖一个人人可翻转的标记。协作走 cordis inject/服务。`import type` 豁免；类型链分毫未动。这条规则正是 `scopeOf` 是 `SessionRuntime` 方法、`transportError` 住在 `dsh-host-apiproxy` wire 层（它的 `RpcResult` 老家，内联安全）的原因。
 - **插件 → 普通包的值 import 外置为 external**，按平台清单判定。清单是壳里的一个常量（`platform.ts`：react 家族、cordis、ui-slots、web-react、ui-primitives），tsdown 预设（external 判定）与 `seed.ts`（模块表预热）都 import 它。一个常量、两个消费方——人肉同步这一漂移缺陷类死透。
 - **纯度门禁覆盖每个插件包。**它的三条分支：平台 import 外置为 external；INLINE_SAFE wire 层内联；其余任何 workspace 泄漏即构建错误。正是统一的 bundle 形态让这一覆盖不留死角——每个插件都经同一预设构建，没有包能坐在门禁之外。
 - **壳自足。**内核（boot + loading 页）对任何插件包零值 import；其状态 store 为手写。大声失败的呈现不得依赖它所报告失败的那个系统。
@@ -86,7 +86,7 @@ vendored Loader 经其 `internal` 约定消费模块系统——唯一调用点�
 
 热重载是一项组合决策：web 组合包无条件挂载 `client-hmr` 行（一个常规的插件包），其 node 半带来 bundle 监视与 SSE（Server-Sent Events）通道；没有重建 watcher 改写客户端 bundle 时链路保持空闲。不应暴露它的组合可以禁用该行。
 
-重建好的 bundle 怎么变成重载信号？hmr 的 node 半自己观察——没有构建器来通知它。它从 `ctx.clientModuleHost.clientPath(id)` 读取图上各行的 bundle 路径，由 HMR 自持的单个定时器对当前图上的每一行做 stat 轮询。新增图行时，顺序固定为先同步取得 stat 基线，再立即调用 `clientModuleHost.rebuilt(id)`：在模块 host 算出图哈希之后、取得基线之前发生的写入会被这次立即重哈希捕获；取得基线之后发生的写入则会留下 stat 差异，供下一次轮询捕获。这避开了 `fs.watchFile`：它以异步首次 stat 建立基线，可能把构造期间的重建静默吸收进基线。监视集合的成员随 `onGraphChanged` 更新；消失的行撤下监视，轮询时缺失的 bundle 则让对应行保持标脏状态，文件重现时即使元数据相同也强制重哈希。mtime/size 变化或行处于标脏状态时，`clientModuleHost.rebuilt(id)` 是重哈希的唯一入口；当 `rev` 真的变了，node 半才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE 通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因；轮询间隔是一个经校验的配置字段（默认 500ms），dispose（资源释放）会清掉那一个定时器。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dsh.client 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
+重建好的 bundle 怎么变成重载信号？hmr 的 node 半自己观察——没有构建器来通知它。它从 `ctx.clientModules.clientPath(id)` 读取图上各行的 bundle 路径，由 HMR 自持的单个定时器对当前图上的每一行做 stat 轮询。新增图行时，顺序固定为先同步取得 stat 基线，再立即调用 `clientModuleHost.rebuilt(id)`：在模块 host 算出图哈希之后、取得基线之前发生的写入会被这次立即重哈希捕获；取得基线之后发生的写入则会留下 stat 差异，供下一次轮询捕获。这避开了 `fs.watchFile`：它以异步首次 stat 建立基线，可能把构造期间的重建静默吸收进基线。监视集合的成员随 `onGraphChanged` 更新；消失的行撤下监视，轮询时缺失的 bundle 则让对应行保持标脏状态，文件重现时即使元数据相同也强制重哈希。mtime/size 变化或行处于标脏状态时，`clientModuleHost.rebuilt(id)` 是重哈希的唯一入口；当 `rev` 真的变了，node 半才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE 通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因；轮询间隔是一个经校验的配置字段（默认 500ms），dispose（资源释放）会清掉那一个定时器。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dsh.client 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
 
 浏览器侧，驱动插件每帧重载一个插件，串行执行：
 

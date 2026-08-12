@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-设置里的语言行在每一次首访时都以中文开场：`LocaleService` 从 localStorage 读取 `dsh.locale`，读不到就直接回落到 `zh`。浏览器本已声明其使用者阅读哪些语言——`navigator.languages` 就是这份声明——而应用对此视而不见，于是英文读者迎面撞上一个中文产品，还得先找到一行中文标签的设置项才能脱身。回落值当时同时承担两份职责：既是无法解析出 locale 时的最后兜底，也是所有从未做过选择的用户拿到的答案。
+设置里的语言行在每一次首访时都以中文开场：`LocaleRuntime` 从 localStorage 读取 `dsh.locale`，读不到就直接回落到 `zh`。浏览器本已声明其使用者阅读哪些语言——`navigator.languages` 就是这份声明——而应用对此视而不见，于是英文读者迎面撞上一个中文产品，还得先找到一行中文标签的设置项才能脱身。回落值当时同时承担两份职责：既是无法解析出 locale 时的最后兜底，也是所有从未做过选择的用户拿到的答案。
 
 ## Decision
 
@@ -32,5 +32,5 @@ Status: implemented
 
 - 来自英文浏览器的首访落在英文界面，而语言行依然呈现同样两个以自身语言自述的选项，两个方向的脱身通道都未改变。
 - `FALLBACK_LOCALE` 收窄回它真正的职责——字典回落与无信号时的答案——不再兼职充当「用户尚未选择」。
-- 在 jsdom 下构造 `LocaleService` 的测试现在依赖环境的 `navigator`：断言本地化文案的用例以一行套件级 `usePinnedBrowserLanguages('zh-CN')`（dsh-client-test-runtime）声明其浏览器，今后任何断言默认值的用例同样如此。本包自己的用例直接给全局打桩，因为它们需要该 helper 刻意不表达的形状（`languages` 缺失、列表与 `language` 解耦、完全没有 `window`）。
+- 在 jsdom 下构造 `LocaleRuntime` 的测试现在依赖环境的 `navigator`：断言本地化文案的用例以一行套件级 `usePinnedBrowserLanguages('zh-CN')`（dsh-client-test-runtime）声明其浏览器，今后任何断言默认值的用例同样如此。本包自己的用例直接给全局打桩，因为它们需要该 helper 刻意不表达的形状（`languages` 缺失、列表与 `language` 解耦、完全没有 `window`）。
 - 探测的代价是每次服务构造遍历一次数组，且不会隐式写入 settings；插件激活后，显式 Host 偏好可能引发一次实时收敛。

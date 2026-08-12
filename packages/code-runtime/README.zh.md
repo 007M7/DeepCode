@@ -7,7 +7,7 @@
 | 包 | 职责 | ctx key |
 |---|---|---|
 | [`code-runtime/`](code-runtime/README.md) | Service Definition 与共享词汇 | `ctx.codeRuntime` |
-| [`code-runtime-worker/`](code-runtime-worker/README.md) | Worker 线程后端 | 注册 `ctx.codeRuntime` |
+| [`code-runtime-worker/`](code-runtime-worker-thread/README.md) | Worker 线程后端 | 注册 `ctx.codeRuntime` |
 
 提供方在不改变Consumer的情况下注册该服务。子 README 负责语言、隔离和执行预算细节。
 

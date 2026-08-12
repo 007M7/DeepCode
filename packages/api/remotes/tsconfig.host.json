@@ -38,16 +38,19 @@
       "path": "../../session/session-persistence"
     },
     {
+      "path": "../../extensions/cordis-host-runner"
+    },
+    {
       "path": "../../settings/settings"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../typert/registry"
     },
     {
-      "path": "../../typert/type-meta"
+      "path": "../../typert/protocol"
     }
   ]
 }

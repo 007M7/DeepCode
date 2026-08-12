@@ -6,11 +6,11 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type {
   InvocationDescriptor,
   RemoteResult,
-  TypeRTClientRemote,
-  TypeRTContext,
-  TypeRTRemoteScopeApi,
-  TypeRTRemoteNamespace,
-} from '@deepseek-ai/dsh-type-meta'
+  TypertClientRemote,
+  TypertContext,
+  TypertRemoteScopeApi,
+  TypertRemoteNamespace,
+} from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import type { ClientRemote } from '../src/client/index.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -35,14 +35,14 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-declare module '@deepseek-ai/dsh-type-meta' {
-  interface TypeRTRemoteEventSelection extends Record<'fixture/changed' | 'fixture/idle', true> {}
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertRemoteEventSelection extends Record<'fixture/changed' | 'fixture/idle', true> {}
 
-  interface TypeRTContextMap {
-    fixture: TypeRTContext<string>
+  interface TypertContextMap {
+    fixture: TypertContext<string>
   }
 
-  interface TypeRTRemoteMap {
+  interface TypertRemoteMap {
     'probe/create': (
       agentId: string,
       request: { readonly objective: string },
@@ -51,7 +51,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
     'probe/maybe': (value: string | null | undefined) => Promise<RemoteResult<string | null | undefined>>
   }
 
-  interface TypeRTRemoteScopeMap {
+  interface TypertRemoteScopeMap {
     'fixture:probe/create': (
       request: { readonly objective: string },
       signal?: AbortSignal,
@@ -61,14 +61,14 @@ declare module '@deepseek-ai/dsh-type-meta' {
     ) => Promise<RemoteResult<{ readonly renamed: boolean }>>
   }
 
-  interface TypeRTRemoteNamespaceMap {
-    probe: TypeRTRemoteNamespace<'probe'>
+  interface TypertRemoteNamespaceMap {
+    probe: TypertRemoteNamespace<'probe'>
   }
 
 }
 
 type FixtureContext = Omit<Context, 'remote'> & {
-  readonly remote: TypeRTClientRemote & TypeRTRemoteScopeApi<'fixture'>
+  readonly remote: TypertClientRemote & TypertRemoteScopeApi<'fixture'>
 }
 
 // Compile-time contract of `$on`: the key face is the forwarding selection and
@@ -171,7 +171,7 @@ async function benchFiber(
   return { ctx, client }
 }
 
-describe('Client TypeRT API', () => {
+describe('Client Typert API', () => {
   it('mounts concrete direct methods, validates both boundaries, and withdraws retained handles', async () => {
     const call = vi.fn<ConnectionHandle['rpc']['call']>()
       .mockResolvedValue({ ok: true, value: { ref: 'goal-1' } })

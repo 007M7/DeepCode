@@ -63,7 +63,7 @@ export interface Config {
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
     'agentDefaultModel', 'agents', 'attachments', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
-    'tools', 'userInteraction', 'workspace',
+    'tools', 'userQuestions', 'workspaceRegistry',
   ]
 
   static Config: z<Config> = z.object({

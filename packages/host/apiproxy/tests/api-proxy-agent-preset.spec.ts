@@ -12,7 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type AgentFactory } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
 import type { HostFrame } from '../src/api/events.ts'
 import {
@@ -110,7 +110,7 @@ async function harness(
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(UserQuestionService)
   ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
   if (presets !== undefined) ctx.provide('agentPresets', roster(presets, options.userIds) as never)
 
@@ -380,7 +380,7 @@ describe('agentPreset.select', () => {
     // The host-stream opener reads the committed-workspace baseline; this
     // spec owns preset identity, so the stub suffices (api-proxy-commands
     // precedent).
-    ctx.provide('workspace', { list: () => [] } as never)
+    ctx.provide('workspaceRegistry', { list: () => [] } as never)
     const abort = new AbortController()
     const frames: HostFrame[] = []
     const stream = api.events.host(request({}), abort.signal)
