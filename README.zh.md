@@ -22,7 +22,7 @@ npx @deepseek-ai/dsh web
 
 该命令会初始化 Web profile 并打印 Web UI 地址，默认地址为 `http://127.0.0.1:3080`。打开该地址，在**设置 → 模型**中添加 DeepSeek API 密钥，然后启动一个会话。调用目录是默认工作区；你可以尝试输入 `Summarize this repository and identify its main packages.`。
 
-下一步请阅读 [Web UI 指南](docs/user/guide/)。
+下一步请阅读 [Web UI 指南](docs/user/guide/index.md)。
 
 ### 从源码运行
 
