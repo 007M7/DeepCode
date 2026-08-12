@@ -134,3 +134,4 @@ effect cleaned up
 
 - [服务与依赖](./service.md) — 让插件向其他插件提供能力
 - [事件系统](./events.md) — 在插件之间通信
+- [Cordis 框架教程](../../../cordis-tutorial/index.md) — 在 Cordis 运行时上逐步搭出同一套生命周期、服务与事件

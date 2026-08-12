@@ -56,9 +56,9 @@ describe('web e2e: plugin configuration section', () => {
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
-    await dialog.getByRole('button', { name: '插件' }).click()
+    await dialog.getByRole('button', { name: '插件配置', exact: true }).click()
     await expect
-      .poll(() => dialog.getByRole('button', { name: '插件' }).getAttribute('aria-current'), { timeout: 5_000 })
+      .poll(() => dialog.getByRole('button', { name: '插件配置', exact: true }).getAttribute('aria-current'), { timeout: 5_000 })
       .toBe('true')
     return dialog
   }

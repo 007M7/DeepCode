@@ -60,7 +60,7 @@ const install: InvariantInstaller = (ctx, fail) => {
   ctx.on('system-prompt/assemble', (_assembly, context, next) => {
     const presets = ctx.get('agentPresets')
     const agent = context.agent
-    if (presets !== undefined && presets.config.roots.length > 0
+    if (presets !== undefined && presets.roots.length > 0
       && agent !== undefined && presets.composedPreset(agent.ctx) === undefined) {
       fail(
         `agent "${agent.id}" addressed a model without joining any agent preset while a roster is `

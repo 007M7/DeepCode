@@ -29,6 +29,7 @@
     "apps/web/tests/settings-chrome.e2e.ts",
     "apps/web/tests/models-settings.e2e.ts",
     "apps/web/tests/onboarding-deepseek-config.e2e.ts",
+    "apps/web/tests/onboarding-usable-provider.e2e.ts",
     "apps/web/tests/remote-welcome.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
@@ -94,12 +95,11 @@
   // and the package test glob above needs no per-file entry.
   "exclude": [
     "packages/client/*/src/**",
-    "packages/client/*/tests/**/*.client.ts",
-    "packages/client/*/tests/**/*.client.tsx",
-    "packages/client/*/tests/**/*.client.spec.ts",
-    "packages/client/*/tests/**/*.client.spec.tsx",
+    "packages/*/*/tests/**/*.client.ts",
+    "packages/*/*/tests/**/*.client.tsx",
+    "packages/*/*/tests/**/*.client.spec.ts",
+    "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/client/tsdown.client.ts",
-    "packages/api/gateway/tests/client.spec.ts",
     "scripts/client-bundle-css.spec.ts",
     "packages/typert/generator/tests/fixtures/**",
     "scripts/client-bundle-purity.spec.ts"
@@ -282,6 +282,7 @@
     { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/frontend-static" },
+    { "path": "./packages/host/plugin-inventory" },
     { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/client" },
     { "path": "./packages/sdk/protocol" },

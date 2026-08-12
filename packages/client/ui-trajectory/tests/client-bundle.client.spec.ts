@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ConversationEventRegistry, ConversationViewRegistry, SlotsService,
@@ -82,9 +83,11 @@ describe('tsdown client artifact', () => {
     // Paging is session-owned; this registration-only probe never renders the
     // entry, so the binding stays deliberately empty. The locale plugin backs
     // the locale-aware view tab label (its settings scope needs a connection
-    // handle).
+    // handle and the Host-facing settings/remote seams).
     ctx.provide('sessions', { binding: () => undefined })
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     const locale = await import('@deepseek-ai/dsh-client-locale/client')
     ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
     const fiber = ctx.plugin(exports as { apply: (ctx: Context) => void })

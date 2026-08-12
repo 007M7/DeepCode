@@ -60,6 +60,8 @@ flowchart LR
   cfg --> plugin_dsh_base_sandbox_policy
   plugin_dsh_base_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_dsh_base_bash_sandbox
+  plugin_dsh_base_pwsh_sandbox["pwsh-sandbox<br/>@deepseek-ai/dsh-pwsh-sandbox"]
+  cfg --> plugin_dsh_base_pwsh_sandbox
   plugin_dsh_base_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
   cfg --> plugin_dsh_base_approval
   plugin_dsh_base_permission["permission<br/>@deepseek-ai/dsh-permission"]
@@ -68,6 +70,8 @@ flowchart LR
   cfg --> plugin_dsh_base_bash_env
   plugin_dsh_base_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
   cfg --> plugin_dsh_base_tool_bash
+  plugin_dsh_base_tool_pwsh["tool-pwsh<br/>@deepseek-ai/dsh-tool-pwsh"]
+  cfg --> plugin_dsh_base_tool_pwsh
   plugin_dsh_base_tool_tasks["tool-tasks<br/>@deepseek-ai/dsh-tool-tasks"]
   cfg --> plugin_dsh_base_tool_tasks
   plugin_dsh_base_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
@@ -194,10 +198,12 @@ flowchart LR
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
 | `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
+| `pwsh-sandbox` | `@deepseek-ai/dsh-pwsh-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
 | `bash-env` | `@deepseek-ai/dsh-bash-env` |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
+| `tool-pwsh` | `@deepseek-ai/dsh-tool-pwsh` |
 | `tool-tasks` | `@deepseek-ai/dsh-tool-tasks` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
