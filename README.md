@@ -22,7 +22,7 @@ npx @deepseek-ai/dsh web
 
 The command initializes the Web profile and prints the Web UI URL, which is `http://127.0.0.1:3080` by default. Open it, add a DeepSeek API key under **Settings → Models**, then start a session. The invoking directory is the default workspace; try `Summarize this repository and identify its main packages.`
 
-Continue with the [Web UI guide](docs/user/guide/).
+Continue with the [Web UI guide](docs/user/guide/index.md).
 
 ### Run from source
 
