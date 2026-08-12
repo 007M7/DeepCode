@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-浏览器客户端从模型可见的 surface 构建会话：`FoldAdapter` 在历史窗口上运行核心 `SurfaceManager` 并读取 `surface.nodes`。一次成功的压缩会用一个检查点节点替换一段 surface 范围，因此该替换一落地，Web 流就把它所遮蔽的每条消息折叠成一行灰暗的上下文——那是用户已经读过的对话。日志中什么都没丢失；缺陷完全在投影层，而[终端与宿主网关已按同一方式修复](2026-07-29-human-transcript-append-origin.md)，浏览器留给了本次变更。
+浏览器客户端从模型可见的 surface 构建会话：`FoldAdapter` 在历史窗口上运行核心 `SurfaceManager` 并读取 `surface.nodes`。一次成功的压缩（compaction）会用一个检查点节点替换一段 surface 范围，因此该替换一落地，Web 流就把它所遮蔽的每条消息折叠成一行灰暗的上下文——那是用户已经读过的对话。日志中什么都没丢失；缺陷完全在投影层，而[终端与宿主网关已按同一方式修复](2026-07-29-human-transcript-append-origin.md)，浏览器留给了本次变更。
 
 surface 顺序还让另外两个问题成为结构性的。一次替换之后它并非按 seq 升序——`SurfaceManager` 把高 seq 的检查点拼接到它所遮蔽范围的位置上——因此按数值 seq 归并进该数组的仅日志节点（斜杠命令行、被打断的冻结节点）可能被冲刷到检查点之前，再也无法交错回保留下来的尾部。而且由于分页不再为 replacement 副本消耗 `maxMessages` 额度，一页现在可以携带一个 `surfaceOp.start` 落在窗口之外的检查点；核心 fold 拒绝该范围，于是 `nodes()` 退回到一次宽容的线性扫描、打印一条 `console.error`，并发布一个描述该失败的 `foldDegraded` 标志。
 

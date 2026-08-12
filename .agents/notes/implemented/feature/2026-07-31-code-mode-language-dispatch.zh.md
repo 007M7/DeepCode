@@ -31,7 +31,7 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 
 ## 考虑过的替代方案
 
-- **在 `ToolRegistry` 上加一个 `language` 配置字段。** 那样部署方就会有两处命名语言（所加载的运行时与 tools 配置）且可能相互矛盾；所加载的运行时是真源，故注册表读取它而不复制它。
+- **在 `ToolRegistry` 上加一个 `language` 配置字段。** 那样部署方就会有两处命名语言（所加载的运行时与 tools 配置）且可能相互矛盾；所加载的运行时是唯一真源，故注册表读取它而不复制它。
 - **把 Python 后端 import 进 `code-mode.ts` 来检测它。** 那会把工具层耦合到具体后端，并迫使协议/后端 PR（Pull Request）先落地。按 `language` 运行时分发使该层保持后端无关、可独立发布。
 - **为未知语言提供默认渲染器。** 静默回退会在比如 Ruby 运行时上发出 TypeScript SDK——模型会看到错误语言的指令。在装配处 fail loud 是本仓库对错误配置的立场。
 

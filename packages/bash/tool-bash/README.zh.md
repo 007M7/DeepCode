@@ -98,7 +98,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### Token 影响
 
-调用前结果 token 为零。每条流的输出有界，每个已输出行则会保留在历史中，直至 compaction（上下文压缩）。
+调用前结果 token 为零。每条流的输出有界，每个已输出行则会保留在历史中，直至压缩（compaction）。
 
 #### KV Cache 影响
 

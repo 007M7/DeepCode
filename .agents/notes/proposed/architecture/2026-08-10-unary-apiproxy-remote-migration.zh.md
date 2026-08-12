@@ -18,7 +18,7 @@ API Proxy 还包含一些不以业务方法为约定的 BFF 操作：Session 生
 
 只迁移符合以下条件的一元调用：其业务操作已经有自然归属的服务，且其余适配只是少量参数或结果投影。当现有方法的签名就是预期的消费方约定时，服务应绑定 TypeRT namespace，并直接使用 `@Remote` 装饰现有方法。只有执行实质性适配时才有理由新增方法；不得添加只做恒等转发的 `remote*` 包装层。
 
-`@deepseek-ai/dsh-api-remotes/client` 将挂载所选各业务包生成的 `/remote` 贡献。Client 业务包将调用 `ctx.remote.<service>`，并在包内执行归 Client 所有的关联或呈现投影。对应的 API Proxy 接口成员、schema、路由、处理程序、生成的客户端方法、fixture 实现和生产调用点，将在该服务的纵向提交中一并移除。
+`@deepseek-ai/dsh-api-remotes/client` 将挂载所选各业务包生成的 `/remote` 贡献。Client 业务包将调用 `ctx.remote.<service>`，并在包内执行归 Client 所有的关联或呈现投影。对应的 API Proxy 接口成员、schema、路由、处理程序、生成的客户端方法、fixture（测试前置数据）实现和生产调用点，将在该服务的纵向提交中一并移除。
 
 大型 BFF 方法仍留在 `dsh-host-apiproxy` 中。如果实现过程中发现某个方法包含端点特有的生命周期策略、大量编排、Client 依赖仅存在于协议层的错误区分，或者其传输数据结构无法用归属方的小型适配器表达，则该方法不在此次迁移范围内。
 

@@ -51,7 +51,7 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 
 已落地的约定：
 
-- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属约定（`LlmAdapter` JSDoc、包 README，以及 `docs/subsystems/llm-streaming.md` 的适配器约定章节）。
+- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属约定（`LlmAdapter` JSDoc、包 README，以及 `docs/subsystems/llm-streaming.md` 的适配器约定（adapter contract）章节）。
 - 共享辅助函数（`attributionHeaders` / `userAgent`）从包元数据构建应用身份和标准 `User-Agent` 值，适配器无需手动复制版本常量。
 - `dsh-llm-deepseek` 在每个请求上发送共享的 `User-Agent`，其 mock 服务器套件断言精确值。
 - `dsh-llm-pi-ai` 通过 pi-ai 的 `StreamOptions.headers` 钩子发送相同的 `User-Agent`，其 mock 服务器套件断言精确值。
