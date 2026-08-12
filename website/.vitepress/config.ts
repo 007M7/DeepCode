@@ -5,33 +5,30 @@ import { resolve } from 'node:path'
 import type { DefaultTheme, PageData } from 'vitepress'
 import type { ViteDevServer } from 'vite'
 import { withMermaid } from 'vitepress-plugin-mermaid'
-import { docsPages, sectionSpec, type DocsLocale, type DocsPage } from '../docs.ts'
+import { landingLink, orderedPages, routeLink, sectionSpec, type DocsLocale, type DocsPage } from '../docs.ts'
 import { docsSourceFiles, projectDocs } from '../../scripts/project-doc-site.ts'
 
 projectDocs()
 
-function sidebar(locale: DocsLocale, collection: DocsPage['sidebar']): DefaultTheme.SidebarItem[] {
-  const pages = docsPages.filter(page => page.locale === locale && page.sidebar === collection)
+function sidebar(locale: DocsLocale, collection: NonNullable<DocsPage['sidebar']>): DefaultTheme.SidebarItem[] {
+  // `orderedPages` already sorts by section placement, so insertion order
+  // carries the group order and each group keeps its pages in sequence.
   const groups = new Map<string, DocsPage[]>()
-  for (const page of pages) {
+  for (const page of orderedPages(locale, collection)) {
     const entries = groups.get(page.section) ?? []
     entries.push(page)
     groups.set(page.section, entries)
   }
-  return [...groups.entries()]
-    .sort(([left], [right]) => sectionSpec(locale, left).index - sectionSpec(locale, right).index)
-    .map(([text, entries]) => {
-      const { collapsed } = sectionSpec(locale, text)
-      return {
-        text,
-        // A present `collapsed` is what makes the default theme render the
-        // group as collapsible at all, so an open group must omit the key.
-        ...(collapsed === undefined ? {} : { collapsed }),
-        items: entries
-          .sort((left, right) => left.order - right.order)
-          .map(page => ({ text: page.label, link: `/${page.route.replace(/(?:index)?\.md$/, '')}` })),
-      }
-    })
+  return [...groups.entries()].map(([text, entries]) => {
+    const { collapsed } = sectionSpec(locale, text)
+    return {
+      text,
+      // A present `collapsed` is what makes the default theme render the
+      // group as collapsible at all, so an open group must omit the key.
+      ...(collapsed === undefined ? {} : { collapsed }),
+      items: entries.map(page => ({ text: page.label, link: routeLink(page.route) })),
+    }
+  })
 }
 
 function watchCanonicalDocs(server: ViteDevServer): void {
@@ -199,9 +196,9 @@ export default withMermaid({
       themeConfig: {
         siteTitle: siteTitle('技术预览'),
         nav: [
-          { text: '入门', link: '/guide/', activeMatch: '^/guide/' },
-          { text: '开发', link: '/develop/basic/', activeMatch: '^/develop/' },
-          { text: '参考', link: '/reference/', activeMatch: '^/reference/' },
+          { text: '入门', link: landingLink('root', 'zh-guide'), activeMatch: '^/guide/' },
+          { text: '开发', link: landingLink('root', 'zh-develop'), activeMatch: '^/develop/' },
+          { text: '参考', link: landingLink('root', 'zh-reference'), activeMatch: '^/reference/' },
         ],
         sidebar: {
           '/guide/': sidebar('root', 'zh-guide'),
@@ -226,9 +223,9 @@ export default withMermaid({
       themeConfig: {
         siteTitle: siteTitle('Preview'),
         nav: [
-          { text: 'Guide', link: '/en/guide/', activeMatch: '^/en/guide/' },
-          { text: 'Develop', link: '/en/develop/basic/', activeMatch: '^/en/develop/' },
-          { text: 'Reference', link: '/en/reference/', activeMatch: '^/en/reference/' },
+          { text: 'Guide', link: landingLink('en', 'en-guide'), activeMatch: '^/en/guide/' },
+          { text: 'Develop', link: landingLink('en', 'en-develop'), activeMatch: '^/en/develop/' },
+          { text: 'Reference', link: landingLink('en', 'en-reference'), activeMatch: '^/en/reference/' },
         ],
         sidebar: {
           '/en/guide/': sidebar('en', 'en-guide'),

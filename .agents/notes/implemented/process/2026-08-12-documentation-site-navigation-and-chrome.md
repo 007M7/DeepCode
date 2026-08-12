@@ -8,6 +8,8 @@ English | [中文](2026-08-12-documentation-site-navigation-and-chrome.zh.md)
 
 The reference sidebar rendered its 43 subsystem pages first, ahead of every other group: `sectionOrder` in the VitePress config listed no position for `子系统`/`Subsystems` — nor for `其他接口`/`Other interfaces` — so `indexOf` returned `-1` and sorted them ahead of the ordered sections. Clicking the `参考` navigation item landed on the architecture page whose own sidebar entry was link 44 of 62, 1549px down a 2478px sidebar — outside the viewport. Four subsystem pages carried `order` values already taken by other pages in the same section, resolved only by `Array.prototype.sort` stability and the order the manifest's arrays happened to be concatenated.
 
+The navigation bar named `/guide/` while the manifest published the guide's first page at `guide/quickstart.md`, so that item served a 404: written-down navigation targets drift from the routes the manifest publishes.
+
 Separately, every canonical page carries lines written for its GitHub reader — a language switcher under the heading, and for some, a repository badge — which the site projected verbatim even though its navigation bar already offers both.
 
 ## Decision
@@ -15,6 +17,8 @@ Separately, every canonical page carries lines written for its GitHub reader —
 [website/docs.ts](../../../../website/docs.ts) owns section placement. `sections` declares the groups per locale, and `sectionSpec(locale, label)` returns a group's position and collapse behavior, throwing when a locale declares no placement for a label. A group absent from the declaration now fails the build instead of sorting silently to the top. Placement is per locale because the two sidebars name their groups independently: one shared list ordered both label sets by convention and accepted a label missing from either without complaint.
 
 Subsystem pages are grouped by concern — overview, core and scopes, sessions and persistence, model and context, execution and tools, policy and interaction, platform and access — and the six topical groups render collapsed until one holds the page being read. The groups sort last within the reference sidebar: expanded, they outnumber every other group combined, so anything placed after them is reachable only by scrolling past the whole list. Page `order` derives from array position rather than a hand-written number.
+
+`landingLink(locale, collection)` derives each navigation item's target from `orderedPages`, the same ordering the sidebar renders, so an item always opens its collection's first published page.
 
 `projectedPageContent` in [scripts/project-doc-site.ts](../../../../scripts/project-doc-site.ts) drops the language-switcher line and the repository badge. The switcher match is confined to the first eight lines so a tutorial that shows the convention still renders its example.
 

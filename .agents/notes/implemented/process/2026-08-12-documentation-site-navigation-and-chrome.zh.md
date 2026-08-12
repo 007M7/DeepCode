@@ -8,6 +8,8 @@ Status: implemented
 
 参考侧边栏把 43 个子系统页排在了所有其他分组之前：VitePress 配置中的 `sectionOrder` 既没有为 `子系统`/`Subsystems` 也没有为 `其他接口`/`Other interfaces` 声明位置，`indexOf` 返回 `-1`，于是它们排到了所有已排序分区的前面。点击 `参考` 导航项落在架构页，而该页自己的侧边栏条目是 62 条中的第 44 条，位于 2478px 侧边栏的 1549px 处——在视口之外。四个子系统页所用的 `order` 值已被同一分区内的其他页占用，只靠 `Array.prototype.sort` 的稳定性和 manifest 数组恰好的拼接顺序才没有错乱。
 
+顶栏把 `入门` 指向 `/guide/`，而 manifest 已把入门首页发布在 `guide/quickstart.md`，该导航项因此返回 404：写死的导航目标会与 manifest 实际发布的路由脱节。
+
 另外，每个规范页面都带有写给 GitHub 读者的行——标题下的语言切换行，部分页面还有仓库徽章——站点原样投影了它们，尽管其导航栏已经提供了这两者。
 
 ## 决定
@@ -15,6 +17,8 @@ Status: implemented
 [website/docs.ts](../../../../website/docs.ts) 拥有分区位置。`sections` 按 locale 声明各分组，`sectionSpec(locale, label)` 返回分组的位置与折叠行为，当某 locale 未为该 label 声明位置时抛错。未出现在声明中的分组现在会让构建失败，而不是静默排到最前。位置按 locale 声明，是因为两侧侧边栏各自命名分组：单一共享列表既要按约定排列两套标签，又会对任一侧缺失的标签毫无反应。
 
 子系统页按关注点分组——总览、内核与作用域、会话与持久化、模型与上下文、执行与工具、策略与交互、平台与接入——其中六个主题组保持折叠，直到某一组包含正在阅读的页面。这些分组排在参考侧边栏的最后：展开时它们的数量超过其余所有分组之和，因此排在它们之后的任何内容都只能靠滚过整个列表才能到达。页面 `order` 由数组位置推导，不再手写数字。
+
+`landingLink(locale, collection)` 依据 `orderedPages`——即侧边栏所用的同一套排序——推导每个导航项的目标，因此导航项始终打开该分区已发布的首个页面。
 
 [scripts/project-doc-site.ts](../../../../scripts/project-doc-site.ts) 中的 `projectedPageContent` 会丢弃语言切换行和仓库徽章。切换行的匹配被限制在前八行内，因此展示该约定的教程仍能渲染出它的示例。
 

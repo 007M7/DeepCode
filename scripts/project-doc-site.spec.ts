@@ -5,7 +5,7 @@ import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, realpathSyn
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { docsPages, sectionSpec, type DocsPage } from '../website/docs.ts'
+import { docsPages, landingLink, routeLink, sectionSpec, type DocsPage } from '../website/docs.ts'
 import {
   addProjectionFrontmatter, projectedPageContent, publishableImage, rewriteMarkdown,
 } from './project-doc-site.ts'
@@ -384,6 +384,19 @@ describe('sidebar ordering', () => {
     expect(sectionSpec('en', 'Guide').index).toBe(0)
     expect(() => sectionSpec('en', '入门')).toThrow()
     expect(() => sectionSpec('root', 'Guide')).toThrow()
+  })
+
+  it('lands every navigation item on a page the manifest publishes', () => {
+    // The navigation bar named `/guide/` while the manifest published the guide's
+    // first page at `guide/quickstart.md`, so the item served a 404.
+    const collections = [
+      ['root', 'zh-guide'], ['root', 'zh-develop'], ['root', 'zh-reference'],
+      ['en', 'en-guide'], ['en', 'en-develop'], ['en', 'en-reference'],
+    ] as const
+    const published = new Set(docsPages.map(page => routeLink(page.route)))
+    for (const [locale, collection] of collections) {
+      expect(published, `${locale}/${collection}`).toContain(landingLink(locale, collection))
+    }
   })
 
   it('collapses the subsystem groups and leaves the smaller ones open', () => {

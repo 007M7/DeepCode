@@ -11,7 +11,7 @@
 export type DocsLocale = 'root' | 'en'
 
 /** Sidebar collection rendered for one locale and top-level module. */
-type DocsSidebar =
+export type DocsSidebar =
   | 'zh-guide'
   | 'zh-develop'
   | 'zh-reference'
@@ -478,3 +478,47 @@ export const docsPages: DocsPage[] = [
   ...subsystemsReference,
   ...reference,
 ]
+
+/**
+ * Pages of one sidebar collection, in the order the sidebar lists them.
+ *
+ * @param locale - Route tree whose sidebar is being built.
+ * @param collection - Sidebar collection to read.
+ * @returns The collection's pages, ordered by section placement then by `order`.
+ */
+export function orderedPages(locale: DocsLocale, collection: DocsSidebar): DocsPage[] {
+  return docsPages
+    .filter(page => page.locale === locale && page.sidebar === collection)
+    .sort((left, right) => (
+      sectionSpec(locale, left.section).index - sectionSpec(locale, right.section).index
+      || left.order - right.order
+    ))
+}
+
+/**
+ * Site-relative link for a published route.
+ *
+ * @param route - Manifest route, including its `.md` suffix.
+ * @returns The link VitePress serves the route at.
+ */
+export function routeLink(route: string): string {
+  return `/${route.replace(/(?:index)?\.md$/, '')}`
+}
+
+/**
+ * Where a top-level navigation item lands.
+ *
+ * The target is derived rather than written down: a collection whose first page
+ * is renamed or reordered would otherwise leave the navigation bar pointing at
+ * a route the manifest no longer publishes.
+ *
+ * @param locale - Route tree the navigation item belongs to.
+ * @param collection - Sidebar collection the item opens.
+ * @returns Site-relative link of the collection's first page.
+ * @throws When the collection publishes no page.
+ */
+export function landingLink(locale: DocsLocale, collection: DocsSidebar): string {
+  const first = orderedPages(locale, collection)[0]
+  if (first === undefined) throw new Error(`Sidebar collection "${collection}" publishes no page.`)
+  return routeLink(first.route)
+}
