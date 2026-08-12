@@ -17,7 +17,7 @@ import type {
   SDKSystemMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -86,6 +86,22 @@ const fakeKey = 'dsh-fake-anthropic-key'
 const roots: string[] = []
 const fixtures: MessagesFixture[] = []
 const contexts: Context[] = []
+
+// Ambient Anthropic model env leaks into the real CLI and overrides the
+// fixture settings.json on developer machines; delete it for this file and
+// restore it after, like the workspace-context USERPROFILE isolation.
+const ambientAnthropicModel = process.env.ANTHROPIC_MODEL
+const ambientAnthropicSmallFastModel = process.env.ANTHROPIC_SMALL_FAST_MODEL
+
+beforeAll(() => {
+  delete process.env.ANTHROPIC_MODEL
+  delete process.env.ANTHROPIC_SMALL_FAST_MODEL
+})
+
+afterAll(() => {
+  if (ambientAnthropicModel !== undefined) process.env.ANTHROPIC_MODEL = ambientAnthropicModel
+  if (ambientAnthropicSmallFastModel !== undefined) process.env.ANTHROPIC_SMALL_FAST_MODEL = ambientAnthropicSmallFastModel
+})
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
