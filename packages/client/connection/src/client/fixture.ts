@@ -1447,7 +1447,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
   ])
   let fixtureDefaultPreset = 'standard'
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 74]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 75]])
   let nextSession = 1
   let nextRpc = 1
   let attachedSessions = options.empty ? 0 : 1

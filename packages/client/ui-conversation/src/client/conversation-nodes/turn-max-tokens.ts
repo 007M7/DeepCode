@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnMaxTokensNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { chatNode } from './common.ts'
+import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ChatNodeDataMap {
@@ -21,6 +21,21 @@ function lastStep(context: ConversationNodeContext<TurnMaxTokensState>): number 
   const location = context.start?.location ?? context.matches[0]?.location
   if (location?.kind !== 'turn' && location?.kind !== 'step') return 0
   return location.turn.steps.at(-1)?.step ?? 0
+}
+
+/**
+ * Anchor the notice between the closing Assistant and the turn-tail so the
+ * tail stays the turn's last Chat node and keeps its branch action enabled.
+ * Without a closing text Assistant there is no branch action to protect, and
+ * the turn/end seq keeps the notice at the truncation point.
+ */
+function noticeAnchor(context: ConversationNodeContext<TurnMaxTokensState>, seq: number): number {
+  const location = context.start?.location ?? context.matches[0]?.location
+  if (location?.kind !== 'turn' && location?.kind !== 'step') return seq
+  const closing = location.turn.data.get('turn-tail')?.closing
+  return closing === null || closing === undefined
+    ? seq
+    : closing.finalNode.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.maxTokensNotice
 }
 
 function stateFrom(match: ConversationMatch): TurnMaxTokensState | undefined {
@@ -46,7 +61,6 @@ export const turnMaxTokensDefinition: ConversationNodeDefinition<TurnMaxTokensSt
   update: context => context.state,
   buildViewNode: (context) => {
     const state = context.state
-      ?? context.matches.map(stateFrom).find(candidate => candidate !== undefined)
     if (state === undefined) return null
     const node: TurnMaxTokensNode = {
       kind: 'turn-max-tokens',
@@ -55,7 +69,7 @@ export const turnMaxTokensDefinition: ConversationNodeDefinition<TurnMaxTokensSt
       turn: state.turn,
       step: lastStep(context),
     }
-    return chatNode(context, 'turn-max-tokens', node.seq, node)
+    return chatNode(context, 'turn-max-tokens', noticeAnchor(context, state.seq), node)
   },
 }
 

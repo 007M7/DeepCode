@@ -827,6 +827,11 @@ describe('built-in conversation node Definitions', () => {
     const notice = node(snapshot(value), 'turn-max-tokens')
     expect(notice?.data).toMatchObject({ kind: 'turn-max-tokens', seq: 5, turn: 1, step: 1 })
     expect(node(snapshot(value), 'turn-error')).toBeUndefined()
+    // The tail stays the turn's last node so its branch action survives; the
+    // notice slots between the truncated closing Assistant and the tail.
+    const tail = node(snapshot(value), 'turn-tail')
+    expect(notice?.anchorSeq).toBeLessThan(tail?.anchorSeq ?? Number.NEGATIVE_INFINITY)
+    expect(notice?.anchorSeq).toBeGreaterThan(3)
 
     const completed = assembler([
       at(1, 'turn/start', { turn: 1 }),
@@ -876,10 +881,6 @@ describe('built-in conversation node Definitions', () => {
       match(6, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
     )).toBe(state)
     expect(turnMaxTokensDefinition.buildViewNode?.(context(undefined))).toBeNull()
-    expect(turnMaxTokensDefinition.buildViewNode?.(context(
-      undefined,
-      [match(5, 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })],
-    ))).toMatchObject({ kind: 'turn-max-tokens' })
   })
 
   it('preserves nested Tools and manual compaction evidence when their start events are outside the window', () => {
