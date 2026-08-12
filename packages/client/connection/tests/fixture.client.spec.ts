@@ -164,6 +164,10 @@ describe('createFixtureApi', () => {
           toolsTokens: 0,
           messageTokens: 0,
         },
+        // Session-stats unit composed: no figure accrues on the empty log.
+        sessionStats: {
+          turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0,
+        },
       } },
     })
   })
@@ -353,7 +357,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 11) abort.abort()
+        if (envelopes.length >= 12) abort.abort()
       }
       return envelopes
     }
@@ -374,10 +378,12 @@ describe('createFixtureApi', () => {
       value: { systemTokens: 0, toolsTokens: 0 },
     })
     expect((first[8]?.payload as { value: { messageTokens: number } }).value.messageTokens).toBeGreaterThan(0)
-    expect(first[9]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[9]?.rpcId).toBe(first[9]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[10]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[10]?.rpcId).toBe(first[10]?.rpcId)
+    expect(first[9]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'sessionStats' })
+    expect((first[9]?.payload as { value: { turns: number; steps: number } }).value.steps).toBeGreaterThan(0)
+    expect(first[10]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[10]?.rpcId).toBe(first[10]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[11]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[11]?.rpcId).toBe(first[11]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

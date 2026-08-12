@@ -45,6 +45,9 @@
       "path": "../../session/session-projection"
     },
     {
+      "path": "../../session/session-stats"
+    },
+    {
       "path": "../../llm/token-meter"
     },
     {

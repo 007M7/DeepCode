@@ -797,12 +797,11 @@ async function stableCount(
 }
 
 async function conversationTurns(page: Page): Promise<number> {
-  const stats = page.getByText(/\d+ turns · \d+ steps/, { exact: true }).last()
-  await stats.waitFor({ timeout: 15_000 })
-  const value = await stats.textContent()
-  const match = value?.match(/^(\d+) turns · \d+ steps$/)
-  if (match?.[1] === undefined) throw new Error(`unexpected conversation stats ${JSON.stringify(value)}`)
-  return Number(match[1])
+  // Loaded-window turn count: one mounted turn-tail footer per settled turn in
+  // the window (context keys are `${kind.length}:${kind}${id}`). The stats
+  // strip cannot serve as this probe: its counts ride the whole-log
+  // sessionStats projection and stay fixed across paging by design.
+  return stableCount(page.locator('[data-chat-flow-key^="9:turn-tail"]'), count => count > 0)
 }
 
 function retainedDelta(

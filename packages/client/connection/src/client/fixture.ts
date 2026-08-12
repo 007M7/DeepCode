@@ -9,6 +9,7 @@ import {
   createAssistantMessage,
   createToolResultMessage,
   createUserMessage,
+  isTokenDelta,
 } from '@deepseek-ai/dsh-llm/message'
 import { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type {
@@ -861,6 +862,76 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
   return totals
 }
 
+/** Fixture parallel of session-stats' whole-log counting and wall-time fold. */
+function sessionStatsOf(log: readonly SessionEvent[]): {
+  turns: number
+  steps: number
+  llmMs: number
+  toolMs: number
+  ttftMs: number
+  ttftSteps: number
+  decodeMs: number
+  decodeTokens: number
+} {
+  const value = { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 }
+  let lastTurn: number | null = null
+  let openStep: { turn: number; step: number; startTime: number; firstTokenTime: number | null } | null = null
+  const pendingCalls = new Map<string, number>()
+  for (const event of log) {
+    switch (event.type) {
+      case 'step/start':
+        openStep = { turn: event.data.turn, step: event.data.step, startTime: event.time, firstTokenTime: null }
+        break
+      case 'assistant/chunk':
+        if (openStep !== null && openStep.turn === event.data.turn && openStep.step === event.data.step
+          && openStep.firstTokenTime === null && isTokenDelta(event.data.chunk)) {
+          openStep.firstTokenTime = event.time
+        }
+        break
+      case 'assistant/message': {
+        if (openStep === null || openStep.turn !== event.data.turn || openStep.step !== event.data.step) break
+        value.llmMs += Math.max(0, event.time - openStep.startTime)
+        if (openStep.firstTokenTime !== null) {
+          value.ttftMs += Math.max(0, openStep.firstTokenTime - openStep.startTime)
+          value.ttftSteps += 1
+          const outputTokens = event.data.usage?.outputTokens
+          if (typeof outputTokens === 'number' && Number.isFinite(outputTokens) && outputTokens >= 0) {
+            value.decodeMs += Math.max(0, event.time - openStep.firstTokenTime)
+            value.decodeTokens += outputTokens
+          }
+        }
+        openStep = null
+        break
+      }
+      case 'tool/call':
+        pendingCalls.set(event.data.callId, event.time)
+        break
+      case 'tool/result': {
+        const callId = event.data.message.source.callId
+        const dispatched = pendingCalls.get(callId)
+        if (dispatched === undefined) break
+        pendingCalls.delete(callId)
+        value.toolMs += Math.max(0, event.time - dispatched)
+        break
+      }
+      case 'step/end':
+        if (event.data.turn !== lastTurn) {
+          value.turns += 1
+          lastTurn = event.data.turn
+        }
+        value.steps += 1
+        openStep = null
+        break
+      case 'turn/end':
+        pendingCalls.clear()
+        break
+      default:
+        break
+    }
+  }
+  return value
+}
+
 interface FixtureRequestContext {
   provider: string
   model: string
@@ -979,6 +1050,8 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['contextPressure'] = contextPressureOf(log)
   // Always present (token-meter composed): heuristic request composition.
   values['contextBreakdown'] = contextBreakdownOf(log)
+  // Always present (session-stats unit composed): whole-log turn/step counts.
+  values['sessionStats'] = sessionStatsOf(log)
   return values
 }
 
@@ -1011,6 +1084,17 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'contextBreakdown',
       value: contextBreakdownOf(log),
+      seq: event.seq,
+    })
+  }
+  // The stats fold's view advances on message assembly and tool settlement
+  // (wall times) and on step close (counts).
+  if (type === 'assistant/message' || type === 'tool/result' || type === 'step/end') {
+    frames.push({
+      type: 'session/projection',
+      sessionId: id,
+      key: 'sessionStats',
+      value: sessionStatsOf(log),
       seq: event.seq,
     })
   }
