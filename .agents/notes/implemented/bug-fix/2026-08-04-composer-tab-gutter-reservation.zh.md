@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 对覆盖视图已被 [座位宽度补偿](2026-08-12-composer-overlay-seat-width-compensation.md) 取代：覆盖分支不再预留滚动条槽，座位改为补偿滚动条宽度。Chat 仍保留本文所述的预留。
+
 [English](2026-08-04-composer-tab-gutter-reservation.md) | 中文
 
 ## 问题

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> Superseded for overlay views by [the seat-width compensation](2026-08-12-composer-overlay-seat-width-compensation.md): the overlay branch no longer reserves a gutter, and the seat compensates for the bar instead. Chat keeps the reservation described here.
+
 English | [中文](2026-08-04-composer-tab-gutter-reservation.zh.md)
 
 ## Problem
