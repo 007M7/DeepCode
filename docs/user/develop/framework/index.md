@@ -134,3 +134,4 @@ effect cleaned up
 
 - [Services and dependencies](./service.md) — expose a capability to other plugins
 - [Event system](./events.md) — communicate between plugins
+- [Cordis tutorial](../../../cordis-tutorial/index.md) — the same lifecycle, services, and events built step by step against the Cordis runtime
