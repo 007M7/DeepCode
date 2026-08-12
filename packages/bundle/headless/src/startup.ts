@@ -41,22 +41,17 @@ Examples:
 }
 
 /**
- * Turn the parsed command line into the runner's task.
- * @param program - the parsed headless command.
- * @returns the runner's service value.
- */
-function planHeadlessStartup(program: Command): HeadlessStartupValues {
-  const task = program.args.join(' ')
-  if (task.trim() === '') program.error('error: a task is required, for example: dsh --profile headless "run the tests"')
-  return { task }
-}
-
-/**
- * Parse and provide the one-shot task as an ordinary Cordis service.
+ * Parse and provide the one-shot task as an ordinary Cordis service. The
+ * command's action publishes the task; a missing or whitespace-only task is a
+ * usage error, so on rejection (and on `--help`) nothing is provided.
  * @param ctx - plugin context carrying the command line.
- * @returns nothing once the task is provided, or when the command requested exit.
  */
 export function apply(ctx: Context): void {
-  const values = parseCmdline(ctx, headlessCommand(), planHeadlessStartup)
-  if (values !== undefined) ctx.provide(HEADLESS_STARTUP_SERVICE, values)
+  const program = headlessCommand()
+  program.action(() => {
+    const task = program.args.join(' ')
+    if (task.trim() === '') program.error('error: a task is required, for example: dsh --profile headless "run the tests"')
+    ctx.provide(HEADLESS_STARTUP_SERVICE, { task } satisfies HeadlessStartupValues)
+  })
+  parseCmdline(ctx, program)
 }
