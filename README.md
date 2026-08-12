@@ -29,7 +29,7 @@ Continue with the [Web UI guide](docs/user/guide/index.md).
 To run a repository checkout instead:
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness
 pnpm install
 pnpm run build
