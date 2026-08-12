@@ -29,7 +29,7 @@ This decision owns build scheduling only. The [tsx ESM source-launch decision](.
 ## Consequences
 
 - Repeated source launches do not wait for a complete repository build, and build output is not mixed with CLI output.
-- Source users own artifact freshness. Missing artifacts fail loudly; existing stale frontend and client-plugin bundles can silently serve older browser code.
+- Source users own artifact freshness. Missing artifacts stop startup, but only frontend and client-plugin failures direct users to `pnpm run build`; existing stale frontend and client-plugin bundles can silently serve older browser code.
 - TUI, Web, and headless selection, argument forwarding, environment inheritance, and the tsx ESM launch vector remain unchanged.
 - The root onboarding and CLI reference show build and launch as separate commands and document the stale-artifact behavior.
 
