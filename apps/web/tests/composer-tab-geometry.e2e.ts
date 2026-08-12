@@ -28,13 +28,13 @@
 // The browser is launched WITHOUT Playwright's default `--hide-scrollbars`,
 // which is load-bearing rather than incidental. Under that argument a scroll
 // container's bar consumes no layout width at all, so the two tabs agree with
-// and without the reservation and every comparison below holds vacuously —
-// measured: the unreserved cascade leaves both tabs' bands at 0 there, against
-// 8 and 0 with the argument dropped. Dropping it is also the faithful
+// and without the compensation and every comparison below holds vacuously —
+// measured: the uncompensated cascade leaves both tabs' bands at 0 there,
+// against 8 and 0 with the argument dropped. Dropping it is also the faithful
 // configuration: ui-theme's scrollbar.css gives `::-webkit-scrollbar` a width,
 // and a bar that occupies layout space is what the product actually draws.
 //
-// The scenario runs that unreserved cascade in the page — the overlay seat's
+// The scenario runs that uncompensated cascade in the page — the overlay seat's
 // `right` compensation dropped to 0 — and measures the same two tabs through
 // it, which is what keeps the equal rectangles above from being explained by a
 // tab switch that never reached the layout. It is the reported symptom as a
@@ -227,7 +227,7 @@ async function compareTabs(page: Page): Promise<TabComparison> {
  * @param page - the page under test.
  * @returns the comparison as the column lays out without the compensation.
  */
-async function compareTabsWithoutReservation(page: Page): Promise<TabComparison> {
+async function compareTabsWithoutCompensation(page: Page): Promise<TabComparison> {
   await page.evaluate(({ id, css }) => {
     const style = document.createElement('style')
     style.id = id
@@ -327,9 +327,13 @@ describe('web e2e: input card position across view tabs', () => {
   it('reserves the gutter in Chat and lets Trajectory own its width', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-band'))
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
-    // Vacuity guard, in two parts. A transcript that does not overflow gives
-    // Chat no scrollbar, and a hidden or overlaid bar gives it no width; either
-    // would make the tabs agree without the compensation doing anything.
+    // Vacuity guard. The scenario must be able to fail: on an engine that
+    // does not implement `scrollbar-gutter`, Chat reserves nothing and the
+    // overlay seat's fixed compensation stands alone, manufacturing an 8px
+    // deviation the equal-rectangle assertions would catch. `stable` reserves
+    // even without overflow, so a short transcript is not a vacuous case; the
+    // poll still pins the measurement to the overflowing state the product
+    // ships.
     await expect.poll(async () => (await measureTab(page)).scrolls, { timeout: 10_000 }).toBe(true)
     const comparison = await compareTabs(page)
     expect(comparison.chat.band).toBeGreaterThan(0)
@@ -356,7 +360,7 @@ describe('web e2e: input card position across view tabs', () => {
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const comparison = await compareTabs(page)
     // The reported symptom as a number. At this viewport the card sits at its
-    // width cap, so the unreserved cascade's shift shows up as a centring
+    // width cap, so the uncompensated cascade's shift shows up as a centring
     // difference — half the band on each edge — rather than as a width change.
     expect(comparison.leftShift).toBe(0)
     expect(comparison.rightShift).toBe(0)
@@ -387,11 +391,11 @@ describe('web e2e: input card position across view tabs', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-control'))
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     // The control: without it, equal rectangles could also mean the tab switch
-    // never reached the layout. Under the unreserved cascade the overlay seat
+    // never reached the layout. Under the uncompensated cascade the overlay seat
     // loses its `right` compensation and measures the full padding box, so the
     // card moves by half the band on each edge. Chat's own reservation is
     // untouched — that is the side that must not change.
-    const comparison = await compareTabsWithoutReservation(page)
+    const comparison = await compareTabsWithoutCompensation(page)
     expect(comparison.chat.gutter).toBe('stable')
     expect(comparison.chat.band).toBeGreaterThan(0)
     expect(comparison.trajectory.band).toBe(0)
@@ -411,7 +415,7 @@ describe('web e2e: input card position across view tabs', () => {
     await setMeasuredViewport(page, NARROW_VIEWPORT, true)
     const narrow = await compareTabs(page)
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
-    const control = await compareTabsWithoutReservation(page)
+    const control = await compareTabsWithoutCompensation(page)
     await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(wide, narrow, control), MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

@@ -14,7 +14,7 @@ trajectory 表格让这个代价显形：整行分隔线在面板右边缘前 8p
 
 预留现在只属于 Chat。覆盖分支声明 `scrollbar-gutter: auto`，视图内容占满整列；覆盖分支的 composer 座位（相对 padding box 绝对定位）用 `right: var(--dsh-scrollbar-width)` 让出滚动条宽度，使输入卡仍与 Chat 座位测得相同宽度，切换标签页时不移动。
 
-补偿值不是字面量：ui-theme 的 scrollbar.css 在它镜像的 `::-webkit-scrollbar` 规则旁定义 `--dsh-scrollbar-width`（WebKit 路径 8px），座位读取该变量。样式表滚动条宽度一变，补偿就会与滚动条本身出现在同一次可审阅的 diff 中。
+补偿值不是字面量：ui-theme 的 scrollbar.css 在它镜像的 `::-webkit-scrollbar` 规则旁定义 `--dsh-scrollbar-width`（WebKit 路径 8px），座位读取该变量。scrollbar-styles 规格把该变量与其镜像规则、以及补偿消费者配对检查，因此样式表滚动条宽度一变却不同步变量——或变量一变却不同步消费者——都会让门禁失败，而不只是评审时发现。
 
 ## 备选方案
 
@@ -24,12 +24,15 @@ trajectory 表格让这个代价显形：整行分隔线在面板右边缘前 8p
 
 **接受 4px 卡片位移。** 去掉预留却不补偿座位，会在每次切换标签页时移动输入卡——正是前一份 note 修复的症状。已拒绝：卡片位置是刻意保持的跨标签页不变量。
 
+**把 overlay 座位按滚动条宽度内缩。** [滚动条槽预留 note](2026-08-04-composer-tab-gutter-reservation.md) 当初否决的正是这个方案，本 note 采纳了它；变的是否决的前提。这个数字属于引擎而不属于我们——WebKit 路径绘制样式表里的 8px 滚动条，Firefox 路径绘制 `scrollbar-width: thin` 解析出的宽度——因此硬编码的内缩会让两种状态在 Chromium 上对齐、在别处继续漂移。当初 overlay 分支自己预留的是引擎解析出的槽宽，内缩必须精确匹配那个宽度。如今 overlay 分支不预留任何槽位，补偿成为覆盖侧唯一的机制；否决的字面量那一半，通过把 8px 变成与 `::-webkit-scrollbar` 规则同处一个 diff 的变量来回应。Firefox 那一半仍然存在：Chat 预留引擎解析宽度，补偿保持固定 8px，两者不等之处的残余漂移作为接受的代价记录在后果中。
+
 ## 后果
 
 - Chat 保留滚动条槽与稳定的卡片位置；该标签页无任何变化。
 - 覆盖视图（trajectory）占满整列；trajectory 台账的分隔线到达面板右边缘。
 - 输入卡在 Chat 与 Trajectory 标签页间仍保持同一水平位置，现在由两种机制而非一种达成：Chat 预留，覆盖座位补偿。
-- `--dsh-scrollbar-width` 成为 ui-theme 对外、且被 ui-theme 之外读取的变量；scrollbar-styles 规格的间接层检查只扫描 `--dsh-scrollbar-thumb{,-hover}` 重绑，宽度变量不受成对门禁覆盖。
+- Chat 预留引擎解析宽度，覆盖座位补偿固定的 8px。两者不等之处——Firefox 路径按平台解析 `scrollbar-width: thin`，而 e2e 只在 Chromium 上运行——卡片在切换标签页时会漂移半个差值。这是接受的残余代价，如实记录于此而不断言消除：本次改动并未提供目标平台 Firefox thin 宽度的实测。
+- `--dsh-scrollbar-width` 成为 ui-theme 对外、且被 ui-theme 之外读取的变量；scrollbar-styles 规格把它与镜像的 `::-webkit-scrollbar` 宽度规则、以及补偿消费者配对检查，补上了该变量本会留下的间接层门禁缺口。
 
 ## 测试
 

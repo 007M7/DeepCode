@@ -297,8 +297,10 @@
      by the bar's width; the overlay seat is against the padding box, so it
      must give back the same width to keep the input card in place across
      tabs. Reads ui-theme's --dsh-scrollbar-width, which mirrors the WebKit
-     bar's layout width; Firefox's thin bar resolves to the same 8px on the
-     platforms this app targets, so the compensation holds there too. */
+     bar's layout width. Chat reserves the engine-resolved width, so on an
+     engine where the resolved width differs from this fixed 8px the card
+     drifts by half the difference — accepted residual risk, recorded in
+     ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-12-composer-overlay-seat-width-compensation.md)). */
   right: var(--dsh-scrollbar-width);
   bottom: 0;
   left: 0;
