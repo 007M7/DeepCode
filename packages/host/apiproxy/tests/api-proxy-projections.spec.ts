@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -84,6 +85,51 @@ describe('session.history projections block', () => {
     expect(projections?.values['test/last-user']).toEqual({ text: 'm2' })
     // asOfSeq IS the window tail: the last served event carries it.
     expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
+  })
+
+  it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {
+    const { ctx, session } = await harness(true)
+    const limits = {
+      maxImageBytes: 5 * 1024 * 1024,
+      maxImagesPerMessage: 20,
+      maxMessageImageBytes: 100 * 1024 * 1024,
+      maxImagePixels: 40_000_000,
+      mediaTypes: ['image/png'] as const,
+    }
+    await ctx.plugin(class extends AttachmentStore {
+      readonly imageLimits = limits
+      validateImage(): Promise<void> { return Promise.resolve() }
+      saveImage(): Promise<never> { return Promise.reject(new Error('unused')) }
+      readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
+    })
+    const gateway = api(ctx)
+    seedMessages(session, 2)
+    const response = await gateway.sessions.history(request({ sessionId: session.id }))
+    if (!response.result.ok) throw new Error('history failed')
+    expect(response.result.value.projections?.values['imageLimits']).toEqual(limits)
+    // Constant unit: appending events must never broadcast an imageLimits frame.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const abort = new AbortController()
+    const stream = gateway.events.mux({ rpcId: RpcId('t-limits-mux'), payload: {} }, abort.signal)
+    const frames: MuxFrame[] = []
+    const drained = (async () => {
+      for await (const envelope of stream) {
+        frames.push(envelope.payload)
+        if (frames.some(f => f.type === 'session/event')) abort.abort()
+      }
+    })().catch(() => {})
+    seedMessages(session, 1)
+    await drained
+    expect(frames.some(f => f.type === 'session/projection' && f.key === 'imageLimits')).toBe(false)
+  })
+
+  it('leaves the imageLimits key absent while no attachment service is composed', async () => {
+    const { ctx, session } = await harness(true)
+    seedMessages(session, 1)
+    const response = await api(ctx).sessions.history(request({ sessionId: session.id }))
+    if (!response.result.ok) throw new Error('history failed')
+    expect(response.result.value.projections).toBeDefined()
+    expect('imageLimits' in (response.result.value.projections?.values ?? {})).toBe(false)
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {

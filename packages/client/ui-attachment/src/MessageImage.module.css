@@ -1,8 +1,8 @@
 .gallery {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  width: min(240px, 100%);
+  gap: 10px;
+  max-width: 100%;
 }
 
 .gallery[data-align='end'] {
@@ -29,11 +29,18 @@
   cursor: zoom-in;
 }
 
+.frame[data-variant='tile'] {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  min-height: 64px;
+}
+
 .frame img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
 .loading,
@@ -50,4 +57,13 @@
   border-radius: 10px;
   background: var(--dsw-alias-interactive-bg-hover-danger);
   cursor: pointer;
+}
+
+/* A failed tile keeps the 64px grid cell instead of growing to its copy. */
+.error[data-variant='tile'] {
+  width: 64px;
+  height: 64px;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: 16px;
 }

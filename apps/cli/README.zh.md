@@ -35,4 +35,4 @@ profile 目录包含一个 `package.json`（树外插件依赖，加上 profile 
 
 ## 开发
 
-生产运行需要已构建的包与前端产物。从仓库根目录运行 `pnpm dsh <args...>` 会先构建这些产物，再运行 TypeScript 入口并转发所有参数；模块解析约定由[源码执行参考](reference/README.md#source-execution)负责。
+生产运行需要已构建的包与前端产物。请在仓库根目录单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>` 运行 TypeScript 入口并转发所有参数；模块解析约定由[源码执行参考](reference/README.md#source-execution)负责。

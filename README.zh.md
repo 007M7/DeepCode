@@ -32,10 +32,11 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 pnpm dsh web
 ```
 
-最后一条命令会构建仓库，并进入相同的 Web UI 路径。
+`pnpm run build` 准备仓库产物。`pnpm dsh web` 启动 Web UI，不会重新构建，并进入相同的路径。
 
 ## Profile 与插件
 

@@ -32,10 +32,11 @@ To run a repository checkout instead:
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 pnpm dsh web
 ```
 
-The last command builds the repository and opens the same Web UI path.
+`pnpm run build` prepares the repository artifacts. `pnpm dsh web` starts the Web UI without rebuilding and opens the same path.
 
 ## Profiles and plugins
 

@@ -2334,8 +2334,41 @@
       "payload": {
         "sessionId": "{{child-1}}",
         "event": {
-          "type": "session/title",
+          "type": "user/message",
           "seq": 6,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+              }
+            ],
+            "source": {
+              "kind": "plugin",
+              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "form": "snapshot",
+              "sections": [
+                {
+                  "name": "subagent:delegation",
+                  "text": "You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+                }
+              ]
+            },
+            "role": "user",
+            "id": "{{messageId}}"
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "session/title",
+          "seq": 7,
           "time": 0,
           "data": {
             "title": "Reply with exactly DIRECT_CHILD_OK and",
@@ -2355,7 +2388,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "request/header",
-          "seq": 7,
+          "seq": 8,
           "time": 0,
           "data": {
             "header": {
@@ -2394,7 +2427,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "request/context",
-          "seq": 8,
+          "seq": 9,
           "time": 0,
           "data": {
             "provider": "deepseek-official",
@@ -2410,7 +2443,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 9,
+          "seq": 10,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2430,7 +2463,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 10,
+          "seq": 11,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2450,7 +2483,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 11,
+          "seq": 12,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2473,7 +2506,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 12,
+          "seq": 13,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2495,7 +2528,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 13,
+          "seq": 14,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2516,7 +2549,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/message",
-          "seq": 14,
+          "seq": 15,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2542,11 +2575,11 @@
             }
           },
           "sourceEventSeqs": [
-            9,
             10,
             11,
             12,
-            13
+            13,
+            14
           ],
           "surfaceOp": "append"
         }
@@ -2558,7 +2591,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "step/end",
-          "seq": 15,
+          "seq": 16,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2573,7 +2606,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "turn/end",
-          "seq": 16,
+          "seq": 17,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2986,8 +3019,41 @@
       "payload": {
         "sessionId": "{{child-2}}",
         "event": {
-          "type": "session/title",
+          "type": "user/message",
           "seq": 6,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+              }
+            ],
+            "source": {
+              "kind": "plugin",
+              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "form": "snapshot",
+              "sections": [
+                {
+                  "name": "subagent:delegation",
+                  "text": "You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+                }
+              ]
+            },
+            "role": "user",
+            "id": "{{messageId}}"
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "session/title",
+          "seq": 7,
           "time": 0,
           "data": {
             "title": "Reply with exactly WORKFLOW_CHILD_OK and",
@@ -3007,7 +3073,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "request/header",
-          "seq": 7,
+          "seq": 8,
           "time": 0,
           "data": {
             "header": {
@@ -3046,7 +3112,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "request/context",
-          "seq": 8,
+          "seq": 9,
           "time": 0,
           "data": {
             "provider": "deepseek-official",
@@ -3062,7 +3128,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 9,
+          "seq": 10,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3082,7 +3148,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 10,
+          "seq": 11,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3102,7 +3168,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 11,
+          "seq": 12,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3125,7 +3191,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 12,
+          "seq": 13,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3147,7 +3213,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 13,
+          "seq": 14,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3168,7 +3234,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/message",
-          "seq": 14,
+          "seq": 15,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3194,11 +3260,11 @@
             }
           },
           "sourceEventSeqs": [
-            9,
             10,
             11,
             12,
-            13
+            13,
+            14
           ],
           "surfaceOp": "append"
         }
@@ -3210,7 +3276,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "step/end",
-          "seq": 15,
+          "seq": 16,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3225,7 +3291,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "turn/end",
-          "seq": 16,
+          "seq": 17,
           "time": 0,
           "data": {
             "turn": 1,

@@ -115,25 +115,6 @@
   background: var(--dsw-alias-state-business-primary);
 }
 
-.dragActive {
-  border-color: var(--dsw-alias-state-business-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent), var(--dsw-shadow-lv2);
-}
-
-.dropHint {
-  position: absolute;
-  z-index: 2;
-  inset: 4px;
-  display: grid;
-  place-items: center;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, var(--dsw-alias-state-business-primary));
-  color: var(--dsw-alias-state-business-primary);
-  font-size: 14px;
-  font-weight: 600;
-  pointer-events: none;
-}
-
 .accessory {
   display: flex;
   align-items: center;

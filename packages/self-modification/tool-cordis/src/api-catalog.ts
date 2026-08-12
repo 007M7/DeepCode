@@ -1150,7 +1150,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract start(spec: TaskStart): TaskId',
-        jsDoc: '/**\n * Preflight access, validation, and owner cleanup before starting and\n * atomically registering work. A throwing starter leaves nothing registered;\n * after it returns, registration cannot fail. Settlement records the outcome,\n * notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
+        jsDoc: '/**\n * Preflight access, validation, owner cleanup, and implementation-owned\n * admission before starting and atomically registering work. Any preflight\n * rejection leaves no task id or execution resource. A throwing starter\n * leaves nothing registered; after it returns, registration cannot fail.\n * Settlement records the outcome, notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
       },
       {
         signature: 'abstract list(caller?: Agent): TaskSnapshot[]',
