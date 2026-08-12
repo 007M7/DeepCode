@@ -45,10 +45,11 @@ interface RunCodeFlavor {
  */
 const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
   description:
-    'Execute a TypeScript program against the available tools. Write the BODY of an '
-    + 'async function (erasable syntax only; top-level `await` and `return` work) and '
-    + 'call tools as `await tools.name(args)` per the declarations in the system prompt. '
-    + 'Only what you print or return comes back — curate it.',
+    'Execute a TypeScript program against the available tools. Takes two required '
+    + 'arguments: `code`, the BODY of an async function (erasable syntax only; top-level '
+    + '`await` and `return` work), and `description`, a short summary of what the program '
+    + 'does. Call tools as `await tools.name(args)` per the declarations in the system '
+    + 'prompt. Only what you print or return comes back — curate it.',
   codeDescription: 'The program: the body of an async TypeScript function.',
 }
 
@@ -59,8 +60,9 @@ const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
  */
 const PYTHON_FLAVOR: RunCodeFlavor = {
   description:
-    'Execute a Python program against the available tools. Write the BODY of an '
-    + 'async function (top-level `await` and `return` work) and call tools as '
+    'Execute a Python program against the available tools. Takes two required '
+    + 'arguments: `code`, the BODY of an async function (top-level `await` and `return` '
+    + 'work), and `description`, a short summary of what the program does. Call tools as '
     + '`await tools.name(args)` per the declarations in the system prompt. Answer '
     + 'with `print(...)` and/or `return <value>` — only that comes back, so curate it.',
   codeDescription: 'The program: the body of an async Python function.',

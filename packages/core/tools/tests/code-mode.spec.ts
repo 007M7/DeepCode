@@ -399,6 +399,10 @@ describe('mode-aware wire contribution', () => {
     const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
     expect(runCodeSchema?.description).toContain('Execute a TypeScript program')
     expect(runCodeSchema?.description).toContain('BODY of an')
+    // Both required arguments are named here, not only in the parameter
+    // schema: prose that describes the call as "pass the program" is what
+    // leads a model to emit `{code}` alone and fail INVALID_ARGS.
+    expect(runCodeSchema?.description).toContain('`description`')
     const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
     expect(codeParam.description).toBe('The program: the body of an async TypeScript function.')
   })
@@ -410,6 +414,7 @@ describe('mode-aware wire contribution', () => {
     const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
     expect(runCodeSchema?.description).toContain('Execute a Python program')
     expect(runCodeSchema?.description).toContain('`return <value>`')
+    expect(runCodeSchema?.description).toContain('`description`')
     expect(runCodeSchema?.description).not.toContain('TypeScript')
     const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
     expect(codeParam.description).toBe('The program: the body of an async Python function.')
