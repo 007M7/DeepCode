@@ -1,4 +1,4 @@
-# Agent Note：Web 会话日志导出——宿主流式 ZIP 下载
+# Agent Note: Web 会话日志导出——宿主流式 ZIP 下载
 
 状态：implemented
 

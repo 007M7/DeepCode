@@ -6,7 +6,7 @@ Cordis 是 DeepSeek Harness SDK 底层的插件框架：它是一个小型运行
 
 本教程面向 agent 开发者。你不需要深入掌握 TypeScript；下文的 [TypeScript 说明](#typescript-notes)会解释可能陌生的语法，并且每一章都会给出确切命令和预期输出。
 
-如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见[子系统页面](../subsystems/core.md)上生成的 `cordis-surface` 区块，以及 [Cordis 核心 API](../cordis-api/context.md)页面。
+如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见[子系统页面](../subsystems/core.md)上生成的 `cordis-surface` 区块，以及 [Cordis 核心 API](../cordis-api/context.md) 页面。
 
 如果你要为 harness 本身编写插件——由 `cordis.yml` 加载、在 Web UI 中驱动，而不是下面这个启动器——请从[第一个 Harness 插件](../user/develop/basic/index.md)开始。
 
@@ -51,7 +51,7 @@ node --import tsx ../../vendor/cordis/bin.js
 
 这些示例使用了普通现代 JavaScript 之外的三项 TypeScript 功能：
 
-- **类型注解** 描述值，但不会改变运行时行为：`ctx: Context` 表示 `ctx` 具备 Cordis 上下文 API，`who: string` 接受文本，而 `string[]` 表示字符串数组。
+- **类型注解**描述值，但不会改变运行时行为：`ctx: Context` 表示 `ctx` 具备 Cordis 上下文 API，`who: string` 接受文本，而 `string[]` 表示字符串数组。
 - **`import type { Context } from '@deepseek-ai/cordis'`** 只导入类型信息。它在运行时会消失，因此仅为类型注解使用 `Context` 的插件文件不会增加运行时依赖。
 - **声明合并**（`declare module '@deepseek-ai/cordis' { ... }`）会为 Cordis 已经声明的接口添加你的条目，例如新 `ctx.greeter` 属性的类型或事件名称。它不会生成任何运行时接线；插件必须另行提供服务或发出事件。第 3 章会完整展示该模式。
 

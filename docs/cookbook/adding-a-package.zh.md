@@ -1,8 +1,8 @@
-# 实操手册：添加 workspace 包（package）
+# 实操手册：添加 workspace 包
 
 [English](adding-a-package.md) | 中文
 
-为新建 `@deepseek-ai/dsh-<name>` 包提供的逐文件清单。本清单以 bash 和 adapter 这两个包为模板进行验证；如果清单与模板有出入，请在此修正。
+为新建 `@deepseek-ai/dsh-<name>` 包提供的逐文件清单。本清单以 bash 和适配器这两个包为模板进行验证；如果清单与模板有出入，请在此修正。
 
 ## 1. 创建包
 
@@ -36,7 +36,7 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 
 `packages/client/*` 包改为 extends `tsconfig.base.client.json`（而非 `tsconfig.base.json`）；client 插件包还需在 package.json 声明 `dsh.client`、导出 `./client`、调用共享 tsdown preset（`packages/client/tsdown.client.ts`）——client 侧见 [packages/client/AGENTS.md](../../packages/client/AGENTS.md)。
 
-以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`.oxlintrc.json`、`scripts/check-workspace-constraints.ts`。
+以下内容由 glob 或包 manifest（元数据清单）发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`.oxlintrc.json`、`scripts/check-workspace-constraints.ts`。
 
 ## 3. 确定包拓扑
 
@@ -87,4 +87,4 @@ pnpm run constraints && pnpm run typecheck && pnpm run lint
 pnpm run build && pnpm run hygiene
 ```
 
-请遵循[仓库测试政策](../testing.md)，为新包运行行为所需的专项检查并达到相应覆盖率。
+请遵循[仓库测试政策](../testing.md)，执行新包所需的行为专项检查并达到相应覆盖率。

@@ -16,10 +16,10 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见
 
 ## 行上的约定语义
 
-- **Append = 事务。**`append` 围绕批次运行 `BEGIN`/`COMMIT`：它实体化 `sessions` 行（如果仍延迟），并 INSERT 每个事件，首先断言连续 seq 约定（第一个事件 `seq` 必须等于已存储 next-seq）。批次中失败（重复 seq 上的 UNIQUE 违规）会完全回滚，使已存储日志和内存游标保持一致。（`load()` 已平衡已存储日志，因此 `append` 不必修复崩溃尾部。）
-- **延迟实体化。**`create()` 只在内存记录意图，第一次 `append` 前不写行。从未 append 的会话没有 `sessions` 行，因此不在 `list()` 中（它精确报告有行的会话）。
+- **Append = 事务。**`append` 围绕批次运行 `BEGIN`/`COMMIT`：它实体化 `sessions` 行（如果仍未实体化），并 INSERT 每个事件，首先断言连续 seq 约定（第一个事件 `seq` 必须等于已存储 next-seq）。批次中失败（重复 seq 上的 UNIQUE 违规）会完全回滚，使已存储日志和内存游标保持一致。（`load()` 已平衡已存储日志，因此 `append` 不必修复崩溃尾部。）
+- **延迟实体化。**`create()` 只在内存记录意图，第一次 `append` 前不写行。已创建但从未 append 的会话没有 `sessions` 行，因此不在 `list()` 中（它精确报告有行的会话）。
 - **在 load 时关闭中断轮次。**`load()` 实现共享[崩溃恢复约定](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)：保留有效中断轮次，在一个事务中追加合成关闭事件，并只移除撕裂尾部行。已提交解析错误或序列缺口使会话无法加载。恢复会变更已存储行，因此下一次 append 从平衡日志和准确游标开始。
-- **非变更检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会删除撕裂尾部行、追加恢复行或更改轻量修订。
+- **非修改式检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会删除撕裂尾部行、追加恢复行或更改轻量修订。
 - **轻量修订。**`listSnapshots(signal?)` 组合不可变存储与数据库文件身份、每实体化 incarnation id，以及在每个变更事务中递增的每会话计数器。完整前缀读取在同一个读事务中捕获该 revision 及其事件行，`readStoredRevision()` 则只查询 session 行来校验保留的 preparation。它在不解析事件行的情况下保持未变观察稳定，并区分独立存储和重建的同 id 日志。它在共享就绪和同步元数据查询前后检查取消；查询本身不可抢占。
 
 ## 配置（schemastery）
@@ -35,7 +35,7 @@ interface Config {
 
 ## 写入路径
 
-与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到每个活动会话各自的 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个事务；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。每个事件仍各占一行 SQLite 记录；批处理只把更多 INSERT 归入同一个事务和同一次修订版本递增。
+与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到对应活动会话的 controller 中，每个活动会话各有一个 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个事务；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。每个事件仍各占一行 SQLite 记录；批处理只把更多 INSERT 归入同一个事务和同一次修订版本递增。
 
 ## 模型体验
 
@@ -43,11 +43,11 @@ interface Config {
 
 #### 模型看到的内容
 
-SQLite 存储不影响当前提示词或 schema。加载会恢复与 JSONL 相同的呈现历史，并保留之前的 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。行元数据和原始分片不会成为消息。
+SQLite 存储不会向当前请求提供提示词或 schema。加载会恢复与 JSONL 相同的呈现历史，并保留之前的 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。行元数据和原始分片不会成为消息。
 
 #### Token 影响
 
-当前请求不会新增 token。恢复会还原已保留的历史，并产生当前 envelope 以及每个中断调用所附修复结果文本的 token 开销。
+SQLite 存储不会增加当前请求的 token 用量。恢复会还原已保留的历史，并产生当前 envelope 以及每个中断调用所附、以引用形式呈现的修复结果文本所产生的 token 开销。
 
 #### KV Cache 影响
 

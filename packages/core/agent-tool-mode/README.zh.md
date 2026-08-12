@@ -18,7 +18,7 @@ preset 能拥有的是这份注册表的**呈现方式**。`ctx.tools.presentAs(
 
 一个 agent 只声明一次呈现方式。同一份组装里的第二次声明会被拒绝而不是合并：对「模型看到哪种形态」给出两个答案是矛盾，不是覆盖。
 
-## Model Experience
+## 模型体验
 
 间接生效，取决于它在 `dsh-tools` 中选择的投影：`code` 呈现 `run_code`、一份生成的 SDK 段，以及「只有 `run_code` 可被直接调用」这条规则，`native` 呈现每个工具的 schema。该选择同时决定了**什么可以执行**：在 `code` 下，注册表会把模型直呼其他任何工具名解析为 `UNKNOWN_TOOL`，因此这一行正是让「通告面」与「可调用面」对每个被它覆盖的 agent 保持一致的东西（[执行器塌缩 note](../../../.agents/notes/implemented/bug-fix/2026-08-07-code-mode-executor-collapse.md)）。
 
@@ -26,6 +26,6 @@ preset 能拥有的是这份注册表的**呈现方式**。`ctx.tools.presentAs(
 
 没有直接的失效影响；呈现方式在 agent 组装时即固定，因此其请求前缀在该会话的整个生命周期内保持稳定。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - **运行时仍在宿主平面** —— preset 可以选择 Code Mode，却无法自带它所需的 TypeScript 运行时；未组装运行时的部署也就无法组装任何 code 模式的 preset。

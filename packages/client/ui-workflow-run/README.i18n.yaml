@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-workflow-run/README.md
 README.md: 489715c51759b1efd2da68d3bd3e0f7788ce7ecd
-README.zh.md: 326a7ae4e4b8eaad43ca7ad0d22145452af6a734
+README.zh.md: e4fffd3f627bb2742d28db961e0f2870b13f0b59

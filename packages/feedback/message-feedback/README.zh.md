@@ -77,7 +77,7 @@ Plugin disposal 会先关闭变更接纳，排空已进入各个 Session 队列�
 
 - **缺少客户端聚合与 UI**——Host Remote 契约已经发布，但客户端 Remote 聚合 contribution 与任何 UI 消费方由各自边界负责并保持延后。
 - **Compare-and-set 仅限单进程**——按 Session 划分的队列只串行化一个服务实例；storage-domain 不提供跨进程条件写，因此多个 Host 进程写入同一存储根目录时仍可能丢失更新。
-- **没有持久 Session 删除级联**——Session persistence 没有删除接口，且 `session/disposed`/`host/session-removed` 表示 detach 而非持久删除。因此服务会保留空行，并可能在带外移除日志后留下孤儿行，而不会在 detach 时删除仍有效的反馈。
+- **没有持久 Session 删除级联**——Session persistence 没有删除接口，且 `session/disposed`/`host/session-removed` 表示 detach 而非持久删除。因此服务会保留空行，并可能在带外移除日志后留下遗留行，而不会在 detach 时删除仍有效的反馈。
 - **Detach/catalog retirement 窗口**——请求若恰好落在 live detach 之后、persistence catalog 物化 header 之前的极短窗口，可能收到 `session-not-found`；调用方应在 retirement materialization 后重试。
 - **Header 身份不是内容指纹**——只有 `{createdAt, cwd}` 不同时才能识别复用；本契约无法区分保留相同 header 身份的克隆日志。
 - **调用方边界受信任**——`list`/`put`/`delete` 不携带已认证的 actor 或审计身份。在加入授权与归属信息前，部署方必须只通过受信任或另行认证的边界暴露 Host gateway。

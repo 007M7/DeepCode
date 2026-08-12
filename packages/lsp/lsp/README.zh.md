@@ -21,9 +21,9 @@
 | `registerProvider(provider)` | 注册后端，以原子方式保留其品牌化 `id` 与每个规范化文件扩展名。任何无效输入或冲突都不会发布内容，并抛出 `LspError`（`LSP_INVALID_PROVIDER`／`LSP_CONFLICT`）。返回释放所有保留项的 disposer。随调用 fiber 释放。 |
 | `query(request, signal?)` | 按文件最终扩展名选择提供方，从该提供方的映射派生 `languageId`，并运行一次查询。没有匹配项时抛出 `LspError` `LSP_UNAVAILABLE`。 |
 
-选择逐查询进行且与顺序无关：一个提供方独占一组扩展名，因此注册和 HMR 顺序绝不会改变路由。扩展名 key 规范化为小写且以点开头；`languageId` 只用于同步临时文档，绝不参与选择。第一版没有 glob、language-id 或显式路由 selector。
+选择逐查询进行且与顺序无关：一个提供方独占一组扩展名，因此注册和 HMR（热模块替换）顺序绝不会改变路由。扩展名 key 规范化为小写且以点开头；`languageId` 只用于同步临时文档，绝不参与选择。第一版没有 glob、language-id 或显式路由 selector。
 
-提供方注册的是**能力** 而非工具。`dsh-tool-lsp` 是面向模型名称、描述、提示词指引、schema 和呈现的唯一 owner。
+提供方注册的是**能力**而非工具。`dsh-tool-lsp` 是面向模型的名称、描述、提示词指引、schema 和呈现的唯一 owner。
 
 ## 词汇
 

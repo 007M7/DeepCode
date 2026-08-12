@@ -1,4 +1,4 @@
-# Agent Note：Session log 版本机制：单调整数、升级器链、逐事件可忽略标记
+# Agent Note: Session log 版本机制：单调整数、升级器链、逐事件可忽略标记
 
 Status: implemented
 

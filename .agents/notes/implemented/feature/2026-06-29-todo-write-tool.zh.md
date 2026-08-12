@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结构化的任务列表。todo 列表有两个同等重要的用途：引导模型规划多步骤工作并保持当前活跃工作明确；同时为交互式宿主提供实时进度清单。调研的所有参考编码 agent（智能体），包括 claude-code、opencode、codex、oh-my-pi 和 pi，都提供了某种形式的此功能；本 harness 此前没有。
+harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结构化的任务列表。todo 列表有两个同等重要的用途：引导模型规划多步骤工作并保持当前活跃工作明确；同时为交互式宿主提供实时进度清单。调研的所有参考编码 agent（智能体），包括 claude-code、opencode、codex、oh-my-pi 和 pi，都提供了某种形式的此类功能；本 harness 此前没有。
 
 ## 决策
 
@@ -44,7 +44,7 @@ schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重�
 
 四个层级：
 - **单元测试**——会话事件（append/snapshot-clone/last-write-wins/not-on-surface）；工具（schema 形状、通过真实 `ctx.tools.execute` 的参数校验、值校验、事件追加与替换、非 agent 拒绝、`presentCall`、HMR（热模块替换）安全性）；以及 TUI 折叠。
-- **真实 Loader 路径**——插件通过 `Loader.unwrapExports` 运行，断言命名空间导出形状存活（它有 `inject`，因此一个意外的 default 导出会在加载时崩溃——事故复盘（postmortem）0001）。
+- **真实 Loader 路径**——插件通过 `Loader.unwrapExports` 运行，断言命名空间导出形状存活（它有 `inject`，因此一个意外的 default 导出会在加载时崩溃——postmortem/0001）。
 - **全循环集成**——一个脚本化的 mock 模型通过真实 agent loop（智能体循环）调用 `todo_write`；`todo/write` 事件落地，第二次调用替换它。
 - **恢复/回放**——持久化的 `todo/write` 折叠回当前任务列表。
 - **带密钥 e2e + 快照**——真实提示词诱导 `todo_write`；组装后的快照固定日志事件和交互式渲染。
@@ -57,4 +57,4 @@ schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重�
 
 ## 后果
 
-todo 列表是持久、可回放的会话状态：交互式宿主从最新持久化的 `todo/write` 重新推导它，日志（而非插件内存）是唯一真源。整列表替换意味着每次更新一次工具调用，last-write-wins；没有需要协调的 delta 协议。事件不进入模型 surface，因此 todo 更新永远不会扰动推导出的模型历史——模型只看到自己的工具调用和结果。
+todo 列表是持久、可回放的会话状态：交互式宿主从最新持久化的 `todo/write` 重新推导它，日志（而非插件内存）是唯一真源。整列表替换意味着每次更新需调用一次工具，last-write-wins；没有需要协调的 delta 协议。事件不进入模型 surface，因此 todo 更新永远不会扰动推导出的模型历史——模型只看到自己的工具调用和结果。

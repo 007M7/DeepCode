@@ -23,7 +23,7 @@
 inject(deps: Inject, callback: Plugin.Function<void>): Fiber & PromiseLike<Fiber>
 ```
 
-当请求的服务可用后，运行一次回调。
+请求的服务可用后，运行回调。
 
 这是 `ctx.plugin({ inject, apply: callback })` 的简写形式：每当某个必需服务发生变化时，系统都会卸载并重新运行该回调。
 

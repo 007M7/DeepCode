@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-31-same-basename-workspace-adoption.md
 2026-07-31-same-basename-workspace-adoption.md: 1192558632fdc8bd732ea59f0eca5051f49f5d2c
-2026-07-31-same-basename-workspace-adoption.zh.md: 9c1f1ffd221936e24300b223ad395e1f44552810
+2026-07-31-same-basename-workspace-adoption.zh.md: 722e747e0bd03da42a5f2555ee2fb3e46522cca2

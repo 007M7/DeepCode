@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 `ctx.fs` 的独立模型可见 `str_replace_editor`。它可与持久 Bash、一次性 Bash、沙箱 Bash 或其他终端接口组合。
+基于 `ctx.fs`、面向模型的独立 `str_replace_editor`。它可与持久 Bash、一次性 Bash、沙箱 Bash 或其他终端接口组合。
 
 ## 配置
 
@@ -35,7 +35,7 @@ schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert
 
 #### 模型看到的内容
 
-查看操作返回带行号文本或浅层目录列表。调用会向展示层提供文件位置，创建/替换还会提供 diff 卡片。修改操作返回简洁确认。长查看结果保留前缀并追加截断提示。
+查看操作返回带行号文本或浅层目录列表。调用会提供文件位置，创建/替换调用还会向展示层提供 diff 卡片。修改操作返回简洁确认。长查看结果保留前缀并追加截断提示。
 
 #### Token 影响
 
@@ -45,8 +45,8 @@ schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert
 
 工具结果以追加方式位于可复用请求前缀之后。
 
-## 已知限制与延后工作
+## 已知限制与暂缓事项
 
 - 操作面向 UTF-8 文本，不支持二进制文件。
 - `str_replace` 刻意拒绝零匹配或多匹配，且没有 `replace_all` 参数。
-- 每个修改操作都会经过 `fs/write-intent` 或 `fs/edit-intent`，解析当前会话的沙箱策略，并交由挂载的文件系统与策略插件执行。
+- 每个修改操作都会经过 `fs/write-intent` 或 `fs/edit-intent`，解析当前会话的沙箱策略，并交由挂载的文件系统与策略插件实施约束。

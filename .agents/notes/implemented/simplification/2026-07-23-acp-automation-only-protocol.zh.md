@@ -18,13 +18,13 @@ ACP 仍有一个有用的职责：另一个 agent（智能体）或自动化控�
 
 桥接层只发出已提交的 `assistant/message` 文本。推理、原始分片、工具活动、待办事项、计划、标题、重试标记、终端元数据、diff、位置和资源链接仍保留在持久会话日志或 UI 专用传输层中。它不提供会话加载、列出与删除、命令、模式、配置选择器、模型切换、plan 评审或面向人类的询问。
 
-保留一次性 `session/request_permission`。它是为桥接层拥有的 agent 提供的机器策略通道，而不是面向人类的审批 UI：应答者只接受桥接层当前会话映射中登记的同一 agent 对象；外部请求或缺少调用标识的请求会继续委派；RPC 失败则映射为拒绝请求的 `unavailable` 结果。客户端可选择允许一次、拒绝一次或取消，桥接层绝不会将该响应转换为持久授权。询问策略仍归审批 seam 及其生产者所有；[`dsh-subagent-acp`](../../../../packages/subagent/subagent-acp/README.md) 会以程序化方式使用该通道。
+保留一次性 `session/request_permission`。它是为桥接层拥有的 agent 提供的机器策略通道，而不是面向人类的审批 UI：应答者只接受桥接层当前会话映射中登记的同一 agent 对象；不属于桥接层当前 agent 的请求或未关联具体调用的请求会继续委派；RPC 失败则映射为故障时默认拒绝的 `unavailable` 结果。客户端可选择允许一次、拒绝一次或取消，桥接层绝不会将该响应转换为持久授权。询问策略仍归审批 seam 及其生产者所有；[`dsh-subagent-acp`](../../../../packages/subagent/subagent-acp/README.md) 会以程序化方式使用该通道。
 
 应用组装包含 agent 主干、持久化、检查点策略和 ACP 传输层。它不会为 ACP 挂载命令、会话查询、会话引用、plan mode、权限选择器或用户交互服务。
 
-传输层调用 agent、会话和审批的接口服务，而不依赖具体的 agent loop。工具执行仍留在 harness 内；ACP 绝不会把 shell 执行委派给编辑器。stdout 只承载分帧 JSON-RPC，因此 app 不挂载 stdout logger，桥接层也不会 monkey-patch 进程输出。
+传输层调用 agent、会话和审批的接口服务，而不依赖具体的 agent loop（智能体循环）。工具执行仍留在 harness 内；ACP 绝不会把 shell 执行委派给编辑器。stdout 只承载分帧 JSON-RPC，因此 app 不挂载 stdout logger，桥接层也不会 monkey-patch 进程输出。
 
-断开连接与插件 dispose（资源释放）共享同一个经记忆化的完全停稳边界。传输关闭无论成功还是失败，都会将待处理提示词以已取消状态结算，dispose 每个由桥接层拥有的 agent，并等待循环和会话清理完成。创建流程如果在与关闭的竞态中落败，就会 dispose 其尚未发布的 handle。
+断开连接与插件 dispose（资源释放）共享同一个经记忆化的完全停稳边界。传输关闭无论成功还是失败，都会将待处理提示词以已取消状态结算，dispose 每个由桥接层拥有的 agent，并等待 agent loop 和会话清理完成。创建流程如果在与关闭的竞态中落败，就会 dispose 其尚未发布的 handle。
 
 ## 快照边界
 

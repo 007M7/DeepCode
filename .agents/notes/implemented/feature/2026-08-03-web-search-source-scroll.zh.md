@@ -1,4 +1,4 @@
-# Agent Note: Web search source card scrolls instead of collapsing
+# Agent Note: Web search 来源卡片改为滚动而非折叠
 
 Status: implemented
 

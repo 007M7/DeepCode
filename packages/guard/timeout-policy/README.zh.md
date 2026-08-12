@@ -6,14 +6,14 @@
 
 ## 插件（命名空间：`timeout-policy`）
 
-它是函数／命名空间插件（`name`/`inject`/`apply`），而非服务。它不注册工具，也不接受配置；它消费 `ctx.tools` 的 `tools/execute` waterfall（瀑布式事件）（由 `dsh-tools` 注册表始终提供），并读取每个已分发工具声明的 `timeoutMs`；该声明来自注册表（`ctx.tools.get(exec.name)`）。
+它是函数／命名空间插件（`name`／`inject`／`apply`），而非服务。它不注册工具，也不接受配置；它消费 `ctx.tools` 的 `tools/execute` waterfall（瀑布式事件）（由 `dsh-tools` 注册表始终提供），并读取每个已分发工具声明的 `timeoutMs`；该声明来自注册表（`ctx.tools.get(exec.name)`）。
 
 ```yaml
 - id: timeout-policy
   name: '@deepseek-ai/dsh-timeout-policy'
 ```
 
-每工具预算由工具插件声明（例如 `dsh-tool-web` 的 `fetchTimeoutMs`/`searchTimeoutMs` 配置，会附加为 `ToolDefinition.timeoutMs`）；此插件只负责强制执行，因此不可能拼错工具名。
+每工具预算由工具插件声明（例如 `dsh-tool-web` 的 `fetchTimeoutMs`／`searchTimeoutMs` 配置，会附加为 `ToolDefinition.timeoutMs`）；此插件只负责强制执行，因此不可能拼错工具名。
 
 ### 行为
 
@@ -29,7 +29,7 @@
 
 ### 协作式，而非硬终止
 
-派生信号只会 **通知**；是否终止仍取决于工具及其将 `exec.signal` 转发到的能力（`dsh-timeout` 库本身不负责硬终止）。**因此，声明 `timeoutMs` 意味着「与 `exec.signal` 协作」**：忽略该信号的工具不会在超时时停止。只有转发信号的工具才应声明该字段；已交付的 `web_fetch`/`web_search`（通过 `ctx.web` 转发给提供方）是参考实现。`TOOL_TIMEOUT` 无需会话事件以满足可重建性：它是最终面向模型的 `tool/result`，已由循环记录。
+派生信号只会**通知**；是否终止仍取决于工具及其将 `exec.signal` 转发到的能力（`dsh-timeout` 库本身不负责硬终止）。**因此，声明 `timeoutMs` 意味着「与 `exec.signal` 协作」**：忽略该信号的工具不会在超时时停止。只有转发信号的工具才应声明该字段；已交付的 `web_fetch`／`web_search`（通过 `ctx.web` 转发给提供方）是参考实现。`TOOL_TIMEOUT` 无需会话事件以满足可重建性：它是最终面向模型的 `tool/result`，已由循环记录。
 
 ### 与其他 `tools/execute` 包装层组合
 
@@ -54,4 +54,4 @@
 ## 已知限制与暂缓事项
 
 - **协作式，绝不是硬终止**：截止时间只通过 `exec.signal` 通知；忽略该信号的工具不会在超时时停止（参见「协作式，而非硬终止」一节）。
-- **没有统一预算**：只有声明 `timeoutMs` 并将其放在 `ToolDefinition` 上的工具才会获得截止时间；未声明工具没有注册表级默认值（已交付的 `bash`/`read`/`write`/`edit` 有意不声明）。
+- **没有统一预算**：只有声明 `timeoutMs` 并将其放在 `ToolDefinition` 上的工具才会获得截止时间；未声明工具没有注册表级默认值（已交付的 `bash`／`read`／`write`／`edit` 有意不声明）。

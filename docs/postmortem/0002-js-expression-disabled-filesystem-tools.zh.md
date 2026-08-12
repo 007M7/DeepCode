@@ -2,7 +2,7 @@
 
 [English](0002-js-expression-disabled-filesystem-tools.md) | 中文
 
-Status: resolved
+状态：已解决
 
 ## 摘要
 
@@ -22,7 +22,7 @@ Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader �
 
 ## 时间线
 
-- PR（Pull Request） #261 整合了 ACP 组合并刷新了文件系统快照，同时引入了条件式文件系统入口。
+- PR（Pull Request） #261 整合了 ACP 组合并刷新了文件系统快照，同时引入了条件式文件系统配置项。
 - 所有单元测试、覆盖率、快照、文档、构建和 hygiene 检查均通过。
 - 对刷新后的文件系统预期输出的评审发现了通用的失败卡片和结构化的 `UNKNOWN_TOOL` 结果。
 - 一次真实的 Loader 启动确认：每个 `disabled` 值仍为表达式对象，每个文件系统 fiber 均未创建。

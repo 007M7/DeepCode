@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-18-session-surface.md
 2026-06-18-session-surface.md: fd48a4ee4e177b84a235b044b054e4ac266df8ba
-2026-06-18-session-surface.zh.md: 86f9c5fdd5d711fb81e03e95329d316bfef29227
+2026-06-18-session-surface.zh.md: 496624016cd68e2e8b0fe65ed0246c5d469c4585

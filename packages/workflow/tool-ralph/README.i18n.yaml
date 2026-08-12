@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/workflow/tool-ralph/README.md
 README.md: d5389a08cf4aa63d6f00939f5dafab421816bf4a
-README.zh.md: 92c3256188d9b4c38a292ba7697f702dc46db737
+README.zh.md: d01ae6792b808f330d65da2589a4394d1923110b

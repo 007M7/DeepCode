@@ -28,7 +28,7 @@
 
 询问端点属于配置期针对**草稿**的操作，以 settings namespace 而非提供方路由为键——界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器会用自己的知识作答，无需联网；`baseURL` 可选，两者至少要有一个。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
 
-提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
+提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复的适配器条目会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
 每个拓扑提交点——适配器路由注册或 dispose、目录条目出现或撤回——都会在变更之后发出无载荷的 `llm/adapters-updated` 事件，消费方因此重读 `listProviders()`/`listModels()`/`listConfigurableProviders()` 而非轮询。观察者故障会被隔离（记录日志、不否决）；只有带 `INVARIANT` 码的故障会在扇出后重新抛出。
 
@@ -53,7 +53,7 @@
 
 消息内容是类型化内容块数组：`text`、`reasoning`、`tool-call`、`tool-result`。联合从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加块类型。assistant 消息使用模型来源，其中携带生成该消息的提供方和模型，以及可选的适配器私有回放状态。dispatch 前，`LlmService` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型／提供方间恢复或转换该状态。核心块集只包含每条已发布路径都支持的块。多模态内容（图像、音频等）没有核心块类型；需要它的功能会通过 map 添加，并一并添加相应的适配器／UI／压缩（compaction）支持。
 
-流式输出是原始分片协议（`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`）。每个适配器结果都以一个终止 `finish` 到达消费方；运行故障使用其 `error` 或 `aborted` 原因，而不会跨流 API 抛出。`BlockAssembler` 是将分片组装为块／消息的唯一共享实现。
+流式输出是原始分片协议（`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`）。每个适配器结果都以一个终止 `finish` 到达消费方；运行故障使用 `error` 或 `aborted` 作为结束原因，而不会跨流 API 抛出。`BlockAssembler` 是将分片组装为块／消息的唯一共享实现。
 
 ### 调用配置（`call-config.ts`）
 
@@ -71,13 +71,13 @@
 
 - `LlmAdapter`：提供方适配器的抽象基类。唯一必需方法是 `stream()`。
 - `BlockAssembler`：将原始分片逐步组装为完整内容块，并能据此创建带标识且冻结的 assistant 消息。agent loop 向它提供原始分片（同时记录以供回放），并读取已组装块以构建历史。
-- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在进程边界处收窄类型。
+- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）以及 `cause` 链。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在进程边界处收窄类型。
 - `LlmError`：继承自 `HarnessError`；其稳定 `code` 字符串（`NO_ADAPTER`、`DUPLICATE_ADAPTER` 与 `AUTH`／`RATE_LIMIT` 等适配器 code）与冻结可序列化 `failure.code` 匹配。Payload 还可以保留已验证状态、`Retry-After` 和品牌化提供方请求 id 事实；策略位于错误之外。
-- `errorChain(value)`：渲染抛出值的完整 `cause` 链与 AggregateError 成员，供诊断表层使用，包括 UI 通知、logger 行和持久 `turn/end` 消息。因此 undici 的 `TypeError: fetch failed` 等传输包装层会显示底层 `ECONNREFUSED`／DNS／TLS 详细信息，而不是将其遮蔽。该函数只负责渲染：请按 `code` 路由，绝不解析结果。
+- `errorChain(value)`：渲染抛出值的完整 `cause` 链与 AggregateError 成员，供诊断输出使用，包括 UI 通知、logger 行和持久 `turn/end` 消息。因此 undici 的 `TypeError: fetch failed` 等传输包装层会显示底层 `ECONNREFUSED`／DNS／TLS 详细信息，而不是将其遮蔽。该函数只负责渲染：请按 `code` 路由，绝不解析结果。
 - `CONTEXT_WINDOW_EXCEEDED_CODE`：当请求超过模型上下文窗口时，无论通过 HTTP 异常抛出还是带内 finish 交付，两个 DeepSeek 适配器都使用的提供方无关 code。`isContextWindowExceededError(detail)` 是它们针对 OpenAI 兼容提供方详细信息的共享保守分类器。
-- `QUOTA_EXCEEDED_CODE`：帐户配额、余额、点数、预算或用量限制耗尽时使用的非短暂提供方无关 code。`isQuotaExceededError(detail)` 使这些失败与请求速率限制保持区分。
+- `QUOTA_EXCEEDED_CODE`：帐户配额、余额、点数、预算或用量限制耗尽时使用的非暂时性提供方无关 code。`isQuotaExceededError(detail)` 使这些失败与请求速率限制保持区分。
 - `EMPTY_RESPONSE_CODE`：两个适配器都使用的提供方无关 code，用于表示退化的提供方生成结果：一个未携带任何内容块的终止 `stop`。它会被分类为错误 finish（而非成功空消息），因为尝试未产生持久内容；`dsh-llm-retry` 默认重试它。
-- `INVALID_CREDENTIAL_CODE`：已提供但无法使用的凭据所用的提供方无关 code——格式错误而非缺失，修复方式是改正已存储的值而非补供一个，这正是它与 `MISSING_CREDENTIAL` 的区别。它被刻意排除在默认可重试集合之外：格式错误的凭据每次尝试都会以同样方式失败。`assertUsableApiKey(raw, pkg, ref)` 会以该 code 抛出 `LlmError`，是每个适配器判定已存储凭据不可用时共用的诊断。
+- `INVALID_CREDENTIAL_CODE`：已提供但无法使用的凭据所用的提供方无关 code——格式错误而非缺失，修复方式是改正已存储的值，而不是补充一个凭据，这正是它与 `MISSING_CREDENTIAL` 的区别。它被刻意排除在默认可重试集合之外：格式错误的凭据每次尝试都会以同样方式失败。`assertUsableApiKey(raw, pkg, ref)` 会以该 code 抛出 `LlmError`，是每个适配器判定已存储凭据不可用时共用的诊断。
 
 ### 真实适配器
 

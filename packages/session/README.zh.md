@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-围绕 `core/session` 常驻内存实时服务的持久家族：持久化 seam 连同其存储后端与检查点策略、供出日志派生全量值的投影 seam、日志支持的标题，以及外发会话遥测。全部都是**产品**包（package）。`session-query/` 仍是同级独立组：读取／工具面的消费不依赖持久化内部实现。
+这是围绕 `core/session` 内存中运行的服务构建的持久功能族：包括持久化 seam 及其存储后端和检查点策略、提供日志派生全量值的投影 seam、日志支持的标题，以及外发会话遥测。它们全部都是**产品**包（package）。`session-query/` 仍是同级独立组：读取／工具接口的消费不依赖持久化内部实现。
 
 ## 持久化
 
@@ -29,16 +29,16 @@
 
 ## 标题
 
-从会话日志派生持久会话标题，并支持可选的模型后端 provider。
+从会话日志派生持久会话标题，并支持可选的模型驱动提供方。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| [`session-title/`](session-title/README.md) | 负责标题状态、回退行为、provider 注册与刷新 | `ctx.sessionTitle` |
+| [`session-title/`](session-title/README.md) | 负责标题状态、回退行为、提供方注册与刷新 | `ctx.sessionTitle` |
 | [`session-title-llm/`](session-title-llm/README.md) | 提供共享的模型标题生成能力 | — |
 | [`session-title-first-message-llm/`](session-title-first-message-llm/README.md) | 根据第一条合格的人类消息生成会话标题 | 注册到 `ctx.sessionTitle` |
 | [`session-title-all-messages-llm/`](session-title-all-messages-llm/README.md) | 根据所有合格的人类消息生成会话标题 | 注册到 `ctx.sessionTitle` |
 
-部署可注册一个模型后端 provider；未注册时，服务仍提供确定性回退。
+部署可以注册一个模型驱动提供方；未注册时，服务仍保留确定性回退机制。
 
 ## 遥测
 

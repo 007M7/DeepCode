@@ -1,4 +1,4 @@
-# Agent Note：skill 注册表由宿主持有并按 scope 分层
+# Agent Note: skill 注册表由宿主持有并按 scope 分层
 
 Status: implemented
 

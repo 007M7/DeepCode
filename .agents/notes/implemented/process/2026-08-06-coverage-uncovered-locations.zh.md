@@ -18,18 +18,18 @@ per-file 100% 覆盖率门禁失败时，vitest 只输出文件级错误行（`E
 
 - istanbul 的 0 基列号转为 1 基（编辑器与终端链接的约定）。
 - v8 对整行语句给出 `end.column = Infinity`：跨行时降级为只带行号的 `(to <line>)` 后缀，单行时省略后缀。
-- 隐式分支臂（如缺省 else）可能不带位置，reporter 会回退到分支自身的 span，保证记录仍可点击；分支记录标注类型与 `path k/n`。
+- 隐式分支臂（如缺少 else 的情况）可能不带位置，reporter 会回退到分支自身的 span，保证记录仍可点击；分支记录标注类型与 `path k/n`。
 - 同文件内记录按行、列排序；不设条数上限。
 
 配套两处：根 `package.json` 增补 devDependency `istanbul-lib-report`（pnpm 严格布局下 `scripts/` 摸不到嵌套依赖）；`knip.json` 根 workspace 的 entry/project 通配增加 `scripts/**/*.cjs`，使该文件及其依赖对 hygiene 门禁可见。
 
-CJS 是被迫的形态，也是 ESM-everywhere 纪律的一个有据例外：istanbul 在 tsx/Vite 管线之外用裸 `require()` 装载自定义 reporter，TypeScript 无法参与；`require(esm)` 返回的命名空间对象也过不了它的 `new Cons(cfg)` 构造，CommonJS 是唯一可靠形态。
+CJS 是被迫的形态，也是 ESM-everywhere 纪律的一个有据例外：istanbul 在 tsx/Vite 流水线之外用裸 `require()` 装载自定义 reporter，TypeScript 无法参与；`require(esm)` 返回的命名空间对象也过不了它的 `new Cons(cfg)` 构造，CommonJS 是唯一可靠形态。
 
 ## 考虑过的替代方案
 
 - **依赖内置 `text` 报表的 Uncovered Line #s 列。** 正是问题现状：全仓大表、列宽截断、只有行号、不分种类、达标文件同列——无法直接根据 CI 日志处理。
 - **加 `json` reporter，另写包装脚本失败后读 `coverage-final.json` 后处理。** 纯 ESM/TS 可行，但包装脚本必须同时包住 `package.json` 的 `test:coverage` 与 run-gates 的 gate 两个入口，命令形状随之改变；自定义 reporter 路线只动一处配置，两个入口自动生效。
-- **用 TypeScript/ESM 写 reporter。** istanbul 的装载机制（管线外裸 `require`）决定了不可行，见上；为一个报表文件把装载机制换掉，代价不成比例。
+- **用 TypeScript/ESM 写 reporter。** istanbul 的装载机制（流水线外裸 `require`）决定了不可行，见上；为一个报表文件把装载机制换掉，代价不成比例。
 
 ## 验证
 

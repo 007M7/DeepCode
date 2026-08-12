@@ -26,7 +26,7 @@ Web 客户端忽略了它。write/edit 调用落到 `GenericToolCard`，其行�
 
 几何、圆角、字体镜像 `CodeBlock`/`TerminalBlock`，使 diff 卡片、terminal 卡片、代码块读起来是一家；`white-space: pre` 加横向滚动是刻意的分歧。复制控件浮在卡片右上角，而非占据自己的 banner 行，因为只放一个复制按钮的 banner 会在第一行 diff 上方画出一条空带 —— TUI 的 diff 卡片也没有 banner，只有页脚。
 
-chat 行把 diff 常驻渲染在路径链接摘要之下，上限 `CHAT_DIFF_MAX_LINES`（8），对应面板的 16 —— 与 [terminal 卡片](2026-07-28-web-terminal-card.md#inline-output-in-the-chat-row-reverses-a-stated-convention)记录的内联输出决策、以及流内表面对单调阅读表面的同一划分一致。write/edit 行是单文件的，所以它的摘要既是可打开的路径链接，其 diff 卡片又展开；两者共存，因为卡片不是路径的参数体。
+chat 行把 diff 常驻渲染在路径链接摘要之下，上限 `CHAT_DIFF_MAX_LINES`（8），对应面板的 16 —— 与 [terminal 卡片](2026-07-28-web-terminal-card.md#inline-output-in-the-chat-row-reverses-a-stated-convention)记录的内联输出决策、以及流内表面与阅读表面的同一划分一致。write/edit 行是单文件的，所以它的摘要既是可打开的路径链接，其 diff 卡片又展开；两者共存，因为卡片不是路径的参数体。
 
 ## Alternatives considered
 

@@ -26,6 +26,6 @@ Status: rejected — 独立的持久化 Service Definition 包是持久化能力
 
 ## 放弃了什么
 
-`dsh-session` 变得更重：它同时拥有内存日志和持久化 Service Definition。这就是代价。如果第三方持久化后端已经形成公开生态，独立的 Service Definition 包会是更清晰的 SDK 边界；但在预发布阶段尚无外部 Consumer 时，这个额外的包更像是过早引入的抽象。
+`dsh-session` 变得更重：它同时拥有内存日志和持久化 Service Definition。这就是代价。如果第三方持久化后端已经形成公开生态，独立的 Service Definition 包会是更清晰的 SDK 边界；但在预发布阶段尚无外部消费方时，这个额外的包更像是过早引入的抽象。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

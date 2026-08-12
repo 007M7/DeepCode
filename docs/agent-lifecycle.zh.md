@@ -5,7 +5,7 @@
 
 [English](agent-lifecycle.md) | 中文
 
-此时序图是 [architecture.md](architecture.md#default-loop-lifecycle) 的配套图示。持久的回放事实保存在 `session/event` 中，实时控制与状态则保存在 `agent/*` 中。
+此时序图是 [architecture.md](architecture.md#turn-flow) 的配套图示。持久的回放事实保存在 `session/event` 中，实时控制与状态则保存在 `agent/*` 中。
 
 ```mermaid
 sequenceDiagram
@@ -23,15 +23,15 @@ sequenceDiagram
   Agent-->>SDK: <code>agent/inbox/inserted</code> { message }
   Agent->>Driver: queued work wakes driver
   Driver-->>SDK: <code>agent/status</code> running
+  Driver->>Session: <code>turn/start</code>
   Note over Agent,Driver: claim pending next-step input plus one queued prompt
   Driver-->>SDK: <code>agent/inbox/spliced</code> pure deletion
   Driver-->>SDK: <code>agent/inbox/claimed</code> { message, turn } per message
   Driver->>Hooks: <code>agent/pre-step</code> waterfall
   Hooks-->>Driver: authoritative reject or enter(messages)
   alt proposed step rejected or pre-step failed
-    Driver-->>Driver: claimed batch stays removed, no turn opens
+    Driver-->>Driver: claimed batch stays removed, the open turn spends no step
   else enter proposed step
-  Driver->>Session: <code>turn/start</code>
   Driver->>Session: <code>step/start</code>
   Driver->>Session: <code>user/message</code> per entered message
   Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
@@ -68,8 +68,8 @@ sequenceDiagram
     Hooks-->>Driver: authoritative reject or enter(messages)
   end
   end
-  Driver->>Session: <code>turn/end</code>
   end
+  Driver->>Session: <code>turn/end</code>
   Driver-->>SDK: <code>agent/status</code> idle
 ```
 

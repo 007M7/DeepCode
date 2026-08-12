@@ -4,7 +4,7 @@
  * rather than the tool-call signal after an id is returned.
  *
  * TODO(permissions): deployment policy belongs in `tools/pre-execute` and
- * sandboxing executors; see docs/architecture.md § Extending The Harness.
+ * sandboxing executors; see docs/architecture.md § Where new behavior goes.
  * @module @deepseek-ai/dsh-tool-bash
  */
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向 [harness 沙盒 seam](../sandbox/) 的 Windows 写入限制沙盒后端：一个 Node.js/[koffi](https://koffi.dev/) 实现的、对 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb`，修复后的修订）机制的移植，挂载为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链中报告 `enforcement: 'partial'` 的 win32 一级（`workspace-write` / `read-only` 两种模式）；Linux/macOS 后端在同一包中。
+面向 [harness 沙盒 seam](../sandbox/) 的 Windows 写入限制沙盒后端：一个 Node.js/[koffi](https://koffi.dev/) 实现的、对 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb`，固定修订版本）机制的移植，挂载为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链中报告 `enforcement: 'partial'` 的 win32 一级（`workspace-write` / `read-only` 两种模式）；Linux/macOS 后端在同一包中。
 
 一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 携带彼此独立的工作区能力与私有临时目录能力。工作区 SID 由规范工作区路径确定性派生（`workspaceWriteSid`），因此工作区根目录 ACE 每台机器每个工作区只物化一次，之后每次会话、调用或重启都命中精确 ACE 跳过。每个活跃的会话/工作区对则获得一个随机临时目录，以及一个从该路径派生的 SID（`tempWriteSid`），因此各会话共享预期的工作区权限，却不会继承彼此的临时目录权限。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入。这些 SID 是主要白名单，在系统其余位置不授予任何权限；但该检查还会继承**其他** restricting SID 的环境写 ACE（保活组登录 SID + Everyone），而 NTFS ACL 属于文件对象而非路径。Everyone 与硬链接边界正是该档报告部分而非完整强制执行的原因。
 
@@ -84,7 +84,7 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 - **受限子进程的临时能力按每个活跃的会话/工作区对私有。** runner 在 spawn 之前用 `SetEnvironmentVariableW` 把 TMP/TEMP 改写为该私有目录，子进程继承改写后的环境块（bwrap `--tmpfs /tmp` 的语义）。临时 ACE 与目录会在提供方 dispose 时移除，或在每次无 agent 调用后移除。崩溃可能留下失效的 `%TEMP%` 垃圾，但恢复后的提供方会选择新的随机路径和 SID，而不会与残留发生冲突或重新向其授权。原生 runner 套件证明，共享同一工作区 SID 的两个令牌无法写入彼此的临时目录。
 - **受限令牌下 `whoami` 与令牌检查 cmdlet 会失败。** 子进程对复制令牌的 `GetTokenInformation` 部分不可用，因此 `whoami /all` 报错——这是限制方案的诊断噪音，不是运行故障；真正重要的拒绝面（文件写入）不受影响。
 
-## Model Experience
+## 模型体验
 
 间接地通过 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
 
@@ -92,7 +92,7 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 
 无直接影响；拒绝面属于工具层。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - **每个工作区一个写入白名单** —— 写入 SID 是白名单的基本单位，且**就是**工作区身份；同一沙盒实例跨两个工作区复用时，两个根目录会互相扩大授权面（同一个 SID 将命名两个根）。请按工作区根目录各建一个实例——seam 正是这样做的，以工作区路径为键。
 - **清理按设计尽力而为** —— `dispose()` 会尝试全部临时撤销并把失败聚合为 `AggregateError`；清理失败可能留下随机目录及其仅含临时 SID 的 ACE。进程退出后，不会再有令牌携带该 SID，因此残留保持失效，直到 OS 临时目录卫生或手动移除目录将其回收。

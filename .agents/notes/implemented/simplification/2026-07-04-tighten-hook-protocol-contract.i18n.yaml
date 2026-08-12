@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-04-tighten-hook-protocol-contract.md
 2026-07-04-tighten-hook-protocol-contract.md: eecec255d930d2896fc1ea3dee85bb2efa582a19
-2026-07-04-tighten-hook-protocol-contract.zh.md: 0b913a8783eab8e05d78b8c3ecc712fe4b1d947c
+2026-07-04-tighten-hook-protocol-contract.zh.md: 6e004db844f4e3d60d0eace8537ad23a8f22e34a
