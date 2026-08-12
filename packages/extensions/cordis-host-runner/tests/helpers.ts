@@ -66,33 +66,33 @@ export async function setup(config?: Config): Promise<Harness> {
     const answer = gateway.answer
     const { requestId, pluginId, packageId, mode } = request
     gateway.answering = Promise.resolve().then(async (): Promise<void> => {
-        if (answer === 'reject') {
-          await runner.resolveRequestRun(requestId, { ok: false, reason: 'rejected', message: 'not now' })
-          return
-        }
-        const half = await runner.runHostHalf(AGENT_A, pluginId, packageId, mode, requestId, false)
-        if (!half.ok) {
-          await runner.resolveRequestRun(requestId, {
-            ok: false, reason: 'host-half-failed', message: half.message,
-          })
-          return
-        }
-        if (typeof answer === 'object') {
-          await runner.resolveRequestRun(requestId, {
-            ok: false,
-            reason: 'client-half-failed',
-            pluginRunId: half.pluginRunId,
-            startedHere: half.startedHere,
-            message: answer.clientFails,
-          })
-          return
-        }
-        const source = runner.getClientCode(AGENT_A, pluginId, half.pluginRunId)
+      if (answer === 'reject') {
+        await runner.resolveRequestRun(requestId, { ok: false, reason: 'rejected', message: 'not now' })
+        return
+      }
+      const half = await runner.runHostHalf(AGENT_A, pluginId, packageId, mode, requestId, false)
+      if (!half.ok) {
         await runner.resolveRequestRun(requestId, {
-          ok: true,
-          pluginRunId: source.pluginRunId,
-          ...gateway.clientWaitingFor === undefined ? {} : { waitingFor: gateway.clientWaitingFor },
+          ok: false, reason: 'host-half-failed', message: half.message,
         })
+        return
+      }
+      if (typeof answer === 'object') {
+        await runner.resolveRequestRun(requestId, {
+          ok: false,
+          reason: 'client-half-failed',
+          pluginRunId: half.pluginRunId,
+          startedHere: half.startedHere,
+          message: answer.clientFails,
+        })
+        return
+      }
+      const source = runner.getClientCode(AGENT_A, pluginId, half.pluginRunId)
+      await runner.resolveRequestRun(requestId, {
+        ok: true,
+        pluginRunId: source.pluginRunId,
+        ...gateway.clientWaitingFor === undefined ? {} : { waitingFor: gateway.clientWaitingFor },
+      })
     })
   })
   for (const name of ['cordis/request-run-resolved', 'cordis/dynamic-package', 'cordis/dynamic-retract'] as const) {

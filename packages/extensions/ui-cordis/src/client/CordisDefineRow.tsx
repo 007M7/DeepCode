@@ -116,7 +116,7 @@ export function CordisDefineRow({
           {hasSource && activeCode !== null && (
             <section className={css.sourceCard}>
               <div className={css.sourceTabs} role="tablist" aria-label={t('body.source')}>
-                {(['client', 'host'] as const).map(source => {
+                {(['client', 'host'] as const).map((source) => {
                   const available = source === 'client' ? card.clientCode !== null : card.hostCode !== null
                   return (
                     <button

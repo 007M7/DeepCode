@@ -419,6 +419,7 @@ export function renderClientCatalog(entries: readonly SlotEntry[]): string {
     ' * @module @deepseek-ai/dsh-cordis-client-runner/client/slot-catalog',
     ' */',
     '',
+    '/* jscpd:ignore-start */',
     '/** One option a register call passes for a given slot cardinality. */',
     'export interface ClientSlotOption {',
     '  /** Option name as written in the register options object. */',
@@ -483,7 +484,6 @@ export function renderClientCatalog(entries: readonly SlotEntry[]): string {
     '// Seats of one cardinality repeat their register options and framework props',
     '// verbatim; that sameness IS the contract a registrant reads, so clone',
     '// detection is told to skip the data rather than the file.',
-    '/* jscpd:ignore-start */',
     'export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [',
   ]
   for (const entry of entries) {

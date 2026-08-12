@@ -9,6 +9,8 @@
  * guarded surface as a genuine plugin, or neither activation gating nor the
  * disposal cascade under test would be real.
  */
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
+
 import { Context } from '@deepseek-ai/cordis'
 import type { Loader } from '@deepseek-ai/cordis-plugin-loader'
 import { describe, expect, it, vi } from 'vitest'

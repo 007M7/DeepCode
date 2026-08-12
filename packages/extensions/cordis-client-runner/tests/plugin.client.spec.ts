@@ -6,6 +6,8 @@
  * always reaches the console, and the fiber owns the runner's teardown. Plus the two plane-level companions: the
  * node half's empty apply and the invariant registration.
  */
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
+
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import InvariantService from '@deepseek-ai/dsh-invariants'

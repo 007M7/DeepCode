@@ -29,7 +29,7 @@ export function hostInspectProviders(ctx: Context): HostCordisInspectProviderReg
       'Service',
       'Progressive Host Service discovery: compact capability/signature directory, then one exact coding contract.',
       'listService',
-      async input => queryServiceApi(readExact(input, 'service')) as unknown as JsonValue,
+      input => queryServiceApi(readExact(input, 'service')) as unknown as JsonValue,
       SERVICE_INPUT,
       SERVICE_OUTPUT,
     ),
@@ -37,11 +37,11 @@ export function hostInspectProviders(ctx: Context): HostCordisInspectProviderReg
       'Event',
       'Progressive Host Event discovery: compact listener directory, then one exact event contract.',
       'listEvents',
-      async input => queryEventApi(readExact(input, 'event'), HOST_EVENTS) as unknown as JsonValue,
+      input => queryEventApi(readExact(input, 'event'), HOST_EVENTS) as unknown as JsonValue,
       EVENT_INPUT,
       EVENT_OUTPUT,
     ),
-    registration('Builtin', 'Plain-JavaScript symbols available to a dynamic Host half.', 'listBuiltins', async () => ({
+    registration('Builtin', 'Plain-JavaScript symbols available to a dynamic Host half.', 'listBuiltins', () => ({
       builtins: HOST_BUILTIN_INSPECTION,
       referencedTypes: [],
     } as unknown as JsonValue)),
@@ -68,7 +68,7 @@ function registration(
   id: string,
   description: string,
   method: string,
-  query: (input: JsonValue | undefined) => Promise<JsonValue>,
+  query: (input: JsonValue | undefined) => JsonValue | Promise<JsonValue>,
   inputSchema: JsonValue = EMPTY_INPUT,
   outputSchema: JsonValue = ANY_OUTPUT,
 ): HostCordisInspectProviderRegistration {

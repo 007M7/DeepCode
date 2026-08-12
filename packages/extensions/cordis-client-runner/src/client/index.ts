@@ -279,7 +279,7 @@ export function apply(ctx: Context): void {
     activeRuns: orchestrator.activeRuns,
     lastRunError: orchestrator.lastRunError,
     renderFailures: runner.renderFailures,
-    reconcileApprovals: rows => { orchestrator.reconcileApprovals(rows) },
+    reconcileApprovals: (rows) => { orchestrator.reconcileApprovals(rows) },
     approve: (requestId, approveFutureVersions) => orchestrator.approve(requestId, approveFutureVersions),
     decline: requestId => orchestrator.decline(requestId),
     startUserRun: request => orchestrator.startUserRun(request),

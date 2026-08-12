@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 
 function clientCssDeclarations(): string[] {
   const clientGroups = ['client', 'self-modification']
-  return clientGroups.flatMap(group => {
+  return clientGroups.flatMap((group) => {
     const clientRoot = resolve(root, 'packages', group)
     return readdirSync(clientRoot, { withFileTypes: true })
       .filter(entry => entry.isDirectory())

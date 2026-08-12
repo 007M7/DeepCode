@@ -162,7 +162,7 @@ export function CordisPanel({
   const runAction = async (pluginId: CordisDynamicPluginId, action: () => Promise<void | { ok: boolean; message?: string }>) => {
     if (pending.has(pluginId)) return
     setPending(currentPending => new Set(currentPending).add(pluginId))
-    setActionErrors(currentErrors => {
+    setActionErrors((currentErrors) => {
       const next = new Map(currentErrors)
       next.delete(pluginId)
       return next
@@ -178,7 +178,7 @@ export function CordisPanel({
         error instanceof Error ? error.message : String(error),
       ))
     } finally {
-      setPending(currentPending => {
+      setPending((currentPending) => {
         const next = new Set(currentPending)
         next.delete(pluginId)
         return next
@@ -210,8 +210,9 @@ export function CordisPanel({
     const hostFailure = latest?.status === 'failed' ? latest.error : undefined
     const renderFailure = renderFailures.get(pluginId)
     const actionError = actionErrors.get(pluginId)
-    const hasFailedTransition = listed?.nextPackageId !== undefined
-      && listed.nextPackageId !== listed.currentPackageId
+    const nextPackageId = listed?.nextPackageId !== undefined
+      && listed.nextPackageId !== listed.currentPackageId ? listed.nextPackageId : undefined
+    const currentPackageId = listed?.currentPackageId
     const runMode = listed?.currentPackageId !== undefined
       && selectedPackageId !== listed.currentPackageId ? 'update' as const : 'run' as const
 
@@ -313,7 +314,7 @@ export function CordisPanel({
                 onClick={() => { void runAction(pluginId, () => onRun({
                   agentId: listed.agentId,
                   pluginId,
-                  packageId: selectedPackageId!,
+                  packageId: selectedPackage.packageId,
                   mode: runMode,
                   hasClientHalf: selectedPackage.hasClientHalf,
                 })) }}
@@ -360,10 +361,10 @@ export function CordisPanel({
             )}
           </div>
         </div>
-        {awaiting === undefined && hasFailedTransition && listed !== undefined && (
+        {awaiting === undefined && nextPackageId !== undefined && listed !== undefined && (
           <div className={css.transition}>
-            <span>{listed.currentPackageId === undefined ? '' : t('panel.current', { packageId: listed.currentPackageId })}</span>
-            <span>{t('panel.next', { packageId: listed.nextPackageId! })}</span>
+            <span>{currentPackageId === undefined ? '' : t('panel.current', { packageId: currentPackageId })}</span>
+            <span>{t('panel.next', { packageId: nextPackageId })}</span>
             <div className={css.transitionActions}>
               <button
                 type="button"
@@ -371,21 +372,21 @@ export function CordisPanel({
                 onClick={() => { void runAction(pluginId, () => onRun({
                   agentId: listed.agentId,
                   pluginId,
-                  packageId: listed.nextPackageId!,
-                  mode: listed.currentPackageId === undefined ? 'run' : 'update',
-                  hasClientHalf: packageOf(listed, listed.nextPackageId!)?.hasClientHalf === true,
+                  packageId: nextPackageId,
+                  mode: currentPackageId === undefined ? 'run' : 'update',
+                  hasClientHalf: packageOf(listed, nextPackageId)?.hasClientHalf === true,
                 })) }}
               >{t('action.retry')}</button>
-              {listed.currentPackageId !== undefined && (
+              {currentPackageId !== undefined && (
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => { void runAction(pluginId, () => onRun({
                     agentId: listed.agentId,
                     pluginId,
-                    packageId: listed.currentPackageId!,
+                    packageId: currentPackageId,
                     mode: 'run',
-                    hasClientHalf: packageOf(listed, listed.currentPackageId!)?.hasClientHalf === true,
+                    hasClientHalf: packageOf(listed, currentPackageId)?.hasClientHalf === true,
                   })) }}
                 >{t('action.rollback')}</button>
               )}

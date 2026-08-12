@@ -72,5 +72,5 @@ export function cordisToolViewKey(
   pluginId: CordisDynamicPluginId,
   packageId: CordisDynamicPackageId,
 ): CordisToolViewKey {
-  return `${pluginId}.${packageId}` as CordisToolViewKey
+  return `${pluginId}.${packageId}`
 }

@@ -3,6 +3,17 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 
+/*
+ * The browser Service preserves the vendored Host TimerService's erased callback tuples and arbitrary
+ * async-iterator return and rejection values, so narrowing these positions would change the public API.
+ */
+/* oxlint-disable typescript/no-explicit-any -- Exact Host TimerService API compatibility; see above. */
+/* oxlint-disable typescript/no-unsafe-argument -- The erased callback tuples pass through unchanged. */
+/* oxlint-disable typescript/no-unsafe-assignment -- The erased callback tuples pass through unchanged. */
+/* oxlint-disable typescript/no-unsafe-member-access -- The returned wrapper retains its dispose property. */
+/* oxlint-disable typescript/no-unsafe-return -- The erased generic return values pass through unchanged. */
+/* oxlint-disable typescript/prefer-promise-reject-errors -- Async iterators preserve arbitrary throw reasons. */
+
 declare module '@deepseek-ai/cordis' {
   interface Context extends Pick<ClientTimerService, 'interval' | 'timeout' | 'throttle' | 'debounce' | 'setTimeout' | 'setInterval'> {
     /** Browser timer Service used by the mixed-in Context helpers. */
@@ -64,7 +75,7 @@ export class ClientTimerService extends Service {
     if (callback !== undefined) {
       const dispose = this.ctx.effect(() => {
         const timer = globalThis.setTimeout(() => {
-          dispose()
+          void dispose()
           callback()
         }, delay)
         return () => { globalThis.clearTimeout(timer) }
@@ -80,7 +91,7 @@ export class ClientTimerService extends Service {
         reject(new Error('Context has been disposed'))
       }
     }, 'ctx.timeout()')
-    return promise.finally(dispose)
+    return promise.finally(() => { void dispose() })
   }
 
   /**
@@ -128,13 +139,13 @@ export class ClientTimerService extends Service {
       return: (value: any) => {
         if (done === undefined) done = { kind: 'return', value }
         nextTask?.resolve({ done: true, value })
-        dispose()
+        void dispose()
         return Promise.resolve({ done: true, value })
       },
       throw: (reason: any) => {
         if (done === undefined) done = { kind: 'throw', reason }
         nextTask?.reject(reason)
-        dispose()
+        void dispose()
         return Promise.resolve({ done: true, value: undefined })
       },
       [Symbol.asyncIterator]() {

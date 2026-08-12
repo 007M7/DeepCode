@@ -422,12 +422,9 @@ export class DynamicCordisPackageRunner {
       ledger,
       claim,
       allocatePriority: () => --this.nextPriority,
-      reportFailure: error => this.env.reportGuardFailure(
-        agentId,
-        pkg.pluginId,
-        pkg.pluginRunId,
-        errorDetails(error),
-      ),
+      reportFailure: (error) => {
+        this.env.reportGuardFailure(agentId, pkg.pluginId, pkg.pluginRunId, errorDetails(error))
+      },
     })
     if (typeof plugin === 'function') {
       return { name: moduleIdOf(pkg.pluginId), apply: (ctx: unknown) => plugin(guarded(ctx)) }
@@ -485,12 +482,16 @@ function indexable(component: unknown): component is object {
  * @param error - original thrown value.
  * @returns its message and original string stack, when present.
  */
+/* jscpd:ignore-start */
 export function errorDetails(error: unknown): CordisErrorDetails {
   if (typeof error !== 'object' || error === null) return { message: String(error) }
-  const message = 'message' in error && typeof error.message === 'string' ? error.message : String(error)
+  const message = 'message' in error && typeof error.message === 'string'
+    ? error.message
+    : Object.prototype.toString.call(error)
   const stack = 'stack' in error && typeof error.stack === 'string' ? error.stack : undefined
   return { message, ...stack === undefined ? {} : { stack } }
 }
+/* jscpd:ignore-end */
 
 /**
  * What the authoring session reads about one render crash. The slot says where it

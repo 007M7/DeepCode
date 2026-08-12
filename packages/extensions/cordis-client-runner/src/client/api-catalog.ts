@@ -12,6 +12,7 @@
  * @module @deepseek-ai/dsh-cordis-client-runner/client/api-catalog
  */
 
+/* jscpd:ignore-start */
 /** One named parameter in a Service method or Event listener. */
 export interface ApiParameter {
   /** Parameter name from the exact signature. */
@@ -967,3 +968,4 @@ export function queryEventApi(name?: string, events: readonly EventApiEntry[] = 
     referencedTypes: referencedTypeClosure([event.signature]),
   }
 }
+/* jscpd:ignore-end */
