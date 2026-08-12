@@ -1195,7 +1195,7 @@ function renderLifecycle(): string {
   const maintenance = 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle'),
-    'This sequence is the visual companion to [architecture.md](architecture.md#default-loop-lifecycle). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    'This sequence is the visual companion to [architecture.md](architecture.md#turn-flow). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',

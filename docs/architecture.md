@@ -2,148 +2,127 @@
 
 English | [中文](architecture.zh.md)
 
-## Overview
+Read this before changing anything under `packages/`. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
 
-[Cordis](cordis-primer.md) is the meta framework behind dsh; plugins contribute services, typed events, and reversible effects. For example, the agent-loop itself is a plugin orchestrated by cordis.
+The repository is large; use an agent to explore it.
 
-`dsh` is fully config-driven and every component is replaceable. You can get a glimpse of the config tree by running `dsh --profile web --dump-config`.
+## Cordis
 
-It's recommended to read [Cordis Primer](cordis-primer.md) and [Cordis Tutorial](cordis-tutorial/index.md) before proceeding.
+[Cordis](cordis-primer.md) is the framework under dsh: plugins contribute services, typed events, and reversible effects to a shared context. Every part of the product is a plugin, including the model adapter, the tool registry, the session log, and the agent loop itself, so every part is replaceable from configuration.
 
-## Event
+There is no privileged core to patch: you extend dsh by mounting a plugin beside the others, and registrations are effects that unwind when their plugin unloads.
 
-Events are the extension points for services ([event producer/consumer map](event-producer-consumer.md)).
+## Profiles and bundles
 
-### Event Domains
+A running `dsh` is a plugin tree composed at boot from ordered layers.
 
-- **Session events** are durable log facts emitted through `session/event`.
-- **Agent events** carry live `Agent` for inbox, step, status, request, validation, and continuation.
-- **Capability events** attach policy and adapters without a loop import.
+A **profile** is a named composition stored in the Harness home. It lists the bundles it stacks, holds any out-of-tree plugins it installs, and keeps the user's own `cordis.patch.yml`. `web` and `headless` ship as templates.
 
-## Agent Loop Lifecycle
+A **bundle** is a distribution format for Cordis config rows and the code they mount, so whatever it inserts stays patchable by the layers above it.
 
-A **step** is one model request plus tools.  Quotes in the [sequence](agent-lifecycle.md) mark durable events.
+Each declares itself in its own `package.json` under a `dsh` field: `dsh.profile` lists a profile's bundles, and `dsh.bundle` points at a bundle's patch file.
 
-### Turn Flow
+[`dsh-base`](../packages/bundle/base/README.md) is the first layer of every profile: model adapters, tools, persistence, sandbox and approval policy, settings, credentials, telemetry. [`dsh-web-app`](../packages/bundle/web-app/README.md) adds the browser application; [`dsh-headless`](../packages/bundle/headless/README.md) adds a one-shot runner and no server at all.
 
-```text
-choose declarative identity and acquire fresh/restored SessionPreparation
-  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
-  -> enter session + agent -> session/created -> agent/created
-  -> enable driving -> agent/session-start(source) -> start driver
-forever:
-  waking inbox insertion starts the driver before send returns
-  -> emit agent/status(running) if starting an interval
-  -> 'turn/start'
-  claim next-step input plus one next-turn message
-  -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> assemble system prompt
-  -> agent/pre-step({ agent, messages, turn, step, signal })
-    reject, empty input, cancellation, or listener failure
-      -> the claimed batch stays removed; close the no-step turn; stop the driver
-    enter -> step loop:
-      'step/start'
-      append the returned batch as separate 'user/message' events
-      render the assembled prompt and tool schemas -> snapshot derived messages
-      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
-      'assistant/chunk'
-      'assistant/message'
-      schedule tool calls by ctx.tools.executionMode:
-        exclusive -> barrier
-        parallel -> rolling pool, <= maxParallelToolCalls; reclassify at start
-        start -> 'tool/call' -> tools/pre-execute -> concurrent tools/execute
-        model-order result -> ordered tools/post-execute -> 'tool/result'
-      'step/end'
-      tools owe another request or next-step inbox is nonempty
-        -> claim -> agent/pre-step -> append entered batch -> continue
-      otherwise agent/turn-stopping -> re-check the next-step inbox
-    'turn/end'
-  start the next waking queued message, or emit agent/status(idle)
+Layers apply to an empty entry list in this order: each bundle in the profile's listed order, then the profile's `cordis.patch.yml`, then the home-level one, then any app overlay. A patch targets a row by id and replaces its whole config, or inserts new rows.
 
-idle inject:
-  queue non-waking next-step context
-  leave it pending until followup or steer wakes the driver
+To see the tree your machine actually boots:
+
+```sh
+dsh --profile web --dump-config
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Any row it prints can be replaced by a patch of your own.
 
-`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. `agent/pre-step` receives the exclusive claimed batch and upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
+Composition mechanics are in [app-boot](../packages/boot/app-boot/README.md#profiles); config fields are in the generated [config catalog](config-catalog.md).
 
-### Failure Boundaries
+## Core packages
 
-Adapter selection, dispatch, and iteration failures become terminal error or aborted `finish` chunks. `agent/request-error` receives request coordinates, normalized `LlmFailure`, available retry policy, and signal; middleware and consumer errors remain outside recovery. Failed chunks commit neither messages nor tool calls.
+Here are some core packages that contribute to the Cordis tree.
 
-Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. The driver processes waking input received after abort starts but before convergence; a `disposed` cancel leaves it parked ([cancel-convergence wake latch](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)). Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+| Package | Owns | `ctx` key |
+|---|---|---|
+| [`core/session`](subsystems/session.md) | The append-only `SessionEvent` log and in-memory store | `ctx.sessions` |
+| [`core/system-prompt`](subsystems/system-prompt.md) | Prompt-section and tool-schema assembly | `ctx.systemPrompt` |
+| [`core/tools`](subsystems/tools.md) | The scoped tool registry and guarded execution pipeline | `ctx.tools` |
+| [`core/agent`](subsystems/core.md) | The `Agent` interface, live registry, and `agent/*` events | `ctx.agents` |
+| [`core/agent-loop`](subsystems/core.md) | The default driver implementing that interface | `ctx.agentLoop` |
+| [`core/scope`](subsystems/scope.md) | The per-agent scoped-registration primitive | library, no key |
+| [`llm/llm`](subsystems/llm-streaming.md) | Message and stream vocabulary plus the adapter seam | `ctx.llm` |
 
-Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. A turn opens before the initial claim and pre-step, so rejection, empty input, cancellation, or failure closes a durable turn without any step events. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](subsystems/session.md#why-a-turn-ended-turnendreasonmap).
+## Events
 
-### Agent Handles
+Events are the extension points, and picking the right domain is the first decision in most changes.
 
-`ctx.agents` owns agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()` or its `followup()`, `steer()`, and `inject()` presets. `cancel()` and `whenIdle()` control lifecycle, while awaited disposal owns teardown. A follow-up `MessageId` follows durable inbox insertion, claiming, and discard notifications, not prompt output or turn ending; only an owner of a whole activity interval may summarize it as a run result ([decision](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
+- **Session events** are durable facts appended to the log and broadcast through `session/event`. Use one when the fact must survive a reload.
+- **Agent events** (`agent/*`) carry a live `Agent`: inbox, step, status, request, validation, continuation. Use one to observe or intercept work in flight.
+- **Capability events** attach policy and adapters to a seam (`fs/*`, `tools/*`, `telemetry/*`) without importing the loop.
 
-### Agent Scope
+The [event map](event-producer-consumer.md) lists every event's producers and consumers.
 
-Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, and command entries on globals while preserving domain views ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)). Scoped listeners filter dispatch; contributions unwind with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication. Typed resolvers derive carrier checks from merged `Events` and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). Details: [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs under `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, but turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+## Turn flow
 
-## State
+A **step** is one model request plus the tools it calls. A **turn** is one or more steps, opened from queued input and closed once nothing is owed.
 
-### Session Log
+```text
+claim next-step input plus one queued message
+  -> agent/pre-step            reject | enter(messages)
+  -> turn/start
+     step/start
+     append entered messages as user/message
+     assemble prompt sections + tool schemas, derive history from the log
+     agent/request -> llm/stream -> assistant/chunk* -> assistant/message
+     tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tool/result*
+     step/end
+     tools owe another request, or next-step input arrived -> claim -> next step
+  -> agent/turn-stopping
+  -> turn/end
+```
 
-The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from this stream.
+`turn/*`, `step/*`, `user/message`, `assistant/*`, and `tool/*` are durable session events; the rest are live `agent/*` waterfalls, whose listeners must call `next()` to delegate.
 
-**Model-visible <=> logged**: messages entering at `step/start` plus the folded `request/header` reconstruct every request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `request/context` separately records registration-bound provider, model, and capacity metadata when the route changes; it does not participate in request reconstruction or header equality. `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+Input reaches the driver through one inbox. Some messages wake it immediately; injected context waits in the inbox until another message does.
 
-Durability is a plugin concern. Backends copy synchronous `session/event` notifications into fixed-window durable batches; `session/flush` bypasses the wait before requests and top-level tool dispatch, and after `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard, and SQLite uses the same checkpoint and batching rules ([checkpoint decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md), [batching decision](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
+`agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright, and a rejected attempt still opens and closes a durable turn, so the log records it. Each step then assembles what the model reads from the prompt sections and tool schemas that plugins registered.
 
-Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` relies on bounded background persistence and lifecycle drains; manual compaction flushes its bracket before the operation completes. Title work never delays responses; the latest title event wins, and it records the source message seqs and whether the user, fallback, or provider supplied it. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+Details: the [sequence diagram](agent-lifecycle.md), the [tool pipeline](tool-execution-pipeline.md), and [cancellation and error recovery](subsystems/core.md#the-agent-handle).
 
-### Model Content
+## Session log
 
-Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](subsystems/token-meter.md).
+The session log is the source of the context the model sees. `deriveMessages()` projects model history from it, and raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcripts, telemetry, and persistence all derive from this stream.
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, the successful provider/model route, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](subsystems/llm-streaming.md)).
+**Model-visible means logged.** Anything that reaches a model request must be reconstructable from the log, and a runtime invariant asserts it. This is why a new model-visible input requires a new session event: extend `SessionEventMap` and render from the log.
 
-## Extension And Composition
+## Capability seams
 
-### Capability Pattern
+A **seam** is a swappable capability with three roles: a **Service Definition** declaring the interface, a **Service provider** implementing it, and a **Consumer** using it, commonly a model-facing tool. A package may combine roles, but one role alone is not a seam; adding a capability means designing all three ([capability graph](capability-seams.md)).
 
-A **seam** is a swappable capability with **Service Definition**, **Service provider**, and **Consumer** roles. Packages may combine roles; individual roles are not seams. Filesystem and subprocess providers share one execution world; Bash, PTY, and LSP need no provider forks ([capability graph](capability-seams.md)).
+Seams are why one provider swap changes the whole product. Filesystem and subprocess providers share one execution world, so pointing them at a remote sandbox moves Bash, PTY, and LSP with them, with no provider forks. [Subagent providers](subsystems/subagent.md) vary just as widely behind one interface, from a fresh child agent to a delegated turn in another product.
 
-Exceptions combine LLM Service Definition/Consumer roles, filesystem policy, web registries, and skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate a self-contained turn to Codex or another product provider ([subagent.md](subsystems/subagent.md)).
+## Where new behavior goes
 
-`dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. When compaction removes that baseline from the visible surface, the next entering pre-step composes the current baseline and carries it in the same request. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
-
-### Bundles And Apps
-
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC entry points ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
-
-### Agent Presets
-
-A deployment may compose each session's model-facing plugin set separately. An **agent preset** is a directory holding one `agent.cordis.yml`, mounted as an `include` subtree under that agent's scope during `setup(agentCtx)`, so its tool and prompt registrations file into that agent's layer and unwind with it — no new tier in the registries. The host composition keeps what must be shared: the registries themselves, cross-session facilities, the sandbox and approval stack, the model route. `ctx.agentPresets` owns discovery and the guarded mount, rejecting a row that never activates or that publishes into the root service realm. Details: [per-session agent presets](../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md), [preset/](../packages/preset/README.md).
-
-### Where New Behavior Goes
-
-New behavior attaches to a documented extension point; a loop change updates this map.
+New behavior attaches to a documented extension point. Changing the loop itself updates this map.
 
 | Goal | Mechanism |
 |---|---|
 | Add a model provider | register its adapter on `ctx.llm` |
-| Add a model-facing capability | register on `ctx.tools`; schemas join prompt assembly |
-| Give one session a different capability set | compose it in an agent preset; a service row there needs an `isolate` realm |
-| Add shell execution | implement and register a `ctx.bash` backend; the local backend spawns through `ctx.subprocess` |
+| Add a model-facing capability | register on `ctx.tools`; its schema joins prompt assembly |
+| Give one session a different capability set | compose an agent preset; a service row there needs an `isolate` realm |
+| Add shell execution | register a `ctx.bash` backend; the local one spawns through `ctx.subprocess` |
 | Add persistent terminal execution | register a `ctx.pty` backend plus `dsh-tool-pty` |
-| Add a human command | register on `ctx.commands`; adapters discover and dispatch without a model turn |
-| Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
-| Add filesystem access or policy | implement a `ctx.fs` provider or listen to `fs/*` policy events |
+| Add a human command | register on `ctx.commands`; it dispatches without a model turn |
+| Add background work | register on `ctx.tasks`; `task_*` tools collect or stop it |
+| Add filesystem access or policy | register a `ctx.fs` provider or listen to `fs/*` events |
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
-| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the event that stops a turn |
-| Add model-facing context | call `agent.inject()` to queue sourced context for the next admitted request |
+| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` stops a turn |
+| Add model-facing context | call `agent.inject()`; it lands in the next admitted request |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
-| Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |
+| Add a Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |
-| Add asynchronous session-title generation | register the sole `ctx.sessionTitle` provider |
-| Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |
-| Fork a live session | call `ctx.sessions.fork(source, boundary?, childSessionId?)` |
-| Scope a registration to one agent | use its `agent.ctx` (see Agent Scope) |
+| Generate session titles | register the sole `ctx.sessionTitle` provider |
+| Manage a same-session objective | use `ctx.goals`; continue through `agent/*` |
+| Fork a live session | `ctx.sessions.fork(source, boundary?, childSessionId?)` |
+| Scope a registration to one agent | use that agent's `agent.ctx` |
 
-[Extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), [Chat nodes](cookbook/adding-a-conversation-node.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
+
+The [extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities and indexes the step-by-step guides for [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [Chat nodes](cookbook/adding-a-conversation-node.md).
