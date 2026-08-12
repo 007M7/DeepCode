@@ -84,7 +84,7 @@ describe('CI workflow', () => {
     expect(aggregate.needs).not.toContain('serial-windows')
   })
 
-  it('exempts push from cancellation, so one master merge does not kill the running drill', () => {
+  it('exempts push from cancellation, so one master merge does not cancel the running drill', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs) || !isRecord(workflow.concurrency)) {
       throw new TypeError('CI workflow must define jobs and a workflow-level concurrency block')
