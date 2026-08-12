@@ -1,9 +1,11 @@
 // Boots the shipped Web composition over the built dist this lane already uses
 // and asserts what that composition produces: the model-visible tool catalog
-// and the sandbox/approval knobs it ships with. No browser and no model call —
-// these are composition facts, and the browser scenarios in this lane cover the
-// surface itself.
+// and file-reference guidance plus the sandbox/approval knobs it ships with.
+// No browser and no model call — these are composition facts, and the browser
+// scenarios in this lane cover the surface itself.
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
@@ -15,7 +17,12 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-permission'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
+
+const FILE_REFERENCE_PROMPT = fileURLToPath(new URL(
+  './snapshots/web-runtime-context/file-reference-prompt.expected.md', import.meta.url,
+))
 
 /**
  * The catalog the shipped Web composition puts in front of the model, minus the
@@ -66,7 +73,7 @@ afterEach(async () => {
   scaffold = undefined
 })
 
-it('assembles the shipped Web catalog with the confined access default', async () => {
+it('assembles the shipped Web catalog, file-reference guidance, and confined access default', async () => {
   scaffold = await launchWebScaffold()
   const ctx = scaffold.ctx
   // The catalog belongs to an AGENT, not to the process: every model-facing row
@@ -85,6 +92,9 @@ it('assembles the shipped Web catalog with the confined access default', async (
     // The packaged ripgrep binary ships with the dependency, so the pair is a
     // fixed roster member on every host.
     expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
+    const fileReferenceSection = (await ctx.systemPrompt.assemble({ scope: handle.agent })).sections
+      .find(section => section.name === 'ui:deliverable-file-references')
+    expect(fileReferenceSection?.text).toBe(readFileSync(FILE_REFERENCE_PROMPT, 'utf8').trimEnd())
   } finally {
     await handle.dispose()
   }
