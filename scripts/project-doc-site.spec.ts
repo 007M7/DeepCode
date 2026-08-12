@@ -5,7 +5,7 @@ import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, realpathSyn
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { docsPages, type DocsPage } from '../website/docs.ts'
+import { docsPages, sectionSpec, type DocsPage } from '../website/docs.ts'
 import {
   addProjectionFrontmatter, projectedPageContent, publishableImage, rewriteMarkdown,
 } from './project-doc-site.ts'
@@ -364,6 +364,50 @@ describe('docsPages locale routes', () => {
   })
 })
 
+describe('sidebar ordering', () => {
+  it('places every section a sidebar collection owns', () => {
+    for (const page of docsPages) {
+      if (page.sidebar === null) continue
+      expect(() => sectionSpec(page.locale, page.section), page.route).not.toThrow()
+    }
+  })
+
+  it('refuses a section with no declared placement', () => {
+    expect(() => sectionSpec('root', '数据结构'))
+      .toThrow('Sidebar section "数据结构" has no placement in the root locale.')
+  })
+
+  it('declares placements per locale rather than in one shared list', () => {
+    // Each locale ranks only its own labels, so a label one locale never uses
+    // cannot borrow a rank from the other.
+    expect(sectionSpec('root', '入门').index).toBe(0)
+    expect(sectionSpec('en', 'Guide').index).toBe(0)
+    expect(() => sectionSpec('en', '入门')).toThrow()
+    expect(() => sectionSpec('root', 'Guide')).toThrow()
+  })
+
+  it('collapses the subsystem groups and leaves the smaller ones open', () => {
+    expect(sectionSpec('root', '执行与工具').collapsed).toBe(true)
+    expect(sectionSpec('en', 'Execution and tools').collapsed).toBe(true)
+    expect(sectionSpec('root', '概念').collapsed).toBeUndefined()
+  })
+
+  it('gives each page its own position within a section', () => {
+    // Sidebar entries sort by order alone, so a shared value leaves the two
+    // pages ranked by whichever manifest block happens to be concatenated
+    // first rather than by an intent the manifest states.
+    const taken = new Map<string, string>()
+    const collisions: string[] = []
+    for (const page of docsPages) {
+      const slot = `${page.locale}/${String(page.sidebar)}/${page.section}#${page.order}`
+      const holder = taken.get(slot)
+      if (holder === undefined) taken.set(slot, page.label)
+      else collisions.push(`${slot}: ${holder} / ${page.label}`)
+    }
+    expect(collisions).toEqual([])
+  })
+})
+
 describe('addProjectionFrontmatter', () => {
   it('adds frontmatter to an ordinary Markdown page', () => {
     expect(addProjectionFrontmatter('# Guide\n', { source: 'docs/guide.md' })).toBe(
@@ -409,6 +453,25 @@ describe('projectedPageContent', () => {
   it('keeps the full body for ordinary pages', () => {
     const markdown = '---\ntitle: Guide\n---\n\n# Guide\n'
     expect(projectedPageContent(markdown, page('zh-guide'))).toBe(markdown)
+  })
+
+  it('drops the language switcher the navigation bar already offers', () => {
+    expect(projectedPageContent('# Guide\n\nEnglish | [中文](./en/guide)\n\nBody.\n', page('zh-guide')))
+      .toBe('# Guide\n\nBody.\n')
+    expect(projectedPageContent('# 指南\n\n[English](./en/guide) | 中文\n\n正文。\n', page('zh-guide')))
+      .toBe('# 指南\n\n正文。\n')
+  })
+
+  it('drops the repository badge every page links from its footer', () => {
+    const badge = '[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)'
+    expect(projectedPageContent(`# Guide\n\nBody.\n\n${badge}\n`, page('zh-guide')))
+      .toBe('# Guide\n\nBody.\n')
+  })
+
+  it('keeps a switcher-shaped line that is not the page header', () => {
+    // A tutorial showing the convention must still render the example.
+    const sample = '# Guide\n\nA\n\nB\n\nC\n\nD\n\nE\n\nEnglish | [中文](./x)\n'
+    expect(projectedPageContent(sample, page('zh-guide'))).toBe(sample)
   })
 
   it('rejects a locale home source without frontmatter', () => {
