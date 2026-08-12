@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-26-code-dispatch-ui-foundation.md
-2026-07-26-code-dispatch-ui-foundation.md: 4115a1898de7d2cce01346c3f005fcd19c325f4c
-2026-07-26-code-dispatch-ui-foundation.zh.md: cc64d450b14e7e607675b46ff2dab24387a2b728
+2026-07-26-code-dispatch-ui-foundation.md: 94316e774f231a2f2d5e9bcc8d1a30fd4a2ec733
+2026-07-26-code-dispatch-ui-foundation.zh.md: 83f0c69a3423772f7afa249f86b611214031dbdf

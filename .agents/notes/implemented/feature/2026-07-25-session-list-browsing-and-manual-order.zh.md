@@ -14,7 +14,7 @@ Status: implemented
 
 ### 平铺行与浏览态
 
-group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按 `WorkspaceView.sessionIds` 的手动序在各组内展示同级 session 行；In one list 把所有 session 合并后严格按 `updatedAt` 新→旧排序。两种模式都不把 `parentId` 投影成列表层级，fork 谱系只保留为 session 数据；完整 fork 行为由 [Web session fork 操作](2026-07-27-web-session-fork-actions.md)定义。模式选择持久化在浏览器（`dsh.workspace.view`），刷新后仍保持。
+group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按 `WorkspaceView.sessionIds` 的手动序在各组内展示同级 session 行；In one list 把所有 session 合并后严格按 `updatedAt` 新→旧排序。两种模式都不把 `parentId` 投影成列表层级，fork 谱系只保留为 session 数据；完整 fork 行为由 [Web session fork 操作](2026-07-27-web-session-fork-actions.md)定义。模式选择持久化在浏览器（`dsh.workspace.view`），刷新后仍保持。[Workspace 侧边栏顺序与折叠](2026-08-11-workspace-sidebar-order-and-folding.md)随后加入浏览器本地的最近更新视图，而未改变 Host 记账的手动顺序权威。
 
 ### 行交互
 
@@ -50,7 +50,7 @@ ui-sidebar 缩为列几何壳：品牌行、折叠状态机、New Session、Sett
 
 ## 后果
 
-- 手动序是唯一的 workspace 账本序权威：用户排好的顺序不再被活动打乱；代价是「最近活跃浮到最上」的行为消失，活跃感知转由行内状态点与时间标签承担。`WorkspaceView.sessionIds` 的 wire 约定随之改为手动序措辞。
+- 手动序是 Host workspace 账本的唯一顺序权威：活动绝不改动 `WorkspaceView.sessionIds`。后续加入的浏览器本地最近更新视图可以把活跃行提到最前，但不会改变该账本；其独立语义见 [Workspace 侧边栏顺序与折叠](2026-08-11-workspace-sidebar-order-and-folding.md)。
 - 壳/区域两事实约定把 workspace 域的后续功能（Delete 确认、跨组移动、Ungrouped 收编）全部收进 ui-workspace 单包；ui-sidebar 不再随 session 列表功能演进。
 - 平铺模式不支持重排，也没有在指定 workspace 中创建 session 的入口（需切回分组视图），是拍板接受的范围收窄。
 - session Delete 的功能接线与扩展 wire 状态枚举，留待后续迭代。

@@ -49,7 +49,7 @@ async function harness(
   await ctx.plugin(AgentLoop, { agents: [] })
   const settingsFiber = ctx.plugin(SettingsLocal, { path: settingsFile, watch: false })
   await settingsFiber
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots] })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots], includeUserRoot: false })
   return { ctx, settingsFile, settingsFiber }
 }
 

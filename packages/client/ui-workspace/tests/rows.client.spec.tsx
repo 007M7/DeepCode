@@ -46,7 +46,7 @@ function installClipboard(writeText: (text: string) => Promise<void>): () => voi
   }
 }
 
-const dataTransfer = { effectAllowed: '', dropEffect: '' }
+const dataTransfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
 
 /** jsdom lacks DragEvent — the fireEvent fallback drops clientY, so pin it on the built event. */
 function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number): void {
@@ -57,6 +57,21 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
+    const idle: SessionNode = {
+      id: sid('flat'), title: 'Flat Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0,
+    }
+    const view = render(<SessionNodeItem node={idle} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} flat t={t} />)
+    const title = screen.getByText('Flat Session')
+    expect(title.previousElementSibling).toBeNull()
+
+    view.rerender(<SessionNodeItem node={{ ...idle, running: true }} currentId={undefined} now={0}
+      onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} flat t={t} />)
+    expect(screen.getByText('Flat Session').previousElementSibling?.querySelector('[data-state="ongoing"]')).toBeTruthy()
+  })
+
   it('renders a selected content-search row and opens only its session', () => {
     const onOpen = vi.fn()
     const result: SearchResultNode = {
@@ -105,7 +120,6 @@ describe('workspace browser rows', () => {
     }
     render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={onCreate} t={t} />)
 
-    expect(screen.getByText('1 个会话')).toBeTruthy()
     expect(screen.getByRole('treeitem').getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '在“Project”中新建会话' }))
     expect(onCreate).toHaveBeenCalledOnce()

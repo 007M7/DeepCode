@@ -11,7 +11,8 @@ import { createWorkspaceViewStore } from '../src/client/stores.ts'
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+  id: sid(id), displayTitle: id, running: false, blank: false,
+  updatedAt, ...(cwd === undefined ? {} : { cwd }),
 })
 const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
@@ -23,8 +24,9 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedProjects: readonly string[] = []) => ({
+const view = (expandedProjects: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
   expandedProjects,
+  ...(ungroupedOrder === undefined ? {} : { ungroupedOrder }),
 })
 const noArchive: readonly SessionId[] = []
 const archived = (...ids: string[]): readonly SessionId[] => ids.map(sid)
@@ -51,6 +53,19 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(sessions, [workspace('first', ['owned'])], noArchive, view([UNGROUPED_KEY]))
     expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+  })
+
+  it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
+    const sessions = list(summary('one', 3), summary('two', 2), summary('new', 4))
+    const groups = deriveGroups(
+      sessions,
+      [],
+      noArchive,
+      view([UNGROUPED_KEY], ['two', 'stale', 'two']),
+    )
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([
+      sid('two'), sid('new'), sid('one'),
+    ])
   })
 
   it('shows only the current blank session in its Workspace count and tree', () => {
@@ -377,11 +392,38 @@ describe('deriveSearchResults', () => {
 })
 
 describe('createWorkspaceViewStore', () => {
-  it('defaults to workspace grouping; setGroupBy is the sole mutation', () => {
+  it('stores grouping, ordering, Workspace expansion, and recent-session view order', () => {
     const store = createWorkspaceViewStore().create()
     expect(store.getSnapshot().groupBy).toBe('workspace')
+    expect(store.getSnapshot().orderBy).toBe('manual')
     store.actions.setGroupBy('flat')
+    store.actions.setOrderBy('updated')
+    store.actions.setWorkspaceExpanded('alpha', true)
+    store.actions.syncRecentSessions('alpha', ['two', 'one'], { one: 1, two: 2 })
+    store.actions.setRecentSessionOrder('alpha', ['one', 'two'])
     expect(store.getSnapshot().groupBy).toBe('flat')
+    expect(store.getSnapshot()).toMatchObject({
+      orderBy: 'updated',
+      workspaceExpansion: { alpha: true },
+      recentSessionOrder: { alpha: ['one', 'two'] },
+      recentSessionUpdatedAt: { alpha: { one: 1, two: 2 } },
+    })
+  })
+
+  it('removes view state outside the retained Workspace key set', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setWorkspaceExpanded('', true)
+    store.actions.setWorkspaceExpanded('alpha', true)
+    store.actions.setWorkspaceExpanded('deleted', true)
+    store.actions.syncRecentSessions('alpha', ['alpha-session'], { 'alpha-session': 2 })
+    store.actions.syncRecentSessions('deleted', ['deleted-session'], { 'deleted-session': 1 })
+
+    store.actions.retainWorkspaceKeys(['', 'alpha'])
+
+    const snapshot = store.getSnapshot()
+    expect(snapshot.workspaceExpansion).toEqual({ '': true, alpha: true })
+    expect(snapshot.recentSessionOrder).toEqual({ alpha: ['alpha-session'] })
+    expect(snapshot.recentSessionUpdatedAt).toEqual({ alpha: { 'alpha-session': 2 } })
   })
 })
 

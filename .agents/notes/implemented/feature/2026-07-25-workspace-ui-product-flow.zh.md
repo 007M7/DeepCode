@@ -20,6 +20,7 @@ Host 在 Workspace entity 上提供以下 GUI 接线：
 | --- | --- |
 | `workspace.list` | 返回持久有序的 Workspace，并过滤未通过 header 校验的 Session id |
 | `workspace.create({ path })` | 按 canonical path 收编已有目录；由 basename 派生的显示名可以重复 |
+| `workspace.insertBefore({ workspaceId, beforeWorkspaceId? })` | 在持久注册表顺序内移动一个 Workspace，并返回完整的已提交顺序 |
 | `workspace.delete({ workspaceId })` | 移除 Workspace 注册记录，同时保留目录和会话日志；相关 Session 进入 Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | 从 Workspace 解析 cwd，以可选预分配 id 幂等创建 Session 并 attach |
 | `session.create({ cwd })` | 保留给非 Workspace 调用方，创建 Ungrouped Session |
@@ -49,7 +50,7 @@ Session 自己持有首条输入并驱动一条内部流水线：必要时以预
 
 完全没有 Workspace 时，页面创建默认名为 `workspace` 的前端 Workspace 对象和指向它的前端 Session。两者不写 Host，composer 始终可输入；首次发送才依次 materialize Workspace、attach Session、发送消息。
 
-顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的单一 Add workspace 动作（见[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)；本决策做出时是 Use an existing folder 与按名称创建两个动作）会在用户确认目录时立即创建真实 Workspace，再将前端 Session 的目标改为该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
+顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时先使用当前 Session 所属 Workspace，再使用最近 Workspace；没有真实 Workspace 时进入空白 New Session 页面。Workspace picker 的单一 Add workspace 动作（见[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)；本决策做出时是 Use an existing folder 与按名称创建两个动作）会在用户确认目录时立即创建真实 Workspace，再将前端 Session 的目标改为该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
 
 新建 Workspace 的显示名取自其所在目录。不同 canonical path 可以拥有相同的 basename 派生显示名（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）；显式的重命名操作仍保留显示名重名检查。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
 
@@ -67,11 +68,11 @@ RPC 响应丢失、Host frame 先于 completion 和 completion 先于 Host frame
 
 ### Sidebar 与排序
 
-Workspace 组严格使用 Host 返回的持久顺序。Bootstrap 一次性确定历史顺序，显式创建的新 Workspace 放在首位；Session 活跃不会移动 Workspace 组。
+Workspace 组使用 Host 返回的持久顺序。Bootstrap 一次性确定历史顺序，显式创建的新 Workspace 放在首位，`workspace.insertBefore` 则持久应用用户拖拽顺序；Session 活跃不会移动 Workspace 组。
 
-组内顺序严格遵循 `Workspace.sessionIds`。新 attach 的 Session 放在首位，后续某个 Session 活跃时 Host 只前移该 id 并持久化。Client 不在 Session list 到达后按时间整体重排，因此不会先显示一套 Workspace 顺序再因 hydration 瞬间跳动。
+Host 记账保持手动的 `Workspace.sessionIds` 顺序：新 attach 的 Session 放在首位，活动不会改动该顺序。分组浏览器可以改选浏览器本地的最近更新视图；当 Session 的 `updatedAt` 增大时该视图会把它移到首位，同时仍允许手动调整。每个打开的 Workspace 默认显示五条 Session，用户可临时展开其余条目。持久 Workspace 重排序和浏览器本地 Session 顺序见 [Workspace 侧边栏顺序与折叠](2026-08-11-workspace-sidebar-order-and-folding.md)。
 
-前端 Session Intent 只有在目标是真实 Workspace 时才作为「New session」行显示，并临时计入该组 Session 数量；目标是 Workspace Intent 时，Workspace 与 Session 都不进入 sidebar。Intent 发布后由同一预分配 id 对应的真实行接替，刷新后 Intent 行和临时计数一起消失。搜索模式既不保留 Intent 行，也不对其进行筛选。
+当前空白 Session 会显示为一条「New session」行，但不显示数量、时间标签或行菜单；其他空白 Session 保持隐藏，并可由对应 Workspace 复用。搜索会排除空白行。
 
 无法归入任何 Workspace 的真实 Session 进入 Ungrouped。Host `session-added` 与 `workspace-changed` 可以任意顺序到达，列表合并不依赖 frame 顺序。
 
@@ -105,15 +106,15 @@ Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSe
 - 前端 Session 与 Workspace 在 materialize 前后保持对象身份，输入、错误、焦点和 sidebar 投影始终来自对象层。
 - 首发按 Workspace、Session、提示词顺序推进，各成功阶段不回滚，输入在提示词被接受前不丢失，创建重试使用同一 SessionId。
 - Workspace list 只读取 header 完成一次可重入 bootstrap；已初始化的空注册表重启不重复初始化，成员读取同时校验索引与 canonical cwd。
-- 初始默认目标只在两份基线 ready 后确定一次；Workspace 组不因 hydration 或 Session 活跃整体重排，单个活跃 Session 只前移自身。
-- 真实 Workspace 下的前端 Session 临时计入 sidebar 数量，Workspace Intent 保持隐藏，发布与刷新都不会留下重复行或重复计数。
+- 初始默认目标只在两份基线 ready 后确定一次；Workspace 组不因 hydration 或 Session 活跃重排，显式 Workspace 拖拽顺序在重连后仍然保持。
+- 当前空白 Session 可显示为唯一的 New Session 行，同时不暴露其他可复用空白会话，也不显示 Session 数量。
 - UI 与 Host 会将 canonical path 不同但 basename 相同的目录接纳为独立 Workspace，而显式的重命名操作会拒绝重复显示名；cwd-only Session、无效历史 cwd 和未 attach Session 保持 Ungrouped。
 - 经确认的 Workspace 删除只移除注册记录，保留当前 Session、目录、文件和会话日志，并在刷新后保持该状态；包级测试固定一元响应／帧／基线竞态和失败回滚行为。
 - keyless runnable 快照覆盖零态、显式创建和首次发送；包级测试覆盖 bootstrap、成员校验、排序、幂等、失败恢复及任意 frame 顺序。
 
 ## Consequences
 
-- SessionHeader 不记录最后活跃时间，历史 bootstrap 只能按 `createdAt` 初始化；此后由真实 Session 活跃事件逐项前移。
+- SessionHeader 不记录最后活跃时间，历史 bootstrap 只能按 `createdAt` 初始化 Host 手动顺序；浏览器可选的最近更新视图在 hydration 后从 Session 摘要开始建立。
 - 历史 cwd 缺失、目录无效或 realpath 失败的 Session 留在 Ungrouped；本期没有手动收编入口。
 - 页面刷新会丢弃未 materialize 的 Workspace/Session Intent 和尚未被 Host 接受的输入，这是 page-local 约定。
 - 显式 Create Workspace 立即落盘，用户不发送就离开也会留下空 Workspace。

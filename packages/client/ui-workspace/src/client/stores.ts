@@ -7,11 +7,25 @@
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 
+/** Browser-local order account for the hierarchy-free flat Session list. */
+export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
+
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type WorkspaceGroupBy = 'workspace' | 'flat'
+/** Session order: user-arranged only, or user-arranged plus activity promotion. */
+export type WorkspaceOrderBy = 'manual' | 'updated'
 
-/** Workspace browser viewing state (grouping mode only; transient UI facts stay component-local). */
-type WorkspaceViewState = { groupBy: WorkspaceGroupBy }
+/** Workspace browser viewing state persisted across surface remounts and reloads. */
+type WorkspaceViewState = {
+  groupBy: WorkspaceGroupBy
+  orderBy: WorkspaceOrderBy
+  /** Explicit zero-or-five-session state keyed by Workspace group identity. */
+  workspaceExpansion: Record<string, boolean>
+  /** Shared editable order per Workspace group plus the browser-local flat-list account. */
+  recentSessionOrder: Record<string, string[]>
+  /** Last observed update timestamps per order account for one-time promotion events. */
+  recentSessionUpdatedAt: Record<string, Record<string, number>>
+}
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -19,6 +33,16 @@ type WorkspaceViewState = { groupBy: WorkspaceGroupBy }
  */
 type WorkspaceViewActions = {
   setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
+  setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
+  setWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  retainWorkspaceKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
+  syncRecentSessions: (
+    draft: WorkspaceViewState,
+    workspaceKey: string,
+    order: string[],
+    updatedAt: Record<string, number>,
+  ) => void
+  setRecentSessionOrder: (draft: WorkspaceViewState, workspaceKey: string, order: string[]) => void
 }
 
 /**
@@ -27,10 +51,37 @@ type WorkspaceViewActions = {
  */
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   return defineStore({
-    init: (): WorkspaceViewState => ({ groupBy: 'workspace' }),
-    persist: 'dsh.workspace.view',
+    init: (): WorkspaceViewState => ({
+      groupBy: 'workspace',
+      orderBy: 'manual',
+      workspaceExpansion: {},
+      recentSessionOrder: {},
+      recentSessionUpdatedAt: {},
+    }),
+    persist: 'dsh.workspace.view.v4',
     actions: {
       setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
+      setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
+      setWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.workspaceExpansion[key] = expanded },
+      retainWorkspaceKeys: (d, workspaceKeys: readonly string[]) => {
+        const retained = new Set(workspaceKeys)
+        d.workspaceExpansion = Object.fromEntries(
+          Object.entries(d.workspaceExpansion).filter(([key]) => retained.has(key)),
+        )
+        d.recentSessionOrder = Object.fromEntries(
+          Object.entries(d.recentSessionOrder).filter(([key]) => retained.has(key)),
+        )
+        d.recentSessionUpdatedAt = Object.fromEntries(
+          Object.entries(d.recentSessionUpdatedAt).filter(([key]) => retained.has(key)),
+        )
+      },
+      syncRecentSessions: (d, workspaceKey: string, order: string[], updatedAt: Record<string, number>) => {
+        d.recentSessionOrder[workspaceKey] = order
+        d.recentSessionUpdatedAt[workspaceKey] = updatedAt
+      },
+      setRecentSessionOrder: (d, workspaceKey: string, order: string[]) => {
+        d.recentSessionOrder[workspaceKey] = order
+      },
     },
   })
 }
