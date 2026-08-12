@@ -117,6 +117,38 @@ describe('PluginConfigSection', () => {
     expect(screen.getByRole('heading', { name: en.title })).toBeTruthy()
     expect(screen.getByText(en.intro)).toBeTruthy()
   })
+
+  it('moves focus and selection with standard horizontal tab keys', () => {
+    renderSection([
+      { id: 'configurable', order: 0, label: en.configurableTab },
+      { id: 'all', order: 10, label: 'Plugin list' },
+      { id: 'diagnostics', order: 20, label: 'Diagnostics' },
+    ])
+
+    const configurable = screen.getByRole('tab', { name: en.configurableTab })
+    const all = screen.getByRole('tab', { name: 'Plugin list' })
+    const diagnostics = screen.getByRole('tab', { name: 'Diagnostics' })
+    expect(configurable.getAttribute('tabindex')).toBe('0')
+    expect(all.getAttribute('tabindex')).toBe('-1')
+
+    configurable.focus()
+    fireEvent.keyDown(configurable, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(all)
+    expect(all.getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(all, { key: 'End' })
+    expect(document.activeElement).toBe(diagnostics)
+    fireEvent.keyDown(diagnostics, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(configurable)
+    fireEvent.keyDown(configurable, { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(diagnostics)
+    fireEvent.keyDown(diagnostics, { key: 'Home' })
+    expect(document.activeElement).toBe(configurable)
+
+    fireEvent.keyDown(configurable, { key: 'Escape' })
+    expect(document.activeElement).toBe(configurable)
+    expect(configurable.getAttribute('aria-selected')).toBe('true')
+  })
 })
 
 describe('ConfigurablePluginsTab', () => {

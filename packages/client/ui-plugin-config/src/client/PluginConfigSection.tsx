@@ -1,6 +1,6 @@
 /** Plugins settings section: localized tabs around feature-owned pages. */
 
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type {
   HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -32,6 +32,7 @@ export type PluginConfigSectionProps =
 /** Render one Plugins page whose contents arrive from feature-owned tabs. */
 export function PluginConfigSection({ t, renderSlot, useTabs }: PluginConfigSectionProps) {
   const tabsId = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const rows = useTabs(value => value)
   const [activeId, setActiveId] = useState<string>()
   const [visitedIds, setVisitedIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -55,11 +56,12 @@ export function PluginConfigSection({ t, renderSlot, useTabs }: PluginConfigSect
       {rows.length === 0 ? <p className={css.empty}>{t('empty')}</p> : (
         <>
           <div className={css.tabs} role="tablist" aria-label={t('tabs')}>
-            {rows.map((row) => {
+            {rows.map((row, index) => {
               const selected = row.id === active
               return (
                 <button
                   key={row.id}
+                  ref={(element) => { tabRefs.current[index] = element }}
                   id={`${tabsId}-tab-${row.id}`}
                   type="button"
                   role="tab"
@@ -67,7 +69,23 @@ export function PluginConfigSection({ t, renderSlot, useTabs }: PluginConfigSect
                   aria-selected={selected}
                   aria-controls={`${tabsId}-panel-${row.id}`}
                   data-active={selected ? 'true' : undefined}
+                  tabIndex={selected ? 0 : -1}
                   onClick={() => { setActiveId(row.id) }}
+                  onKeyDown={(event) => {
+                    let nextIndex: number
+                    switch (event.key) {
+                      case 'ArrowRight': nextIndex = (index + 1) % rows.length; break
+                      case 'ArrowLeft': nextIndex = (index - 1 + rows.length) % rows.length; break
+                      case 'Home': nextIndex = 0; break
+                      case 'End': nextIndex = rows.length - 1; break
+                      default: return
+                    }
+                    event.preventDefault()
+                    const nextRow = rows[nextIndex] as PluginSettingsTabRow
+                    const nextTab = tabRefs.current[nextIndex] as HTMLButtonElement
+                    setActiveId(nextRow.id)
+                    nextTab.focus()
+                  }}
                 >
                   {row.label}
                 </button>
