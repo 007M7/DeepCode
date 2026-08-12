@@ -81,4 +81,4 @@ Install external plugin bundles through `dsh plugin --profile <name> add <packag
 
 ## Source execution
 
-From the repository root, use `pnpm dsh <args...>`. The `package.json` script runs the complete repository build, launches `apps/cli/src/bin.ts` with `node --import tsx/esm`, and forwards every argument. Build output appears before CLI output. The process inherits the launch environment; set `NODE_USE_ENV_PROXY=1` when a supporting Node version must honor `HTTP_PROXY` and `HTTPS_PROXY`. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.
+From the repository root, run `pnpm run build` separately when artifacts need updating, then use `pnpm dsh <args...>`. The `package.json` script launches `apps/cli/src/bin.ts` with `node --import tsx/esm` without building and forwards every argument. The process inherits the launch environment; set `NODE_USE_ENV_PROXY=1` when a supporting Node version must honor `HTTP_PROXY` and `HTTPS_PROXY`. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.

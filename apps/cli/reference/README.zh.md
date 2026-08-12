@@ -81,4 +81,4 @@ dsh web --help
 
 ## 源码执行
 
-请从仓库根目录使用 `pnpm dsh <args...>`。`package.json` 中的脚本会完成整个仓库的构建，通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。构建输出会显示在 CLI 输出之前。该进程会继承启动环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，请设置 `NODE_USE_ENV_PROXY=1`。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。
+请在仓库根目录中，于产物需要更新时单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>`。`package.json` 中的脚本不会构建，而是通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。该进程会继承启动环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，请设置 `NODE_USE_ENV_PROXY=1`。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。
