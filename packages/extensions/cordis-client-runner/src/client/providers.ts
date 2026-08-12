@@ -172,9 +172,22 @@ function readExact(input: JsonValue | undefined, field: string): string | undefi
 type LiveSlotNode = ReturnType<SlotRegistry['snapshot']>[number]
 
 const SLOT_CATALOG = new Map(CLIENT_SLOT_API.map(entry => [entry.key, entry]))
+const GUARDED_SLOT_KEYS = new Map<string, {
+  description: string
+  values: readonly { value: string; description: string }[]
+}>([
+  ['tool.view.cordis', {
+    description: 'fixed by the dynamic Client Guard',
+    values: [{
+      value: 'self',
+      description: 'The only accepted key. The Guard binds it to this Package\'s pluginId and packageId.',
+    }],
+  }],
+])
 
 function compactSlotTree(node: LiveSlotNode): JsonValue {
   const catalog = SLOT_CATALOG.get(node.name)
+  const guardedKeys = catalog === undefined ? undefined : GUARDED_SLOT_KEYS.get(catalog.key)
   return {
     name: node.name,
     kind: node.kind,
@@ -189,7 +202,10 @@ function compactSlotTree(node: LiveSlotNode): JsonValue {
           required: option.requirement === 'required',
         })),
       },
-      ...catalog.keyDomain === '' ? {} : { keyDomain: catalog.keyDomain },
+      ...catalog.keyDomain === '' ? {} : {
+        keyDomain: guardedKeys?.description ?? catalog.keyDomain,
+        ...guardedKeys === undefined ? {} : { allowedKeys: guardedKeys.values.map(value => ({ ...value })) },
+      },
     },
     children: node.children.map(compactSlotTree),
   }
@@ -208,6 +224,7 @@ function inspectLiveSlot(node: LiveSlotNode): JsonValue {
 }
 
 function inspectSlotCatalog(entry: ClientSlotEntry): JsonValue {
+  const guardedKeys = GUARDED_SLOT_KEYS.get(entry.key)
   return {
     description: entry.doc,
     registration: entry.registerOptions.map(option => ({
@@ -219,7 +236,8 @@ function inspectSlotCatalog(entry: ClientSlotEntry): JsonValue {
     ownerProps: [...entry.ownerProps],
     ownerPropsReferences: [...entry.ownerPropsReferences],
     standardProps: [...entry.standardProps],
-    keyDomain: entry.keyDomain,
+    keyDomain: guardedKeys?.description ?? entry.keyDomain,
+    ...guardedKeys === undefined ? {} : { allowedKeys: guardedKeys.values.map(value => ({ ...value })) },
     hookContext: entry.hookContext,
     slotInject: entry.slotInject,
     replaceRisk: entry.replaceRisk,

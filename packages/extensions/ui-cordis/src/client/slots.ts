@@ -22,7 +22,12 @@ export interface CordisToolViewOwnerProps {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /** Package-owned interactive UI hosted by the latest successful Run card. */
+    /**
+     * Interactive Package-owned region rendered inside the latest eligible
+     * `cordis_run` card in the conversation flow. Use it for controls and other
+     * UI the user can interact with. Dynamic Client code registers with
+     * `key: 'self'`; the Guard binds that key to the current Plugin and Package.
+     */
     'tool.view.cordis': {
       kind: 'keyed'
       scope: 'session'

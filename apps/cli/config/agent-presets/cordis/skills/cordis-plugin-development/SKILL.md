@@ -280,6 +280,8 @@ Select only the fields that the UI actually needs. Do not copy or render an enti
 
 To place interactive UI in the latest `cordis_run` card, register `tool.view.cordis` with `key: 'self'`:
 
+When the feature needs user interaction tied to this Package's result, this region is often a good fit because it keeps the controls in the conversation flow beside the Run card. It is not the default target for every Client UI: settings, sidebars, message actions, and overlays should use their own queried Slots when those locations better match the feature.
+
 ```js
 return {
   apply(ctx) {

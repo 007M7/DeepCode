@@ -1680,8 +1680,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     key: 'tool.view.cordis',
     kind: 'keyed',
     scope: 'session',
-    summary: 'Package-owned interactive UI hosted by the latest successful Run card.',
-    doc: 'Package-owned interactive UI hosted by the latest successful Run card.',
+    summary: 'Interactive Package-owned region rendered inside the latest eligible `cordis_run` card in the conversation flow.',
+    doc: 'Interactive Package-owned region rendered inside the latest eligible\n`cordis_run` card in the conversation flow. Use it for controls and other\nUI the user can interact with. Dynamic Client code registers with\n`key: \'self\'`; the Guard binds that key to the current Plugin and Package.',
     registerOptions: [
       {
         name: 'key',
@@ -1714,7 +1714,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'tool.view.cordis\', () => ctx.slots.register(\n      { name: \'tool.view.cordis\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/extensions/ui-cordis/src/client/slots.ts:26',
+    source: 'packages/extensions/ui-cordis/src/client/slots.ts:31',
   },
 ]
 /* jscpd:ignore-end */
