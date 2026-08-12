@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在不定义工具的情况下添加面向模型请求上下文的产品插件。`workspace-context` 包含在默认 `dsh-agent-spine-demo` 组合包中，可通过组合包配置禁用；`time-context`、`tmux-context` 和 `session-reference` 需主动启用。
+在不定义工具的情况下添加模型可见的请求上下文的产品插件。`workspace-context` 包含在默认 `dsh-agent-spine-demo` 组合包中，可通过组合包配置禁用；`time-context`、`tmux-context` 和 `session-reference` 需主动启用。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
@@ -11,4 +11,4 @@
 | [`tmux-context/`](tmux-context/README.md) | tmux 位置上下文 | — |
 | [`workspace-context/`](workspace-context/README.md) | 工作区指令上下文 | — |
 
-会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)拥有其按 agent（智能体）/会话隔离与生命周期拆分。
+会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)规定了其按 agent（智能体）/会话隔离与生命周期拆分。

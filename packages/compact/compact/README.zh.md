@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**`CompactService`**（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
+**`CompactService`**（`ctx.compact`）定义压缩（compaction）做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
 
 本包承担压缩能力的 Service Definition 角色，因此各角色均可独立演进，也可独立替换：
 
@@ -20,7 +20,7 @@
 
 | 成员 | 语义 |
 |---|---|
-| `compactIfNeeded(agent, trigger, signal)` | 根据 `trigger: 'pressure' \| 'context-overflow'` 判断是否需要自动压缩。压力触发可应用后端的阈值与保留尾部策略；已确认溢出可强制进行有效的平衡缩减。返回 `CompactionResult`，无安全范围时则返回 `null`。后端摘要请求是直接的 `ctx.llm.stream()` 调用（不是 agent loop 步骤），因此每次调用都可在 `llm/stream` 处拦截。 |
+| `compactIfNeeded(agent, trigger, signal)` | 根据 `trigger: 'pressure' \| 'context-overflow'` 判断是否需要自动压缩。压力触发可应用后端的阈值与保留尾部策略；已确认溢出可强制进行有效的平衡缩减。返回 `CompactionResult`，无安全范围时则返回 `null`。后端摘要请求是直接的 `ctx.llm.stream()` 调用（不是 agent loop（智能体循环）步骤），因此每次调用都可在 `llm/stream` 处拦截。 |
 | `compactNow(agent, signal)` | 即使未达到自动压力，也显式压缩一段有效、平衡的较早范围。该操作会在让出控制权前同步预留空闲轮次接纳；没有有效范围时不写入任何内容；在摘要前记录独立的 `compact/* { turn: null }` 尝试；释放预留前等待其持久性检查点。预期操作失败使用 `ManualCompactionError`；取消会原样重新抛出 abort 原因。 |
 | `compactRegion(start, end, agent, signal?)` | 强制将表层节点 `[start, end]`（包含两端 seq）从 `agent.session` 摘要为单个替换节点，其源由 `compactCheckpointSource(compactionId)` 创建。如果压缩已在进行、`start`／`end` 不是表层节点，或 `start` 在表层上位于 `end` 之后，则**抛出异常**。该范围是表层位置范围，不是数值 seq 区间：在之前的 replace 将新生成的高 seq 摘要节点放到已遮蔽范围的位置之后，表层顺序不再跟随 seq 顺序。 |
 
@@ -68,7 +68,7 @@
 
 ## 在 host 程序之外识别检查点（`./checkpoint`）
 
-`compactCheckpointSource()`、`CompactCheckpointSource` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。构造函数要求传入所属 `CompactionId`，防止后端写入缺少关联关系、必然被包不变量拒绝的标记。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../interaction/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子的源类型上，因此在此处改插件 id 会让那边编译失败。
+`compactCheckpointSource()`、`CompactCheckpointSource` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。构造函数要求传入所属 `CompactionId`，防止后端写入缺少关联关系、必然被包不变量拒绝的标记。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../interaction/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的 transcript（文本记录）适配器用仅类型导入把它的插件字面量钉在该叶子的源类型上，因此在此处改插件 id 会让那边编译失败。
 
 ## 模型体验
 

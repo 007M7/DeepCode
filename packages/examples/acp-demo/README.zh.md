@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能体）主干、客户端通过 [`@deepseek-ai/dsh-acp`](../../acp/acp/README.md) 创建的 agent、JSONL 持久化，以及由一个 JSON-RPC stdio bin 提供的语义检查点。程序化客户端创建新会话；此包不挂载人工交互 UI。
+ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能体）主干、客户端通过 [`@deepseek-ai/dsh-acp`](../../acp/acp/README.md) 创建的 agent、JSONL 持久化，以及语义检查点机制，并通过一个 JSON-RPC stdio bin 对外提供服务。程序化客户端创建新会话；此包不挂载人工交互 UI。
 
 ## 组合
 
@@ -22,7 +22,7 @@ ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能�
 |---|---|---|
 | `provider` | 必填 | 每个由 ACP 创建的 agent 所用的提供方路由。 |
 | `model` | 必填 | 每个由 ACP 创建的 agent 所用的模型。 |
-| `maxParallelToolCalls` | agent loop 默认值 | 正整数工具调用并发上限；`1` 表示串行。 |
+| `maxParallelToolCalls` | agent loop（智能体循环）默认值 | 正整数工具调用并发上限；`1` 表示串行。 |
 | `persona` | 无 | 供 `dsh-system-prompt` 使用的部署 persona 模板。 |
 | `toolOrder` | 字典序 | 供 `dsh-system-prompt` 使用的显式面向模型工具顺序。 |
 | `tools` | `{ mode: 'native' }` | Native、Code Mode 或组合式模型工具传输。 |
@@ -42,11 +42,11 @@ ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能�
 
 ## Bin
 
-`dsh-acp-demo [--config path-to-cordis.yml]`（短形式 `-c`；默认为 `./cordis.yml`）会加载 gitignore 排除的 `.env`，回放模式除外；`DSH_SNAPSHOT=replay` 选择同级 `cordis.snapshot.yml`；stdin EOF 会在退出前释放上下文并刷新会话。loader 已安装的可选对等依赖（peer dependency）`node-addon-require-builtin` 使纯 Node 下构建后的 bin 可以解析裸插件说明符。诊断使用 stderr，因为 stdout 是 ACP wire。
+`dsh-acp-demo [--config path-to-cordis.yml]`（短形式 `-c`；默认为 `./cordis.yml`）会加载 gitignore 排除的 `.env`，回放模式除外；`DSH_SNAPSHOT=replay` 选择同级 `cordis.snapshot.yml`；stdin EOF 会在退出前 dispose（资源释放）上下文并刷新会话。Loader 已安装的可选对等依赖（peer dependency）`node-addon-require-builtin` 使纯 Node 下构建后的 bin 可以解析裸插件说明符。诊断使用 stderr，因为 stdout 是 ACP wire。
 
 ## 模型体验
 
-模型通过 `dsh-agent-spine-demo` 和叶节点的面向模型插件间接获得体验。ACP 提示词文本会成为普通的已记录用户消息；协议元数据与权限选择不会进入模型请求。
+模型体验由 `dsh-agent-spine-demo` 和叶节点的面向模型插件间接提供。ACP 提示词文本会成为普通的已记录用户消息；协议元数据与权限选择不会进入模型请求。
 
 #### KV Cache 影响
 
@@ -55,5 +55,5 @@ ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能�
 ## 已知限制与暂缓事项
 
 - **JSONL 持久化固定不变**：使用其他后端需要另一种组合。
-- **同级插件可能破坏 stdout**：应用无法阻止另一个条目写入非协议字节。
+- **同级插件可能破坏 stdout**：应用无法阻止另一个 Cordis 配置项写入非协议字节。
 - **只支持新建自动化会话**：恢复和人工交互属于其他运行入口。

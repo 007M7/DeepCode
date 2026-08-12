@@ -1,4 +1,4 @@
-# RFC: GUI 分层与 RPC 协议——host/client 按能力支持方分层、四象限消息模型与 fetch 载体
+# Agent Note: GUI 分层与 RPC 协议——host/client 按能力提供方分层、四象限消息模型与 fetch 载体
 
 Status: implemented
 
@@ -14,14 +14,14 @@ Status: implemented
 
 那么当前的工程代码需要稳定的分层职责模型，便于以后接入各类 client。
 
-同时各消费端的物理通道不同（浏览器 HTTP／WebSocket、进程内 fetch/SSE、将来 IPC），还需要一个通道无关的消息模型和单一约定事实源，让「加一个方法」「换一种载体」互不牵连，且 wire 上的每条消息可类型校验、可观测、可对账。
+同时各消费方的物理通道不同（浏览器 HTTP／WebSocket、进程内 fetch/SSE、将来 IPC），还需要一个通道无关的消息模型和单一约定真源，让「加一个方法」「换一种载体」互不牵连，且 wire 上的每条消息可类型校验、可观测、可对账。
 
 ## Decision
 
 ### 分层
 
 目录按照如下分层：
-- `packages/host/*`: 包只提供 Host 侧能力（代表了以现在 Harness 实体插件系统为主体的 Node.js 代码核心工程），除此之外，还包含
+- `packages/host/*`：包只提供 Host 侧能力（代表了以现在 Harness 实体插件系统为主体的 Node.js 代码核心工程），除此之外，还包含
     - 统一后端协议（fetch、HTTP、流式接口等）定义和支持，见本篇「消息协议」起各节
 - `packages/client/*`：包只提供 Client 侧能力，每包单边不混。这里住三类包（两条轴归 [client 插件装载笔记](2026-07-23-client-plugin-loading-model.md) 所有）：
     - **纯库**（`ui-slots`、`web-react`、`ui-primitives`，外加内核包 `loader`）：普通根入口包，静态打包进壳；前三者播种进模块表。
@@ -60,11 +60,11 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 
 | 层 | 包 | 职责 | 关键纪律 |
 |---|---|---|---|
-| 前置层 | `dsh-host-apiproxy` | TS/zod 定义 (api/)+ fetch 抽象 (fetch/：handler + 客户端基类) | 做简单、所有接入方都要；Node/浏览器皆可 import；协议内容见下文「消息协议」起各节；client 不得经 ctx 绕开 api |
+| 前置层 | `dsh-host-apiproxy` | TS/zod 定义 (api/)+ fetch 抽象 (fetch/：handler + 客户端基类) | 做简单、每个消费方都要；Node/浏览器皆可 import；协议内容见下文「消息协议」起各节；client 不得经 ctx 绕开 api |
 | 装配层 | `dsh-host-runtime` | 插件组合 + ApiProxy 集成 + web UI 插件挂载（覆盖八个 dsh.client 包的内存 Loader 树）；host 级配置归属地（defaults/persistenceRoot，将来用户 profile） | 装什么插件、给什么默认值只在这里定；壳不得改装配 |
 | 承载层 | `dsh-host-webserver` | Web HTTP 与 upgrade：静态服务 + `/api/*`→handler 转发 + WebSocket upgrade route + close 语义；插件 bundle 端点 + `__DSH_BOOT__` manifest（元数据清单）注入（由 web 插件注册表供给） | Web（浏览器访问）专用；零 workspace 依赖（注册表经结构注入到达）；Electron 不复用它 |
 | client 库 | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | slot 注册表核心 / ctx↔React 胶合 / 纯 React 原子组件 | 组件零 cordis 运行时依赖；由壳播种进 loader 模块表 |
-| client 插件 | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | 浏览器侧 cordis 插件树（wire 消费者、核心服务、主题、i18n、布局、侧栏、对话、轨迹）——见 Web 客户端架构笔记 | 双入口（node 半边=空 apply；实现在 `src/client/`）；消费面唯一经 ApiProxy |
+| client 插件 | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | 浏览器侧 cordis 插件树（wire 消费方、核心服务、主题、i18n、布局、侧栏、对话、轨迹）——见 Web 客户端架构笔记 | 双入口（node 半边=空 apply；实现在 `src/client/`）；消费面唯一经 ApiProxy |
 | 应用 | `@deepseek-ai/dsh`（apps/cli）+ `dsh-frontend`（apps/web，vite 应用） | bin 粗分发 + 每个应用一个拼装模块（web.ts / headless.ts）；vite 应用是 `dsh-client-web` 壳表面之上的薄 main | 各应用使用动态 import，因此不会互相加载；dist 定位等 workspace 知识留在 app |
 
 #### 命名规则
@@ -105,7 +105,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 **rpcId 纪律**（`RpcId` 是 branded string，构造函数 `RpcId()`）：
 
 - 谁发起谁 mint；应答一律回填对应 request 的 rpcId，**绝不 mint 新 id**。
-- server-request 分两类，静态按 `method`（=帧 type）区分，**不设第三种 kind**：可应答帧（`approval/requested`、`question/requested`）的 rpcId 是稳定逻辑请求 id（受理时 mint 一次、基线重放原样复用、client 以它回填应答）；纯推送帧（`session/event` 等）的 rpcId 标识该次推送（每次新 mint）。
+- server-request 分两类，静态按 `method`（=帧 type）区分，**不设第三种 kind**：可应答帧（`approval/requested`、`question/requested`）的 rpcId 是稳定逻辑请求 id（受理时 mint 一次、基线回放原样复用、client 以它回填应答）；纯推送帧（`session/event` 等）的 rpcId 标识该次推送（每次新 mint）。
 - 业务代码不 mint：unary 的 mint 收口在客户端基类 `callUnary`，帧的 mint 收口在 host 侧。
 
 ### 签名窄形与载体补全
@@ -116,7 +116,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 
 `ClientResponse` 的 HTTP 应答体是 `RpcReceipt = { accepted: true } | { accepted: false; reason: 'not-pending' | 'bad-response' }`——载体层回执，**不是** RpcMessage（response 不再有 response）；迟到/重复应答收 `not-pending`，逻辑收敛点是 `*/resolved` 帧。
 
-## 类型体系：函数签名即事实源
+## 类型体系：函数签名即真源
 
 ### RpcMethodMap 与派生泛型（`api/rpc-map.ts`）
 
@@ -163,7 +163,7 @@ export type ResponseValue<K> =
 |---|---|---|---|
 | `session.list` | `{ cursor?: string }`（cursor 留座不实现） | `{ items: SessionSummary[] }` | 已持久化 session，updatedAt 倒序；v1 不建索引 |
 
-其余方法（`session.create`/`session.history`/`session.rename`/`session.prompt`/`session.cancel`/`host.describe`）的参数与返回不在此复写——签名即事实源，见 `api/sessions.ts`、`api/host.ts` 与 `RpcMethodMap`。
+其余方法（`session.create`/`session.history`/`session.rename`/`session.prompt`/`session.cancel`/`host.describe`）的参数与返回不在此复写——签名即真源，见 `api/sessions.ts`、`api/host.ts` 与 `RpcMethodMap`。
 
 ### 帧（server→client，具名 union）
 
@@ -179,11 +179,11 @@ export type ResponseValue<K> =
 
 ### 会话语义（impl 侧承诺）
 
-- **历史 = 事件重放**：一套 fold（client 侧），历史分页与 live 增量同一条代码路径；server 不做物化快照第二套。history **页边界对齐消息边界**（绝不从消息中间截断；chunk 随定稿消息归组），尾页含进行中 partial 的 chunk。
-- **prompt 关联**：prompt 的 rpcId 经 MessageSource（`'user-rpc'`）透传进 `user/message` 事件，client 以此把乐观回显转正。
+- **历史 = 事件回放**：一套 fold（client 侧），历史分页与 live 增量同一条代码路径；server 不做物化快照第二套。history **页边界对齐消息边界**（绝不从消息中间截断；分片随定稿消息归组），尾页含进行中 partial 的分片。
+- **提示词关联**：提示词的 rpcId 经 MessageSource（`'user-rpc'`）透传进 `user/message` 事件，client 以此把乐观回显转正。
 - **重连 = 重建**：不做续传 cursor（`mux` 的 `since` 签名留座、传了忽略）；断线重开流 + 重拉 history；`subscribed.lastSeq` 与 history 尾 seq 比对，有缝再补拉一次。
 - **冷会话处理遵循所有权**：`session.history` 与 `session.fork` 的源端读取会在不获取 Agent 的情况下检查持久化存储，而绑定到 Agent 的普通会话方法（如 `prompt`）则通过在途表去重后恢复会话。由会话支撑的 subagent 会拒绝这条通用恢复路径，且附加状态不对客户端暴露（`running` 已经覆盖）。
-- **审批/问答**：requested 帧受理时 mint 稳定 rpcId；先到先赢，host 内存 pending 表（keyed by rpcId）是唯一裁判；mux 重开后在 subscribed 帧后重放仍 pending 的 requested 帧（rpcId 原样复用，刷新恢复）。审计事件 `approval/asked`/`decided` 照旧走 durable 日志——帧=live 控制面，事件=durable 审计。**现状**：约定与帧类型已 shipped，host 侧 pending 表/wire answerer 未实现（`api-proxy.ts` 的 `respond` 是 stub，恒回 `not-pending`）；PendingCard v1 只展示。
+- **审批/问答**：requested 帧受理时 mint 稳定 rpcId；先到先赢，host 内存 pending 表（keyed by rpcId）是唯一裁判；mux 重开后在 subscribed 帧后回放仍 pending 的 requested 帧（rpcId 原样复用，刷新恢复）。审计事件 `approval/asked`/`decided` 照旧走 durable 日志——帧=live 控制面，事件=durable 审计。**现状**：约定与帧类型已 shipped，host 侧 pending 表/wire answerer 未实现（`api-proxy.ts` 的 `respond` 是 stub，恒回 `not-pending`）；PendingCard v1 只展示。
 - **不设协议版本**：client 与 host 绑定发布，`host.describe` 无 protocolVersion 字段；出现独立发布的 client 时再引入。
 - **预留方法纪律**：map 只含已实现方法，未知 method 在信封 parse 即 fail loud（`bad-request`），不设 not-implemented 兜底码。预留清单（实现时把签名抄进域接口+map 加行+schema 加对即升格）：`session.fork`、`prompt.mode` 加 `'inject'`、`task.list`、`host.listModels`、describe 加 `hostInstanceId`。（`session.rename` 已从本清单毕业：追加 user 来源的 `session/title` 事件。）
 
@@ -207,7 +207,7 @@ export type ResponseValue<K> =
 
 ### 实例级 envelope 观测切面
 
-四象限全形均过 `onEnvelope`；基类实现是**实例持有的微任务合批缓冲**（帧风暴不逐帧惊扰消费者；模块级状态会跨实例/测试泄漏，故实例持有）。观测者经 `subscribeEnvelopes(listener)` 订阅（收整批 `readonly RpcMessage[]`，返回退订函数）；listener 抛异常被隔离（观测不得反噬载体）。无订阅者时零缓冲成本。当前没有任何现役消费者订阅——该切面是 wire 诊断的预留位（已退役的 RPC 调试面板是它的首个消费者，将来的诊断消费者接入时不动载体）。
+四象限全形均过 `onEnvelope`；基类实现是**实例持有的微任务合批缓冲**（帧风暴不逐帧惊扰消费方；模块级状态会跨实例/测试泄漏，故实例持有）。观测者经 `subscribeEnvelopes(listener)` 订阅（收整批 `readonly RpcMessage[]`，返回退订函数）；listener 抛异常被隔离（观测不得反噬载体）。无订阅者时零缓冲成本。当前没有任何现役消费方订阅——该切面是 wire 诊断的预留位（已退役的 RPC 调试面板是它的首个消费方，将来的诊断消费方接入时不动载体）。
 
 ### 子类表（传输承载）
 
@@ -220,34 +220,34 @@ export type ResponseValue<K> =
 
 ## 怎么扩展（操作清单）
 
-**加一个 unary 方法（5 步）**：①域接口加方法签名（参数/返回内联，这是唯一事实源）；②`RpcMethodMap` 加一行；③`<域>.schema.ts` 加 request/value schema 对（锚 `Wire<RequestPayload<'…'>>`）；④handler `UNARY_ROUTES` 加一行（handler 的 Web 承载见 Web 客户端架构笔记）；⑤impl 实现（回显 `request.rpcId`）。client 侧 `IApiClient`/`AbstractApiClient` 的域方法表同步加一行透传。
+**加一个 unary 方法（5 步）**：①域接口加方法签名（参数/返回内联，这是唯一真源）；②`RpcMethodMap` 加一行；③`<域>.schema.ts` 加 request/value schema 对（锚 `Wire<RequestPayload<'…'>>`）；④handler `UNARY_ROUTES` 加一行（handler 的 Web 承载见 Web 客户端架构笔记）；⑤impl 实现（回显 `request.rpcId`）。client 侧 `IApiClient`/`AbstractApiClient` 的域方法表同步加一行透传。
 
-**加一个帧型（3 步）**：①`MuxFrame`/`HostFrame` union 加一支（可应答帧须注明 rpcId 稳定语义）；②帧 schema 加一支；③消费端 fold/路由的 documented-default 已兜底未知型，按需加显式分支。
+**加一个帧型（3 步）**：①`MuxFrame`/`HostFrame` union 加一支（可应答帧须注明 rpcId 稳定语义）；②帧 schema 加一支；③消费方的 fold/路由 documented-default 已兜底未知型，按需加显式分支。
 
 **加一个错误码（2 步）**：①`RpcErrorDetailsMap` 加一行（details 必填）；②`rpcErrorSchema` discriminatedUnion 加一支。
 
-**接一种新载体**：继承 `AbstractApiClient` 只实现 `doFetch`；需要拦截协议层（如 fixture）再覆写 `callUnary`/`openMux`/`openHost` 虚方法。约定与基类零改。
+**接一种新载体**：继承 `AbstractApiClient` 只实现 `doFetch`；需要拦截协议层（如 fixture（测试前置数据））再覆写 `callUnary`/`openMux`/`openHost` 虚方法。约定与基类零改。
 
 **升格一个预留方法**：把预留签名抄进域接口 → map 加行 → schema 加对 → UNARY_ROUTES 加行 → impl 实现。
 
 ## Consequences
 
-所有 client 使用同一约定：加一个 unary 方法是从单一签名出发的五步机械改动，换载体只动一个 `doFetch` 子类，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。普通 unary 调用仍受时限约束，而 `host.pickDirectory` 与 `command.execute` 可保持挂起，直到操作完成或调用方／连接取消到来；若由用户掌控节奏的操作不自行结束，请求可能一直挂起，这是为避免把合理的操作时长视为传输失败而接受的代价。其余接受的代价：两组包需要显式 tsconfig paths 条目；预留方法（fork/inject/task.list/listModels/hostInstanceId）在真实消费者出现前保持休眠。
+所有 client 使用同一约定：加一个 unary 方法是从单一签名出发的五步机械改动，换载体只动一个 `doFetch` 子类，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。普通 unary 调用仍受时限约束，而 `host.pickDirectory` 与 `command.execute` 可保持挂起，直到操作完成或调用方／连接取消到来；若由用户掌控节奏的操作不自行结束，请求可能一直挂起，这是为避免把合理的操作时长视为传输失败而接受的代价。其余接受的代价：两组包需要显式 tsconfig paths 条目；预留方法（fork/inject/task.list/listModels/hostInstanceId）在真实消费方出现前保持休眠。
 
 ## Alternatives considered
 
 | 放弃项 | 一句话理由 |
 |---|---|
-| 按产品分包（web 一族、electron 一族） | 产品共享的是 host/client 两侧能力，而不是某个应用实现；能力支持方分层让新应用零新包 |
-| 混合体建包（如 headless 独立包） | 混合体只有一个消费者（它自己的 app），建包是无主抽象；拼装写在 app 里可读可弃 |
+| 按产品分包（web 一族、electron 一族） | 产品共享的是 host/client 两侧能力，而不是某个应用实现；能力提供方分层让新应用零新包 |
+| 混合体建包（如 headless 独立包） | 混合体只有一个消费方（它自己的 app），建包是无主抽象；拼装写在 app 里可读可弃 |
 | 消费型 client 直连 ctx（省 apiproxy 一层） | client 需要 wire 校验、观测与多 client 一致性。直接 headless 是没有 client 边界的本地入口，使用公开的 Agent／Session seam，而不是 client 命令面 |
 | webserver 依赖 runtime（省 handler 注入） | 结构 typing 注入让 webserver 可被 sidecar/测试复用且零 workspace 依赖；包依赖会把装配知识拖进承载层 |
 | 包名不带组前缀（沿用 dsh-<尾段>） | `dsh-runtime`/`dsh-web-ui` 在扁平 npm 命名空间里失去归属信息；代价只是每包一条显式 paths |
 | 复用仓内 JSON-RPC 2.0（dsh-jsonrpc） | 数字错误码退化成单码兜底、约定双份人肉对齐、命名无 convention 自然漂移 |
 | 三信封模型（Request/Response/Frame 各一信封，签名不感知方向） | rpcId 是逻辑层关联，帧与应答的方向语义靠通道推断在换载体时即失效 |
-| 具名 Request/Response 类型对为事实源（map 登记类型对） | 平铺具名类型是同一事实的第二个名字；签名 infer 反推让加方法只改一处 |
-| REST 风格路径 | 消费者是自家 client，无第三方 REST 体验诉求；RPC 直映方法表更机械 |
+| 具名 Request/Response 类型对为真源（map 登记类型对） | 平铺具名类型是同一事实的第二个名字；签名 infer 反推让加方法只改一处 |
+| REST 风格路径 | 消费方是自家 client，无第三方 REST 体验诉求；RPC 直映方法表更机械 |
 | DTO 层（wire 专用第二套结构） | core 类型 type-only 直达浏览器零成本；DTO 是永久的双向同步税 |
-| cursor 续传（mux since 实装） | 重连=重建（opencode 同款）覆盖 v1 全部需求；签名留座，实装等真实消费者 |
+| cursor 续传（mux since 实装） | 重连=重建（opencode 同款）覆盖 v1 全部需求；签名留座，实装等真实消费方 |
 | createApiClient 工厂函数（原实现） | 平台差异（传输/观测）是继承切面不是参数；类体系让 fixture 在协议层替换而不是包一层假信封 |
 | 对 `command.execute` 应用 30 秒传输时限 | 命令耗时属于操作本身，而非传输健康预算；该时限会终止本应继续运行的长时处理器，调用方／连接取消已提供所需的停止路径 |

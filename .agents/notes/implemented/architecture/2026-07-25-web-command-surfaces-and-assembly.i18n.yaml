@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.md
 2026-07-25-web-command-surfaces-and-assembly.md: 949cdecc8ec13895f6ae323a5dd792499c633d02
-2026-07-25-web-command-surfaces-and-assembly.zh.md: 19c4f93b28cf32009b97fedebe55a861db187bd8
+2026-07-25-web-command-surfaces-and-assembly.zh.md: c584643c627f188bc7a75ee2991511e62340f1c3

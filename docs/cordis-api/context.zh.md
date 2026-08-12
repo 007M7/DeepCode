@@ -230,7 +230,7 @@ static is(value: any): value is Context
 
 - `value`：要测试的值。
 
-如果返回 `true`，则 `value` 是 Cordis 上下文，并会收窄其类型。
+**返回** `true` 时，`value` 是 Cordis 上下文，并会收窄其类型。
 
 [源码](../../vendor/cordis/src/context.ts#L61)
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-工具注册表与执行流水线。工具插件注册各自的 schema 和执行器；agent loop（智能体循环）依次让每次调用经过 `tools/pre-execute`（可扩展的允许／拒绝门禁）→ 已注册的单调守卫 → `tools/execute`（供超时／重试／指标插件使用的环绕分发包装层）→ `tools/post-execute`（检查／替换结果、附加上下文）→ 由定义拥有的 `finalizeContent` 边界 → 仅观测的 `tools/result` 通知。注册表还负责决定如何向模型呈现其工具：`mode` 配置可以选择原生 Function Calling（函数调用）、[Code Mode](#code-mode)，或同时选择两者；单个 agent 可用 `presentAs` 为自己遮蔽该默认值。
+工具注册表与执行流水线。工具插件注册各自的 schema 和执行器；agent loop（智能体循环）依次让每次调用经过 `tools/pre-execute`（可扩展的允许／拒绝门禁）→ 已注册的单调守卫 → `tools/execute`（供超时／重试／指标插件使用的环绕分发包装层）→ `tools/post-execute`（检查／替换结果、附加上下文）→ 定义自身的 `finalizeContent` 终结步骤 → 仅观测的 `tools/result` 通知。注册表还负责决定如何向模型呈现其工具：`mode` 配置可以选择原生 Function Calling（函数调用）、[Code Mode](#code-mode)，或同时选择两者；单个 agent 可用 `presentAs` 为自己遮蔽该默认值。
 
 ## 服务：`ToolRegistry`（ctx 键：`tools`）
 
@@ -17,8 +17,8 @@ tools:
 
 ### 公开 API
 
-- `ctx.tools.register(definition: ToolDefinition): () => void`：注册一个受信任、带类型的同进程定义，其中必须包含规范的 `output` 声明。所在层由调用上下文的作用域决定：普通插件上下文会全局注册；agent 的 `agent.ctx` 只为该 agent 注册，并在此处遮蔽同名全局工具。同一层内名称重复会抛出；非原生模式还会拒绝保留的 `run_code` 传输名称。缺失或不受支持的输出声明，以及非正数或非有限的 `timeoutMs`，都会使注册失败。可选的同步 `finalizeContent` 回调会在调用开始时创建快照；在所有流水线结果规范化之后，它只能替换最终面向模型的内容，包括实体化其他结果字段时发现的错误。随调用 fiber dispose（资源释放）。
-- `ctx.tools.presentAs(mode: ToolPresentationMode): () => void`：为本 agent 选择面向模型的呈现方式，仅对该 agent 遮蔽 `mode` 配置；从普通上下文调用会抛出（进程级呈现方式是那个配置字段），同一 scope 内第二次声明也会抛出。code 类模式还会为该 agent 注册它自己的 `tools:sdk` 段。清单本身不变——`schemas(agent)` 报告的仍是该 agent 的能力，坍缩的只是 assembly 里的工具。随调用方 fiber 一同释放。
+- `ctx.tools.register(definition: ToolDefinition): () => void`：注册一个受信任、带类型的同进程定义，其中必须包含规范的 `output` 声明。所在层由调用上下文的作用域决定：普通插件上下文会全局注册；agent 的 `agent.ctx` 只为该 agent 注册，并在此处遮蔽同名全局工具。同一层内名称重复会抛出；非原生模式还会拒绝保留的 `run_code` 传输名称。缺失或不受支持的输出声明，以及非正数或非有限的 `timeoutMs`，都会使注册失败。可选的同步 `finalizeContent` 回调会在调用开始时创建快照；在所有流水线结果（包括实体化其他结果字段时发现的错误）规范化之后，它只能替换最终面向模型的内容。随调用 fiber dispose（资源释放）。
+- `ctx.tools.presentAs(mode: ToolPresentationMode): () => void`：为本 agent 选择面向模型的呈现方式，仅对该 agent 遮蔽 `mode` 配置；从普通上下文调用会抛出（进程级呈现方式是那个配置字段），同一 scope 内第二次声明也会抛出。code 类模式还会为该 agent 注册它自己的 `tools:sdk` 段。清单本身不变——`schemas(agent)` 报告的仍是该 agent 的能力，仅组装结果中的工具会被折叠。随调用方 fiber dispose。
 - `ctx.tools.restrict(filter)`：对全局工具应用 agent 作用域的允许／拒绝掩码；从普通上下文调用会抛出。筛选器在注册时创建快照；多个掩码取交集，随后再合并作用域本地工具。拒绝掩码会接纳后来出现且未点名的全局工具，而允许掩码会排除后来出现的名称。未知、本地或保留名称以及空筛选器都会被拒绝。这是实时可见性组合，不是权限边界；参见[作用域安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 - `ctx.tools.get(name: string, scope?: ScopeKey): ToolDefinition | undefined`：按某个作用域所见的结果解析（应用遮蔽；被限制掉的全局工具视为不存在）。呈现器会传入发起调用的 agent，使卡片与实际执行内容一致。
 - `ctx.tools.schemas(scope?: ScopeKey): ToolSchema[]`：返回该作用域可见的所有 schema（不含 `execute` 函数）。已交付工具的 schema 收录在 [docs/tool-catalog.md](../../../docs/tool-catalog.md) 中；该目录通过启动每个工具插件并采集此方法的结果生成（参见[工具 schema 目录 Agent Note](../../../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md)）。
@@ -32,7 +32,7 @@ tools:
 
 ### 取消
 
-取消采用协作方式，并等待完全停稳。每次类型化调用都提供由调用方拥有的 `AbortSignal`；工具主体通过必填的只读 `exec.signal` 接收它，只有 `tools/execute` 包装层可以临时替换这个必填信号。注册表会在替换期间保留调用方取消，并且绝不会在已启动的同进程 Promise 尚未结算时提前返回。调用主体前发生的取消为 `ABORTED_BEFORE_DISPATCH`；调用后的取消只能把成功结果替换为 `ABORTED`。拒绝、包装层失败、工具失败、后置策略失败或由超时机制产生的 `TOOL_TIMEOUT` 仍保留更具体的结果。入口处已中止的调用会实体化并冻结参数，随后跳过所有策略和分发阶段，只发布一个结果。每个异步工具都必须观测或转发该信号，并且只能在自身拥有的工作停止后结算。[工具取消 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md) 规定完整约定和强制终止边界。
+取消采用协作方式，并等待完全停稳。每次类型化调用都提供由调用方拥有的 `AbortSignal`；工具主体通过必填的只读 `exec.signal` 接收它，只有 `tools/execute` 包装层可以临时替换这个必填信号。注册表会在替换期间保留调用方取消，并且绝不会在已启动的同进程 Promise 尚未结算时提前返回。工具主体调用前发生的取消为 `ABORTED_BEFORE_DISPATCH`；调用主体后的取消只能把成功结果替换为 `ABORTED`。拒绝、包装层失败、工具失败、后置策略失败或由超时机制产生的 `TOOL_TIMEOUT` 仍保留更具体的结果。入口处已中止的调用会实体化并冻结参数，随后跳过所有策略和分发阶段，只发布一个结果。每个异步工具都必须观测或转发该信号，并且只能在自身拥有的工作停止后结算。[工具取消 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md) 规定完整约定和强制终止边界。
 
 ### 实时事件
 
@@ -44,8 +44,8 @@ tools:
 - `ToolExecutionInput`：调用方提供的调用描述：`{ callId, name, arguments, signal, agent?, parent? }`；`signal` 必填且只读，调用方可以将外层执行的不透明 token 作为 `parent` 传入，但绝不能选择新执行自身的 token。
 - `ToolExecutionToken`：注册表分配的全新带品牌 `Symbol`。它只支持通过相等性进行关联，绝不会跨越模型、日志或 worker 边界。
 - `ToolExecution`：只读流水线视图：不可变的 `{ token, callId, name, arguments, signal, agent?, parent? }`；注册表会另行保留并重新融合调用方的原始信号。`ToolDispatchExecution` 是仅供 `tools/execute` 使用的视图，其必填信号可变，因此包装层可以替换并还原它，但不能删除它。嵌套调用的 `parent` 是 `ToolExecutionToken`，而不是执行对象。
-- `ToolRunContext`：传给工具主体的执行上下文，在 `ToolExecution` 基础上增加 `deferContext(context)`。它把一条上下文推迟到该工具的最终结果抵达循环时——通常是组合工具转运的嵌套分发上下文，也可以是叶子工具铸造的全新插件来源指令（如 `tool-goal` 的收尾注入）——即使工具后来抛出或取消胜出也不例外；该方法绝不会立即注入上下文。
-- `ToolExecutionResult`：可辨识的执行局部结果。成功形态为 `{ isError:false, value:JsonValue, content, meta?, additionalContexts? }`；失败形态为 `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts? }`，且不含值。调用身份保留在不可变的 `ToolExecution` 上。注册表会在呈现前快照、验证并冻结规范值，随后在最终观测前实体化持久呈现字段。`ToolFailure.info` 携带内部的 `{ name, code }`，用于表示 `HarnessError`；`additionalContexts` 会保留每个通过延迟或 post-execute 加入且带标识的 `UserMessage`，供循环在结果后按 FIFO 顺序处理。
+- `ToolRunContext`：传给工具主体的执行上下文，在 `ToolExecution` 基础上增加 `deferContext(context)`。它把一条上下文推迟到该工具的最终结果抵达循环时——通常是组合工具转运的嵌套分发上下文，也可以是叶子工具创建的全新插件来源指令（如 `tool-goal` 的收尾注入）——即使工具后来抛出或取消胜出也不例外；该方法绝不会立即注入上下文。
+- `ToolExecutionResult`：带判别标记的执行局部结果。成功形态为 `{ isError:false, value:JsonValue, content, meta?, additionalContexts? }`；失败形态为 `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts? }`，且不含值。调用身份保留在不可变的 `ToolExecution` 上。注册表会在呈现前快照、验证并冻结规范值，随后在最终观测前实体化持久呈现字段。`ToolFailure.info` 携带内部的 `{ name, code }`，用于表示 `HarnessError`；`additionalContexts` 会保留每个通过延迟或 post-execute 加入且带标识的 `UserMessage`，供循环在结果后按 FIFO 顺序处理。
 - `PreToolDecision`：`{kind:'allow'}` | `{kind:'deny', reason}` | `{kind:'ask', reason?}`。该类型有意不提供输入改写；`ask` 在挂载 [`ctx.approval`](../../interaction/user-approval/README.md) 时由它处理，否则退化为拒绝。
 - `PostToolDecision`：接受决定可以替换 `content` 或 `value`（不能同时替换），并可附加 `additionalContexts`；阻止决定会把反馈变成无值失败。替换内容会保留规范值和元数据。替换值会重新验证，并重新呈现内容／元数据。接受决定会先保留工具延迟的上下文，再附加决定上下文；阻止决定会丢弃工具延迟的上下文，只公开阻止决定显式提供的上下文。
 - `ToolGuard`：`(execution) => string | undefined`；返回的字符串是最终单调拒绝理由，在可重排的前置执行 waterfall 之后、分发之前求值。
@@ -90,7 +90,7 @@ ctx.tools.register(defineTool({
 }))
 ```
 
-统一 schema DSL 使用 `ParameterSchemaSpec` 表示隐式开放参数对象，使用 `ValueSchemaSpec` 表示任意 JSON 值根。它支持 `string`、`number`、`integer`、`boolean`、`null`、`array`、`object`、仅供作者使用的 `json`，以及恰好匹配一个分支的 `oneOf`；标量 `enum`/`const` 值会接受类型正确性检查。每个显式 DSL 对象都声明 `additionalProperties: true | false`，而隐式参数根和原始 JSON Schema 保持标准的开放默认值。schema 记录只接受自身可枚举字符串键，schema 数组必须是稠密普通数组。编译、验证、从注册表分离以及 schema 到 TypeScript 的呈现均使用显式工作栈，因此，对有效深层 schema 的运行时处理受内存而非调用栈限制；`InferValue` 在 16 层容器内保留精确类型，之后回退到 `JsonValue`，使 TypeScript 自身也保持栈安全。
+统一 schema DSL 使用 `ParameterSchemaSpec` 表示隐式开放参数对象，使用 `ValueSchemaSpec` 表示任意 JSON 值根。它支持 `string`、`number`、`integer`、`boolean`、`null`、`array`、`object`、仅供作者使用的 `json`，以及恰好匹配一个分支的 `oneOf`；标量 `enum`/`const` 值必须符合其声明类型。每个显式 DSL 对象都声明 `additionalProperties: true | false`，而隐式参数根和原始 JSON Schema 保持标准的开放默认值。schema 记录只接受自身可枚举字符串键，schema 数组必须是稠密普通数组。编译、验证、从注册表分离以及 schema 到 TypeScript 的呈现均使用显式工作栈，因此，对有效深层 schema 的运行时处理受内存而非调用栈限制；`InferValue` 在 16 层容器内保留精确类型，之后回退到 `JsonValue`，使 TypeScript 自身也保持栈安全。
 
 `defineTool` 定义会在执行前验证模型参数，并把缺失必填值、基本类型错误、无效枚举成员和嵌套违规转换为 `ToolArgsError`（`INVALID_ARGS`），进入普通错误结果路径。它还会根据 `output.schema` 推断主体返回类型和纯输出投影器；注册表在呈现前快照并验证返回的无损 JSON。隐式参数根是开放的；显式对象只有在设置 `additionalProperties: true` 时才接受额外键，而没有声明属性的封闭对象只接受 `{}`。原始 JSON Schema 对象保持开放，除非显式设置 `additionalProperties: false`。系统不会应用默认值；没有 `properties` 的开放对象和没有 `items` 的数组只接受容器类型检查。通过原始方式注册的工具负责输入验证，但仍需声明输出，并由注册表强制校验输出。
 
@@ -193,6 +193,6 @@ The available tools:
 - **`tools/pre-execute` 有意不允许改写 `exec.arguments`**：否则日志记录和呈现的参数会与实际运行内容失去同步；改写设计记录在[拟议的 Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)中。
 - **调用方定义的 subagent 与工作流结构化输出仍要求对象根**：这是消费方层面的守卫；共享 schema 词汇和工具输出支持任意 JSON 根。
 - **定义上的 `timeoutMs` 仅为声明**：注册表绝不会强制执行截止时间；要强制执行，必须使用 `@deepseek-ai/dsh-timeout-policy` 包装层。
-- **Code Mode 的 SDK 语言跟随已加载的那个运行时，且呈现方式按 agent 而非按工具**：`mode: code`/`both` 会拒绝组装提示词，除非 `ctx.codeRuntime.language` 有已注册的 SDK renderer（TypeScript 或 Python）；作用域限制／遮蔽与 `presentAs` 会选择每个 agent 的可见绑定及其形态，但在同一个 agent 内不能让一个工具仅使用 Native，而另一个仅使用 Code。
+- **Code Mode 的 SDK 语言跟随已加载的那个运行时，且呈现方式按 agent 而非按工具**：`mode: code`/`both` 会拒绝组装提示词，除非 `ctx.codeRuntime.language` 有已注册的 SDK 渲染器（TypeScript 或 Python）；作用域限制／遮蔽与 `presentAs` 会选择每个 agent 的可见绑定及其形态，但在同一个 agent 内不能让一个工具仅使用 Native，而另一个仅使用 Code。
 - **Code Mode 中间值只存在于执行局部，且没有字节上限**：这些规范的类型化值无法从会话回放重建，并可能耗尽进程或 worker 内存；只有外层 `run_code` 输出受 worker 可配置的硬上限约束。每个子调用的持久日志副本则确实有上限：`tools/code-dispatch-log` waterfall 允许 spill 策略把过大的 `tool/code-dispatch` 内容替换为预览加定位符（[原理](../../../.agents/notes/implemented/feature/2026-07-26-code-dispatch-log-spill.md)）。
 - **每次运行都会获得全新的 `run_code` 状态**：MVP 不采用持久 REPL 风格内核（跨调用状态不会出现在日志中）；参见 [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md)。

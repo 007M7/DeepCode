@@ -32,7 +32,7 @@ Status: implemented
 | 所有者 | 运行时关系 |
 |---|---|
 | `dsh-session` | 序号严格递增、轮次/步骤包围关系，以及同一步骤内的工具调用/工具结果配对。 |
-| `dsh-agent` | agent 状态不得重复，并且不能离开终态 disposed。 |
+| `dsh-agent` | agent（智能体）状态不得重复，并且不能离开终态 disposed。 |
 | `dsh-scope` | 作用域事件必须携带 carrier，且路由 subject 保持一致。 |
 | `dsh-agent-loop` | 从会话事件日志重建带显式标记的冻结 loop 请求。 |
 | `dsh-llm` | 流中块的文法、delta 类型/索引匹配、单次 usage、块闭合和终止 finish。 |

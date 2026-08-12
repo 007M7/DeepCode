@@ -28,7 +28,7 @@ assistant 生成的链接目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。
 
 **将现有的 mdast 与 micromark 开发依赖提升为正式依赖，并维护自定义 React walker。**此方案避免引入新的解析器体系，但产品需要自行负责每种节点映射、GFM 扩展和安全敏感的渲染分支。专用 React 渲染器将这套遍历交由上游维护，同时保留 AST 到 React 的处理路径。*后因新证据被推翻——增量流式解析需要纯字符串封装无法提供的 AST 级输入；该决策由[增量 AST 渲染器 Note](../architecture/2026-08-06-web-markdown-incremental-ast-renderer.md) 拥有。*
 
-**将 `MessageText` 替换为 Markdown 渲染。**这会产生格式化用户提示词与 steering 的副作用。在产品明确选择此行为之前，这两类输入内容仍按字面渲染。
+**将 `MessageText` 替换为 Markdown 渲染。**这会产生格式化用户提示词与 steering 的副作用。在产品明确选择此行为之前，这些输入仍按字面渲染。
 
 **将 Markdown 解析为会话快照。**这会让 React 节点或呈现层 AST 成为持久的运行时状态，并重新引入最终输出与流式输出之间的模式边界。解析仍留在呈现层的叶节点中。
 

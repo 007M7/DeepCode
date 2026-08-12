@@ -22,7 +22,7 @@
 | `run(spec)` | 前台执行。命令完成时 resolve。**只会因基础设施失败而 reject**（工作目录不可用、shell 缺失、信号已在调用前中止）；非零退出、超时终止和中止导致的终止都会 resolve 为描述性 `BashRunResult`。 |
 | `start(spec)` | 后台执行。立即返回不含任务语义的 `BashProcess` 句柄；**不应用超时**。调用方可以将其适配到 `ctx.tasks`。 |
 | `sandboxMode` | 工具层的能力事实：沙箱执行器用于限制执行的默认模式（基类中为 `undefined`，即「此执行器不使用沙箱」）。`dsh-tool-bash` 会在注册时读取它，仅当组合确实支持升权字段时才公布这些字段。 |
-| `BashProcess.readOutput()` | **增量** 读取输出：连续读取绝不会重复交付。因缓冲区边界丢失数据的读取会标记 `lossy`，并指向完整流 spill 文件。 |
+| `BashProcess.readOutput()` | **增量** 读取输出：连续读取绝不会重复交付。因缓冲区容量限制而丢失数据的读取会标记 `lossy`，并指向完整流 spill 文件。 |
 | `BashProcess.kill()` | 终止进程组。如果进程已结束，返回 `false`。 |
 
 实现会继承 `BashExecutor` 并实现抽象方法。dispose（资源释放）必须终止每个运行中的进程并等待其退出。

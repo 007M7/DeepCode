@@ -9,7 +9,7 @@
 | [`bash/`](bash/README.md) | 定义 Service provider 与 Consumer 共享的执行器约定。 | `ctx.bash` |
 | [`bash-local/`](bash-local/README.md) | 通过本地 [`subprocess`](../subprocess/README.md) 服务执行命令。 | （注册 `ctx.bash`） |
 | [`bash-sandbox/`](bash-sandbox/README.md) | 在本地执行前应用已配置的 [`sandbox`](../sandbox/README.md) 后端。 | （注册 `ctx.bash`） |
-| [`pwsh-local/`](pwsh-local/README.md) | 以 Windows 专用进程行为执行 PowerShell 命令。 | （注册 `ctx.bash`） |
+| [`pwsh-local/`](pwsh-local/README.md) | 采用 Windows 特有的进程行为执行 PowerShell 命令。 | （注册 `ctx.bash`） |
 | [`bash-env/`](bash-env/README.md) | 提供 shell 工具共享的托管 `DSH_*` 环境。 | `ctx.bashEnv` |
 | [`tool-bash/`](tool-bash/README.md) | 向模型公开 Bash 执行和后台任务集成。 | （注册到 `ctx.tools`） |
 | [`tool-pwsh/`](tool-pwsh/README.md) | 向模型公开 PowerShell 执行。 | （注册到 `ctx.tools`） |

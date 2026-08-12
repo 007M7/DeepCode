@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-浏览器客户端从模型可见的 surface 构建会话：`FoldAdapter` 在历史窗口上运行核心 `SurfaceManager` 并读取 `surface.nodes`。一次成功的压缩会用一个检查点节点替换一段 surface 范围，因此该替换一落地，Web 流就把它所遮蔽的每条消息折叠成一行灰暗的上下文——那是用户已经读过的对话。日志中什么都没丢失；缺陷完全在投影层，而[终端与宿主历史网关已按同一方式修复](2026-07-29-human-transcript-append-origin.md)，浏览器留给了本次变更。
+浏览器客户端从模型可见的 surface 构建会话：`FoldAdapter` 在历史窗口上运行核心 `SurfaceManager` 并读取 `surface.nodes`。一次成功的压缩（compaction）会用一个检查点节点替换一段 surface 范围，因此该替换一落地，Web 流就把它所遮蔽的每条消息折叠成一行灰暗的上下文——那是用户已经读过的对话。日志中什么都没丢失；缺陷完全在投影层，而[终端与宿主网关已按同一方式修复](2026-07-29-human-transcript-append-origin.md)，浏览器留给了本次变更。
 
 surface 顺序还让另外两个问题成为结构性的。一次替换之后它并非按 seq 升序——`SurfaceManager` 把高 seq 的检查点拼接到它所遮蔽范围的位置上——因此按数值 seq 归并进该数组的仅日志节点（斜杠命令行、被打断的冻结节点）可能被冲刷到检查点之前，再也无法交错回保留下来的尾部。而且由于分页不再为 replacement 副本消耗 `maxMessages` 额度，一页现在可以携带一个 `surfaceOp.start` 落在窗口之外的检查点；核心 fold 拒绝该范围，于是 `nodes()` 退回到一次宽容的线性扫描、打印一条 `console.error`，并发布一个描述该失败的 `foldDegraded` 标志。
 
@@ -49,7 +49,7 @@ const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
 
 ## Alternatives considered
 
-**从新叶子值导入该谓词**，并把 `dsh-compact` 加入客户端 `INLINE_SAFE` 白名单。已拒绝：客户端需要的是插件 id，不是谓词——一个类型就够了，而被擦除的导入根本不会抵达纯度门禁，因此无需向它放行任何东西。白名单只在值导入时才有意义，而在那里它是笔糟糕的交换：`INLINE_SAFE` 按标识符*前缀*匹配，因此放行该包会连它那个会导入 cordis 的根部一起放行。
+**从新叶子值导入该谓词**，并把 `dsh-compact` 加入客户端 `INLINE_SAFE` 白名单。已拒绝：客户端需要的是插件 id，不是谓词——一个类型就够了，而被擦除的导入根本不会抵达纯度门禁，因此无需向它放行任何东西。白名单只在值导入时才有意义，而在那里它是笔糟糕的交换：`INLINE_SAFE` 按模块说明符*前缀*匹配，因此放行该包会连它那个会导入 cordis 的根部一起放行。
 
 **一条纯形状规则**——任何 replacement `user/message` 都是压缩。已拒绝：它今天正确只因为压缩是 replacement `user/message` 的唯一生产者，一旦这点改变便无任何机制能捕获。那个 pin 测试只花一个文件，就精确消除了这一风险。
 

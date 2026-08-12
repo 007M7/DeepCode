@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-09-concrete-prose-names-actors-and-recorded-facts.md
 2026-08-09-concrete-prose-names-actors-and-recorded-facts.md: b7df5403ea11ff8ba32be0f9bede5a32d5bcd6ee
-2026-08-09-concrete-prose-names-actors-and-recorded-facts.zh.md: 51a6c42dc75ad04f7d35ef90dd0d54046585dd6d
+2026-08-09-concrete-prose-names-actors-and-recorded-facts.zh.md: 16505ff58af843f29be913c9231203bbfc92a0f6

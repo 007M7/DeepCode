@@ -13,7 +13,7 @@ Status: implemented
 - **`dsh-llm-replay` 没有做任何键控。** 它用一个全局游标，将第 N 次 `llm/stream` 调用对应到单一录制序列的第 N 条。当父 agent（智能体）和一个进程内 subagent 在同一个上下文上同时流式输出时，调用交错，单一游标会把子 agent 的脚本发给父 agent（反之亦然）。
 - **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行并拥有自己的日志，因此子 agent 的 transcript（文本记录）被静默丢弃。
 
-这就是 [subagent seam Agent Note](../feature/2026-06-21-subagent-capability-seam.md)中通过 `TODO(subagent-snapshots)` 推迟的工作：进程内后端落地时已有单元 + e2e 覆盖，但在这套基础设施落地前，完整 transcript 快照层无法表达嵌套 agent 形状。
+这就是 [subagent seam Agent Note](../feature/2026-06-21-subagent-capability-seam.md) 中通过 `TODO(subagent-snapshots)` 推迟的工作：进程内后端落地时已有单元 + e2e 覆盖，但在这套基础设施落地前，完整 transcript 快照层无法表达嵌套 agent 形状。
 
 ## 决策
 
@@ -46,7 +46,7 @@ Status: implemented
 新增两个嵌套场景，均对真实 API 录制：
 
 - **`subagent-spawn`**：父 agent 通过 `subagent` 工具将一个子任务委派给一个新 spawn 的子 agent（2 个会话）。
-- **`subagent-multi`**：父 agent 委派两个子任务，各自交给自己的 spawn 子 agent（3 个会话），以三份并行脚本和同一父 agent 下两个子会话的 `createdAt` 排序来压测逐会话键控。
+- **`subagent-multi`**：父 agent 委派两个子任务，各自交给自己的 spawn 子 agent（3 个会话），以三份独立的逐会话脚本和同一父 agent 下两个子会话的 `createdAt` 排序来压测逐会话键控。
 
 两者均在默认门禁中以 keyless 方式回放。
 

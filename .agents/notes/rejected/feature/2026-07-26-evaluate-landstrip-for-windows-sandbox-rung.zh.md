@@ -1,14 +1,14 @@
 # Agent Note: 在构建 Windows 沙箱启动器之前先评估 landstrip
 
-Status: rejected — landstrip 未经实战检验（驳回时问世仅数天，只有一名维护者，GitHub 星标约 48 个）；安全不变式级的依赖必须经过广泛采用的验证，因此 win32 层级维持自研启动器的原计划
+Status: rejected — landstrip 未经实战检验（驳回时问世仅数天，只有一名维护者，GitHub 星标约 48 个）；关系到安全不变量的依赖必须经过广泛采用的验证，因此 win32 层级维持自研启动器的原计划
 
 [English](2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md) | 中文
 
 ## 问题
 
-[沙箱决策](../../implemented/feature/2026-07-06-sandbox.md)将 `PLATFORM_CHAINS.win32` 留空，并计划用「AppContainer/受限令牌（restricted-token）家族的一个约束运行器，按 `node-addon-landlock-run` 模板从其独立仓库发布」来填充——一个估计约 1,500 行、需要自研编写并维护的新仓库（landlock-run 子树约为 1,460 行 C/TS/脚本/测试，外加文档与 CI）。
+[沙箱决策](../../implemented/feature/2026-07-06-sandbox.md)将 `PLATFORM_CHAINS.win32` 留空，并计划用「AppContainer/受限令牌（restricted-token）家族的一个约束运行器，按 `node-addon-landlock-run` 模板从其独立仓库发布」来填充——一个估计约 1,500 行、需要自研编写并维护的新仓库（landlock-run 子树约为 1,460 行 C／TS／脚本／测试，外加文档与 CI）。
 
-自那份决策记录写成以来，出现了一个持续维护的第三方运行器：`@landstrip/landstrip`（npm 包，活跃开发中，Rust 内核，附带按平台预构建的 `optionalDependencies`）覆盖 Linux 上的 Landlock + seccomp、macOS 上的 Seatbelt，以及 Windows 上的 AppContainer/受限用户，支持 JSON/YAML 策略输入和基于 trap-fd 的拒绝上报通道。它与 bwrap 一样采用 exec 包装方式，因此无需触碰 Linux/macOS 层级即可契合链的 `confine(argv)` 形态。
+自那份决策记录写成以来，出现了一个持续维护的第三方运行器：`@landstrip/landstrip`（npm 包，活跃开发中，Rust 内核，附带按平台预构建的 `optionalDependencies`）覆盖 Linux 上的 Landlock + seccomp、macOS 上的 Seatbelt，以及 Windows 上的 AppContainer/受限用户，支持 JSON／YAML 策略输入和基于 trap-fd 的拒绝上报通道。它与 bwrap 一样采用 exec 包装方式，因此无需触碰 Linux/macOS 层级即可契合链的 `confine(argv)` 形态。
 
 ## 提案
 
@@ -31,4 +31,4 @@ Status: rejected — landstrip 未经实战检验（驳回时问世仅数天，�
 ## 风险
 
 - 处于安全关键位置的单一维护者供应链——这正是本提案定为一道评估门禁、而非采用决定的原因。
-- 该包尚且年轻；在 Windows 阶段启动之前其 API 与打包方式可能反复变动，届时需对照届时的在线注册表重新核验。
+- 该包尚且年轻；在 Windows 阶段启动之前其 API 与打包方式可能反复变动，届时需对照在线注册表重新核验。

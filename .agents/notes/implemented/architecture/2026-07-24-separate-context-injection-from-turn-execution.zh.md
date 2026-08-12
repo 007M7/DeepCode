@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-agent API 曾用三种相互重叠的方式表示面向模型的补充输入：调用方通过 `SendOptions.contexts` 附加 `HookContext[]`，拦截钩子和工具钩子返回 `additionalContexts`，插件则调用 `agent.inject()`。这些路径最终都把上下文写入同一份模型历史，但各自携带不同的放置、元数据、准入、队列和轮次生命周期规则。
+agent（智能体） API 曾用三种相互重叠的方式表示面向模型的补充输入：调用方通过 `SendOptions.contexts` 附加 `HookContext[]`，拦截钩子和工具钩子返回 `additionalContexts`，插件则调用 `agent.inject()`。这些路径最终都把上下文写入同一份模型历史，但各自携带不同的放置、元数据、准入、队列和轮次生命周期规则。
 
 将上下文原子附加到收件箱消息后，agent loop（智能体循环）曾被迫让上下文跟随提示词准入、steering（中途引导）转换、取消和终止丢弃的完整生命周期。`prompt-prefix` 放置方式又曾把上下文与直接提示词合并为一个事件，因此 transcript（文本记录）消费方不得不依赖模型不可见的封套，才能还原用户实际输入。这样一来，outbox 条目、会话投影和 UI 回放都曾负责处理本应由生产方负责的区分。
 
 空闲状态下的 `inject()` 还暴露了另一处语义错位。注入当时并不请求模型执行，但实现仅为了满足轮次封闭不变量并获得持久性检查点，就会打开并关闭一个零步骤的 `injection` 轮次。于是，当时的轮次有时表示「运行 agent loop」，有时却表示「不运行 agent，仅持久化上下文」。
 
-`HookContext` 的名字也描述了生产方，而非该值的职责。它可能来自原生插件、hook bridge、提示词准入或工具后处理；其稳定含义是额外的模型可见上下文，并且 source 会指明生产方。
+`HookContext` 的名字也描述了生产方，而非该值的职责。它可能来自原生插件、钩子桥接、提示词准入或工具后处理；其稳定含义是面向模型的额外上下文，并且 source 会指明生产方。
 
 ## 决策
 
@@ -20,7 +20,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 拥有上下文的调用方通过 `inject()` 交付带标识且冻结的 `UserMessage`，再独立使用 `followup()` 或 `steer()` 提交直接消息。
 
-返回 enter 的 pre-step 会为正在最终确定的请求返回完整的 `PreStepDecision.messages` 批次。工具扩展点仍可返回 `additionalContexts`，这些上下文只会在对应工具结果之后进入 next-step inbox。这些值是扩展点的输出，而不是从调用方 inbox 条目捕获的附件。
+pre-step 的 enter 分支会为正在最终确定的请求返回完整的 `PreStepDecision.messages` 批次。工具扩展点仍可返回 `additionalContexts`，这些上下文只会在对应工具结果之后进入 next-step inbox。这些值是扩展点的输出，而不是从调用方 inbox 条目捕获的附件。
 
 每项额外上下文都是独立的 `UserMessage`，其 `source` 会指明生产方，并携带生产方专用字段。inbox 插入会立即持久化；后续准入会将同一个值记录为 `user/message`。不再有 `context/message`、prompt-prefix 放置方式、稳定请求分隔符或提示词封套。transcript 与 UI 消费方通过 `source` 区分直接用户消息和注入上下文。
 
@@ -32,7 +32,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 如果 pre-step reject 或抛错，其已领取的注入上下文、steering 与排队提示词都会保持已删除，也不会追加返回批次。原子领取后插入的消息不受影响，继续保持待处理。
 
-loop 只会在轮次内从进入步骤的批次追加注入的 `user/message`。核心执行事件、steering、助手输出和工具事件仍受轮次边界约束；可合并扩展事件的关系由声明它们的插件拥有，而不是采用核心默认规则。
+agent loop 只会在轮次内从进入步骤的批次追加注入的 `user/message`。核心执行事件、steering、助手输出和工具事件仍受轮次边界约束；可合并扩展事件的关系由声明它们的插件拥有，而不是采用核心默认规则。
 
 ## 扩展点与调用方语义
 
@@ -59,11 +59,11 @@ enter 分支的 `PreStepDecision.messages` 是拟议步骤的完整批次。wate
 ## 验证
 
 - 投递输入与 steering inbox 记录不包含附加上下文；`agent/inbox/inserted` 只报告插入消息，目标列表由持久 splice 保留。
-- `UserMessage` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的带标识且冻结的形状。
+- `UserMessage` 是提示词拦截、工具执行、钩子桥接、guard 和上下文生产方共享的带标识且冻结的形状。
 - 公共类型、持久事件、投影和 UI 回放中均不存在 prompt-prefix 放置方式、提示词封套与 `context/message`。
 - idle 状态下的 `inject()` 会立即追加一条持久 inbox 插入记录，但不会追加模型可见的 `user/message`；后续可唤醒投递可能开始 pre-step 处理。
 - 活跃轮次中的注入会在最近的后续 pre-step 边界领取，并位于完整工具结果批次之后、消费它的请求之前。
-- pre-step reject 或失败会丢弃其已领取批次；领取后插入的 inbox 工作继续保持待处理。
+- pre-step reject 或失败会丢弃其已领取批次；领取后插入的输入继续保持待处理。
 - 单元测试、持久化与 resume 测试、不变量测试和 TUI 覆盖会固定事件顺序、领取归属和持久回放。
 
 ## 后果

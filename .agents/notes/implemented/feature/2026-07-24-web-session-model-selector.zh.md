@@ -16,7 +16,7 @@ Web Host 为每个新建或恢复的 Agent 安装 `ModelSelection`。如果会�
 
 浏览器中的 `ModelService` 为每个实时会话持有一个 `ModelDirectory`。其快照包含当前完整的 `ModelSelection`、分组目录、提供方失败记录、操作错误，以及 `idle`、`loading`、`ready`、`selecting`、`error` 状态。挂载时会预先填充触发器标签，此后每次打开菜单都会刷新目录。目录与选择调用共用操作代次，防止较早响应覆盖较新结果；连接重置会先丢弃当前进程中的投影，再恢复 Host 选择。失败时保留先前的选择和可用分组。
 
-`@deepseek-ai/dsh-client-ui-conversation` 将会话作用域的单实例 slot `conversation.input.model` 声明为其输入栏 entry 的子 slot。InputBar 在尾部控件区将该 seat 渲染于 pending 指示器与主按钮之前；该 seat 接收输入栏的 `locked` owner prop 与会话作用域。`@deepseek-ai/dsh-client-ui-model` 占用该 seat，并在同一目录上提供 `/model`。其紧凑型触发器显示目录中精确模型的名称与生效的推理强度标签。当前选择不在分组中时，触发器显示 `Select model`，模型列表不标记任何活动行，Effort 行也保持隐藏；选择一个已列出的模型，会通过共享的选择路径赋值完整选择。除此情形外，向上展开的菜单会首先提供 Model 与 Effort；Model 可深入提供方分组，Effort 可深入适配器排序的级别。仅当适配器没有配置模型默认值时，才显示提供方默认值行。
+`@deepseek-ai/dsh-client-ui-conversation` 将会话作用域的单实例 slot `conversation.input.model` 声明为其输入栏 entry 的子 slot。InputBar 在尾部控件区将该 seat 渲染于 pending 指示器与主按钮之前；该 seat 接收输入栏的 `locked` owner prop 与会话作用域。`@deepseek-ai/dsh-client-ui-model` 占用该 seat，并在同一目录上提供 `/model`。其紧凑型触发器显示目录中的确切模型名称与生效的推理强度标签。当前选择不在分组中时，触发器显示 `Select model`，模型列表不标记任何活动行，Effort 行也保持隐藏；选择一个已列出的模型，会通过共享的选择路径赋值完整选择。除此情形外，向上展开的菜单会首先提供 Model 与 Effort；Model 可深入提供方分组，Effort 可深入适配器排序的级别。仅当适配器没有配置模型默认值时，才显示提供方默认值行。
 
 生产环境的浏览器名册由 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同组装；模型功能对应其中一行 `dsh.client` 配置项，而不是 Web boot 代码中硬编码的包。其包 manifest（元数据清单）将加载顺序置于运行时与命令功能之后；Cordis 服务注入则等待 conversation slot 可用，再注册 composer 占用方。
 
@@ -24,7 +24,7 @@ Web Host 为每个新建或恢复的 Agent 安装 `ModelSelection`。如果会�
 
 **分别使用提供方与模型下拉框。** 模型列表依赖提供方，每次更改都需要经过两阶段交互。单个分组菜单仍以提供方组织模型，同时不会增加触发器或各行的显示长度。
 
-**在 Web 客户端中硬编码当前 DeepSeek 目录。** 该目录会与已注册适配器发生偏离，也会排除部署自有的提供方。LLM 注册表继续作为提供方与模型元数据的真源，也负责呈现部分查询失败。
+**在 Web 客户端中硬编码当前 DeepSeek 目录。** 该目录会与已注册适配器发生偏离，也会排除部署自有的提供方。LLM 注册表继续作为提供方与模型元数据的真源，也涵盖部分查询失败信息。
 
 **将 `High`／`Max` 保留为客户端本地 UI 状态。** 静态 DeepSeek 标签无法覆盖 `off`、pi-ai 的提供方词汇、适配器默认值与校验，也不能参与恢复或下一次提供方请求。精确模型元数据拥有可选词汇，会话选择则拥有已选择的 ID。
 

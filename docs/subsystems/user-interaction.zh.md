@@ -22,7 +22,7 @@ interface AskUserQuestionOption {
 
 ## 呈现意图
 
-`AskUserQuestionIntent` 可选地声明一种已知的决定类型。它按 `kind` 打标签，因此可以增加新的意图；不认识某个标签的 UI 渲染通用选项列表。意图只改变呈现方式——遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的回答字段相同。`approve` 指名肯定选项，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上。
+`AskUserQuestionIntent` 可选地声明一种已知的决策类型。它按 `kind` 打标签，因此可以增加新的意图；不认识某个标签的 UI 渲染通用选项列表。意图只改变呈现方式——遵循它的 UI 回答的仍是通用 UI 会发送的那些选项标签，因此调用方两种情况下读到的回答字段相同。`approve` 指名肯定选项，而不依赖选项顺序。`ask()` 会拒绝两种无法由类型系统表达的情况：`approve` 未指向该问题自身的任何选项，以及为没有 `detail` 的问题指定意图。
 
 ```ts type-equiv
 /**
@@ -46,7 +46,7 @@ type AskUserQuestionIntent = {
 
 ## 问题条目
 
-`AskUserQuestionItem` 是请求中的一个问题。调用方提供稳定的 `id`，它会随答案原样返回，使批量问题仍可路由。可选的 `detail` 携带辅助文本；提供方会将其随问题渲染，但不会放入可选 option label。
+`AskUserQuestionItem` 是请求中的一个问题。调用方提供稳定的 `id`，它会随答案原样返回，使批量问题仍可路由。可选的 `detail` 携带辅助文本；提供方会将其随问题渲染，但不会放入可选选项标签。
 
 ```ts type-equiv
 /** One question in a user-interaction request. */

@@ -30,7 +30,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | 主会话的可选 `ReplayOverrideDoc` 伴随文件：裸 `ReplayEntry[]` 替换其派生脚本，`{ patches }` 则按调用索引增补该脚本。 |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES`（以路径分隔符分隔） | 嵌套场景中已记录的 subagent 子会话日志；单会话场景为空。 |
 | `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个提供方可以设置 `retryPolicy`，每个模型可以发布 `contextWindow` 和仅包含 `text`、`image` 的 `inputModalities` 数组；模态配置无效时，插件加载会失败。已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
-| `paceMs` | number | 无（突发） | 可选的每分片毫秒延迟，使下游传输（例如真实浏览器观察到的 Web SSE（Server-Sent Events）多路复用器）看到真正的增量传递。它只是仿真开关，测试不得依赖它保证正确性。值必须是非负整数；pace 等待期间中止会迅速取消流。 |
+| `paceMs` | number | 无（突发） | 可选的每分片延迟（单位为毫秒），使下游传输（例如真实浏览器观察到的 Web SSE（Server-Sent Events）多路复用器）看到真正的增量传递。它只是用于提高真实性的调节项，测试不得依赖它保证正确性。值必须是非负整数；pace 等待期间中止会迅速取消流。 |
 
 ```yaml
 - id: llm-replay
@@ -64,7 +64,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 ## 插件导出形态
 
-命名导出 `name` / `inject` / `Config` / `apply`，且**没有默认导出**：Cordis Loader 的 `unwrapExports` 执行 `exports.default ?? exports`，因此意外的默认导出会将模块折叠为纯函数，并丢弃 `inject` 命名空间（见 [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)）。
+命名导出 `name` / `inject` / `Config` / `apply`，且**没有默认导出**：Cordis Loader 的 `unwrapExports` 执行 `exports.default ?? exports`，因此意外的默认导出会将模块折叠为函数本身，并丢弃 `inject` 命名空间（见 [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)）。
 
 ## 模型体验
 
@@ -76,5 +76,5 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 ## 已知限制与暂缓事项
 
-- **首次调用顺序脚本绑定假设串行委托**：并发运行同级 subagent 的 cut 会非确定性地将实时会话绑定到已记录脚本；在这种场景出现前暂不实现更强的键控（`XXX(concurrent-subagents)`）。
+- **首次调用顺序脚本绑定假设串行委托**：一种并发运行同级 subagent 的实现会非确定性地将实时会话绑定到已记录脚本；在这种场景出现前暂不实现更强的键控（`XXX(concurrent-subagents)`）。
 - **只有普通 loop 分片和带标记的本地压缩输出才能派生**：在产生分片前直接抛出异常、取消/挂起，或未标记的外部摘要器调用场景需要 `replay.override.json` 伴随文件。替换和补丁两种形式都只影响主会话；子会话脚本仍从各自日志派生。

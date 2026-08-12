@@ -17,10 +17,6 @@ export type TrajectoryKey =
   | 'toolbar.calls'
   | 'toolbar.expandCalls'
   | 'toolbar.collapseCalls'
-  | 'toolbar.export'
-  | 'toolbar.exportAria'
-  | 'toolbar.exporting'
-  | 'toolbar.exportTitle'
   | 'toolbar.search'
   | 'toolbar.searchPlaceholder'
 
@@ -45,10 +41,6 @@ export const zh: Record<TrajectoryKey, string> = {
   'toolbar.calls': 'Calls',
   'toolbar.expandCalls': 'Expand calls',
   'toolbar.collapseCalls': 'Collapse calls',
-  'toolbar.export': 'Export',
-  'toolbar.exportAria': 'Export session log',
-  'toolbar.exporting': 'Exporting…',
-  'toolbar.exportTitle': 'Export session log (ZIP, includes subagents)',
   'toolbar.search': '搜索轨迹',
   'toolbar.searchPlaceholder': '搜索',
 }
@@ -67,10 +59,6 @@ export const en: Record<TrajectoryKey, string> = {
   'toolbar.calls': 'Calls',
   'toolbar.expandCalls': 'Expand calls',
   'toolbar.collapseCalls': 'Collapse calls',
-  'toolbar.export': 'Export',
-  'toolbar.exportAria': 'Export session log',
-  'toolbar.exporting': 'Exporting…',
-  'toolbar.exportTitle': 'Export session log (ZIP, includes subagents)',
   'toolbar.search': 'Search trajectory',
   'toolbar.searchPlaceholder': 'Search',
 }

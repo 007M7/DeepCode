@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-08-09-client-conversation-node-assembly.md) | 中文
 
-## Problem
+## 问题
 
 Client Session 既维护传输窗口、连接状态和待处理交互，也在中心化 transcript fold 中解释 Assistant、Tool、消息、命令、压缩、重试及 turn tail 等业务事件。每增加一种业务节点，都要修改 Session 的 switch、历史 replay、索引、缓存和 React 分组；业务 identity、状态演进与最终展示没有独立所有者。
 
@@ -12,7 +12,7 @@ Client Session 既维护传输窗口、连接状态和待处理交互，也在�
 
 业务事件之间的关联方式并不统一。Tool 有 call ID，Assistant 以 turn/step 关联，Compaction 有独立生命周期和 checkpoint，Inbox splice 则表示一个连续状态的瞬间。把这些差异继续塞进统一 fold，会让任一业务变化都经过全局查表并使无关缓存失效。
 
-## Decision
+## 决策
 
 Client Runtime 提供 target-neutral 的 Conversation Node 组装引擎，业务插件注册 Event Definition，视图插件注册 per-Session View Builder。`ui-conversation` 注册第一批内建 Definition 和 `chat` builder；Session 只负责把当前连续事件窗口送入引擎并发布它的 snapshot，不再解释具体 conversation 业务。
 
@@ -332,7 +332,7 @@ Trajectory 针对与 Chat 相同的 Assembler 和 Session 事件窗口注册自�
 
 target 专属 Trajectory Definition、保留的 stage model、Steering 适配、复杂度上界与表现层热点由 [Trajectory Context 组装决策](2026-08-11-trajectory-conversation-context-assembly.md)负责。
 
-## Runtime and render path
+## 运行时与渲染链路
 
 ```text
 Session Event window
@@ -347,7 +347,7 @@ Session Event window
        -> trajectory: TrajectorySnapshotBuilder -> stages/layout/table
 ```
 
-## Verification
+## 验证
 
 Runtime tests 固定 Definition 生命周期注册、exact-ID append、update-before-start 收集与 start 后正序 replay、prepend identity、Reader window-gap 修复、传递依赖、Location closure、Step→Turn data phase order、Location data replacement、publication cadence、非法撤回和 per-target Builder。
 
@@ -359,7 +359,7 @@ Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏�
 
 历史链路验证同时覆盖完整 replace、非重叠 prepend、重叠 seq 去重、空页 `hasMore` 收敛和 live append。相同 Event 窗口通过不同摄入路径得到相同业务 State 与最终 Node。
 
-## Alternatives considered
+## 考虑过的替代方案
 
 **保留中心化 Session transcript fold，只抽 helper。** 拒绝：业务 identity、历史 replay 和 cache invalidation 仍属于一个闭合 switch，移动函数不会产生独立所有权。
 
@@ -381,15 +381,15 @@ Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏�
 
 **增加通用 `end()`、prepared 或 window reset 生命周期。** 拒绝：不同业务完成条件不同，分页缺口也不是业务生命周期。业务 Event 更新 State，Location close 触发 replay/build，Reader dependency 负责补页失效。
 
-**在同一个 Event Definition 内通过 `buildViewNode(target)` 为 Chat 与 Trajectory 分支。** 拒绝：两种视图需要不同的业务 State 与中间记录，共用 Definition 会迫使每个 package 携带另一边的条件与 payload。target 自有的 Definition 把这些选择留在本地，同时复用 Assembler 的摄入与生命周期契约。
+**在同一个 Event Definition 内通过 `buildViewNode(target)` 为 Chat 与 Trajectory 分支。** 拒绝：两种视图需要不同的业务 State 与中间记录，共用 Definition 会迫使每个 package 携带另一边的条件与 payload。target 自有的 Definition 把这些选择留在本地，同时复用 Assembler 的摄入与生命周期约定。
 
 **在最终业务 Node 上再叠一层通用 layout model。** 拒绝：activity、tail candidacy 和 layout enum 会把当前 Chat 的业务语义重新集中到引擎。最终 Node 直接携带 renderer 所需 data，只共享 identity、排序和 Location 事实。
 
-**只在 Assistant renderer 注册 Turn data Hook。** 拒绝：访问当前 Node Location 是 `conversation.chat.node` slot 的公共能力，不属于某个业务 renderer。父 Chat entry 注册一次 common inject，所有 keyed renderer 共享同一强类型契约。
+**只在 Assistant renderer 注册 Turn data Hook。** 拒绝：访问当前 Node Location 是 `conversation.chat.node` slot 的公共能力，不属于某个业务 renderer。父 Chat entry 注册一次 common inject，所有 keyed renderer 共享同一强类型约定。
 
 **把 running Assistant 或 Tool 保留在独立 tail container。** 拒绝：结算时会跨 React parent 移动，稳定业务 key 也无法阻止 remount。统一 keyed order 允许 data 和排序位置改变，但不改变 Seat identity。
 
-## Consequences
+## 后果
 
 新增业务节点可以局部注册自己的 matcher、State 转换、可选 Location data、最终 target Node 和 renderer，不再修改 Session 的业务 switch。`ChatNodeDataMap` 和 Location data maps 允许业务 package 通过 declaration merging 合入强类型 data；所有相关 Event 仍须暴露可单 Event 推导的稳定 ID。
 

@@ -23,6 +23,7 @@ Status: implemented
 | 压缩 | `compression: gzip` | 事件 body 含全文，跨机房带宽 |
 | CI 隔离 | GitHub 工作流顶层 `env: DSH_TELEMETRY_DISABLED: '1'` | 即使 CI 任务显式选择上传模式，纵深防御也会让测试会话留在本地 |
 
+
 基础组合包测试固定交付的 `DISABLED` 模式表达式，后端测试套件固定省略模式时不构造传输，真实 Loader 组合测试则在验证 OTLP 投递时显式选择每种上传模式。
 
 ## 考虑过的替代方案

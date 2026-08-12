@@ -10,13 +10,13 @@
 
 ### 公开 API
 
-创建与恢复属于同一个受回滚保护的事务：构造私有会话、具体 agent 和带作用域的上下文；等待可选 setup；进入两个注册表；依次宣告 `session/created` 和 `agent/created`；发出 `agent/session-start`；此后才启动驱动器。Setup 接收完整的带作用域 `Context`，作为受信任的同进程组合代码，并且不得驱动尚未发布的 agent。普通的类型化身份与选项输入遵循只读约定以借用方式传入；seed 事件与会话元数据会跨越持久会话边界，因此系统会验证并快照它们。可选的 `AbortSignal` 只取消加载／setup／发布，并在返回的 handle 可见前分离。
+创建与恢复属于同一个受回滚保护的事务：构造私有会话、具体 agent 和带作用域的上下文；等待可选 setup；进入两个注册表；依次宣告 `session/created` 和 `agent/created`；发出 `agent/session-start`；此后才启动驱动器。Setup 作为受信任的同进程组合代码，接收完整的带作用域 `Context`，并且不得驱动尚未发布的 agent。普通的类型化身份与选项输入遵循只读约定以借用方式传入；seed 事件与会话元数据会跨越持久会话边界，因此系统会验证并快照它们。可选的 `AbortSignal` 只取消加载／setup／发布，并在返回的 handle 可见前分离。
 
 调用方 fiber 与 AgentLoop 提供方共同拥有 agent。`AgentFactory.createAgent(ownerCtx, options)` 与 `resume(ownerCtx, options)` 显式接收调用方所有权，而工厂为 `sessions`/`llm`/`tools`/`systemPrompt` 保留自身的依赖上下文；这样，调用方可以只注入 `agents`，而不会缩减新 agent 的服务接口。调用方卸载、handle dispose（资源释放）或提供方卸载都会汇合到同一个记忆化的完全停稳边界。提供方关闭会同时等待资源 teardown，以及已经观测到停用的公开 create/resume 包装层，因此依赖消失后，任何 continuation 都无法继续发布。
 
 每个 agent 与其会话共享一个由调用方选择的 `SessionId`，并假设它在全局唯一；意外的 UUID 冲突不属于受支持模型。两个使用同一 id 的并发操作都可以进行准备，但最终的 `enter()` 调用会裁决发布，所有失败方都会回滚各自的私有资源。每次 detach 都绑定到确切进入的对象，因此陈旧 disposer 无法移除之后出现的同 id 替代项。在同步创建通知期间请求的 detach 会等待该次分发退栈，从而保留 created/disposed 配对。Teardown 顺序为停止并 drain → 撤销作用域 → detach agent → detach 会话；私有作用域清理完成后，该 id 即可复用。普通、不可 veto 的 `agent/*` 通知通过 `agentEvents(ctx, agent)` 发出；逐步骤组装通过 `assembleContextFor(agent)` 完成。
 
-- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): Agent`：在确切共享的 agent／会话 id 下同步创建，不运行 setup，并随调用 fiber dispose。声明式配置把 `agents[].id` 视为稳定 label，通常会先生成 `${label}-session-<uuid>`，再调用此边界。应用也可以提供稳定且确切的 `sessionId`：首次使用时创建；重新挂载且持久化内容已存在时，则恢复已经实体化的历史。`resumeSessionId` 要求并加载现有的持久化 id，且与 `sessionId` 互斥。这样，默认的全新重启不会冲突，也无需保留第二个实时路由身份。
+- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): Agent`：在确切共享的 agent／会话 id 下同步创建，不运行 setup，并随调用方 fiber 一同 dispose。声明式配置把 `agents[].id` 视为稳定 label，通常会先生成 `${label}-session-<uuid>`，再调用此边界。应用也可以提供稳定且确切的 `sessionId`：首次使用时创建；重新挂载且持久化内容已存在时，则恢复已经实体化的历史。`resumeSessionId` 要求并加载现有的持久化 id，且与 `sessionId` 互斥。这样，默认的全新重启不会冲突，也无需保留第二个实时路由身份。
 
 `AgentLoop` 还实现 `AgentFactory` 约定，并通过 `ctx.agents.setFactory(this)` 注册自身，因此插件会通过 `ctx.agents` 创建／恢复 agent：
 
@@ -69,7 +69,7 @@ interface Config {
 
 插件失败会结束当前轮次，而不是结束循环。最终适配器选择、分发与迭代失败会以终止错误或中止结束的形式由 `ctx.llm` 传来，并进入 `agent/request-error`；middleware、结果处理、工具及其他扩展失败仍会抛出并直接关闭轮次。恢复逻辑会接收请求坐标、不可变的提供方事实、准备完成的适配器注册所捕获的不可变重试策略以及轮次信号；middleware 接管未准备路由时，该策略缺失。处理失败的监听器返回 `{ kind: 'retry' }`；未被处理的失败是终态。AgentLoop 为当前接纳或轮次拥有一个取消信号。有效的 `cancel(cause)` 在未设置 `keepInbox` 时清除待处理工作，并以协作方式中止该信号；空闲取消是空操作。abort 触发后、活动收敛到空闲前到达的唤醒输入会被锁存（`wakeRequested`），并在 driver 自身的收敛边界重放，无需再发一条唤醒 send 即可执行；`disposed` 取消从不锁存，而 agent 已处于空闲时发送的唤醒总是打开自己的 turn 边界（即使消息已被清除，状态也会显示瞬态 `idle → running → idle` 对）。持久 `turn/end` 为 `user` 和 `parent` 记录 `aborted`，dispose 则记录 `disposed`；未分发的模型工具调用会收到合成的 `tool/call` 与 `ABORTED_BEFORE_DISPATCH` 结果对。取消原因只改变报告方式，不改变对取消后已定案结果上下文的处理。dispose 会等待忽略信号的工作完成，然后才从注册表移除。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)与[取消收敛窗口唤醒锁存](../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)规定生命周期与竞态约定。
 
-在步骤内，独占调用形成屏障；并行安全调用使用有界滚动池，并在启动前重新分类。只有分发／主体会重叠。策略、持久结果和结果上下文仍保持模型顺序。中止会停止新调用，drain 已启动的结果，并保留其已定案的结果上下文，不区分取消原因。内部调度器故障会停止新的分发，等待已启动的分发，然后在不虚构工具结果的情况下到达轮次错误边界。
+在步骤内，独占调用形成屏障；并行安全调用使用有界滚动池，并在启动前重新分类。只有分发和调用主体的执行会发生重叠。策略、持久结果和结果上下文仍保持模型顺序。中止会停止新调用，drain 已启动的结果，并保留其已定案的结果上下文，不区分取消原因。内部调度器故障会停止新的分发，等待已启动的分发，然后在不虚构工具结果的情况下到达轮次错误边界。
 
 ### 插件负责的内容
 
@@ -102,7 +102,7 @@ interface Config {
 
 #### 模型看到的内容
 
-已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering 都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
+已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering（中途引导）都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
 
 #### Token 影响
 

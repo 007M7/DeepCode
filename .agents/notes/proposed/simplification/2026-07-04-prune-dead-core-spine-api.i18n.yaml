@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/simplification/2026-07-04-prune-dead-core-spine-api.md
 2026-07-04-prune-dead-core-spine-api.md: ac0a72973f9c44e1f322eeff2e095d751497edf8
-2026-07-04-prune-dead-core-spine-api.zh.md: 9c00025027c11a0ee1a716c3cb3c65d19d71e990
+2026-07-04-prune-dead-core-spine-api.zh.md: aebc8cb7afbdcc85aab2d58b34fa0493ac7bcbb5

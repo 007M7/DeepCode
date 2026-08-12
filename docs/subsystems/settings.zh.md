@@ -125,7 +125,7 @@ interface SettingsDescriptor {
 }
 ```
 
-只持有脱敏 descriptor 的调用方无法安全地重建分节，因此删除改以路径 op 传递。每个 descriptor 还携带针对原始分节的 `revision`；写入可以把它作为 `expectedRevision` 送回，不再匹配的写入会被拒绝，而不是覆盖在先落地的那个写方之上。
+只持有脱敏 descriptor 的调用方无法安全地重建分节，因此删除改以路径 op 传递。每个 descriptor 还携带针对原始分节的 `revision`；写入可以把它作为 `expectedRevision` 送回，不再匹配的写入会被拒绝，而不会覆盖先落地的写入。
 ```ts type-equiv
 /**
  * One path-addressed edit to a namespace's user section. Path mutation exists

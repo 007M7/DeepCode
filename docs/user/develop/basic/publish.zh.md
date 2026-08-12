@@ -161,4 +161,4 @@ dsh plugin --profile demo add github:you/hello-plugin
 ## 下一步
 
 - [插件与生命周期](../framework/) — 插件的完整生命周期
-- [CLI 行为参考](../../../../apps/cli/reference/README.md) — 确切的层优先级、flag 与 profile 机制
+- [CLI（命令行界面）行为参考](../../../../apps/cli/reference/README.md) — 确切的层优先级、flag 与 profile 机制

@@ -10,12 +10,12 @@ Codex 有意重新实现了 Claude Code hook 协议的一个*子集*，包括相
 
 | 关注点 | 此处（`dsh-hook-protocol`） | 桥接（`dsh-hooks-claude` / `-codex`） |
 |---|---|---|
-| Matcher 校验 + 测试 | `matcherDiagnostic(pattern, mode)` 用于解析时诊断；`matchesMatcher(pattern, query, mode)` 用于隔离的运行时匹配 | 选择自身的 `mode`（`claude` = 字面量或正则，`codex` = 始终使用正则），并拒绝带有诊断的配置组 |
+| Matcher 校验与匹配判断 | `matcherDiagnostic(pattern, mode)` 用于解析时诊断；`matchesMatcher(pattern, query, mode)` 用于隔离的运行时匹配 | 选择自身的 `mode`（`claude` = 字面量或正则，`codex` = 始终使用正则），并拒绝带有诊断的配置组 |
 | 运行 hook | `runHook(bash, hook, opts, now)`：通过 `ctx.bash` 提供 stdin payload + env，再解码 | 构造每个事件的 stdin **payload** + 该方言的 **env** |
 | 解码输出 | `parseHookOutput(exit, stdout, stderr)` → 中性 `HookOutput` | 将中性 `HookOutput` 映射到扩展点特定的类型化 Decision |
 | 合并 N 个 hook | `mergeHookOutputs(outputs)` → 最严格的 `MergedHookOutcome` | （无） |
 | 持久记录 | `appendHookInvoked` / `appendHookResult`（`hook/*` 会话事件；结果的 `decision`／`stderrSummary` 从此处的 `HookOutput` 派生） | 在每次调用前后调用它们 |
-| 脱离运行完全停稳 | `createDetachedRuns()`：跟踪触发后不等待的运行链；`drain()` 先 abort，再等待它们 | 将 `signal` 传给每个脱离的 `runHook`，并将 `drain` 注册为 effect disposer |
+| 脱离运行的完全停稳 | `createDetachedRuns()`：跟踪触发后不等待的运行链；`drain()` 先 abort，再等待它们 | 将 `signal` 传给每个脱离的 `runHook`，并将 `drain` 注册为 effect disposer |
 
 ## 原语
 

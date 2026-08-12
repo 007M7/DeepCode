@@ -10,7 +10,6 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // owning package) must be in the program for the register calls to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createTrajectoryDurationStore } from './duration-store.ts'
-import { downloadSessionLog } from './export-log.ts'
 import { en, NS, zh } from './locales.ts'
 import { registerTrajectoryAssistantDefinition } from './trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from './trajectory-compaction-definition.ts'
@@ -60,7 +59,6 @@ export function apply(ctx: Context): void {
           return session.getSnapshot().views.get('trajectory') !== before
         },
         setActualDuration: (value) => { duration.set(value) },
-        exportLog: () => downloadSessionLog(sessionId),
       }
     },
   }, TrajectoryView))

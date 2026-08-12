@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-产品原则是「一切皆插件」：钩子、/goal、/loop、动态工作流、上下文压缩（context compaction）、沙箱、权限、UI、持久化、MCP、skill（技能）都必须能以插件形式编写，无需修改核心。
+产品原则是「一切皆插件」：钩子、/goal、/loop、动态工作流、压缩（compaction）、沙箱、权限、UI、持久化、MCP、skill（技能）都必须能以插件形式编写，无需修改核心。
 
 ## 决策
 
@@ -21,11 +21,11 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**专用中间件栈（koa-compose 风格）** 与**显式阶段状态机（插件向其中插入阶段）**：两者都需要重新实现 Cordis 原生事件系统已提供的分发、dispose（资源释放）与重载语义；作为 Cordis effect，监听器天然获得 HMR（热模块替换）与 dispose 能力。
+**专用中间件栈（koa-compose 风格）**与**显式阶段状态机（插件向其中插入阶段）**：两者都需要重新实现 Cordis 原生事件系统已提供的分发、dispose（资源释放）与重载语义；作为 Cordis effect，监听器天然获得 HMR（热模块替换）与 dispose 能力。
 
 ## 后果
 
 - 每个 MVP 功能都映射到一个监听器（[功能→机制映射](../../../../docs/cookbook/extension-cookbook.md#the-feature--mechanism-map)是证明义务，保持更新）。
 - HMR 与 dispose 无需额外工作：监听器和注册均为 Cordis effect。
 - waterfall 语义（调用 `next()` 或短路）不直观，需要教学——在 AGENTS.md 中记录，并由组合测试覆盖。
-- 循环必须具备防御性：插件异常在轮次级别被隔离，任何扩展点发出的 steering（中途引导）永远不会被搁置（有回归测试保障）。
+- 循环必须具备防御性：插件异常在轮次级别被隔离，来自任何扩展点的 steering（中途引导）永远不会被搁置（有回归测试保障）。

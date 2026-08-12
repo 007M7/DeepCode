@@ -69,27 +69,32 @@ export function ConversationSessionHeader({
       {!hideChrome && (
         <>
           <div className={css.titleRow}>
-            <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
-              {ancestry.map((summary, index) => {
-                const last = index === ancestry.length - 1
-                return (
-                  <span key={summary.id} className={css.crumbSeg}>
-                    {index > 0 && <span className={css.crumbSep}>/</span>}
-                    <button
-                      type="button"
-                      className={clsx(css.crumb, last && css.crumbCurrent)}
-                      disabled={last}
-                      onClick={() => { open(summary.id) }}
-                    >
-                      {summary.displayTitle}
-                    </button>
-                  </span>
-                )
-              })}
-              {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
-            </nav>
-            <div className={css.headerActions}>
-              {renderSlot('conversation.session.header.actions', {})}
+            <div className={css.titleCluster}>
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
+                {ancestry.map((summary, index) => {
+                  const last = index === ancestry.length - 1
+                  return (
+                    <span key={summary.id} className={css.crumbSeg}>
+                      {index > 0 && <span className={css.crumbSep}>/</span>}
+                      <button
+                        type="button"
+                        className={clsx(css.crumb, last && css.crumbCurrent)}
+                        disabled={last}
+                        onClick={() => { open(summary.id) }}
+                      >
+                        {summary.displayTitle}
+                      </button>
+                    </span>
+                  )
+                })}
+                {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
+              </nav>
+              <div className={css.headerActions}>
+                {renderSlot('conversation.session.header.actions', {})}
+              </div>
+            </div>
+            <div className={css.headerUtilities}>
+              {renderSlot('conversation.session.header.utilities', {})}
             </div>
           </div>
           {tabs.length > 1 && (

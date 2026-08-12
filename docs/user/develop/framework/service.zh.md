@@ -140,7 +140,7 @@ export function apply(ctx: Context) {
 
 ## Harness 内置服务
 
-服务名、公开方法和源码位置由仓库自动生成到各服务的[子系统页面](../../../subsystems/core.md)。开发插件时应以这些生成区块和服务接口的 TypeScript 类型为准，不要复制一份静态清单。
+服务名、公开方法和源码位置由仓库自动生成到各服务的[子系统页面](../../../subsystems/core.md)。开发插件时应以这些生成区块和服务的 TypeScript 接口为准，不要维护另一份静态清单。
 
 ## 下一步
 
