@@ -5,6 +5,12 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+/** Default carrier cap for all HTTP RPC bodies: sized for the default
+ * aggregate image limit (100 MiB) after base64 expansion plus envelope
+ * headroom (~134.3 MiB required), rounded up for slack. The bridge buffers
+ * each body in memory, so this cap is also the per-request resident bound. */
+export const DEFAULT_MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+
 /** Transport-independent request handler consumed by the Host HTTP bridge. */
 export interface FetchHandler {
   /**
@@ -27,7 +33,7 @@ export async function bridge(
   req: IncomingMessage,
   res: ServerResponse,
   apiHandler: FetchHandler,
-  maxRequestBodyBytes = 32 * 1024 * 1024,
+  maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES,
 ): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:

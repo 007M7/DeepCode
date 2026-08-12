@@ -123,7 +123,7 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   { file: 'scripts/check-workspace-constraints.ts', text: '?.[\'@deepseek-ai/cordis\']', count: 2 },
   { file: 'packages/boot/app-boot/tsdown.config.ts', text: '[\'@deepseek-ai/cordis-plugin-include\']', count: 1 },
   { file: 'tsconfig.base.json', text: '"@deepseek-ai/cordis-plugin-loader": ["./vendor/loader/src"]', count: 1 },
-  // One insertion, once: a duplicated log entry is what a non-idempotent apply produced.
+  // The vendored README owns this required entry; reject its deletion or duplication.
   { file: 'vendor/README.md', text: '17. **`@deepseek-ai` rescope**', count: 1 },
   { file: 'knip.json', text: '@cordisjs', count: 0 },
   { file: 'pnpm-workspace.yaml', text: 'cordis@4.0.0-rc.7', count: 0 },
@@ -239,13 +239,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     file: 'vendor/README.md',
     find: '| Directory | npm name | Version | Upstream repo | Commit |\n|---|---|---|---|---|',
     replace: '| Directory | npm name | Upstream name | Version | Upstream repo | Commit |\n|---|---|---|---|---|---|',
-    expect: 1,
-  },
-  {
-    id: 'vendor-readme-local-modification-log',
-    file: 'vendor/README.md',
-    find: '\n16. **`cordis/package.json` publishes `src`**',
-    replace: '\n16. **`cordis/package.json` publishes `src`**: added `src` to the `files` list, joining the other eight vendored packages. Cordis declares `"./src/*": "./src/*"` in its exports, so a tarball without `src` publishes an export map pointing at absent files; the release change judgement also reads `files` to decide whether a diff reaches the payload, and a package whose only published paths are build output has no tracked path to match.\n17. **`@deepseek-ai` rescope**: every vendored manifest `name`, every internal dependency entry among the vendored set, and every module specifier that reaches them use the scoped names in the manifest table\'s `npm name` column. Directory names, version numbers, and dependency ranges are unchanged, and no upstream runtime identifier is renamed — `Symbol.for(\'schemastery\')` and Schemastery\'s `vendor:` metadata field keep their upstream values. Re-apply with `pnpm run rescope-vendor --apply` after a sync; the table\'s two name columns are the mapping, restated for consumers in [docs/rescope.md](../docs/rescope.md).',
     expect: 1,
   },
   {

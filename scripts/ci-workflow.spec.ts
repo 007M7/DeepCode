@@ -127,6 +127,135 @@ describe('E2B e2e workflow', () => {
   })
 })
 
+describe('Python release workflows', () => {
+  it('keeps complete wheel validation separate from protected public publication', () => {
+    const workflow = loadWorkflow('.github/workflows/python-release.yml')
+    const dispatch = workflowEvent(workflow, 'workflow_dispatch')
+    const pullRequest = workflowEvent(workflow, 'pull_request')
+    const build = workflowJob(workflow, 'build')
+    const pythonCompat = workflowJob(workflow, 'python-compat')
+    const validate = workflowJob(workflow, 'validate')
+    const publishRuntime = workflowJob(workflow, 'publish-runtime')
+    const publishSdk = workflowJob(workflow, 'publish-sdk')
+    if (!isRecord(dispatch.inputs)
+      || !isRecord(dispatch.inputs.publish)
+      || !Array.isArray(pythonCompat.steps)
+      || !Array.isArray(validate.steps)
+      || !Array.isArray(publishRuntime.steps)
+      || !Array.isArray(publishSdk.steps)) {
+      throw new TypeError('Python release workflow must define publish input and release steps')
+    }
+
+    expect(dispatch.inputs.publish).toMatchObject({ type: 'boolean', default: false })
+    expect(pullRequest).toEqual({ types: ['labeled'] })
+    expect(build).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' || github.event.label.name == 'python-release-dry-run'",
+      uses: './.github/workflows/build-exe-for-python-sdk.yml',
+      with: {
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
+        release: true,
+      },
+    })
+    expect(pythonCompat.strategy).toMatchObject({ matrix: { python: ['3.10', '3.14'] } })
+    expect(JSON.stringify(pythonCompat.steps)).toContain('deepseek-harness-sdk==${{ steps.compatibility-version.outputs.version }}')
+    const validateSteps = JSON.stringify(validate.steps)
+    const authorize = validate.steps.filter(isRecord).find(step => step.name === 'Authorize publication request')
+    if (!isRecord(authorize) || typeof authorize.run !== 'string') {
+      throw new TypeError('Python release validation must authorize publication requests')
+    }
+    expect(validateSteps).toContain('PUBLIC_PYPI_RELEASE_ENABLED')
+    expect(authorize).toMatchObject({
+      env: {
+        PYPI_PUBLISHER_REPOSITORY: '${{ vars.PYPI_PUBLISHER_REPOSITORY }}',
+        REPOSITORY: '${{ github.repository }}',
+      },
+    })
+    expect(authorize.run).toContain('[ "$REPOSITORY" = "$PYPI_PUBLISHER_REPOSITORY" ]')
+    expect(validateSteps).toContain('100000000')
+    expect(publishRuntime).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && inputs.publish",
+      needs: 'validate',
+      environment: 'pypi-runtime',
+      permissions: { contents: 'read', 'id-token': 'write' },
+    })
+    expect(publishSdk).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && inputs.publish",
+      needs: ['validate', 'publish-runtime'],
+      environment: 'pypi',
+      permissions: { contents: 'read', 'id-token': 'write' },
+    })
+    const runtimeSteps = publishRuntime.steps.filter(isRecord)
+    const sdkSteps = publishSdk.steps.filter(isRecord)
+    const runtimePublish = runtimeSteps.find(step => step.name === 'Publish runtime wheels')
+    const sdkPublish = sdkSteps.find(step => step.name === 'Publish SDK wheel')
+    const runtimeHashes = runtimeSteps.find(step => step.name === 'Verify release artifact hashes')
+    const sdkHashes = sdkSteps.find(step => step.name === 'Verify release artifact hashes')
+    expect([...runtimeSteps, ...sdkSteps].some(
+      step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'),
+    )).toBe(false)
+    expect([...runtimeSteps, ...sdkSteps].filter(
+      step => step.uses === 'pypa/gh-action-pypi-publish@release/v1',
+    )).toHaveLength(2)
+    expect(runtimePublish).toMatchObject({
+      with: { 'packages-dir': 'dist/runtime/', attestations: false },
+    })
+    expect(sdkPublish).toMatchObject({
+      with: { 'packages-dir': 'dist/sdk/', attestations: false },
+    })
+    expect(runtimeHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
+    expect(sdkHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
+  })
+
+  it('exposes the native wheel builder to the release caller with normalized versions', () => {
+    const workflow = loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml')
+    const call = workflowEvent(workflow, 'workflow_call')
+    const plan = workflowJob(workflow, 'plan')
+    const build = workflowJob(workflow, 'build')
+    if (!isRecord(call.inputs) || !Array.isArray(plan.steps) || !Array.isArray(build.steps)) {
+      throw new TypeError('Python wheel builder must define workflow_call inputs and plan steps')
+    }
+
+    const buildSteps: unknown[] = build.steps
+    const manylinuxAddon = buildSteps.find(step => isRecord(step) && step.name === 'Rebuild Linux node-pty against manylinux 2.28')
+    const macosCheck = buildSteps.find(step => isRecord(step) && step.name === 'Check macOS deployment target')
+    const manylinuxSmoke = buildSteps.find(step => isRecord(step) && step.name === 'Run wheel in a manylinux 2.28 container')
+    expect(call.inputs).toHaveProperty('targets')
+    expect(call.inputs).toMatchObject({ release: { type: 'boolean', default: false } })
+    expect(plan.if).toContain('inputs.release')
+    expect(JSON.stringify(plan.steps)).toContain('pep440_version')
+    expect(JSON.stringify(workflow)).toContain('macosx_14_0_arm64')
+    expect(manylinuxAddon).toMatchObject({ if: "runner.os == 'Linux'" })
+    expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_x86_64')
+    expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_aarch64')
+    expect(JSON.stringify(manylinuxAddon)).toContain('$HOME/setup-pnpm:$HOME/setup-pnpm:ro')
+    expect(JSON.stringify(manylinuxAddon)).toContain('node-pty-glibc-versions.txt')
+    expect(JSON.stringify(manylinuxAddon)).toContain('le 2.28')
+    expect(macosCheck).toMatchObject({ if: "runner.os == 'macOS'" })
+    expect(JSON.stringify(macosCheck)).toContain('scripts/check-macos-deployment-target.py')
+    expect(JSON.stringify(macosCheck)).toContain('$EXE-spawn-helper')
+    expect(manylinuxSmoke).toMatchObject({ if: "runner.os == 'Linux'" })
+    expect(JSON.stringify(manylinuxSmoke)).toContain('-e DSH_TELEMETRY_DISABLED')
+  })
+
+  it('uses the shared macOS deployment-target check in GitLab', () => {
+    const workflow = loadWorkflow('.gitlab-ci.yml')
+    const runtimeWheel = workflow['.runtime-wheel']
+    if (!isRecord(runtimeWheel) || !Array.isArray(runtimeWheel.script)) {
+      throw new TypeError('GitLab CI must define the runtime wheel script')
+    }
+    const runtimeScript: unknown[] = runtimeWheel.script
+    const macosCheck = runtimeScript.find(
+      step => typeof step === 'string' && step.includes('PLATFORM" = macos-arm64'),
+    )
+    if (typeof macosCheck !== 'string') {
+      throw new TypeError('GitLab CI must check the macOS deployment target')
+    }
+
+    expect(macosCheck).toContain('scripts/check-macos-deployment-target.py')
+    expect(macosCheck).toContain('"$EXE" "$EXE-spawn-helper"')
+  })
+})
+
 describe('Issue lifecycle workflow', () => {
   it('uses explicit review handoff events without rerunning when a draft becomes ready', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')

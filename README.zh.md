@@ -22,7 +22,7 @@ npx @deepseek-ai/dsh web
 
 该命令会初始化 Web profile 并打印 Web UI 地址，默认地址为 `http://127.0.0.1:3080`。打开该地址，在**设置 → 模型**中添加 DeepSeek API 密钥，然后启动一个会话。运行命令时所在的目录将作为默认工作区；你可以尝试输入 `Summarize this repository and identify its main packages.`。
 
-下一步请阅读 [Web UI 指南](docs/user/guide/)。
+下一步请阅读 [Web UI 指南](docs/user/guide/index.md)。
 
 ### 从源码运行
 
@@ -32,10 +32,11 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 pnpm dsh web
 ```
 
-最后一条命令会先构建仓库，再启动同一个 Web UI。
+`pnpm run build` 会准备仓库产物。`pnpm dsh web` 不会重新构建，而是直接启动同一个 Web UI。
 
 ## Profile 与插件
 

@@ -34,6 +34,7 @@ ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能�
 | `workspaceContext` | 必填 | 工作区指令字节预算／配置，或 `false`。 |
 | `skills` | 拥有者默认值 | skill 注册表、本地提供方和面向模型的 skill 工具。 |
 | `toolBash` | 拥有者默认值 | 面向模型的 bash 工具配置。 |
+| `tasks` | `{ maxConcurrentTasksPerOwner: 10 }` | 进程内按 owner 限制活动任务的准入配置。 |
 | `toolTasks` | 拥有者默认值 | 通用后台任务控制配置，或 `false`。 |
 | `goals` | 拥有者默认值 | 持久化的同会话目标领域与模型工具，或 `false`。 |
 

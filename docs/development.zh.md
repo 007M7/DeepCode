@@ -126,6 +126,12 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 
 ### 演示
 
+从源码 checkout 运行这些演示前，请单独执行仓库构建：
+
+```sh
+pnpm run build
+```
+
 单次运行的 Headless coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
