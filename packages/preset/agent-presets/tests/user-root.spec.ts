@@ -19,10 +19,12 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { COMPOSITION_FILE, USER_PRESET_DIR, type Config } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, { COMPOSITION_FILE, type Config } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const SYSTEM_ROOT = join(FIXTURES, 'system')
+/** Spelled out rather than imported: the convention is what these tests assert. */
+const USER_ROOT_SEGMENT = '.agent-presets'
 const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\n    tool: alpha\n'
 
 let home: string
@@ -56,8 +58,8 @@ async function roster(config: Partial<Config> = {}): Promise<Context> {
 
 /** Hand-place a preset directory under the harness home's preset root. */
 async function seedHomePreset(id: string): Promise<void> {
-  await mkdir(join(home, USER_PRESET_DIR, id), { recursive: true })
-  await writeFile(join(home, USER_PRESET_DIR, id, COMPOSITION_FILE), VALID)
+  await mkdir(join(home, USER_ROOT_SEGMENT, id), { recursive: true })
+  await writeFile(join(home, USER_ROOT_SEGMENT, id, COMPOSITION_FILE), VALID)
 }
 
 describe('the harness-home preset root', () => {
@@ -79,7 +81,7 @@ describe('the harness-home preset root', () => {
 
     expect(listed.find(preset => preset.id === 'mine')).toMatchObject({ trust: 'user' })
     expect((await ctx.agentPresets.resolve('mine')).path)
-      .toBe(join(home, USER_PRESET_DIR, 'mine', COMPOSITION_FILE))
+      .toBe(join(home, USER_ROOT_SEGMENT, 'mine', COMPOSITION_FILE))
   })
 
   it('makes a roster with only a system root authorable, and receives the copy', async () => {
@@ -88,7 +90,7 @@ describe('the harness-home preset root', () => {
     expect(ctx.agentPresets.authorable).toBe(true)
     await ctx.agentPresets.copy('standard', 'copied')
 
-    expect(existsSync(join(home, USER_PRESET_DIR, 'copied', COMPOSITION_FILE))).toBe(true)
+    expect(existsSync(join(home, USER_ROOT_SEGMENT, 'copied', COMPOSITION_FILE))).toBe(true)
   })
 
   it('sorts after every configured root, so a shipped id still shadows a home directory', async () => {
@@ -124,6 +126,6 @@ describe('the harness-home preset root', () => {
     await ctx.agentPresets.copy('standard', 'copied')
 
     expect(existsSync(join(explicit, 'copied', COMPOSITION_FILE))).toBe(true)
-    expect(existsSync(join(home, USER_PRESET_DIR, 'copied'))).toBe(false)
+    expect(existsSync(join(home, USER_ROOT_SEGMENT, 'copied'))).toBe(false)
   })
 })

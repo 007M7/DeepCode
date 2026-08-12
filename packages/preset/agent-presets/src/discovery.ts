@@ -33,6 +33,10 @@ export const COMPOSITION_FILE = 'agent.cordis.yml'
  * the installed app can resolve; where a person's own presets go is the same
  * place in every deployment that does not say otherwise, so a launcher that
  * forgets to configure one still finds them.
+ *
+ * Package-internal on purpose: no consumer outside this package addresses the
+ * directory by name, and a test that imported it could not catch this value
+ * being wrong — the expected segment is spelled out where it is asserted.
  */
 export const USER_PRESET_DIR = '.agent-presets'
 
