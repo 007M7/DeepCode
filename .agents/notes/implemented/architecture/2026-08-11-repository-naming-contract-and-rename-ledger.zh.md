@@ -1,34 +1,34 @@
 # Agent Note: 仓库命名约定与预发布重命名清单
 
-Status: proposed
+Status: implemented
 
 [English](2026-08-11-repository-naming-contract-and-rename-ledger.md) | 中文
 
 ## 问题
 
-仓库的发展速度超过了部分名称的演进速度。一些包名仍在描述最初的实现，而非所提供的能力。若干类即使实际承担注册表、运行时、引擎、控制器或解析器的职责，名称仍使用 `Service`。部分 `ctx` 键以单数命名注册表，却以复数命名单个引擎。还有一些提供方明明通过可替换的文件系统或子进程服务工作，可以在另一执行环境中运行，名称却使用 `local`。
+仓库的发展速度曾超过部分名称的演进速度。一些包名描述的是最初的实现，而非所提供的能力。若干类即使实际承担注册表、运行时、引擎、控制器或解析器的职责，名称仍使用 `Service`。部分 `ctx` 键以单数命名注册表，却以复数命名单个引擎。还有一些提供方明明通过可替换的文件系统或子进程服务工作，可以在另一执行环境中运行，名称却使用 `local`。
 
 这些名称并非无关紧要。名称会告诉贡献者一项职责从哪里开始、到哪里结束。`Store` 表示数据访问。`Registry` 表示注册与查找。`Runtime` 表示实时执行和生命周期。如果同一个词同时表示这三者，调用方就必须阅读实现，才能判断哪个对象拥有策略、工作或状态。
 
-仓库还在两种含义下使用 `SDK`。受支持的 Python 和 TypeScript 客户端使用 JSON-RPC SDK 协议。项目整体是 DeepSeek Harness，而不是 SDK 项目。已移除的 SDK 项目工具链使宽泛的含义失去依据，但现有文案和名称仍保留了部分旧用法。
+仓库还曾在两种含义下使用 `SDK`。受支持的 Python 和 TypeScript 客户端使用 JSON-RPC SDK 协议。项目整体是 DeepSeek Harness，而不是 SDK 项目。已移除的 SDK 项目工具链使宽泛的含义失去依据，但文案和名称仍保留了部分旧用法。
 
-这是首次发布带标签版本之前，最后一个能够低成本完成仓库级重命名的时点。保留含义不清的名称，会让偶然形成的词汇变成兼容性约定。
+首次发布带标签版本之前的最后一个窗口，使仓库级重命名仍可低成本完成。若继续保留含义不清的名称，偶然形成的词汇就会变成兼容性约定。
 
-## 提案
+## 决策
 
-在首次发布带标签版本之前，应用本说明中的重命名清单。只更改名称，不得在重命名变更中改变包职责、服务边界、行为、默认值或数据模型。如果某个名称暴露出不合理的边界，应另写一份 proposed Agent Note，专门提议边界变更。
+仓库使用本清单中的全部当前名称。本决策只更改名称；包职责、服务边界、行为、默认值和数据模型保持不变。如果某个名称暴露出不合理的边界，需要另写一份 proposed Agent Note，专门提议边界变更。
 
-每组获准的系列重命名都必须原子完成。清单点名某一表面时，应一并更新其目录、NPM 包名、导入、Cordis 插件名称、`ctx` 键、公开类型、直接耦合的事件或工具标识符、配置、测试、fixture（测试前置数据）、示例、生成的参考资料以及当前文档。不得留下别名、兼容包、重复的服务键、双重事件名称或回退解析器。仓库尚未发布，旧名称应被拒绝。
+每个已重命名系列只有一套词汇。清单点名某一接口时，其目录、NPM 包名、导入、Cordis 插件名称、`ctx` 键、公开类型、直接耦合的事件或工具标识符、配置、测试、fixture（测试前置数据）、示例、生成的参考资料以及当前文档都使用当前名称。仓库不保留别名、兼容包、重复的服务键、双重事件名称或回退解析器，并拒绝旧名称。
 
-实现可以拆分为多个 PR（Pull Request），以保持评审可行。任何一个 PR 都不得让同一系列同时存在两套公开词汇。最终状态必须满足完整清单。
+同一系列不会公开两套词汇。
 
 ### `SDK` 只表示一件事
 
-`SDK` 表示受支持的 Python 和 TypeScript SDK 所使用、基于 JSON-RPC 的客户端／服务器协议。保留 `@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 和协议身份 `deepseek-harness-sdk-runtime`。将 JSON-RPC 服务器重命名并纳入该系列。不得将 DeepSeek Harness 本身称为 SDK，也不得恢复已移除的项目生成器、启动器、辅助工具或启动器遥测包。
+`SDK` 表示受支持的 Python 和 TypeScript SDK 所使用、基于 JSON-RPC 的客户端／服务器协议。仓库保留 `@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 和协议身份 `deepseek-harness-sdk-runtime`；JSON-RPC 服务器属于同一系列。DeepSeek Harness 本身不是 SDK，已移除的项目生成器、启动器、辅助工具和启动器遥测包继续保持不存在。
 
-如果本提案获准，它将部分取代三项现行决策。它会替换[包重新分组决策](../../implemented/architecture/2026-07-29-package-regrouping.md)中保留的 `bash/`、`pty/` 和 `self-modification/` 组名，以及两项暂定包名。它只替换[移除 SDK 项目工具链](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md)中将整个仓库称为 SDK 的说法；后者仍负责说明删除范围和保留的运行时 SDK。它只替换[工具调用超时策略](../../implemented/architecture/2026-07-07-tool-call-timeout-policy.md)中的包名理由；超时机制及其 `guard/timeout-policy/` 归属保持不变。
+本决策部分取代三项现行决策。它替换[包重新分组决策](2026-07-29-package-regrouping.md)中保留的 `bash/`、`pty/` 和 `self-modification/` 组名，以及两项暂定包名。它只替换[移除 SDK 项目工具链](../simplification/2026-08-11-remove-sdk-project-toolchain.md)中将整个仓库称为 SDK 的说法；后者仍负责说明删除范围和保留的运行时 SDK。它只替换[工具调用超时策略](2026-07-07-tool-call-timeout-policy.md)中的包名理由；超时机制及其 `guard/timeout-policy/` 归属保持不变。
 
-如果其他已实现说明中的包、路径或类型被重命名，而其边界和理由保持不变，则本提案不会取代这些说明。实现阶段只更新其中的事实名称。只有本提案改变既有决策时才添加双向链接；尚未获准的提案不会让现行的已实现说明提前描述未交付名称。
+如果其他已实现说明中的包、路径或类型被重命名，而其边界和理由保持不变，则本决策不会取代这些说明。这些说明使用已实现的事实名称。三项被部分取代的决策都链接回本决策。
 
 ### 按实际职责命名
 
@@ -68,7 +68,7 @@ Status: proposed
 
 如果协议或方言名称能够区分实现，就应保留。实现依赖相应机制时，保留 `Bash`、`Pwsh`、`JSON-RPC`、`SQLite`、`JSONL`、`OpenTelemetry`、`Claude Code` 和 `E2B`。每个当前后端都已使用 LLM（大语言模型）seam 时，不要在压缩后端名称中加入 `LLM`；在出现更具体的算法名称之前，`basic` 才是如实且中性的名称。
 
-不得虚构 `process sandbox` 概念。当前 `sandbox` 系列已经准确命名其产品职责，获准的整体重命名不会改变该边界。
+不得虚构 `process sandbox` 概念。当前 `sandbox` 系列已经准确命名其产品职责。本决策不改变该职责。
 
 PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`、`Llm`、`JsonRpc` 和 `ApiProxy`。在文案和适用的包名中使用惯例规定的全大写形式：UI、LLM、JSON-RPC 和 API。`Typert` 是标识符和文案中的唯一准确产品拼写；不得写成 `TypeRT`、`TypeRt`，也不得对 `Typert` 作其他内部拆分。
 
@@ -76,15 +76,15 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 将规则写入项目文档
 
-重命名实现合入时，应将完整的职责词约定加入配对的包创建指南 `docs/cookbook/adding-a-package.md`。在 `packages/AGENTS.md` 中添加一条简短规则并链接到该指南。更新术语表和根项目说明，使 `SDK` 和 `Typert` 各自只有一种含义。Agent Note 负责记录理由和被否决的替代方案；指南负责记录贡献者应遵循的规则。
+配对的包创建指南 `docs/cookbook/adding-a-package.md` 包含完整的职责词约定，`packages/AGENTS.md` 链接到该约定。术语表和根项目说明使 `SDK` 和 `Typert` 各自只有一种含义。本 Agent Note 负责记录理由和被否决的替代方案；指南负责记录贡献者应遵循的规则。
 
 ## 重命名清单
 
-以下表格列出公开名称和仓库级名称。引用相同职责的私有局部变量也应采用新词汇。若宽泛替换并不正确，清单会明确指出保留的底层名称或产品可见名称。
+以下表格记录公开名称和仓库级名称的变更。`当前名称` 栏记录当前名称。引用相同职责的私有局部变量也使用相同词汇。若宽泛替换并不正确，清单会明确指出保留的底层名称或产品可见名称。
 
 ### 运行时 SDK
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-jsonrpc` | `@deepseek-ai/dsh-sdk-jsonrpc-server` | 它是 SDK 协议的服务器端。单独使用 `jsonrpc` 只说明编码；`sdk-jsonrpc-server` 则同时说明所属系列、机制和职责。 |
 | `HarnessSdkServer` | `HarnessSdkJsonRpcServer` | 该类是 JSON-RPC 服务器的一种实现，并不代表所有可能的 SDK 服务器。 |
@@ -93,7 +93,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### Shell 与终端
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `packages/bash/` | `packages/shell/` | 该组包含方言无关的执行器 seam、Bash 和 PowerShell 实现、环境支持以及 shell 工具。 |
 | `@deepseek-ai/dsh-bash`, `ctx.bash` | `@deepseek-ai/dsh-shell`, `ctx.shell` | PowerShell 已经实现该 seam。此项能力是 shell 执行，而不是 Bash。 |
@@ -113,7 +113,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 语言服务器与作业
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-lsp-local` | `@deepseek-ai/dsh-lsp-stdio` | 该提供方通过可替换的文件系统和子进程服务，以 stdio 传输 LSP。它不一定在本地运行。 |
 | `packages/tasks/` | `packages/jobs/` | 该系列负责脱离前台运行的工具作业。`jobs` 简短，并可避免与用户任务或 todo 概念冲突。 |
@@ -131,7 +131,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 输入触发器、工具呈现、权限预设和用户问题
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-client-ui-slash`, `ui-slash/` | `@deepseek-ai/dsh-client-ui-input-trigger`, `ui-input-trigger/` | 客户端处理 `/`、`@`、键盘仲裁、候选菜单和程序化启动，并非只处理斜杠命令。 |
 | `ctx.slash`、`SlashService`、`SlashController`、`SlashSource` | `ctx.inputTriggers`、`InputTriggerService`、`InputTriggerController`、`InputTriggerSource` | 这些名称覆盖所有受支持的触发器，并保留现有的服务、控制器和来源职责。耦合的区域设置和公开类型名称也改用 `InputTrigger`。 |
@@ -144,11 +144,11 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | 这些名称说明唯一受支持的交互形式。保留 `AskUserQuestion*`、`ask_user_question` 工具和 `@deepseek-ai/dsh-tool-ask-user`。 |
 | `docs/subsystems/user-interaction.md` | `docs/subsystems/user-questions.md` | 该页面只记录问题和答案。 |
 
-保留 `/permission`、`permissions` 投影、`permission` 设置命名空间和 `permission/preset`；它们都是准确的产品词汇或持久化词汇。保留完整名称 `PermissionPresetSettingsController`。删除 `Preset` 会去掉限定其权限的词。另行制定提案以移除 `both` 工具呈现模式；本次重命名不移除行为。
+保留 `/permission`、`permissions` 投影、`permission` 设置命名空间和 `permission/preset`；它们都是准确的产品词汇或持久化词汇。保留完整名称 `PermissionPresetSettingsController`。删除 `Preset` 会去掉限定其权限的词。移除 `both` 工具呈现模式的工作仍推迟到另一份提案；本次重命名不移除行为。
 
 ### Typert、API 网关与工具
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `packages/typert/type-meta/`, `@deepseek-ai/dsh-type-meta` | `typert/protocol/`, `@deepseek-ai/dsh-typert-protocol` | 该包拥有 Typert Remote 协议、装饰器、绑定、编解码器、查找逻辑和上下文约定。它不是通用类型元数据。 |
 | 协议包中的 `GatewayService` | `TypertRemoteService` | 该基类标记要导出为 Remote 的同进程服务。它不是 API 网关。 |
@@ -162,7 +162,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 工作区指令、遥测、身份和启动环境
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | Host `ctx.workspace` | Host `ctx.workspaceRegistry` | `WorkspaceRegistry` 拥有多个工作区，但 Client `ctx.workspaces` 已经使用不兼容的类型。即使二者运行时上下文独立，两份声明仍会在编译时合并进同一个 Cordis `Context` 接口。职责后缀明确指出 host 服务，并避免该冲突。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
 | `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | 该包为 agent（智能体）加载分层的 `AGENTS.md` 和 `CLAUDE.md` 文件。它并非通用工作区上下文。 |
@@ -181,7 +181,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 日程、工作流、目标与压缩
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-tool-schedule`、`schedule/tool-schedule/`、插件 `tool-schedule` | `@deepseek-ai/dsh-schedule`、`schedule/schedule/`、插件 `schedule` | 该包拥有持久 Schedule 领域、持久化屏障、管理工具、定时器、后续轮次和运行时生命周期。`tool-` 只描述其中一部分。 |
 | `ScheduleOwner` | `ScheduleRuntime` | 该逐 agent 对象运行实时定时器、持久化投影、分派、空闲等待和资源释放。`Owner` 没有说明这一执行职责。耦合的私有 `owner*` 名称也改用 `runtime*`。 |
@@ -194,11 +194,11 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `@deepseek-ai/dsh-compact-basic`、`BasicCompactService`、公开的 `BasicCompact*` | `@deepseek-ai/dsh-compaction-basic`、`BasicCompactionEngine`、对应的 `BasicCompaction*` | `basic` 朴素但准确。`compaction-llm` 没有增加信息，因为当前实现系列已使用 LLM。 |
 | `@deepseek-ai/dsh-compact-tool-result-prune`, `ToolResultPruneService`, `ctx.toolResultPrune` | `@deepseek-ai/dsh-compaction-tool-result-pruner`, `ToolResultPruner`, `ctx.toolResultPruner` | 该插件是剪除工具结果的执行主体。名词 `pruner` 说明了这一职责。 |
 
-保留 `/compact`、命令包，以及维持压缩定义包与提供方包分离的既有决策。本次重命名只改变词汇，不改变该包边界。
+保留 `/compact`、命令包，以及相互独立的压缩定义包和提供方包。合并这些包的提议仍被否决。本次重命名只改变词汇，不改变该包边界。
 
 ### 设置、凭据、客户端模块和较小的核心职责
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | 抽象类 `Settings` | `SettingsProvider` | 该类通过可替换能力提供设置。保留包、键和事件。 |
 | `@deepseek-ai/dsh-settings-local`, `SettingsLocal` | `@deepseek-ai/dsh-settings-file`, `FileSettingsProvider` | 该实现通过文件系统 seam 以文件为后端。`file` 说明机制，`local` 则不能。 |
@@ -216,7 +216,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### Host Web 服务器、会话数据与代码执行
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `HttpServerService`, `ctx.httpServer` | `WebServer`, `ctx.webServer` | 该服务器拥有 HTTP 路由和 WebSocket 升级路由。`Web` 可以同时涵盖两者；此处的 `Http` 作用域过窄。保留 `packages/host/webserver`、`@deepseek-ai/dsh-host-webserver`、`WebRoute` 和 `WebUpgradeRoute`。 |
 | 文档子系统标签 `http-server` | `web-server` | 子系统标签必须与服务采用相同作用域。 |
@@ -233,7 +233,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 文件系统、skill、subagent 和 Web 提供方
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-fs-policy` | `@deepseek-ai/dsh-fs-observation-policy` | 该包定义哪些文件系统观察可以授权后续操作。它不是完整的文件系统策略或沙箱策略。 |
 | `FsPolicyExec` | `FsObservationActor` | 该值表示策略所关联的观察与操作的执行主体。它本身不执行策略。 |
@@ -251,7 +251,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 钩子、防护、Plan Mode、扩展与诊断
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `@deepseek-ai/dsh-hooks-claude`、`ClaudeHookConfig`、`parseClaudeConfig`，方言 `claude` | `@deepseek-ai/dsh-hooks-claude-code`、`ClaudeCodeHookConfig`、`parseClaudeCodeConfig`，方言 `claude-code` | 该钩子桥接面向 Claude Code，而非所有 Anthropic 或 Claude 产品。 |
 | `@deepseek-ai/dsh-repeat-tool-guard`，插件／来源 `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-reminder`，插件／来源 `repeat-tool-reminder` | 该插件向模型添加提醒，并不阻止工具调用，也不执行防护决策。 |
@@ -263,11 +263,11 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `InvariantService` | `InvariantRegistry` | 该对象拥有已注册的不变量检查。保留 `@deepseek-ai/dsh-invariants` 和 `ctx.invariants`。 |
 | `packages/client/test-runtime/` | `packages/test-support/client-runtime/` | 该包是客户端测试基础设施。如果现有 NPM 名称已经说明这一约定，则予以保留。 |
 
-保留 MCP、Todo、Plan Mode 包、键、事件和工具名称。获准的变更针对控制器类，而不是产品功能。
+保留 MCP、Todo、Plan Mode 包、键、事件和工具名称。本决策重命名控制器类，而不是产品功能。
 
 ### 实用工具、E2B、Host、组合包、示例与应用
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `util/paths/`, `@deepseek-ai/dsh-paths` | `util/home-paths/`, `@deepseek-ai/dsh-home-paths` | 这些辅助函数解析 Harness 主目录下的路径，并非通用路径库。已准确说明返回路径的函数名保持不变。 |
 | `util/retention/`, `@deepseek-ai/dsh-retention` | `util/output-retention/`, `@deepseek-ai/dsh-output-retention` | 该策略保留命令和工具输出，而不是通用数据保留框架。 |
@@ -281,7 +281,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 
 ### 客户端运行时与 UI
 
-| 当前名称 | 提议名称 | 理由 |
+| 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | `SlotsService` | `SlotRegistry` | 该对象拥有具名 slot 声明和注册项。 |
 | `SessionsService` | `SessionRuntime` | 该对象拥有实时客户端会话协调职责，而不是被动的会话列表。 |
@@ -365,26 +365,22 @@ PascalCase 标识符内部使用 `Ui`，不要使用 `UI`。除非清单明确�
 
 **为旧名称保留别名。**不予采纳。没有已发布的消费方需要这些别名。别名会保留两套词汇，使首次发布携带一项从未有用户需要的迁移。
 
-## 验收标准
+## 验证
 
-- 应用清单中的每项映射；如果决策发生变化，则必须在实施前修订本提案并说明原因。
-- 每个系列只有一套公开词汇。同一个 Cordis 上下文中不得留下兼容包、重新导出别名、重复的 `ctx` 键、双重插件 id、双重事件 id、旧工具别名或回退解析器。
-- 变更只能重命名。运行时行为、包边界、默认值、策略、持久化语义和模型行为必须保持等价，只有标识符本身可见时除外。
-- 包目录、NPM 名称、导入、manifest（元数据清单）、TypeScript 引用和路径、Cordis 配置、插件 id、服务键、事件、工具、RPC 名称、清单点名的持久化名称、fixture、快照、示例、生成的目录和当前文案都采用新词汇。
-- 实现合入时，以事实性名称和路径变更更新当前处于 implemented 状态的 Agent Note。包重新分组说明应记录新的分组清单和包名目标，SDK 移除说明不得再将仓库称为 SDK，超时策略说明应记录新的包名理由。架构决策仍然有效的说明，不得被重写为新的决策。
-- 配对的包创建指南应包含职责词约定，`packages/AGENTS.md` 应链接到该约定，术语表应记录选定用词和 `Typert` 拼写，根项目文案应将产品称为 DeepSeek Harness，而不是 DeepSeek Harness SDK。
+- 清单中的每项映射都出现在仓库中。每个系列只有一套公开词汇；同一个 Cordis 上下文中没有兼容包、重新导出别名、重复的 `ctx` 键、双重插件 id、双重事件 id、旧工具别名或回退解析器。
+- 运行时行为、包边界、默认值、策略、持久化语义和模型行为保持等价，只有标识符本身可见时除外。
+- 包目录、NPM 名称、导入、manifest（元数据清单）、TypeScript 引用和路径、Cordis 配置、插件 id、服务键、事件、工具、RPC 名称、清单点名的持久化名称、fixture、快照、示例、生成的目录和当前文案都使用已实现词汇。
+- 当前处于 implemented 状态的 Agent Note 使用事实名称和路径。包重新分组说明记录分组清单和包名目标，SDK 移除说明将 `SDK` 限定为运行时协议，超时策略说明记录包名理由。
+- 配对的包创建指南包含职责词约定，`packages/AGENTS.md` 链接到该约定，术语表记录选定用词和 `Typert` 拼写，根项目文案将产品称为 DeepSeek Harness，而不是 DeepSeek Harness SDK。
 - 已移除的 SDK 项目工具链继续保持不存在。
-- 聚焦测试覆盖每个重命名系列；在完整实现上，源代码平面的类型检查、构建、包卫生检查、生成参考资料门禁、受可见标识符影响的快照、翻译配对、`doc-sync` 和 lint 均应通过。
-- 只有完整清单和文档约定全部成为事实后，才能将该 proposed 说明移入 `implemented/`。其实现版应描述最终状态，而不是迁移检查清单。
+- `pnpm run check:ci` 覆盖源代码平面的类型检查、构建、包卫生检查、生成参考资料检查、受影响的快照、翻译配对、`doc-sync` 和 lint。发布形态的 Python 运行时冒烟测试和必需 CI 覆盖打包运行时与平台路径。
 
-## 风险
+## 后果
 
-这轮整体重命名会更改大量导入、路径、配置字符串、生成的参考资料和模型可见名称。遗漏的字符串可能通过编译，却在加载或回放时失败。实现时必须结合类型驱动的修改，并在源代码、配置、测试、fixture、文档和生成输入中精确搜索旧名称。
+仓库为每个重命名系列保留一套词汇。清单点名的旧磁盘名称、协议值、工具名称和配置项不再工作。能够识别陈旧配置的所属解析器会明确报错，而不是同时接受两种形式。
 
-并行工作会与路径移动和符号重命名产生冲突。这是发布前的临时成本。按职责一致的系列拆分实现，可以降低评审成本和合并冲突，但每个系列都必须保持原子性。
+一些名称更长。额外增加的词只有在防止误述权限或机制时才有意义。如果名称中的词不能全部限定职责，长名称仍然错误。
 
-一些名称会变得更长。额外增加的词只有在防止误述权限或机制时才有意义。如果名称中的词不能全部限定职责，长名称仍然是失败的命名。
+职责后缀不能替代对行为的检查。包创建指南保留本决策中的直接判断方式：检查调用方执行什么操作、对象拥有什么生命周期，以及对象控制什么失败或策略。
 
-如果评审人只检查后缀而不检查行为，职责词就会被机械套用。指南必须保留本说明中的直接判断方式：检查调用方执行什么操作、对象拥有什么生命周期，以及对象控制什么失败或策略。
-
-清单点名的旧磁盘名称、协议值、工具名称和配置项将停止工作。发布前接受这一后果。如果负责解析的解析器能够识别陈旧配置，实现必须明确报错；不得静默接受两种形式。
+基于旧路径和旧符号的分支需要解决冲突。这是发布前移除旧词汇且不保留兼容别名的一次性成本。

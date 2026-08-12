@@ -1,34 +1,34 @@
 # Agent Note: Repository naming contract and pre-release rename ledger
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-08-11-repository-naming-contract-and-rename-ledger.zh.md)
 
 ## Problem
 
-The repository has grown faster than some names. Several package names still describe the first implementation instead of the capability. Several classes use `Service` even when they are registries, runtimes, engines, controllers, or resolvers. Some `ctx` keys are singular for registries and plural for one engine. Some provider names say `local` when they use replaceable filesystem or subprocess services and can run in another execution world.
+The repository had grown faster than some names. Several package names described the first implementation instead of the capability. Several classes used `Service` even when they were registries, runtimes, engines, controllers, or resolvers. Some `ctx` keys were singular for registries and plural for one engine. Some provider names said `local` even though they used replaceable filesystem or subprocess services and could run in another execution world.
 
 These names are not harmless. A name tells a contributor where a responsibility starts and stops. `Store` suggests data access. `Registry` suggests registrations and lookup. `Runtime` suggests live execution and lifecycle. When one word is used for all three, callers cannot tell which object owns policy, work, or state without reading the implementation.
 
-The repository also uses `SDK` in two meanings. The supported Python and TypeScript clients use the JSON-RPC SDK protocol. The project as a whole is DeepSeek Harness, not an SDK project. The removed SDK project toolchain made the broad meaning obsolete, but current prose and names still preserve parts of it.
+The repository also used `SDK` in two meanings. The supported Python and TypeScript clients use the JSON-RPC SDK protocol. The project as a whole is DeepSeek Harness, not an SDK project. The removed SDK project toolchain made the broad meaning obsolete, but prose and names preserved parts of it.
 
-This is the last pre-release point at which repository-wide renames are cheap. Keeping weak names would turn accidental vocabulary into a compatibility contract.
+The last pre-release window made repository-wide renames cheap. Keeping weak names would have turned accidental vocabulary into a compatibility contract.
 
-## Proposal
+## Decision
 
-Apply the rename ledger in this note before the first tagged release. Change names only. Do not change package responsibilities, service boundaries, behavior, defaults, or data models in a rename change. If a name exposes a bad boundary, write a separate proposed Agent Note for that boundary change.
+The repository uses every current name in this ledger. This decision changes names only; package responsibilities, service boundaries, behavior, defaults, and data models stay the same. A name that exposes a bad boundary requires a separate proposed Agent Note for that boundary change.
 
-Each accepted family rename is atomic. Update its directory, npm package name, imports, Cordis plugin name, `ctx` key, public types, directly coupled event or tool identifiers, configuration, tests, fixtures, examples, generated references, and current documentation where the ledger names those surfaces. Do not leave an alias, compatibility package, duplicate service key, dual event name, or fallback parser. The repository is pre-release and rejects the old name.
+Each renamed family has one vocabulary. Its directory, npm package name, imports, Cordis plugin name, `ctx` key, public types, directly coupled event or tool identifiers, configuration, tests, fixtures, examples, generated references, and current documentation use the current name where the ledger names those interfaces. No alias, compatibility package, duplicate service key, dual event name, or fallback parser remains. The repository rejects the old name.
 
-Implementation can use more than one PR to keep review practical. One PR must not leave one family with two public vocabularies. The final state must satisfy the complete ledger.
+No family exposes two public vocabularies.
 
 ### Use `SDK` for one thing
 
-`SDK` means the JSON-RPC-based client/server protocol used by the supported Python and TypeScript SDKs. Keep `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and the wire identity `deepseek-harness-sdk-runtime`. Rename the JSON-RPC server into that family. Do not call DeepSeek Harness itself an SDK, and do not restore the removed project generator, launcher, helper, or launcher telemetry packages.
+`SDK` means the JSON-RPC-based client/server protocol used by the supported Python and TypeScript SDKs. The repository keeps `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and the wire identity `deepseek-harness-sdk-runtime`; the JSON-RPC server belongs to the same family. DeepSeek Harness itself is not an SDK, and the removed project generator, launcher, helper, and launcher telemetry packages stay absent.
 
-If accepted, this proposal will partially supersede three active decisions. It replaces the retained `bash/`, `pty/`, and `self-modification/` group names and both deferred package targets in the [package-regrouping decision](../../implemented/architecture/2026-07-29-package-regrouping.md). It replaces only the repository-wide SDK claim in the [SDK project toolchain removal](../../implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md), which remains the owner of the deletion and the surviving runtime SDK. It replaces only the package-name rationale in the [tool-call timeout policy](../../implemented/architecture/2026-07-07-tool-call-timeout-policy.md); the timeout mechanism and its `guard/timeout-policy/` home remain unchanged.
+This decision partially supersedes three active decisions. It replaces the retained `bash/`, `pty/`, and `self-modification/` group names and both deferred package targets in the [package-regrouping decision](2026-07-29-package-regrouping.md). It replaces only the repository-wide SDK claim in the [SDK project toolchain removal](../simplification/2026-08-11-remove-sdk-project-toolchain.md), which remains the owner of the deletion and the surviving runtime SDK. It replaces only the package-name rationale in the [tool-call timeout policy](2026-07-07-tool-call-timeout-policy.md); the timeout mechanism and its `guard/timeout-policy/` home remain unchanged.
 
-Other implemented notes that use a renamed package, path, or type are not superseded when their boundary and rationale remain intact. The implementation updates those factual names. It adds reciprocal links only where this proposal changes a decision; a proposal does not make current implemented notes describe unshipped names.
+Other implemented notes that use a renamed package, path, or type are not superseded when their boundary and rationale remain intact. They carry the current factual names. The three partially superseded decisions link back to this decision.
 
 ### Name the role that exists
 
@@ -68,7 +68,7 @@ The practical tests are direct. If callers mainly call `register()` and receive 
 
 Keep a protocol or dialect name when it distinguishes implementations. Keep `Bash`, `Pwsh`, `JSON-RPC`, `SQLite`, `JSONL`, `OpenTelemetry`, `Claude Code`, and `E2B` where the implementation depends on that mechanism. Do not put `LLM` into a compaction backend name when every current backend already uses the LLM seam; `basic` is the honest neutral name until a more specific algorithm name exists.
 
-Do not invent a `process sandbox` concept. The current `sandbox` family already names its product responsibility, and the accepted sweep does not change that boundary.
+Do not invent a `process sandbox` concept. The current `sandbox` family already names its product responsibility. This decision does not change that responsibility.
 
 Use title case for initialisms inside PascalCase identifiers: `Ui`, `Llm`, `JsonRpc`, and `ApiProxy`. Use the conventional uppercase form in prose and package names where applicable: UI, LLM, JSON-RPC, and API. `Typert` is the exact product spelling in identifiers and prose; do not write `TypeRT`, `TypeRt`, or `Typert` with another internal split.
 
@@ -76,15 +76,15 @@ Do not remove an intentional vendor qualifier to avoid repetition. `dsh-subagent
 
 ### Put the rule in project documentation
 
-When the rename implementation lands, add the full role-word contract to the paired package-creation guide at `docs/cookbook/adding-a-package.md`. Add a short linked rule to `packages/AGENTS.md`. Update the terminology table and the root project description so `SDK` and `Typert` have one meaning. The Agent Note owns the rationale and rejected alternatives; the guide owns the rule contributors follow.
+The paired package-creation guide at `docs/cookbook/adding-a-package.md` contains the full role-word contract, and `packages/AGENTS.md` links to it. The terminology table and root project description give `SDK` and `Typert` one meaning. This Agent Note owns the rationale and rejected alternatives; the guide owns the rule contributors follow.
 
 ## Rename ledger
 
-The tables list public and repository-wide names. Private local variables follow the new vocabulary when they refer to the same role. A retained low-level or product-visible name is stated where a broad replacement would be wrong.
+The tables record public and repository-wide renames. The `Current` column holds the current name. Private local variables use the same vocabulary when they refer to the same role. A retained low-level or product-visible name is stated where a broad replacement would be wrong.
 
 ### Runtime SDK
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-jsonrpc` | `@deepseek-ai/dsh-sdk-jsonrpc-server` | It is the server half of the SDK protocol. `jsonrpc` alone names an encoding; `sdk-jsonrpc-server` gives the family, mechanism, and role. |
 | `HarnessSdkServer` | `HarnessSdkJsonRpcServer` | The class is one JSON-RPC server implementation, not every possible SDK server. |
@@ -93,7 +93,7 @@ Keep `@deepseek-ai/dsh-sdk-client`, `@deepseek-ai/dsh-sdk-protocol`, and `deepse
 
 ### Shell and terminal
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `packages/bash/` | `packages/shell/` | The group contains the dialect-neutral executor seam, Bash and PowerShell implementations, environment support, and shell tools. |
 | `@deepseek-ai/dsh-bash`, `ctx.bash` | `@deepseek-ai/dsh-shell`, `ctx.shell` | PowerShell already implements this seam. The capability is shell execution, not Bash. |
@@ -113,7 +113,7 @@ Keep the Bash- and PowerShell-specific leaf packages, plugin ids, types, and too
 
 ### Language server and jobs
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-lsp-local` | `@deepseek-ai/dsh-lsp-stdio` | The provider speaks LSP over stdio through replaceable filesystem and subprocess services. It is not necessarily local. |
 | `packages/tasks/` | `packages/jobs/` | The family owns detached tool jobs. `jobs` is short and avoids collision with user task or todo concepts. |
@@ -131,7 +131,7 @@ Keep the base LSP package, `ctx.lsp`, LSP protocol types, and the LSP tool. The 
 
 ### Input triggers, tool presentation, permission presets, and user questions
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-client-ui-slash`, `ui-slash/` | `@deepseek-ai/dsh-client-ui-input-trigger`, `ui-input-trigger/` | The client handles `/`, `@`, keyboard arbitration, candidate menus, and programmatic launch. It is not only slash commands. |
 | `ctx.slash`, `SlashService`, `SlashController`, `SlashSource` | `ctx.inputTriggers`, `InputTriggerService`, `InputTriggerController`, `InputTriggerSource` | The names cover every supported trigger and keep the existing service, controller, and source roles. Coupled locale and public type names follow `InputTrigger`. |
@@ -144,11 +144,11 @@ Keep the base LSP package, `ctx.lsp`, LSP protocol types, and the LSP tool. The 
 | `ctx.userInteraction`, `UserInteractionService`, `UserInteractionProvider`, `UserInteractionError` | `ctx.userQuestions`, `UserQuestionService`, `UserQuestionProvider`, `UserQuestionError` | These names state the one supported interaction form. Keep `AskUserQuestion*`, the `ask_user_question` tool, and `@deepseek-ai/dsh-tool-ask-user`. |
 | `docs/subsystems/user-interaction.md` | `docs/subsystems/user-questions.md` | The page documents questions and answers only. |
 
-Keep `/permission`, the `permissions` projection, the `permission` settings namespace, and `permission/preset`; they are accurate product or durable vocabulary. Keep the full `PermissionPresetSettingsController` name. Dropping `Preset` would remove the word that limits its authority. Plan a separate proposal to remove the `both` tool-presentation mode; this rename does not remove behavior.
+Keep `/permission`, the `permissions` projection, the `permission` settings namespace, and `permission/preset`; they are accurate product or durable vocabulary. Keep the full `PermissionPresetSettingsController` name. Dropping `Preset` would remove the word that limits its authority. Removal of the `both` tool-presentation mode remains deferred to a separate proposal; this rename does not remove behavior.
 
 ### Typert, API gateway, and tools
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `packages/typert/type-meta/`, `@deepseek-ai/dsh-type-meta` | `typert/protocol/`, `@deepseek-ai/dsh-typert-protocol` | The package owns the Typert Remote protocol, decorators, bindings, codecs, lookups, and context contracts. It is not generic type metadata. |
 | `GatewayService` in the protocol package | `TypertRemoteService` | The base class marks a same-process service for Remote export. It is not the API gateway. |
@@ -162,7 +162,7 @@ Keep `@deepseek-ai/dsh-tools` and `ctx.tools`. Keep `@deepseek-ai/dsh-api-gatewa
 
 ### Workspace instructions, telemetry, identity, and launch environment
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | Host `ctx.workspace` | Host `ctx.workspaceRegistry` | `WorkspaceRegistry` owns multiple workspaces, but Client `ctx.workspaces` already has an incompatible type. Both declarations merge into the same Cordis `Context` interface at compile time even though their runtime contexts are separate. The role suffix states the host service and avoids that collision. Keep `@deepseek-ai/dsh-workspace`, `WorkspaceRegistry`, `Workspace`, and `workspace.*` wire names. |
 | `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | The package loads hierarchical `AGENTS.md` and `CLAUDE.md` files for the agent. It is not general workspace context. |
@@ -181,7 +181,7 @@ Keep `@deepseek-ai/dsh-tools` and `ctx.tools`. Keep `@deepseek-ai/dsh-api-gatewa
 
 ### Schedule, workflow, goals, and compaction
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-tool-schedule`, `schedule/tool-schedule/`, plugin `tool-schedule` | `@deepseek-ai/dsh-schedule`, `schedule/schedule/`, plugin `schedule` | The package owns the durable Schedule domain, persistence barriers, management tools, timers, follow-ups, and runtime lifecycle. `tool-` describes only one part. |
 | `ScheduleOwner` | `ScheduleRuntime` | The per-agent object runs live timers, durable projection, dispatch, idle waits, and disposal. `Owner` does not state that execution role. Coupled private `owner*` names follow `runtime*`. |
@@ -194,11 +194,11 @@ Keep `@deepseek-ai/dsh-tools` and `ctx.tools`. Keep `@deepseek-ai/dsh-api-gatewa
 | `@deepseek-ai/dsh-compact-basic`, `BasicCompactService`, public `BasicCompact*` | `@deepseek-ai/dsh-compaction-basic`, `BasicCompactionEngine`, corresponding `BasicCompaction*` | `basic` is plain but honest. `compaction-llm` adds no information because LLM use is already part of the current implementation family. |
 | `@deepseek-ai/dsh-compact-tool-result-prune`, `ToolResultPruneService`, `ctx.toolResultPrune` | `@deepseek-ai/dsh-compaction-tool-result-pruner`, `ToolResultPruner`, `ctx.toolResultPruner` | The plugin is an actor that prunes tool results. The noun `pruner` names that role. |
 
-Keep `/compact`, the command package, and the rejected decision to preserve separate compaction definition and provider packages. The rename changes vocabulary, not that package boundary.
+Keep `/compact`, the command package, and the separate compaction definition and provider packages. Merging those packages remains rejected. The rename changes vocabulary, not that package boundary.
 
 ### Settings, credentials, client modules, and small core roles
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | Abstract `Settings` | `SettingsProvider` | The class supplies settings through a replaceable capability. Keep the package, key, and events. |
 | `@deepseek-ai/dsh-settings-local`, `SettingsLocal` | `@deepseek-ai/dsh-settings-file`, `FileSettingsProvider` | The implementation is file-backed through the filesystem seam. `file` states the mechanism; `local` does not. |
@@ -216,7 +216,7 @@ Keep `/compact`, the command package, and the rejected decision to preserve sepa
 
 ### Host web server, session data, and code execution
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `HttpServerService`, `ctx.httpServer` | `WebServer`, `ctx.webServer` | The server owns HTTP routes and WebSocket upgrade routes. `Web` leaves room for both; `Http` is too narrow here. Keep `packages/host/webserver`, `@deepseek-ai/dsh-host-webserver`, `WebRoute`, and `WebUpgradeRoute`. |
 | Documentation subsystem label `http-server` | `web-server` | The subsystem must use the same scope as the service. |
@@ -233,7 +233,7 @@ Keep the complete session projection family and `SessionProjection*` vocabulary.
 
 ### Filesystem, skill, subagent, and web providers
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-fs-policy` | `@deepseek-ai/dsh-fs-observation-policy` | The package defines which filesystem observations authorize later effects. It is not the complete filesystem or sandbox policy. |
 | `FsPolicyExec` | `FsObservationActor` | The value names the actor whose observations and effects the policy relates. It does not execute the policy itself. |
@@ -251,7 +251,7 @@ Keep `@deepseek-ai/dsh-subagent-dsh-sdk`, its provider id `dsh-sdk`, external AC
 
 ### Hooks, guards, plan mode, extensions, and diagnostics
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `@deepseek-ai/dsh-hooks-claude`, `ClaudeHookConfig`, `parseClaudeConfig`, dialect `claude` | `@deepseek-ai/dsh-hooks-claude-code`, `ClaudeCodeHookConfig`, `parseClaudeCodeConfig`, dialect `claude-code` | The hook bridge targets Claude Code, not every Anthropic or Claude product. |
 | `@deepseek-ai/dsh-repeat-tool-guard`, plugin/source `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-reminder`, plugin/source `repeat-tool-reminder` | The plugin adds a model reminder. It does not block or enforce a guard decision. |
@@ -263,11 +263,11 @@ Keep `@deepseek-ai/dsh-subagent-dsh-sdk`, its provider id `dsh-sdk`, external AC
 | `InvariantService` | `InvariantRegistry` | The object owns registered invariant checks. Keep `@deepseek-ai/dsh-invariants` and `ctx.invariants`. |
 | `packages/client/test-runtime/` | `packages/test-support/client-runtime/` | The package is client test infrastructure. Keep its npm name if it already states that contract. |
 
-Keep MCP, Todo, and the Plan Mode package, key, events, and tool names. The accepted change concerns the controller class, not the product feature.
+Keep MCP, Todo, and the Plan Mode package, key, events, and tool names. This decision renames the controller class, not the product feature.
 
 ### Utilities, E2B, host, bundles, examples, and applications
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `util/paths/`, `@deepseek-ai/dsh-paths` | `util/home-paths/`, `@deepseek-ai/dsh-home-paths` | The helpers resolve paths under the Harness home. They are not a general path library. Keep the individual function names when they already state the returned path. |
 | `util/retention/`, `@deepseek-ai/dsh-retention` | `util/output-retention/`, `@deepseek-ai/dsh-output-retention` | The policy retains command and tool output. It is not a general data-retention framework. |
@@ -281,7 +281,7 @@ Keep atomic-write, brand, native-command, timeout utility, directory-picker, `ds
 
 ### Client runtime and UI
 
-| Current | Proposed | Reason |
+| Former | Current | Reason |
 |---|---|---|
 | `SlotsService` | `SlotRegistry` | The object owns named slot declarations and registrations. |
 | `SessionsService` | `SessionRuntime` | The object owns live client session coordination, not a passive session list. |
@@ -365,26 +365,22 @@ The following debated names stay unchanged because the current scope is accurate
 
 **Keep aliases for old names.** Rejected. No released consumer needs them. Aliases would preserve two vocabularies and make the first release carry a migration that never had a user.
 
-## Acceptance criteria
+## Verification
 
-- Every mapping in the ledger is applied, or this proposal is amended before implementation to explain a changed decision.
-- Each family has one public vocabulary. No compatibility package, re-export alias, duplicate `ctx` key within one Cordis context, dual plugin id, dual event id, old tool alias, or fallback parser remains.
-- The change is rename-only. Runtime behavior, package boundaries, defaults, policy, durable semantics, and model behavior stay equivalent except where an identifier is itself visible.
-- Package directories, npm names, imports, manifests, TypeScript references and paths, Cordis config, plugin ids, service keys, events, tools, RPC names, persisted names named by the ledger, fixtures, snapshots, examples, generated catalogs, and current prose agree with the new vocabulary.
-- Current implemented Agent Notes are updated with factual name and path changes when the implementation lands. The package-regrouping note records the new group inventory and package targets, the SDK removal note does not call the repository an SDK, and the timeout-policy note records the new package-name rationale. Notes whose architectural decision remains current are not rewritten into new decisions.
+- Every mapping in the ledger appears in the repository. Each family has one public vocabulary; no compatibility package, re-export alias, duplicate `ctx` key within one Cordis context, dual plugin id, dual event id, old tool alias, or fallback parser remains.
+- Runtime behavior, package boundaries, defaults, policy, durable semantics, and model behavior remain equivalent except where an identifier is itself visible.
+- Package directories, npm names, imports, manifests, TypeScript references and paths, Cordis config, plugin ids, service keys, events, tools, RPC names, persisted names named by the ledger, fixtures, snapshots, examples, generated catalogs, and current prose use the current vocabulary.
+- Current implemented Agent Notes carry the factual name and path changes. The package-regrouping note records the group inventory and package targets, the SDK removal note reserves `SDK` for the runtime protocol, and the timeout-policy note records the package-name rationale.
 - The paired package-creation guide contains the role-word contract, `packages/AGENTS.md` links to it, the terminology table records the chosen words and `Typert` spelling, and root project prose calls the product DeepSeek Harness rather than DeepSeek Harness SDK.
 - The removed SDK project toolchain stays absent.
-- Focused tests cover each renamed family; source-plane typecheck, build, package hygiene, generated-reference gates, snapshots affected by visible identifiers, translation pairing, `doc-sync`, and lint pass on the complete implementation.
-- The proposed note moves to `implemented/` only after the full ledger and documentation contract are true. Its implementation form describes the final state, not a migration checklist.
+- `pnpm run check:ci` covers source-plane typecheck, build, package hygiene, generated-reference checks, affected snapshots, translation pairing, `doc-sync`, and lint. Release-shaped Python runtime smokes and required CI cover packaged-runtime and platform paths.
 
-## Risks
+## Consequences
 
-The sweep changes many imports, paths, configuration strings, generated references, and model-visible names. A missed string can compile but fail at load or replay time. Implementation must use both type-directed edits and exact old-name searches across source, config, tests, fixtures, docs, and generated inputs.
+The repository has one vocabulary for each renamed family. Old on-disk names, wire values, tool names, and configuration entries named in the ledger do not work. An owning parser that can identify stale configuration fails clearly instead of accepting both forms.
 
-Concurrent work will conflict with moved paths and renamed symbols. This is temporary pre-release cost. Splitting the implementation by coherent family can reduce review and merge conflicts, but each family must remain atomic.
+Some names are longer. The extra word is intentional when it prevents a false claim about authority or mechanism. A long name remains wrong when every word does not constrain the role.
 
-Some names will become longer. The extra word is intentional when it prevents a false claim about authority or mechanism. Long names are still a failure when every word does not constrain the role.
+Role suffixes do not replace inspection of behavior. The package guide keeps the direct tests from this decision: inspect what callers do, what lifetime the object owns, and what failure or policy it controls.
 
-The role words can be applied mechanically if reviewers check suffixes without checking behavior. The guide must keep the direct tests in this note: inspect what callers do, what lifetime the object owns, and what failure or policy it controls.
-
-Old on-disk names, wire values, tool names, and configuration entries named in the ledger will stop working. This is accepted before release. The implementation must fail clearly on stale configuration where the owning parser can identify it; it must not silently accept both forms.
+Branches based on the former paths and symbols require conflict repair. This is a one-time pre-release cost of removing the old vocabulary without compatibility aliases.
