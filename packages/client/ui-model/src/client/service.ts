@@ -14,7 +14,7 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { ModelDirectory } from './directory.ts'
 

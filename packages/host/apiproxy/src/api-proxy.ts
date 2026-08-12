@@ -25,7 +25,7 @@ import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
+  WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
@@ -67,7 +67,7 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
-// Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
+// Type-only edges: resolve the command-change stream and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
 // The settings/credentials seams: brand guards run at this wire boundary; the
@@ -2758,6 +2758,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { deleted: true as const })
       },
 
+      async insertBefore(request) {
+        const { workspaceId, beforeWorkspaceId } = request.payload
+        try {
+          const workspaceIds = await ctx.workspace.insertBefore(
+            brandWorkspaceId(workspaceId),
+            beforeWorkspaceId === undefined ? undefined : brandWorkspaceId(beforeWorkspaceId),
+          )
+          return ok(request, { workspaceIds: [...workspaceIds] })
+        } catch (error: unknown) {
+          if (!(error instanceof WorkspaceOrderInvalidError)) throw error
+          return workspaceNotFound(request, error.workspaceId)
+        }
+      },
+
       async insertSessionBefore(request) {
         const { payload } = request
         const workspace = ctx.workspace.get(brandWorkspaceId(payload.workspaceId))
@@ -2886,49 +2900,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async openPath(request, signal) {
         return openPath(request, request.payload.path, signal)
-      },
-    },
-
-    commands: {
-      // Both methods address one session's agent. agentFor resumes on miss
-      // and fences every subagent-owned identity with `agent-busy`; the
-      // api/commands.ts module contract owns that fence's wording, so this
-      // comment only notes the routing shape: clients send a sessionId for a
-      // published session, and resume restores an existing entity.
-      async list(request) {
-        // Missing service = the deployment omitted dsh-commands from its
-        // composition, not an empty catalog: fail loud instead of serving [].
-        const commands = ctx.get('commands')
-        if (commands === undefined) {
-          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
-        }
-        const found = await agentFor(request.payload.sessionId)
-        if ('error' in found) return err(request, found.error)
-        return ok(request, { commands: commands.list(found.agent) })
-      },
-
-      async execute(request, signal) {
-        const commands = ctx.get('commands')
-        if (commands === undefined) {
-          return err(request, { code: 'internal', message: 'command registry is absent: this deployment does not mount @deepseek-ai/dsh-commands in its composition (cordis.yml or explicit assembly)', details: {} })
-        }
-        const { sessionId, line } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          // Pure admission: the executor's durable command/run + command/done
-          // pair (broadcast on the mux stream) carries the outcome; the
-          // response reports whether the line resolved to a handler, plus the
-          // minted pairing id so the issuing client can correlate its request
-          // with the flow node the lifecycle events produce.
-          const execution = await commands.execute(found.agent, line, signal)
-          return ok(request, execution === undefined
-            ? { matched: false }
-            : { matched: true, commandId: execution.commandId })
-        } catch (error: unknown) {
-          if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
-          return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
-        }
       },
     },
 
@@ -3455,9 +3426,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const committedWorkspaces = ctx.workspace.list()
         const committedWorkspaceIds = new Set(
-          ctx.workspace.list().map(workspace => String(workspace.id)),
+          committedWorkspaces.map(workspace => String(workspace.id)),
         )
+        let committedWorkspaceOrder = committedWorkspaces.map(workspace => workspace.id)
         // Frame-dedup baseline, same posture as committedWorkspaceIds: the
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.
@@ -3488,6 +3461,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (change.table === '') {
               if (change.operation !== 'put') return
               const state = workspaceDomainState.parse(change.value)
+              const orderChanged = state.workspaceIds.length === committedWorkspaceOrder.length
+                && state.workspaceIds.every(workspaceId => committedWorkspaceIds.has(String(workspaceId)))
+                && state.workspaceIds.some((workspaceId, index) => workspaceId !== committedWorkspaceOrder[index])
               for (const workspaceId of state.workspaceIds) {
                 if (committedWorkspaceIds.has(workspaceId)) continue
                 const workspace = ctx.workspace.get(workspaceId)
@@ -3496,6 +3472,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+              }
+              committedWorkspaceOrder = [...state.workspaceIds]
+              if (orderChanged) {
+                queue.push(frame({
+                  type: 'host/workspace-order-changed',
+                  workspaceIds: [...state.workspaceIds],
+                }))
               }
               if (state.archivedSessionIds.length !== archivedSessionIds.length
                 || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {

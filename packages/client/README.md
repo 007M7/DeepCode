@@ -41,6 +41,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |
 | [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
 | [`ui-models/`](ui-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
+| [`ui-plugins/`](ui-plugins/README.md) | Shows the current Host Loader entries in a read-only Settings section. |
 
 Each child reference owns its contract and detailed behavior. The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) and [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) own the cross-package composition and loading decisions.
 

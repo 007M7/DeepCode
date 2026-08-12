@@ -9,7 +9,6 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   ScheduleId,
   createEveryScheduleRecord,
@@ -26,7 +25,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, conversationContextKey, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))

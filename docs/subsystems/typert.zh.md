@@ -66,6 +66,8 @@ interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypeRTCodec
+  /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
+  readonly acceptsUndefined?: true
 }
 ```
 
@@ -313,5 +315,5 @@ Resolve strict generated definitions or conservative SRC markers against current
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 ```
 
-Source: [`packages/api/gateway/src/index.ts:78`](../../packages/api/gateway/src/index.ts)
+Source: [`packages/api/gateway/src/index.ts:90`](../../packages/api/gateway/src/index.ts)
 <!-- END GENERATED cordis-surface -->

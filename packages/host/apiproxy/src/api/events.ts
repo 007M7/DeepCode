@@ -119,7 +119,8 @@ export type MuxFrame =
  * workspace mutation (create/attach/order change — the client upserts, while
  * `workspace.list` provides the reconnect baseline); workspace-removed is the
  * committed registration-deletion increment and never implies directory or
- * session-log deletion; archived-sessions-changed pushes the full registry
+ * session-log deletion; workspace-order-changed pushes the complete durable
+ * registry order after a reorder; archived-sessions-changed pushes the full registry
  * archive set after every durable change (same full-snapshot posture as
  * workspace-changed — `workspace.list` re-baselines it on reconnect).
  */
@@ -138,6 +139,7 @@ export type HostFrame =
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
+  | { type: 'host/workspace-order-changed'; workspaceIds: WorkspaceView['workspaceId'][] }
   | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
   /**
    * One allowlisted host cordis event forwarded verbatim. The allowlist is

@@ -6,7 +6,7 @@
 
 import type {
   IApiClient, SettingsNamespaceView,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 import {
   createSnapshotStore, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'

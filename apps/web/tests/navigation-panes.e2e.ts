@@ -53,7 +53,10 @@ async function assertBaselineSucceeded(response: Response, method: string): Prom
 
 async function ensureSeedOpen(page: Page): Promise<void> {
   const chat = page.getByRole('tab', { name: 'Chat', exact: true })
-  const search = page.getByPlaceholder('Search name, keywords', { exact: false })
+  // Search is a collapsed header action; expand it so the input is actionable.
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const search = page.getByPlaceholder('Search sessions', { exact: false })
   if (await chat.count() === 0) {
     await search.fill('WATERFALL')
     const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
@@ -119,8 +122,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // The frame mounts before the asynchronous session-list baseline lands.
     // Search must target the settled seeded row, not the startup input that
-    // the ready projection replaces.
-    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
+    // the ready projection replaces (the compact layout dropped group session
+    // counts; the Ungrouped bucket row is the barrier).
+    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
   }, 120_000)
 
   afterEach(async () => {
@@ -176,9 +180,13 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
     // The API baselines can settle before React commits their projection. The
-    // seeded count is the final user-visible barrier before editing search.
-    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
-    const search = page.getByPlaceholder('Search name, keywords', { exact: false })
+    // seeded Ungrouped bucket row is the final user-visible barrier before
+    // editing search (the compact layout dropped group session counts).
+    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    // Search is a collapsed header action; expand it so the input is actionable.
+    const searchButton = page.getByRole('button', { name: 'Search sessions' })
+    if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+    const search = page.getByPlaceholder('Search sessions', { exact: false })
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
     await search.fill('zzzqx-no-such-session')

@@ -80,6 +80,10 @@
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
 
+    # Read-only projection of current Loader entries for trusted client RPCs.
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -172,6 +176,9 @@
     - id: ui-models
       name: '@deepseek-ai/dsh-client-ui-models'
 
+    - id: ui-plugins
+      name: '@deepseek-ai/dsh-client-ui-plugins'
+
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 
@@ -260,6 +267,9 @@
 # would never reach the model's shell at all.
 
 - id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
   disabled: true
 
 # The background-task REGISTRY stays on the host plane; only the model-facing
@@ -374,12 +384,15 @@
   disabled: true
 
 # The preset roster. `config/agent-presets/` ships with the deployment and is
-# read-only (its entries carry `system` trust);
-# `$DSH_HOME/.agent-presets` is where a person — or an agent — authors their own, and
-# carries the same trust as shell access because a preset IS a composition.
-# `roots` is an assembly fact, not user config: the shipped preset directory
-# ships beside this file, so AppCLIEntry resolves it and patches it in — the
-# same treatment `distIndex` gets on the webserver row.
+# read-only (its entries carry `system` trust); `$DSH_HOME/.agent-presets` is
+# where a person — or an agent — authors their own, and carries the same trust
+# as shell access because a preset IS a composition.
+#
+# Only the SHIPPED root is an assembly fact: it sits beside the installed app's
+# own config, so `apps/cli`'s `composeProfile` resolves and patches it in — the
+# same treatment `distIndex` gets on the webserver row. The writable root is
+# `dsh-agent-presets`' own default (`includeUserRoot`), so a composition that
+# never reaches that patch still finds a person's presets.
 - insert:
     - id: agent-presets
       name: '@deepseek-ai/dsh-agent-presets'

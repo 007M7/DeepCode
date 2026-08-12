@@ -323,7 +323,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
       },
       {
-        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        signature: '@Remote list(agent: Agent): readonly CommandDescriptor[]',
         jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
       },
       {
@@ -331,7 +331,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
       },
       {
-        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
+        signature: '@Remote async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
         jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n *\n * A resolved command\'s lifecycle is logged: `command/run` is appended\n * before the handler is invoked and `command/done` after settlement (a\n * thrown or aborted handler settles as `kind: \'error\'`). Both are direct\n * log-only appends — no turn wraps them, and persistence drains them at\n * ordinary checkpoints. Admission misses (syntax or unknown name) log\n * nothing — they never entered a handler. A `command/run` append failure\n * fails the execution loud; a `command/done` append failure on the\n * handler-failure path is contained so the handler\'s own error stays the\n * reported failure.\n *\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns the settled execution (result + lifecycle pairing id), or\n *   `undefined` when syntax or name does not resolve.\n */',
       },
     ],
@@ -1385,6 +1385,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
       },
       {
+        signature: 'insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]>',
+        jsDoc: '/**\n * Move one workspace within the durable display order, DOM-insertBefore-like.\n * With an anchor it lands before that workspace; without one it appends.\n * @param id - Workspace to move.\n * @param beforeId - Workspace anchor; omitted appends.\n * @returns the complete committed workspace order.\n */',
+      },
+      {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },
@@ -2266,7 +2270,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvocationParameterDescriptor',
-    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypeRTCodec;\n}',
+    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypeRTCodec;\n    readonly acceptsUndefined?: true;\n}',
   },
   {
     name: 'InvocationSourceLocation',

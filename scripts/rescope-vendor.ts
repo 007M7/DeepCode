@@ -89,9 +89,9 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // the creator flow stages and which id the roster reports.
   { file: 'packages/client/ui-agent-preset/src/client/AgentPresetSection.tsx', upstream: ['cordis'] },
   { file: 'packages/client/ui-agent-preset/src/client/index.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/apply.spec.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/locales.spec.ts', upstream: ['cordis'] },
-  { file: 'packages/client/ui-agent-preset/tests/section.spec.tsx', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/apply.client.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/locales.client.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/client/ui-agent-preset/tests/section.client.spec.tsx', upstream: ['cordis'] },
   { file: 'apps/cli/tests/web-agent-presets.e2e.ts', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-presets/tests/session.spec.ts', upstream: ['cordis'] },
@@ -99,6 +99,8 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // the preset a model mounts, so the scoped name would send the model after an
   // id no roster reports.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', upstream: ['cordis'] },
+  // The preset-roster loop names the `cordis` preset id, not a package.
+  { file: 'apps/cli/tests/windows-shell.spec.ts', upstream: ['cordis'] },
   // GROUP_ORDER holds `packages/<group>/` directory names, not package names.
   { file: 'scripts/gen-module-graph.ts', upstream: ['cordis'] },
   { file: 'scripts/gen-doc-graphs.ts', upstream: ['cordis'] },
@@ -121,12 +123,12 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   { file: 'scripts/check-workspace-constraints.ts', text: '?.[\'@deepseek-ai/cordis\']', count: 2 },
   { file: 'packages/boot/app-boot/tsdown.config.ts', text: '[\'@deepseek-ai/cordis-plugin-include\']', count: 1 },
   { file: 'tsconfig.base.json', text: '"@deepseek-ai/cordis-plugin-loader": ["./vendor/loader/src"]', count: 1 },
-  // One insertion, once: a duplicated log entry is what a non-idempotent apply produced.
+  // The vendored README owns this required entry; reject its deletion or duplication.
   { file: 'vendor/README.md', text: '17. **`@deepseek-ai` rescope**', count: 1 },
   { file: 'knip.json', text: '@cordisjs', count: 0 },
   { file: 'pnpm-workspace.yaml', text: 'cordis@4.0.0-rc.7', count: 0 },
   // The preset ids in this table are product data, not package names.
-  { file: 'packages/client/ui-agent-preset/tests/locales.spec.ts', text: '[\'cordis\', \'presetCordisName\'', count: 1 },
+  { file: 'packages/client/ui-agent-preset/tests/locales.client.spec.ts', text: '[\'cordis\', \'presetCordisName\'', count: 1 },
   // The preset id the shipped composition documents to its own model.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'The `cordis` agent preset', count: 1 },
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'corrupting the `cordis` preset', count: 1 },
@@ -240,13 +242,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     expect: 1,
   },
   {
-    id: 'vendor-readme-local-modification-log',
-    file: 'vendor/README.md',
-    find: '\n16. **`cordis/package.json` publishes `src`**',
-    replace: '\n16. **`cordis/package.json` publishes `src`**: added `src` to the `files` list, joining the other eight vendored packages. Cordis declares `"./src/*": "./src/*"` in its exports, so a tarball without `src` publishes an export map pointing at absent files; the release change judgement also reads `files` to decide whether a diff reaches the payload, and a package whose only published paths are build output has no tracked path to match.\n17. **`@deepseek-ai` rescope**: every vendored manifest `name`, every internal dependency entry among the vendored set, and every module specifier that reaches them use the scoped names in the manifest table\'s `npm name` column. Directory names, version numbers, and dependency ranges are unchanged, and no upstream runtime identifier is renamed — `Symbol.for(\'schemastery\')` and Schemastery\'s `vendor:` metadata field keep their upstream values. Re-apply with `pnpm run rescope-vendor --apply` after a sync; the table\'s two name columns are the mapping, restated for consumers in [docs/rescope.md](../docs/rescope.md).',
-    expect: 1,
-  },
-  {
     // A plain fence listing the bundle's mounted tree: a bare token, no quotes.
     id: 'agent-spine-demo-mounted-tree',
     file: 'packages/examples/agent-spine-demo/README.md',
@@ -330,7 +325,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\\/(cosmokit|schemastery)(\\/|$)/
   {
     // The real package references in files whose other `cordis` strings are preset ids.
     id: 'agent-preset-spec-framework-import',
-    file: 'packages/client/ui-agent-preset/tests/apply.spec.ts',
+    file: 'packages/client/ui-agent-preset/tests/apply.client.spec.ts',
     find: "import { Context } from 'cordis'",
     replace: "import { Context } from '@deepseek-ai/cordis'",
     expect: 1,

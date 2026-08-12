@@ -173,6 +173,16 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
+   * Move a Workspace in display order (recorded; default no-op).
+   * @param workspaceId - Workspace to move.
+   * @param beforeWorkspaceId - Anchor; omitted appends.
+   */
+  async insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void> {
+    this.calls.push({ method: 'insertBefore', args: [workspaceId, beforeWorkspaceId] })
+    await (this.stubs.get('insertBefore')?.(workspaceId, beforeWorkspaceId) as Promise<void> | undefined)
+  }
+
+  /**
    * Move an accounted session (recorded). The default echoes a minimal view.
    * @param workspaceId - target workspace.
    * @param sessionId - session to move.

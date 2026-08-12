@@ -28,6 +28,7 @@ import type {
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CommandDescriptor, CommandExecution, CommandResult } from '@deepseek-ai/dsh-commands/types'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
@@ -115,7 +116,7 @@ const TERMINAL_OUTPUT_FIXTURE = [
   `${sgr(32, '\u2713')} duplication                                        2.10s`,
   `${sgr(31, '\u2717')} unit                                               8.41s`,
   '',
-  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.client.spec.tsx'),
   `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
   '    expected 16 lines, received 24',
   '',
@@ -200,7 +201,7 @@ const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.module.css',
   'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
   'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
-  'packages/client/ui-tool/tests/search-card.spec.tsx',
+  'packages/client/ui-tool/tests/search-card.client.spec.tsx',
 ]
 
 /**
@@ -1379,9 +1380,22 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   return createFixtureWorld(options).api
 }
 
-interface FixtureWorld {
+/** Both fixture faces over one state graph. */
+export interface FixtureWorld {
+  /** Legacy unary/stream API the fixture still answers. */
   readonly api: ApiProxy
+  /** Generic Remote caller for the endpoints business services own. */
   readonly rpc: ClientConnectionRpc
+}
+
+/**
+ * Build both fixture faces so a caller can drive the Remote endpoints and the
+ * legacy API against one in-memory state graph.
+ * @param options - fixture branches for empty state and failure timing.
+ * @returns the legacy API face and the Remote RPC face.
+ */
+export function createFixtureFaces(options: FixtureOptions = {}): FixtureWorld {
+  return createFixtureWorld(options)
 }
 
 /** Build the fixture's legacy API and Remote RPC faces over one state graph. */
@@ -1597,6 +1611,98 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       ? { ok: false, error: { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } } }
       : undefined
   )
+
+  /** Canonical fixture implementation of the generated Commands Remote contract. */
+  const commandRemotes = {
+    list(id: SessionId): RpcResult<readonly CommandDescriptor[]> {
+      const missing = requireGoalSession(id)
+      if (missing !== undefined) return missing
+      return {
+        ok: true,
+        value: [
+          { name: 'compact', description: 'fixture：压缩当前会话上下文' },
+          { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
+          { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+          { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
+          { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
+        ],
+      }
+    },
+    execute(id: SessionId, line: string): RpcResult<CommandExecution | undefined> {
+      const missing = requireGoalSession(id)
+      if (missing !== undefined) return missing
+      // Structured split mirroring the Host parser: name + verbatim rawInput
+      // (separator whitespace included) — the run payload carries no line.
+      const match = /^\/(\S+)((?:\s.*)?)$/.exec(line.trim())
+      const name = match?.[1]
+      const args = match?.[2] ?? ''
+      if (name === 'permission') {
+        const preset = args.trim()
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        const spec = PERMISSION_PRESETS[preset]
+        let result: CommandResult
+        if (preset === '') {
+          const current = permissionSelectOf(logOf(id)).currentValue
+          result = { kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` }
+        } else if (spec === undefined) {
+          result = { kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` }
+        } else {
+          if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
+          append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
+          append(id, { type: 'approval/policy', data: { policy: spec.approval } })
+          result = { kind: 'success', text: `preset ${preset}` }
+        }
+        append(id, { type: 'command/done', data: { commandId, ...result } })
+        return { ok: true, value: { commandId, result } }
+      }
+      if (name === 'goal') {
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        const objective = args.trim()
+        const current = backscanGoal(logOf(id))
+        let text: string
+        if (objective === '') {
+          text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+        } else if (current !== null && current.goal.phase !== 'complete') {
+          text = `A goal already exists (${current.goal.objective}). Clear it first.`
+        } else {
+          const created = appendGoalChange(id, {
+            kind: 'goal/change', version: 1, operation: 'create',
+            goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+            roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+          })
+          text = `Goal created: ${created.goal.objective}`
+        }
+        const result: CommandResult = { kind: 'success', text }
+        append(id, { type: 'command/done', data: { commandId, ...result } })
+        return { ok: true, value: { commandId, result } }
+      }
+      const running = summaryOf(id)?.running === true
+      const outcomes: Record<string, string> = {
+        compact: 'fixture：已压缩（假动作）',
+        echo: args.trim(),
+        plan: args.trim() === 'off'
+          ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+          : (running
+            ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+            : 'Plan mode on. Use /plan off to leave.'),
+      }
+      const text = name === undefined ? undefined : outcomes[name]
+      if (name === undefined || text === undefined) return { ok: true, value: undefined }
+      const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+      append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+      if (name === 'plan' && !running) {
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
+      }
+      const result: CommandResult = { kind: 'success', ...text === '' ? {} : { text } }
+      append(id, { type: 'command/done', data: { commandId, ...result } })
+      return { ok: true, value: { commandId, result } }
+    },
+  }
 
   const goalView = (projection: FxGoalProjection): FxGoalView => ({
     ...projection.goal,
@@ -2407,6 +2513,38 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         emitHost({ type: 'host/workspace-removed', workspaceId })
         return ok(request, { deleted: true as const })
       },
+      insertBefore: (request) => {
+        const { workspaceId, beforeWorkspaceId } = request.payload
+        const source = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+        const anchor = beforeWorkspaceId === undefined
+          ? workspaces.length
+          : workspaces.findIndex(workspace => workspace.workspaceId === beforeWorkspaceId)
+        const missing = source === -1 ? workspaceId : anchor === -1 ? beforeWorkspaceId : undefined
+        if (missing !== undefined) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${missing}`,
+            details: { workspaceId: missing },
+          })
+        }
+        if (beforeWorkspaceId !== workspaceId) {
+          const previousOrder = workspaces.map(candidate => candidate.workspaceId)
+          const [workspace] = workspaces.splice(source, 1)
+          /* v8 ignore next -- source was resolved from the same array immediately above. */
+          if (workspace === undefined) throw new Error(`fixture lost workspace ${workspaceId}`)
+          const at = beforeWorkspaceId === undefined
+            ? workspaces.length
+            : workspaces.findIndex(candidate => candidate.workspaceId === beforeWorkspaceId)
+          workspaces.splice(at, 0, workspace)
+          if (workspaces.some((candidate, index) => candidate.workspaceId !== previousOrder[index])) {
+            emitHost({
+              type: 'host/workspace-order-changed',
+              workspaceIds: workspaces.map(candidate => candidate.workspaceId),
+            })
+          }
+        }
+        return ok(request, { workspaceIds: workspaces.map(candidate => candidate.workspaceId) })
+      },
       insertSessionBefore: (request) => {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
         const workspace = workspaces.find(w => w.workspaceId === workspaceId)
@@ -2444,104 +2582,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
         }
         return ok(request, { archivedSessionIds: [...archivedSessionIds] })
-      },
-    },
-    commands: {
-      // The catalog mirrors one session's effective view (every fixture
-      // session has an agent, like the real host).
-      list: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        return ok(request, {
-          commands: [
-            { name: 'compact', description: 'fixture：压缩当前会话上下文' },
-            { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
-            { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
-            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
-          ],
-        })
-      },
-      // Pure admission, mirroring the host: an admitted command logs the
-      // command/run + command/done lifecycle pair (mux-broadcast by append),
-      // and the response only reports resolution.
-      execute: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const id = request.payload.sessionId
-        // Structured split mirroring the host parser: name + verbatim rawInput
-        // (separator whitespace included) — the run payload carries no line.
-        const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
-        const name = match?.[1]
-        const args = match?.[2] ?? ''
-        // /permission mirrors the host handler: switch through the knob
-        // events (each append pushes a permissions projection frame).
-        if (name === 'permission') {
-          const preset = args.trim()
-          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
-          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
-          const spec = PERMISSION_PRESETS[preset]
-          if (preset === '') {
-            const current = permissionSelectOf(logOf(id)).currentValue
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
-          } else if (spec === undefined) {
-            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
-          } else {
-            if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
-            append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
-            append(id, { type: 'approval/policy', data: { policy: spec.approval } })
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `preset ${preset}` } })
-          }
-          return ok(request, { matched: true as const, commandId })
-        }
-        if (name === 'goal') {
-          // Host parallel: /goal with an objective creates (or reports) the
-          // current goal; the command lifecycle pair brackets the mutation.
-          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
-          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
-          const objective = args.trim()
-          const current = backscanGoal(logOf(id))
-          let text: string
-          if (objective === '') {
-            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
-          } else if (current !== null && current.goal.phase !== 'complete') {
-            text = `A goal already exists (${current.goal.objective}). Clear it first.`
-          } else {
-            const created = appendGoalChange(id, {
-              kind: 'goal/change', version: 1, operation: 'create',
-              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
-              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
-            })
-            text = `Goal created: ${created.goal.objective}`
-          }
-          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
-          return ok(request, { matched: true as const, commandId })
-        }
-        // Host parallel: /plan on an idle fixture session commits plan/mode
-        // immediately (the boundary flush covers only a running turn), so the
-        // outcome copy matches the immediate branch of the host handler.
-        const running = summaryOf(id)?.running === true
-        const outcomes: Record<string, string> = {
-          compact: 'fixture：已压缩（假动作）',
-          echo: args.trim(),
-          plan: args.trim() === 'off'
-            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
-            : (running
-              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
-              : 'Plan mode on. Use /plan off to leave.'),
-        }
-        const text = name === undefined ? undefined : outcomes[name]
-        if (name === undefined || text === undefined) return ok(request, { matched: false as const })
-        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
-        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
-        if (name === 'plan' && !running) {
-          const plan = foldPlan(logOf(id))
-          if (plan.wanted !== null && plan.wanted !== plan.active) {
-            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
-          }
-        }
-        append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
-        return ok(request, { matched: true as const, commandId })
       },
     },
     agentPresets: {
@@ -2852,12 +2892,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const args = (payload as {
         args: {
           agentId: SessionId
+          line?: string
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
         }
       }).args
       const sessionId = args.agentId
       switch (endpoint) {
+        case 'commands/list': return Promise.resolve(commandRemotes.list(sessionId))
+        case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string))
         case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
           objective: args.request?.objective as string,
           ...args.request?.maxGoalRounds === undefined ? {} : { maxGoalRounds: args.request.maxGoalRounds },
@@ -2948,10 +2991,9 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
+      case 'workspace.insertBefore': return this.api.workspace.insertBefore(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
-      case 'command.list': return this.api.commands.list(request)
-      case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.list': return this.api.agentPresets.list(request)
       case 'agentPreset.select': return this.api.agentPresets.select(request)

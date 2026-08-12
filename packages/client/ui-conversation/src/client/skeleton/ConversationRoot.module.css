@@ -1,7 +1,7 @@
 /* Conversation column skeleton: header (breadcrumb row only for subagents not fork + tabs) over the view
    area, composer InputBar at the bottom. Column width/squeeze is layout's;
    this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
-   a 3px active bar. */
+   a 2px active bar. */
 
 .root {
   display: flex;
@@ -26,9 +26,22 @@
 }
 
 .header {
+  position: relative;
   flex: none;
   padding: 12px 28px 0 20px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  border-bottom: 1px solid transparent;
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  z-index: 0;
+  height: 1px;
+  background: var(--dsw-alias-border-l2);
+  pointer-events: none;
 }
 
 /* Blank hero/settling: keep the strict Session header mounted without taking
@@ -100,13 +113,15 @@
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
 .tabs {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 36px;
   margin-top: 4px;
   padding-left: 8px;
 }
 
-/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 3px bar (no bottom rounding). */
+/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 2px bar. */
 .tab {
   position: relative;
   padding: 0 0 11px;
@@ -123,9 +138,10 @@
   content: '';
   position: absolute;
   right: 0;
-  bottom: 0;
+  bottom: 1px;
   left: 0;
-  height: 3px;
+  height: 2px;
+  border-radius: 2px;
   background: transparent;
 }
 

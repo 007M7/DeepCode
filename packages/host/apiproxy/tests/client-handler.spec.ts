@@ -21,7 +21,6 @@ function scriptedApi(overrides: {
   sessions?: Partial<ApiProxy['sessions']>
   subagents?: Partial<ApiProxy['subagents']>
   host?: Partial<ApiProxy['host']>
-  commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
   agentPresets?: Partial<ApiProxy['agentPresets']>
   events?: Partial<ApiProxy['events']>
@@ -86,13 +85,9 @@ function scriptedApi(overrides: {
       create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),
       rename: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       delete: r => ok(r, { deleted: true as const }),
+      insertBefore: r => ok(r, { workspaceIds: [r.payload.workspaceId] }),
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       archiveSession: r => ok(r, { archivedSessionIds: [r.payload.sessionId] }),
-    },
-    commands: {
-      list: r => ok(r, { commands: [] }),
-      execute: r => ok(r, { matched: false }),
-      ...overrides.commands,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
@@ -224,7 +219,7 @@ describe('unary round trip', () => {
     expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
   })
 
-  it('routes workspace rename, delete, and insertSessionBefore through the wire', async () => {
+  it('routes workspace rename, delete, and ordering through the wire', async () => {
     const api = scriptedApi()
     const c = client(api)
     const renamed = await c.workspace.rename({ workspaceId: 'w1' as never, title: 'next' })
@@ -233,6 +228,11 @@ describe('unary round trip', () => {
     expect(blankTitle.result).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     const deleted = await c.workspace.delete({ workspaceId: 'w1' as never })
     expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    const workspaceOrder = await c.workspace.insertBefore({
+      workspaceId: 'w1' as never,
+      beforeWorkspaceId: 'w2' as never,
+    })
+    expect(workspaceOrder.result).toEqual({ ok: true, value: { workspaceIds: ['w1'] } })
     const anchored = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1'), beforeSessionId: sid('s2') })
     expect(anchored.result.ok).toBe(true)
     const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })

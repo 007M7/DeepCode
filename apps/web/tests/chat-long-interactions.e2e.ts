@@ -11,7 +11,6 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import { createChatScrollFixture } from './chat-scroll-fixture.ts'
 import {
   launchWebScaffold,
@@ -20,7 +19,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, saveFailureShot } from './support.ts'
+import { conversationContextKey, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const SESSION_ID = 'chat-long-interactions-e2e'
@@ -78,8 +77,13 @@ async function nextPaint(page: Page): Promise<void> {
 }
 
 async function openSeed(page: Page): Promise<void> {
-  await page.getByText(/^\d+ sessions?$/, { exact: true }).waitFor({ timeout: 30_000 })
-  const search = page.getByRole('textbox', { name: 'Search name, keywords...', exact: true })
+  // The compact layout dropped group session counts; the seeded baseline is
+  // the Ungrouped bucket once cold summaries load.
+  await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+  // Search collapsed into a header action; expand it before filling.
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
   await search.fill(FIXTURE.markers.user(1))
   const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await results.first().waitFor({ timeout: 60_000 })

@@ -1,10 +1,10 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: the ctx.remote merge. Deliberately the gateway's Client half rather
 // than api-remotes': that face imports a Host-tsdown-generated artifact, and this
 // project sits in the Host build graph.
-import type {} from '@deepseek-ai/dsh-api-gateway/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
@@ -179,7 +179,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Required services: the wire handle and Client TypeRT registry. */
-export const inject = ['connection', 'typert', 'remote']
+export const inject = ['connection', 'typert', 'remote', 'remote.commands']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
@@ -191,7 +191,7 @@ export function apply(ctx: Context): void {
     views: new ConversationViewRegistry(ctx),
   }
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionsService(ctx, connection.api, conversation)
+  const sessions = new SessionsService(ctx, connection.api, ctx.remote, conversation)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
