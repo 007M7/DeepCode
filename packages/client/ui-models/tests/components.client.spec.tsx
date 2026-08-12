@@ -23,6 +23,8 @@ afterEach(cleanup)
 const t: ModelsSectionInjected['t'] = key => en[key]
 const OPENAI_TARGET = { provider: 'openai', displayName: 'openai' }
 const openaiCopy = (template: string): string => providerCopy(template, OPENAI_TARGET)
+const DEEPSEEK_TARGET = { provider: 'deepseek-official', displayName: 'DeepSeek' }
+const deepSeekCopy = (template: string): string => providerCopy(template, DEEPSEEK_TARGET)
 
 /** Open one row's capacity disclosure (1-based, as the labels read). */
 function expandRow(position: number): void {
@@ -181,8 +183,8 @@ function scriptedFace(overrides: {
 
 type WireFace = ConstructorParameters<typeof ModelsSettingsStore>[0]
 
-async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) {
-  const { face, update, replace, mutate, set, unset } = scriptedFace(overrides)
+async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
+  const { face, update, replace, mutate, set, unset } = scripted
   const controller = new ModelsSettingsStore(face as unknown as WireFace)
   await controller.load()
   const injected: ModelsSectionInjected = {
@@ -195,6 +197,34 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
   return { view, face, update, replace, mutate, set, unset, controller }
 }
 
+async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) {
+  return mountFace(scriptedFace(overrides))
+}
+
+/**
+ * Mount for a user who cannot reach any provider yet: no credential is stored
+ * anywhere, so the whole-section DeepSeek route owns the first-run setup card.
+ */
+async function mountFirstRun(overrides: Parameters<typeof scriptedFace>[0] = {}) {
+  const scripted = scriptedFace(overrides)
+  scripted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+    Promise.resolve(ok({
+      credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: false, writable: true }])),
+    })))
+  return mountFace(scripted)
+}
+
+/**
+ * Mount and open the DeepSeek editor. The shared fixture already has a usable
+ * openai route, so DeepSeek is an ordinary row whose card opens through Edit
+ * rather than by itself.
+ */
+async function mountDeepSeekCard(overrides: Parameters<typeof scriptedFace>[0] = {}) {
+  const mounted = await mountSection(overrides)
+  fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
+  return mounted
+}
+
 describe('ModelsSection', () => {
   it('renders nothing before the slot injects its dependencies', () => {
     const uninjected = {} as ModelsSectionProps
@@ -202,20 +232,32 @@ describe('ModelsSection', () => {
     expect(document.body.textContent).toBe('')
   })
 
-  it('renders the unkeyed whole-section provider as an open setup card beside the rows', async () => {
-    await mountSection()
-    // DeepSeek has no configured credential and no stored apiKey → setup card.
+  it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
+    await mountFirstRun()
+    // Nothing is reachable yet, and DeepSeek has no configured credential and
+    // no stored apiKey → setup card.
     expect(screen.getByText('DeepSeek')).toBeTruthy()
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.queryByText('Active')).toBeNull()
     expect(screen.queryByText('Inactive')).toBeNull()
+    expect(screen.getByText(en.add)).toBeTruthy()
+  })
+
+  it('leaves the unkeyed provider a plain row once another provider is usable', async () => {
+    await mountSection()
+    // openai's key is stored, so the user is not blocked and nothing on the
+    // page opens itself over them.
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
     const configured = screen.getByRole('img', { name: en.credentialConfigured })
     expect(configured.getAttribute('title')).toBe(en.credentialConfigured)
     expect(configured.className).toContain('credentialDotConfigured')
     expect(configured.closest('li')?.textContent).toContain('openai')
-    expect(screen.queryByRole('img', { name: en.credentialMissing })).toBeNull()
-    expect(screen.getByText(en.add)).toBeTruthy()
+    const missing = screen.getByRole('img', { name: en.credentialMissing })
+    expect(missing.closest('li')?.textContent).toContain('DeepSeek')
+    // The card is still one click away.
+    fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
+    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
   })
 
   it('marks only a confirmed missing reference and leaves native or unavailable state unmarked', async () => {
@@ -241,7 +283,7 @@ describe('ModelsSection', () => {
   })
 
   it('turns the setup card into a row once the credential reports configured', async () => {
-    const { face } = await mountSection()
+    const { face } = await mountFirstRun()
     face.credentials.describe.mockImplementation((payload: { refs: string[] }) => Promise.resolve(ok({
       credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: true, writable: true }])),
     })))
@@ -259,7 +301,7 @@ describe('ModelsSection', () => {
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
   })
 
-  it('decides setup need from the joined credential state', () => {
+  it('decides setup need from the joined credential state and the first-run posture', () => {
     const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
     const row = (credential: ProviderRow['credential']): ProviderRow => ({
       entry,
@@ -268,10 +310,13 @@ describe('ModelsSection', () => {
       apiKeyEnv: 'X',
       credential,
     })
-    expect(needsSetup(row(undefined))).toBe(true)
-    expect(needsSetup(row({ configured: true, writable: true }))).toBe(false)
+    expect(needsSetup(row(undefined), false)).toBe(true)
+    expect(needsSetup(row({ configured: true, writable: true }), false)).toBe(false)
     const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
-    expect(needsSetup(nested)).toBe(false)
+    expect(needsSetup(nested, false)).toBe(false)
+    // A user who can already reach some provider is not in the first-run
+    // posture, so nothing on the page opens itself.
+    expect(needsSetup(row(undefined), true)).toBe(false)
   })
 
   it('derives conventional credential references from route ids', () => {
@@ -296,7 +341,7 @@ describe('ModelsSection', () => {
   })
 
   it('stores a typed key write-only from the setup card without touching settings', async () => {
-    const { set, update, face } = await mountSection()
+    const { set, update, face } = await mountFirstRun()
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: '  sk-live  ' } })
     fireEvent.click(screen.getByText(en.apply))
@@ -311,7 +356,7 @@ describe('ModelsSection', () => {
   })
 
   it('applies customized deepseek fields as path ops', async () => {
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -332,7 +377,7 @@ describe('ModelsSection', () => {
   })
 
   it('materializes inherited models and adds an arbitrary DeepSeek id', async () => {
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -366,7 +411,7 @@ describe('ModelsSection', () => {
   })
 
   it('rejects duplicate DeepSeek model ids before writing', async () => {
-    const { mutate } = await mountSection()
+    const { mutate } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     fireEvent.click(screen.getByText(en.addModel))
     const ids = screen.getAllByLabelText(new RegExp(en.modelId))
@@ -436,7 +481,7 @@ describe('ModelsSection', () => {
   })
 
   it('accepts a suffixed context window and stores the plain count', async () => {
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -476,7 +521,7 @@ describe('ModelsSection', () => {
   })
 
   it('keeps unreadable context-window text on screen and refuses the write', async () => {
-    const { mutate } = await mountSection()
+    const { mutate } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     expandRow(1)
     expandRow(2)
@@ -539,7 +584,7 @@ describe('ModelsSection', () => {
     // The regression: one active buffer meant editing a second row displaced
     // the first, which then fell back to rendering its stored NaN as `NaN` —
     // losing the text the user was told they could still correct.
-    await mountSection()
+    await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     expandRow(1)
     expandRow(2)
@@ -553,7 +598,7 @@ describe('ModelsSection', () => {
   })
 
   it('re-keys the typed text around a removed row', async () => {
-    await mountSection()
+    await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     const windows = (): HTMLInputElement[] => capacityInputs(en.contextWindow)
     const removeRow = (at: number): void => {
@@ -587,7 +632,7 @@ describe('ModelsSection', () => {
     // The regression: reset removed the override but left the buffer, so an
     // inherited row displayed text no settings layer stores — and because an
     // unreadable buffer never settles, it stayed there indefinitely.
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -605,12 +650,12 @@ describe('ModelsSection', () => {
     // Reset put the draft back where it started, so Apply writes nothing at
     // all rather than persisting whatever the stale text had parsed to.
     fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(screen.getByText(en.apply)).toBeTruthy() })
+    await waitFor(() => { expect(screen.queryByText(en.apply)).toBeNull() })
     expect(mutate).not.toHaveBeenCalled()
   })
 
   it('edits an output cap per model and carries its text across a removal', async () => {
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -644,7 +689,7 @@ describe('ModelsSection', () => {
   })
 
   it('settles a pasted id and refuses whitespace that would never match', async () => {
-    await mountSection()
+    await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     const ids = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.modelId))
     fireEvent.change(ids[0] as HTMLInputElement, { target: { value: '  deepseek-v4-flash  ' } })
@@ -681,7 +726,7 @@ describe('ModelsSection', () => {
   })
 
   it('can empty and reset the model override, then clear optional fields without dropping hidden data', async () => {
-    const { mutate } = await mountSection({
+    const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -715,7 +760,7 @@ describe('ModelsSection', () => {
 
   it('clears an inherited override with an unset op, never a whole-section replace', async () => {
     // A whole-section replace would clobber sibling overrides to clear one field.
-    const { replace, update, mutate } = await mountSection()
+    const { replace, update, mutate } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
     expect(url.value).toBe('https://base')
@@ -762,7 +807,7 @@ describe('ModelsSection', () => {
   })
 
   it('rejects an invalid draft before writing', async () => {
-    const { update } = await mountSection()
+    const { update } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'not-a-url' } })
     fireEvent.click(screen.getByText(en.apply))
@@ -772,19 +817,17 @@ describe('ModelsSection', () => {
 
   it('edits a pi-ai profile with the curated fields only', async () => {
     const { mutate } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     // The configured credential shows as the stored placeholder.
-    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
-    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
     await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyStored) })
     // pi-ai carries Base URL too: the stored override shows as the value and
     // the effective profile endpoint as its placeholder source.
-    fireEvent.click(screen.getAllByText(en.customized)[1] as HTMLElement)
-    const urls = screen.getAllByLabelText<HTMLInputElement>(en.baseUrl)
-    expect(urls).toHaveLength(2)
-    expect((urls[1] as HTMLInputElement).value).toBe('https://proxy')
-    fireEvent.change(urls[1] as HTMLInputElement, { target: { value: 'https://proxy/v2' } })
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.customized))
+    const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
+    expect(url.value).toBe('https://proxy')
+    fireEvent.change(url, { target: { value: 'https://proxy/v2' } })
+    fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     // Only the edited field travels: apiKeyEnv and headers were already stored
     // with these values, so no op restates them.
@@ -803,14 +846,12 @@ describe('ModelsSection', () => {
     expect(pick.value).toBe('anthropic')
     // A dormant profile has no endpoint anywhere: the pi-ai placeholder
     // falls back to the provider-default wording.
-    fireEvent.click(screen.getAllByText(en.customized)[1] as HTMLElement)
-    const urls = screen.getAllByLabelText<HTMLInputElement>(en.baseUrl)
-    expect((urls[1] as HTMLInputElement).placeholder).toBe(en.baseUrlDefault)
-    const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
-    const addKey = keys[keys.length - 1] as HTMLInputElement
+    fireEvent.click(screen.getByText(en.customized))
+    expect(screen.getByLabelText<HTMLInputElement>(en.baseUrl).placeholder).toBe(en.baseUrlDefault)
+    const addKey = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     expect(addKey.placeholder).toBe(en.keyPlaceholderNative)
     fireEvent.change(addKey, { target: { value: 'sk-ant' } })
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
@@ -824,7 +865,7 @@ describe('ModelsSection', () => {
     const { mutate, set } = await mountSection()
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
@@ -855,9 +896,8 @@ describe('ModelsSection', () => {
     const { face, controller } = await mountSection({ mutate, set })
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-ant' } })
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-ant' } })
+    fireEvent.click(screen.getByText(en.apply))
     await screen.findByText('credential store unavailable')
     expect(mutate).toHaveBeenCalledOnce()
     face.settings.describe.mockResolvedValue(ok({
@@ -867,7 +907,7 @@ describe('ModelsSection', () => {
     }))
     await act(async () => { await controller.load() })
     expect(controller.store.getSnapshot().namespaces.get('llm-pi-ai')?.revision).toBe(1)
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(2) })
     expect(mutate).toHaveBeenCalledOnce()
     expect(set).toHaveBeenLastCalledWith({ ref: 'ANTHROPIC_API_KEY', value: 'sk-ant' })
@@ -883,10 +923,9 @@ describe('ModelsSection', () => {
     await waitFor(() => {
       expect(screen.getAllByText(content => content.includes(en.advancedHint)).length).toBeGreaterThan(0)
     })
-    // The hint-only card cannot apply anything.
-    const applies = screen.getAllByText<HTMLButtonElement>(en.apply)
-    expect((applies[applies.length - 1] as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+    // The hint-only card cannot apply anything, and offers no key field.
+    expect(screen.getByText<HTMLButtonElement>(en.apply).disabled).toBe(true)
+    expect(screen.queryAllByLabelText(en.keyInput)).toHaveLength(0)
   })
 
   it('surfaces a rejected settings write and never stores the key after it', async () => {
@@ -895,9 +934,8 @@ describe('ModelsSection', () => {
     })
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-x' } })
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-x' } })
+    fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(/unknown pi-ai provider/)
     expect(set).not.toHaveBeenCalled()
   })
@@ -930,7 +968,7 @@ describe('ModelsSection', () => {
   it('tells the user to reopen when another writer moved the namespace first', async () => {
     // The stale-draft overwrite: two tabs open the same card, the other saves,
     // and this one must be refused rather than replay its opening snapshot.
-    const { set } = await mountSection({
+    const { set } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(fail('changed since it was read', 'settings-conflict'))),
     })
     fireEvent.click(screen.getByText(en.customized))
@@ -944,7 +982,7 @@ describe('ModelsSection', () => {
     // A transport failure (disconnect, or the 403 a non-loopback browser now
     // gets on the whole configuration plane) rejects rather than returning a
     // failed envelope: without a catch the card would stay busy forever.
-    await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('connection lost'))) })
+    await mountDeepSeekCard({ mutate: vi.fn(() => Promise.reject(new Error('connection lost'))) })
     fireEvent.click(screen.getByText(en.customized))
     fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://next' } })
     fireEvent.click(screen.getByText(en.apply))
@@ -954,7 +992,7 @@ describe('ModelsSection', () => {
   })
 
   it('surfaces a shadowed credential write on the card', async () => {
-    await mountSection({
+    await mountFirstRun({
       set: vi.fn(() => Promise.resolve(fail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment', 'credential-rejected'))),
     })
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
@@ -971,9 +1009,8 @@ describe('ModelsSection', () => {
         configured: ref === 'OPENAI_API_KEY', source: 'env', writable: false,
       }])),
     })))
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
-    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
     await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyEnvLocked) })
     expect(editorKey.disabled).toBe(true)
   })
@@ -981,12 +1018,11 @@ describe('ModelsSection', () => {
   it('keeps a failed credential describe silent and the input usable', async () => {
     const { face, set } = await mountSection()
     face.credentials.describe.mockImplementation(() => Promise.resolve(fail('down', 'internal')) as never)
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
-    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
     expect(editorKey.placeholder).toBe(en.keyPlaceholderNative)
     fireEvent.change(editorKey, { target: { value: 'sk-live' } })
-    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
   })
 
@@ -1085,15 +1121,15 @@ describe('ModelsSection', () => {
 
   it('toggles the row editor closed on a second edit click and on cancel', async () => {
     const { update } = await mountSection()
-    const edit = screen.getAllByText(en.edit)[0] as HTMLElement
+    const edit = screen.getByRole('button', { name: openaiCopy(en.editProvider) })
     fireEvent.click(edit)
-    await waitFor(() => { expect(screen.getAllByLabelText(en.keyInput).length).toBe(2) })
+    await waitFor(() => { expect(screen.queryAllByLabelText(en.keyInput).length).toBe(1) })
     fireEvent.click(edit)
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+    expect(screen.queryAllByLabelText(en.keyInput)).toHaveLength(0)
     fireEvent.click(edit)
-    await waitFor(() => { expect(screen.getAllByLabelText(en.keyInput).length).toBe(2) })
-    fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+    await waitFor(() => { expect(screen.queryAllByLabelText(en.keyInput).length).toBe(1) })
+    fireEvent.click(screen.getByText(en.cancel))
+    expect(screen.queryAllByLabelText(en.keyInput)).toHaveLength(0)
     expect(update).not.toHaveBeenCalled()
   })
 
@@ -1101,8 +1137,31 @@ describe('ModelsSection', () => {
     await mountSection()
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
+    fireEvent.click(screen.getByText(en.cancel))
     await screen.findByText(en.add)
+    expect(screen.queryByLabelText(en.provider)).toBeNull()
+  })
+
+  it('collapses the setup card on cancel without disturbing another open card', async () => {
+    // The regression: the setup card shared the row/add/declare close handler,
+    // so cancelling it discarded the add card's draft while staying open itself.
+    await mountFirstRun()
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+    fireEvent.click(screen.getByText(en.add))
+    await screen.findByLabelText(en.provider)
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(2)
+
+    // The setup card is the first one on the page, above the add block.
+    fireEvent.click(screen.getAllByText(en.cancel)[0] as HTMLElement)
+    // The add card kept its draft…
+    expect(screen.getByLabelText(en.provider)).toBeTruthy()
+    // …and DeepSeek collapsed to an ordinary row carrying the missing-key dot.
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+    expect(screen.getAllByRole('img', { name: en.credentialMissing })
+      .some(dot => dot.closest('li')?.textContent?.includes('DeepSeek') === true)).toBe(true)
+    // Its card reopens through Edit, which closes the add card as any row does.
+    fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
     expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 
