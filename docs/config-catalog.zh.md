@@ -860,6 +860,17 @@ export interface PiAiProviderProfile {
    * never becomes a per-request cap on its own.
    */
   defaultMaxTokens?: number
+  /**
+   * Request modalities for a model this route lists that neither its entry's
+   * {@link PiAiModelProfile.input} nor the installed catalog declares (default
+   * `[text]`). A fallback like the capacities above, not an override: a
+   * catalog model keeps the modalities the catalog records for it, and this
+   * value never narrows one. A gateway serving vision models the catalog does
+   * not describe declares `[text, image]` once here instead of on every entry.
+   * Unlike an entry's list, this one may not be empty — nothing sits below it
+   * to answer instead.
+   */
+  defaultInput?: PiAiModality[]
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
@@ -895,6 +906,18 @@ export interface PiAiModelProfile {
    * default on its own.
    */
   maxTokens?: number
+  /**
+   * Request modalities this model accepts. Absent — or empty, which describes
+   * a model that accepts nothing and so states no answer either — keeps the
+   * installed catalog entry's modalities, then the route's `defaultInput`.
+   * Declaring images is what makes a hand-declared vision model usable, and
+   * declaring text alone corrects a catalog model whose gateway does not serve
+   * what the catalog records. This is a claim about the endpoint, not a check
+   * of it: nothing interrogates a gateway for what it accepts, so a model
+   * claiming images its endpoint refuses is refused by the provider instead,
+   * mid-turn.
+   */
+  input?: PiAiModality[]
   /**
    * Selectable reasoning efforts. Absent inherits the installed catalog
    * entry's capability (a hand-declared model has none and does not reason);
@@ -932,6 +955,9 @@ export interface PiAiCompatProfile {
   supportsReasoningEffort?: boolean
 }
 
+/** One request modality a pi-ai model may accept. */
+export type PiAiModality = Model<Api>['input'][number]
+
 /**
  * Selectable reasoning efforts for one model: each key is a level the model
  * offers (and selectors show), and its value is the wire spelling dispatch
@@ -955,9 +981,9 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 ```
 
-依赖：`CacheRetention`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
+依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:142`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:172`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 

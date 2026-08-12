@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-12-pi-ai-route-default-input-modalities.md
+2026-08-12-pi-ai-route-default-input-modalities.md: 7997c8af6d73f5e034af4f3f5af989ea7bb5f8da
+2026-08-12-pi-ai-route-default-input-modalities.zh.md: 0d53e95d67fbcabc9685cce1643d091ecb6f74d8
