@@ -244,6 +244,12 @@
   font: var(--dsw-font-markdown-code-block-small);
 }
 
+.maxTokensTitle {
+  margin-right: 6px;
+  color: var(--dsw-alias-state-warn-primary);
+  font-weight: 600;
+}
+
 @keyframes retry-shimmer {
   from {
     background-position: 100% 50%;
