@@ -39,7 +39,6 @@ const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
-import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
@@ -110,8 +109,6 @@ interface ComposedProfile {
   profile: Profile
   /** Bundle layers concatenated — the part below the user layers on a live reload. */
   bundlePatches: PatchOptions[]
-  /** The win32 shell platform layer (the base bundle's `windows.cordis.patch.yml`), between bundles and user layers. */
-  windowsShellPatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
   /** Layers above the user layers on a live reload: `--patch` overlays and the telemetry switch. */
@@ -127,7 +124,6 @@ interface ComposedProfile {
 function allPatches(composed: ComposedProfile): PatchOptions[] {
   return [
     ...composed.bundlePatches,
-    ...composed.windowsShellPatches,
     ...composed.profile.patches,
     ...composed.homePatches,
     ...composed.overlays,
@@ -136,10 +132,10 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.profile.bundles` order, the win32 shell platform layer (when the host
- * is Windows), the profile's user layer, the home-level user layer
- * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
- * every profile, so it outranks the per-profile layer), `--patch` overlays,
+ * `dsh.profile.bundles` order (the base bundle gates the shell stacks by
+ * platform on its own rows), the profile's user layer, the home-level user
+ * layer (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply
+ * to every profile, so it outranks the per-profile layer), `--patch` overlays,
  * then the telemetry switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
@@ -153,9 +149,8 @@ function composeProfile(
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
-  const windowsShellPatches = resolveWindowsShellLayer(process.platform, profile.layers, NAME)?.patches ?? []
   const rows = new Map<string, EntryOptions>()
-  for (const row of composeEntries([bundlePatches, windowsShellPatches, profile.patches, homePatches, overlays])) {
+  for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const composedOverlays = [...overlays]
@@ -174,7 +169,7 @@ function composeProfile(
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
-  return { profile, bundlePatches, windowsShellPatches, homePatches, overlays: composedOverlays, rows }
+  return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -246,7 +241,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // removing the override could never revert the row to the bundle default.
   const composeLive = (): PatchOptions[] => structuredClone([
     ...composed.bundlePatches,
-    ...composed.windowsShellPatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,

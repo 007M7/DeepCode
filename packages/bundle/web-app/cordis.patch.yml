@@ -262,6 +262,9 @@
 - id: tool-bash
   disabled: true
 
+- id: tool-pwsh
+  disabled: true
+
 # The background-task REGISTRY stays on the host plane; only the model-facing
 # `task_*` controls move. Its producers — `tool-bash` here, `tool-pty` and a
 # non-continuable `tool-subagent` elsewhere — are preset rows that resolve it
