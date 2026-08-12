@@ -126,6 +126,12 @@ The root [contributor instructions](../AGENTS.md#commands) summarize common comm
 
 ### Demos
 
+Run the repository build separately before using these source-checkout demos:
+
+```sh
+pnpm run build
+```
+
 The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
