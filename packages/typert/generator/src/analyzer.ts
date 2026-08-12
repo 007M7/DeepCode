@@ -983,8 +983,8 @@ class FaceAnalyzer {
       }
       if (parameter.dotDotDotToken !== undefined) this.fail(parameter, 'Remote parameters cannot be rest parameters')
       if (parameter.initializer !== undefined) this.fail(parameter, 'Remote parameters cannot have default values')
-      if (parameter.questionToken !== undefined) this.fail(parameter, 'Remote parameters cannot be optional')
       if (parameter.name.text === 'this') this.fail(parameter, 'Remote methods cannot declare an explicit this parameter')
+      const optional = parameter.questionToken !== undefined
       const authoredType = this.requiredType(parameter, parameter.type, 'parameter')
       const cancellationName = parameter.name.text === 'signal'
       const cancellationType = this.isGlobalAbortSignal(authoredType)
@@ -1002,6 +1002,7 @@ class FaceAnalyzer {
       const lookup = hostSymbol === undefined ? undefined : lookupByHost.get(this.symbolId(hostSymbol))
       let modeled: InvocationParameterModel
       if (lookup !== undefined) {
+        if (optional) this.fail(parameter, `lookup parameter for ${lookup.key} cannot be optional`)
         if (parameter.name.text !== lookup.key) {
           this.fail(parameter, `lookup parameter for ${lookup.key} must also be named ${lookup.key}`)
         }
@@ -1025,10 +1026,13 @@ class FaceAnalyzer {
           name: parameter.name.text,
           wire: parameter.name.text,
           source: 'json',
+          ...optional ? { optional: true as const } : {},
           boundary: this.remoteBoundary(
             authoredType,
             `${registration.name}#${binding.namespace}/${exportedMethod}:${parameter.name.text}`,
             false,
+            'undefined',
+            optional,
           ),
         }
       }
@@ -1095,6 +1099,7 @@ class FaceAnalyzer {
         resultType,
         `${registration.name}#${binding.namespace}/${exportedMethod}:result`,
         false,
+        'undefined-or-void',
       ),
       location: this.location(method.name),
     }
@@ -1336,9 +1341,18 @@ class FaceAnalyzer {
     authoredType: ts.TypeNode,
     fallbackTypeSymbol: string,
     requireNamed: boolean,
+    topLevelAbsence: 'reject' | 'undefined' | 'undefined-or-void' = 'reject',
+    optional = false,
   ): RemoteBoundaryModel {
     const type = this.convertType(authoredType)
-    const codecType = this.resolvedRemoteCodecType(authoredType)
+    const declaredType = this.checker.getTypeFromTypeNode(authoredType)
+    // An optional parameter's authored node carries no `undefined`; the codec
+    // still has to accept the omitted wire field the consumer sends.
+    const resolvedType = optional
+      ? this.checker.getNullableType(declaredType, ts.TypeFlags.Undefined)
+      : declaredType
+    const codecType = this.resolvedRemoteCodecType(authoredType, resolvedType, topLevelAbsence)
+    const acceptsUndefined = topLevelAbsence !== 'reject' && this.includesRemoteAbsence(resolvedType)
     const rootSymbol = this.namedWorkspaceType(authoredType)
     const imports = new Map<SymbolId, RemoteTypeImportModel>()
     const visit = (node: ts.Node): void => {
@@ -1365,6 +1379,7 @@ class FaceAnalyzer {
       return {
         type,
         codecType,
+        acceptsUndefined,
         typeSymbol: `${imported.specifier}#${imported.name}`,
         imports: [...imports.values()].sort((left, right) =>
           left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name)),
@@ -1374,6 +1389,7 @@ class FaceAnalyzer {
     return {
       type,
       codecType,
+      acceptsUndefined,
       typeSymbol: fallbackTypeSymbol,
       imports: [...imports.values()].sort((left, right) =>
         left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name)),
@@ -1387,9 +1403,18 @@ class FaceAnalyzer {
    * validated without teaching the compiler-independent emitter TypeScript's
    * type evaluator.
    */
-  private resolvedRemoteCodecType(authoredType: ts.TypeNode): TypeNodeId {
-    const resolvedType = this.checker.getTypeFromTypeNode(authoredType)
-    this.assertRemoteJsonType(resolvedType, authoredType, new Set(), false)
+  private resolvedRemoteCodecType(
+    authoredType: ts.TypeNode,
+    resolvedType: ts.Type,
+    topLevelAbsence: 'reject' | 'undefined' | 'undefined-or-void',
+  ): TypeNodeId {
+    this.assertRemoteJsonType(
+      resolvedType,
+      authoredType,
+      new Set(),
+      topLevelAbsence !== 'reject',
+      topLevelAbsence === 'undefined-or-void',
+    )
     const completed = new Map<ts.Type, TypeNodeId>()
     const active = new Map<ts.Type, TypeNodeId>()
     const recursiveDeclarations = new Map<ts.Type, SymbolId>()
@@ -1554,9 +1579,11 @@ class FaceAnalyzer {
     site: ts.TypeNode,
     active: Set<ts.Type>,
     allowUndefined: boolean,
+    allowVoid: boolean,
   ): void {
     const flags = type.flags
     if ((flags & ts.TypeFlags.Undefined) !== 0 && allowUndefined) return
+    if ((flags & ts.TypeFlags.Void) !== 0 && allowVoid) return
     if ((flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0) {
       this.fail(site, `Remote boundary contains unconstrained ${this.checker.typeToString(type)} data`)
     }
@@ -1569,13 +1596,15 @@ class FaceAnalyzer {
       | ts.TypeFlags.Null
       | ts.TypeFlags.Never)) !== 0) return
     if (type.isUnion()) {
-      for (const member of type.types) this.assertRemoteJsonType(member, site, active, allowUndefined)
+      for (const member of type.types) {
+        this.assertRemoteJsonType(member, site, active, allowUndefined, allowVoid)
+      }
       return
     }
     if (type.isIntersection()) {
       const material = type.types.filter(member => !this.isRemotePhantomConstraint(member))
       if (material.length === 0) this.fail(site, 'Remote boundary contains a symbol-only object')
-      for (const member of material) this.assertRemoteJsonType(member, site, active, false)
+      for (const member of material) this.assertRemoteJsonType(member, site, active, false, false)
       return
     }
     if ((flags & ts.TypeFlags.TypeParameter) !== 0) {
@@ -1606,6 +1635,7 @@ class FaceAnalyzer {
             site,
             active,
             (elementFlags & ts.ElementFlags.Optional) !== 0,
+            false,
           )
         })
         return
@@ -1613,7 +1643,7 @@ class FaceAnalyzer {
       if (this.checker.isArrayType(type) || this.checker.isArrayLikeType(type)) {
         const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number)
         if (element === undefined) this.fail(site, 'Remote boundary array has no element type')
-        this.assertRemoteJsonType(element, site, active, false)
+        this.assertRemoteJsonType(element, site, active, false, false)
         return
       }
       const properties = this.checker.getPropertiesOfType(type)
@@ -1628,17 +1658,23 @@ class FaceAnalyzer {
           site,
           active,
           (property.flags & ts.SymbolFlags.Optional) !== 0,
+          false,
         )
       }
       for (const info of this.checker.getIndexInfosOfType(type)) {
         if ((info.keyType.flags & ts.TypeFlags.ESSymbolLike) !== 0) {
           this.fail(site, 'Remote boundary contains a symbol index signature')
         }
-        this.assertRemoteJsonType(info.type, site, active, false)
+        this.assertRemoteJsonType(info.type, site, active, false, false)
       }
     } finally {
       active.delete(type)
     }
+  }
+
+  private includesRemoteAbsence(type: ts.Type): boolean {
+    if ((type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0) return true
+    return type.isUnion() && type.types.some(member => this.includesRemoteAbsence(member))
   }
 
   private isRemotePhantomConstraint(type: ts.Type): boolean {

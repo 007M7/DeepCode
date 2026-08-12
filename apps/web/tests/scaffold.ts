@@ -439,7 +439,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // host: patch `name` is an assertion, not an override, hence the
     // disable+insert pair.
     { id: 'directory-picker', disabled: true },
-    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    { insert: [
+      { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
+      { id: 'ui-directory-picker', name: '@deepseek-ai/dsh-client-ui-directory-picker' },
+    ] },
     ...options.agentPresets === undefined
       ? []
       : [{ id: 'agent-presets', config: options.agentPresets }],

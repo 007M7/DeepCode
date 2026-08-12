@@ -24,7 +24,7 @@
 | `agent/status` | `emit` | [`packages/core/agent/src/runtime-types.ts:178`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`agent`](../packages/core/agent), `apiproxy`, [`compact-basic`](../packages/compact/compact-basic), [`goal-session`](../packages/goal/goal-session), `server`, [`tool-schedule`](../packages/schedule/tool-schedule) |
 | `agent/turn-stopping` | `serial` | [`packages/core/agent/src/runtime-types.ts:278`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `approval/request` | `waterfall` | [`packages/interaction/user-approval/src/index.ts:30`](../packages/interaction/user-approval/src/index.ts) | [`user-approval`](../packages/interaction/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp), `apiproxy` |
-| `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:33`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `apiproxy` |
+| `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:72`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `apiproxy` |
 | `credentials/updated` | `emit` | [`packages/credentials/credentials/src/types.ts:29`](../packages/credentials/credentials/src/types.ts) | [`credentials`](../packages/credentials/credentials) (`events.dispatch`) | `apiproxy`, [`credentials`](../packages/credentials/credentials) |
 | `domain/changed` | `emit` | [`packages/storage/storage-domain/src/events.ts:46`](../packages/storage/storage-domain/src/events.ts) | [`storage-domain`](../packages/storage/storage-domain) (`emit`) | `apiproxy`, [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:66`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`), [`tool-str-replace-editor`](../packages/fs/tool-str-replace-editor) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
@@ -64,17 +64,9 @@
 
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
-| `connection/reset` | `runtime` (`emit`) | `ui-settings` |
-| `internal/dispatch` | - | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/interaction/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-schedule`](../packages/schedule/tool-schedule), [`tool-todo`](../packages/todo/tool-todo), [`tool-workflow`](../packages/workflow/tool-workflow), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`workflow`](../packages/workflow/workflow) |
+| `internal/dispatch` | - | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/interaction/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-schedule`](../packages/schedule/tool-schedule), [`tool-todo`](../packages/todo/tool-todo), [`tool-workflow`](../packages/workflow/tool-workflow), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `loader`, [`lsp-local`](../packages/lsp/lsp-local), `webserver` |
 | `internal/service` | - | [`agent-presets`](../packages/preset/agent-presets), `gateway` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
-| `locale/change` | `locale` (`emit`) | `locale` |
-| `slash/input-begin-command` | - | `ui-conversation` |
-| `slash/input-consume-token` | - | `ui-conversation` |
-| `slash/input-insert-reference` | - | `ui-conversation` |
-| `slash/input-insert-text` | - | `ui-conversation` |
-| `slots/changed` | `runtime` (`emit`) | - |
-| `theme/change` | `ui-theme` (`emit`) | `ui-layout`, `ui-theme` |
 
 Maintenance mode: generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program.

@@ -7,6 +7,7 @@
  * @module @deepseek-ai/dsh-client-ui-feedback/client/controller
  */
 
+import type { RemoteResult } from '@deepseek-ai/dsh-type-meta'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MessageId, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type {
@@ -17,21 +18,26 @@ import type {
   MessageFeedbackRating,
 } from '@deepseek-ai/dsh-message-feedback/types'
 
-/** The three Remote calls this controller needs, named without the transport. */
+/**
+ * The three Remote calls this controller needs. The generated face wraps every
+ * business result in {@link RemoteResult}: a carrier failure arrives as the
+ * `ok: false` branch rather than a rejection, so this controller reads one
+ * envelope and never wraps a call to recover a transport error.
+ */
 export interface MessageFeedbackRemote {
-  list: (request: { sessionId: SessionId }) => Promise<MessageFeedbackListResult>
+  list: (request: { sessionId: SessionId }) => Promise<RemoteResult<MessageFeedbackListResult>>
   put: (request: {
     sessionId: SessionId
     messageId: MessageId
     rating: MessageFeedbackRating
     note?: string
     ifVersion: MessageFeedbackItem['version'] | null
-  }) => Promise<MessageFeedbackPutResult>
+  }) => Promise<RemoteResult<MessageFeedbackPutResult>>
   delete: (request: {
     sessionId: SessionId
     messageId: MessageId
     ifVersion: MessageFeedbackItem['version']
-  }) => Promise<MessageFeedbackDeleteResult>
+  }) => Promise<RemoteResult<MessageFeedbackDeleteResult>>
 }
 
 /** Load state of the one list read that seeds every per-message control. */
@@ -85,6 +91,11 @@ function describe(code: string): string {
 /** Build the rejected branch for one business failure code. */
 function fail(code: string): FeedbackActionResult {
   return { ok: false, error: { code, message: describe(code) } }
+}
+
+/** Carrier failure rendered with the Host-supplied code and message. */
+function carrierFailure(error: { code: string; message: string }): FeedbackActionResult {
+  return { ok: false, error: { code: error.code, message: error.message } }
 }
 
 /**
@@ -231,13 +242,15 @@ export class FeedbackController implements HostObservable<FeedbackView> {
     note: string | undefined,
     observed: MessageFeedbackItem | undefined,
   ): Promise<FeedbackActionResult> {
-    const result = await this.remote.put({
+    const carried = await this.remote.put({
       sessionId: this.sessionId,
       messageId,
       rating,
       ...(note === undefined ? {} : { note }),
       ifVersion: observed?.version ?? null,
     })
+    if (!carried.ok) return carrierFailure(carried.error)
+    const result = carried.value
     if (result.ok) {
       this.commit(messageId, result.value)
       return OK
@@ -251,11 +264,13 @@ export class FeedbackController implements HostObservable<FeedbackView> {
     messageId: MessageId,
     observed: MessageFeedbackItem,
   ): Promise<FeedbackActionResult> {
-    const result = await this.remote.delete({
+    const carried = await this.remote.delete({
       sessionId: this.sessionId,
       messageId,
       ifVersion: observed.version,
     })
+    if (!carried.ok) return carrierFailure(carried.error)
+    const result = carried.value
     if (result.ok) {
       this.commit(messageId, null)
       return OK
@@ -273,8 +288,13 @@ export class FeedbackController implements HostObservable<FeedbackView> {
   /** Fetch the whole sidecar and publish it as the seeded view. */
   private async load(): Promise<FeedbackActionResult> {
     try {
-      const result = await this.remote.list({ sessionId: this.sessionId })
+      const carried = await this.remote.list({ sessionId: this.sessionId })
       if (this.disposed) return OK
+      if (!carried.ok) {
+        this.publish({ status: 'error', items: this.view.items, error: carried.error.message })
+        return carrierFailure(carried.error)
+      }
+      const result = carried.value
       if (!result.ok) {
         this.publish({ status: 'error', items: this.view.items, error: describe(result.error.code) })
         return fail(result.error.code)

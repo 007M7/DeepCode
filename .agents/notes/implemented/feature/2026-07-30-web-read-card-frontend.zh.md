@@ -40,9 +40,9 @@ Web 聊天里的读取行现在常驻承载文件内容，是相对纯摘要行�
 
 ## Testing
 
-`packages/client/ui-primitives/tests/read-block.spec.tsx` 固定 primitive 与 token 路径：`highlightLines` 的逐行 css-variables 运行、它对尾部终止行的丢弃与真正空白末行的情形、它对未知/缺省语言返回 `undefined`、以及它的 lazy 路径（lazy 语法首次触碰返回纯文本，import 注册且订阅者触发后再高亮）；还有 `ReadBlock` 的带行号行保留文件自身编号、高亮与纯文本两条内容分支、横幅（标签、语言、仅当读取是窗口时的计数提示）、头/尾高度上限及其 `aria-expanded` 切换、复制控件在接受与拒绝两条剪贴板路径上写入窗口原始文本、以及空窗口分支隐藏复制控件。`code-block.spec.tsx` 覆盖 `highlightToHtml`，含它对每种读取卡片语法的 lazy 路径（每个动态 import thunk 各触碰一次）。`ReadBlock.tsx`、`highlight.ts`（及 `CodeBlock.tsx`）在这两个 spec 上均保持每文件 100% 覆盖。
+`packages/client/ui-primitives/tests/read-block.client.spec.tsx` 固定 primitive 与 token 路径：`highlightLines` 的逐行 css-variables 运行、它对尾部终止行的丢弃与真正空白末行的情形、它对未知/缺省语言返回 `undefined`、以及它的 lazy 路径（lazy 语法首次触碰返回纯文本，import 注册且订阅者触发后再高亮）；还有 `ReadBlock` 的带行号行保留文件自身编号、高亮与纯文本两条内容分支、横幅（标签、语言、仅当读取是窗口时的计数提示）、头/尾高度上限及其 `aria-expanded` 切换、复制控件在接受与拒绝两条剪贴板路径上写入窗口原始文本、以及空窗口分支隐藏复制控件。`code-block.spec.tsx` 覆盖 `highlightToHtml`，含它对每种读取卡片语法的 lazy 路径（每个动态 import thunk 各触碰一次）。`ReadBlock.tsx`、`highlight.ts`（及 `CodeBlock.tsx`）在这两个 spec 上均保持每文件 100% 覆盖。
 
-`packages/client/ui-tool/tests/read-card.spec.tsx` 固定每个渲染点的接线：`readCardModel` 的派生与每条 null 分支（运行中读取、无视图、通用视图、未知卡片）、结果标题替换化简后的路径、路径相对工作区的化简、冻结行数组的复制而非别名；`GenericToolCard` 回退中与 keyed `ReadRow` 中的常驻卡片（外加其路径链接打开宿主、其 running/error/stopped 状态、以及其 `read` 键注册）；还有面板 Output 区段以全高渲染读取卡片同时保留 JSON Input 区段，含运行中读取占位与非读取摊平 pre 两条分支。该文件位于覆盖 `exclude` 列表（`ui-tool/src/*`），因此不承受门槛压力。
+`packages/client/ui-tool/tests/read-card.client.spec.tsx` 固定每个渲染点的接线：`readCardModel` 的派生与每条 null 分支（运行中读取、无视图、通用视图、未知卡片）、结果标题替换化简后的路径、路径相对工作区的化简、冻结行数组的复制而非别名；`GenericToolCard` 回退中与 keyed `ReadRow` 中的常驻卡片（外加其路径链接打开宿主、其 running/error/stopped 状态、以及其 `read` 键注册）；还有面板 Output 区段以全高渲染读取卡片同时保留 JSON Input 区段，含运行中读取占位与非读取摊平 pre 两条分支。该文件位于覆盖 `exclude` 列表（`ui-tool/src/*`），因此不承受门槛压力。
 
 fixture（`packages/client/connection/src/client/fixture.ts`）增加 turn 66，一次 `read` 调用，其结果视图是窗口读取（行号从文件行 41 起、`totalLines` 180、`ts` 提示），使内置启动快照和实时 `?fixture` 服务器展示带行号、高亮和计数提示的读取卡片。它命名为 `read` 以驱动 keyed `ReadRow`。turn 64 的 `run_code` 样例中的嵌套读取子派发并不驱动渲染点回退读取卡片：`session.ts` 把它们折叠为 `resultView: null`，因此它们只覆盖回退行的通用行形状，而非回退行内的读取卡片；回退行读取卡片由 `read-card.spec.tsx` 的 `web_fetch` 用例钉住。turn 66 排在 todo turn（现为 67）之前，与终端样例同因：常驻计划在下一次 `turn/start` 退场。
 

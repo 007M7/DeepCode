@@ -29,7 +29,7 @@ const PACKAGE_FILES: Readonly<Record<string, string>> = {
   'packages/client/ui-conversation/README.md': '# UI conversation\n',
   'packages/client/ui-conversation/package.json': '{"name":"@deepseek-ai/dsh-client-ui-conversation"}\n',
   'packages/client/ui-conversation/src/client.ts': 'export {}\n',
-  'packages/client/ui-conversation/tests/chat-view.spec.tsx': 'export {}\n',
+  'packages/client/ui-conversation/tests/chat-view.client.spec.tsx': 'export {}\n',
   'packages/context/session-reference/README.md': '# Session reference\n',
   'packages/context/session-reference/package.json': '{"name":"@deepseek-ai/dsh-session-reference"}\n',
   'packages/context/session-reference/src/index.ts': 'export {}\n',

@@ -17,7 +17,7 @@
  */
 import { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { Context, Fiber } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypeRTClientRemote, TypeRTRemoteScopeApi } from '@deepseek-ai/dsh-type-meta'
 
 /** Client Cordis Context carrying one Agent identity and its scoped Remote namespaces. */

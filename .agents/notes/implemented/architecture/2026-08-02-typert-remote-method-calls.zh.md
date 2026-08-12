@@ -238,7 +238,7 @@ import goalsRemote from '@deepseek-ai/dsh-goal/remote'
 
 该 import 让 `.d.ts` 的 map augmentation 进入当前 TypeScript project，同时把同一约定的 JS descriptor 作为值交给运行时。未 import 的业务包不会扩展当前 project 的 Remote API 类型。
 
-业务 package 的发布文件必须同时包含 `lib/typert.remote-client.d.ts.map` 和 map 指向的 `src` 文件。生成 DTS 以 `//# sourceMappingURL=typert.remote-client.d.ts.map` 引用相邻 map；map 中的 source 从 `lib` 相对指向业务源码，例如 `../src/index.ts`。`/remote` export 不单独列出 map，package `files` 负责把它与源码一起发布。
+业务 package 的发布文件必须包含 `lib/typert.remote-client.d.ts.map`。生成 DTS 以 `//# sourceMappingURL=typert.remote-client.d.ts.map` 引用相邻 map；map 中的 source 从 `lib` 相对指向业务源码，例如 `../src/index.ts`。`/remote` export 不单独列出 map，package `files` 负责发布它。该目标是开发期路径：workspace 消费者经 package link 解析它，因此发布产物仍然不含 `src`，已发布的 map 只是解析不到东西。
 
 仅需要静态类型时可以使用 `import type {} from '@deepseek-ai/dsh-goal/remote'`；这种 import 在运行时会被擦除，不会加载 JS，也不能触发任何运行时注册。需要真实调用的环境必须把普通 value import 得到的 contribution 交给 Client Remote Service。
 

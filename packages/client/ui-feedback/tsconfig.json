@@ -21,7 +21,7 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../connection"
+      "path": "../../typert/type-meta"
     },
     {
       "path": "../locale"
