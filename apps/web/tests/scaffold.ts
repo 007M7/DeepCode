@@ -421,7 +421,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // disclosure passes a local dead endpoint instead of disabling the row.
     options.telemetryUrl === undefined
       ? { id: 'telemetry-otel', disabled: true }
-      : { id: 'telemetry-otel', config: { exporter: { url: options.telemetryUrl }, shutdownTimeoutMillis: 1_000 } },
+      : {
+        id: 'telemetry-otel',
+        config: {
+          mode: 'FULL',
+          exporter: { url: options.telemetryUrl },
+          shutdownTimeoutMillis: 1_000,
+        },
+      },
     {
       id: 'webserver',
       config: { host: '127.0.0.1', port: 0 },
