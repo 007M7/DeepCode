@@ -51,6 +51,6 @@ pnpm dsh web
 
 ## 许可证
 
-[BSD 3-Clause](LICENSE)
+[MIT](LICENSE)
 
 第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
