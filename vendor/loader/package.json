@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/cordis-plugin-loader",
   "description": "Plugin loader for cordis",
-  "version": "1.0.2-rc.2",
+  "version": "1.0.2-rc.3",
   "publishConfig": {
     "access": "restricted"
   },
