@@ -35,4 +35,6 @@ Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CON
 - owner-scoped persistent `bash`
 - `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`
 
-It composes the local PTY, bare `fs-local` backend, danger-full-access policy for persistent Bash, and uncompressed JSONL persistence needed by the bundled runtime. [`minimal.py`](minimal.py) runs it through the Python SDK and uses `DSH_MODEL` as its default model; the [Python SDK tutorial](../../docs/user/guide/python-sdk.md) covers setup, session management, and the security boundary.
+It composes the local PTY, bare `fs-local` backend, danger-full-access policy for persistent Bash, and uncompressed JSONL persistence needed by the bundled runtime. Bash and absolute editor paths can modify any path available to the runtime process, so run this variant only against a disposable checkout or container. The persistent PTY requires a POSIX terminal environment and is not a Windows agent interface.
+
+[`minimal.py`](minimal.py) runs the composition through the Python SDK and uses `DSH_MODEL` as its default model. The [Python SDK tutorial](../../docs/user/guide/python-sdk.md) covers installation, execution, workspace selection, and session identity; the [SDK reference](../../python/sdk/README.md) owns runtime lifecycle and result semantics.
