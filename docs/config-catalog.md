@@ -367,7 +367,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:52`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 
