@@ -20,6 +20,7 @@ import type { ToolResultView } from '@deepseek-ai/dsh-api-remotes/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolCallOwnerProps } from '@deepseek-ai/dsh-client-ui-tool/client'
+import { IconGlobeOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { webCardModel } from '../src/client/tool/models/web-card-model.ts'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { GenericToolCard } from '../src/client/tool/toolviews/GenericToolCard.tsx'
@@ -140,9 +141,11 @@ describe('chat row web body', () => {
   }
 
   it('the WebRow collapses to the summary row, expanding to the full search card', () => {
+    const globe = render(<IconGlobeOutline14 />).container.querySelector('svg')!.outerHTML
     const view = render(<WebRow {...rowProps(settledSearch(), 'web_search')} />)
     // Collapsed: the summary row alone, no card in the DOM.
     expect(view.getByText('Search')).toBeTruthy()
+    expect(view.container.querySelector('svg')?.outerHTML).toBe(globe)
     expect(view.queryByText('Titled')).toBeNull()
     expect(view.container.querySelector('[data-web]')).toBeNull()
     toggleRow(view)

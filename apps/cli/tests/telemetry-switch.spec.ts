@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { resolveTelemetryPatch } from '../src/profile-boot.ts'
 
 describe('resolveTelemetryPatch', () => {
-  it('keeps telemetry enabled when the switch is unset or empty', () => {
+  it('preserves the configured telemetry mode when the hard-disable switch is unset or empty', () => {
     expect(resolveTelemetryPatch(undefined, true)).toBeUndefined()
     expect(resolveTelemetryPatch('', true)).toBeUndefined()
   })

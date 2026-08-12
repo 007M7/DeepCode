@@ -10,7 +10,7 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
 - id: telemetry-otel
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
-    mode: FULL                # FULL (default), FEEDBACK_ONLY, or DISABLED
+    mode: FULL                # explicit opt-in; default: DISABLED
     shutdownTimeoutMillis: 3000 # optional; defaults to 3000
     exporter:                # passed verbatim to the SDK's OTLP/HTTP log exporter
       url: https://collector.example.com/v1/logs
@@ -21,9 +21,9 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
 
 | `mode` | Behavior |
 |---|---|
-| `FULL` | Default. Each projected record, including lifecycle ops records, is handed to the OTel SDK immediately. |
+| `FULL` | Each projected record, including lifecycle ops records, is handed to the OTel SDK immediately. |
 | `FEEDBACK_ONLY` | Each `feedback/record` replays, projects, and redacts the canonical session-log suffix through that event. Later records wait for another feedback event and remain local if none arrives. |
-| `DISABLED` | No coordinator, provider, processor, or exporter is constructed. No telemetry record leaves the process. A `feedback/record` logs `session telemetry is DISABLED; nothing will be shared and this feedback remains local`; the event remains in the local session log. |
+| `DISABLED` | Default. No coordinator, provider, processor, or exporter is constructed. No telemetry record leaves the process. A `feedback/record` logs `session telemetry is DISABLED; nothing will be shared and this feedback remains local`; the event remains in the local session log. |
 
 Programmatic TypeScript configuration uses the exported `TelemetryMode` enum (`TelemetryMode.FULL`, `TelemetryMode.FEEDBACK_ONLY`, or `TelemetryMode.DISABLED`); raw string literals are not assignable. Serialized Cordis configuration continues to use the string values shown above.
 

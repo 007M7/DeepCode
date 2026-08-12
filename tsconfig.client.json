@@ -73,6 +73,7 @@
     { "path": "./packages/client/ui-directory-picker" },
     { "path": "./packages/client/ui-directory-picker-native" },
     { "path": "./packages/client/ui-goal" },
+    { "path": "./packages/client/ui-feedback" },
     { "path": "./packages/client/ui-model" },
     { "path": "./packages/client/ui-agent-preset" },
     { "path": "./packages/client/ui-permission" },
@@ -84,6 +85,7 @@
     { "path": "./packages/client/ui-settings" },
     { "path": "./packages/client/ui-settings-general" },
     { "path": "./packages/client/ui-models" },
+    { "path": "./packages/client/ui-plugins" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }

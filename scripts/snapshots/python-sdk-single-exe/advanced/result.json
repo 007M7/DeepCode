@@ -874,8 +874,48 @@
       }
     },
     {
-      "type": "tool/result",
+      "type": "tool-workflow/run-start",
       "seq": 48,
+      "time": 0,
+      "data": {
+        "runId": "{{workflow-run}}",
+        "name": "advanced-exe-snapshot"
+      }
+    },
+    {
+      "type": "tool-workflow/agent-start",
+      "seq": 49,
+      "time": 0,
+      "data": {
+        "runId": "{{workflow-run}}",
+        "seq": 1,
+        "label": "workflow-child",
+        "phase": "Delegate",
+        "childId": "{{child-2}}"
+      }
+    },
+    {
+      "type": "tool-workflow/agent-end",
+      "seq": 50,
+      "time": 0,
+      "data": {
+        "runId": "{{workflow-run}}",
+        "seq": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "type": "tool-workflow/run-end",
+      "seq": 51,
+      "time": 0,
+      "data": {
+        "runId": "{{workflow-run}}",
+        "stopReason": "completed"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 52,
       "time": 0,
       "data": {
         "turn": 1,
@@ -909,7 +949,7 @@
     },
     {
       "type": "step/end",
-      "seq": 49,
+      "seq": 53,
       "time": 0,
       "data": {
         "turn": 1,
@@ -918,7 +958,7 @@
     },
     {
       "type": "step/start",
-      "seq": 50,
+      "seq": 54,
       "time": 0,
       "data": {
         "turn": 1,
@@ -927,7 +967,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 51,
+      "seq": 55,
       "time": 0,
       "data": {
         "turn": 1,
@@ -941,7 +981,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 52,
+      "seq": 56,
       "time": 0,
       "data": {
         "turn": 1,
@@ -957,7 +997,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 53,
+      "seq": 57,
       "time": 0,
       "data": {
         "turn": 1,
@@ -976,7 +1016,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 54,
+      "seq": 58,
       "time": 0,
       "data": {
         "turn": 1,
@@ -992,7 +1032,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 55,
+      "seq": 59,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1007,7 +1047,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 56,
+      "seq": 60,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1035,17 +1075,17 @@
         }
       },
       "sourceEventSeqs": [
-        51,
-        52,
-        53,
-        54,
-        55
+        55,
+        56,
+        57,
+        58,
+        59
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 57,
+      "seq": 61,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1057,7 +1097,7 @@
     },
     {
       "type": "tool/result",
-      "seq": 58,
+      "seq": 62,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1085,13 +1125,13 @@
         }
       },
       "sourceEventSeqs": [
-        57
+        61
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 59,
+      "seq": 63,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1100,7 +1140,7 @@
     },
     {
       "type": "step/start",
-      "seq": 60,
+      "seq": 64,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1109,7 +1149,7 @@
     },
     {
       "type": "request/header",
-      "seq": 61,
+      "seq": 65,
       "time": 0,
       "data": {
         "header": {
@@ -1141,7 +1181,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 62,
+      "seq": 66,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1155,7 +1195,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 63,
+      "seq": 67,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1169,7 +1209,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 64,
+      "seq": 68,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1186,7 +1226,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 65,
+      "seq": 69,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1202,7 +1242,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 66,
+      "seq": 70,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1217,7 +1257,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 67,
+      "seq": 71,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1243,17 +1283,17 @@
         }
       },
       "sourceEventSeqs": [
-        62,
-        63,
-        64,
-        65,
-        66
+        66,
+        67,
+        68,
+        69,
+        70
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 68,
+      "seq": 72,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1262,7 +1302,7 @@
     },
     {
       "type": "turn/end",
-      "seq": 69,
+      "seq": 73,
       "time": 0,
       "data": {
         "turn": 1,
@@ -2334,8 +2374,41 @@
       "payload": {
         "sessionId": "{{child-1}}",
         "event": {
-          "type": "session/title",
+          "type": "user/message",
           "seq": 6,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+              }
+            ],
+            "source": {
+              "kind": "plugin",
+              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "form": "snapshot",
+              "sections": [
+                {
+                  "name": "subagent:delegation",
+                  "text": "You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+                }
+              ]
+            },
+            "role": "user",
+            "id": "{{messageId}}"
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "session/title",
+          "seq": 7,
           "time": 0,
           "data": {
             "title": "Reply with exactly DIRECT_CHILD_OK and",
@@ -2355,7 +2428,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "request/header",
-          "seq": 7,
+          "seq": 8,
           "time": 0,
           "data": {
             "header": {
@@ -2394,7 +2467,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "request/context",
-          "seq": 8,
+          "seq": 9,
           "time": 0,
           "data": {
             "provider": "deepseek-official",
@@ -2410,7 +2483,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 9,
+          "seq": 10,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2430,7 +2503,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 10,
+          "seq": 11,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2450,7 +2523,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 11,
+          "seq": 12,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2473,7 +2546,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 12,
+          "seq": 13,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2495,7 +2568,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 13,
+          "seq": 14,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2516,7 +2589,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "assistant/message",
-          "seq": 14,
+          "seq": 15,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2542,11 +2615,11 @@
             }
           },
           "sourceEventSeqs": [
-            9,
             10,
             11,
             12,
-            13
+            13,
+            14
           ],
           "surfaceOp": "append"
         }
@@ -2558,7 +2631,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "step/end",
-          "seq": 15,
+          "seq": 16,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2573,7 +2646,7 @@
         "sessionId": "{{child-1}}",
         "event": {
           "type": "turn/end",
-          "seq": 16,
+          "seq": 17,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2851,6 +2924,21 @@
       }
     },
     {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "tool-workflow/run-start",
+          "seq": 48,
+          "time": 0,
+          "data": {
+            "runId": "{{workflow-run}}",
+            "name": "advanced-exe-snapshot"
+          }
+        }
+      }
+    },
+    {
       "method": "subagent.started",
       "payload": {
         "parentSessionId": "{{parent}}",
@@ -2986,8 +3074,41 @@
       "payload": {
         "sessionId": "{{child-2}}",
         "event": {
-          "type": "session/title",
+          "type": "user/message",
           "seq": 6,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+              }
+            ],
+            "source": {
+              "kind": "plugin",
+              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "form": "snapshot",
+              "sections": [
+                {
+                  "name": "subagent:delegation",
+                  "text": "You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+                }
+              ]
+            },
+            "role": "user",
+            "id": "{{messageId}}"
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "session/title",
+          "seq": 7,
           "time": 0,
           "data": {
             "title": "Reply with exactly WORKFLOW_CHILD_OK and",
@@ -3007,7 +3128,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "request/header",
-          "seq": 7,
+          "seq": 8,
           "time": 0,
           "data": {
             "header": {
@@ -3046,7 +3167,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "request/context",
-          "seq": 8,
+          "seq": 9,
           "time": 0,
           "data": {
             "provider": "deepseek-official",
@@ -3059,10 +3180,28 @@
     {
       "method": "session.event",
       "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "tool-workflow/agent-start",
+          "seq": 49,
+          "time": 0,
+          "data": {
+            "runId": "{{workflow-run}}",
+            "seq": 1,
+            "label": "workflow-child",
+            "phase": "Delegate",
+            "childId": "{{child-2}}"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 9,
+          "seq": 10,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3082,7 +3221,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 10,
+          "seq": 11,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3102,7 +3241,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 11,
+          "seq": 12,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3125,7 +3264,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 12,
+          "seq": 13,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3147,7 +3286,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 13,
+          "seq": 14,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3168,7 +3307,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "assistant/message",
-          "seq": 14,
+          "seq": 15,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3194,11 +3333,11 @@
             }
           },
           "sourceEventSeqs": [
-            9,
             10,
             11,
             12,
-            13
+            13,
+            14
           ],
           "surfaceOp": "append"
         }
@@ -3210,7 +3349,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "step/end",
-          "seq": 15,
+          "seq": 16,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3225,7 +3364,7 @@
         "sessionId": "{{child-2}}",
         "event": {
           "type": "turn/end",
-          "seq": 16,
+          "seq": 17,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3265,8 +3404,39 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
+          "type": "tool-workflow/agent-end",
+          "seq": 50,
+          "time": 0,
+          "data": {
+            "runId": "{{workflow-run}}",
+            "seq": 1,
+            "outcome": "completed"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "tool-workflow/run-end",
+          "seq": 51,
+          "time": 0,
+          "data": {
+            "runId": "{{workflow-run}}",
+            "stopReason": "completed"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
           "type": "tool/result",
-          "seq": 48,
+          "seq": 52,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3306,7 +3476,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 49,
+          "seq": 53,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3321,7 +3491,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 50,
+          "seq": 54,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3336,7 +3506,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 51,
+          "seq": 55,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3356,7 +3526,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 52,
+          "seq": 56,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3378,7 +3548,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 53,
+          "seq": 57,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3403,7 +3573,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 54,
+          "seq": 58,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3425,7 +3595,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 55,
+          "seq": 59,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3446,7 +3616,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 56,
+          "seq": 60,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3474,11 +3644,11 @@
             }
           },
           "sourceEventSeqs": [
-            51,
-            52,
-            53,
-            54,
-            55
+            55,
+            56,
+            57,
+            58,
+            59
           ],
           "surfaceOp": "append"
         }
@@ -3490,7 +3660,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 57,
+          "seq": 61,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3508,7 +3678,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 58,
+          "seq": 62,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3536,7 +3706,7 @@
             }
           },
           "sourceEventSeqs": [
-            57
+            61
           ],
           "surfaceOp": "append"
         }
@@ -3548,7 +3718,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 59,
+          "seq": 63,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3563,7 +3733,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 60,
+          "seq": 64,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3578,7 +3748,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "request/header",
-          "seq": 61,
+          "seq": 65,
           "time": 0,
           "data": {
             "header": {
@@ -3616,7 +3786,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 62,
+          "seq": 66,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3636,7 +3806,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 63,
+          "seq": 67,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3656,7 +3826,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 64,
+          "seq": 68,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3679,7 +3849,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 65,
+          "seq": 69,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3701,7 +3871,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 66,
+          "seq": 70,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3722,7 +3892,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 67,
+          "seq": 71,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3748,11 +3918,11 @@
             }
           },
           "sourceEventSeqs": [
-            62,
-            63,
-            64,
-            65,
-            66
+            66,
+            67,
+            68,
+            69,
+            70
           ],
           "surfaceOp": "append"
         }
@@ -3764,7 +3934,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 68,
+          "seq": 72,
           "time": 0,
           "data": {
             "turn": 1,
@@ -3779,7 +3949,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "turn/end",
-          "seq": 69,
+          "seq": 73,
           "time": 0,
           "data": {
             "turn": 1,

@@ -10,7 +10,7 @@ It uses an architecture where **everything is a plugin**.
 
 DeepSeek Harness is under internal testing. Features and interfaces may change.
 
-The internal build uploads all Session Logs by default to help diagnose reported problems. Set `DSH_TELEMETRY_DISABLED=1` to disable telemetry. Send feedback through the internal WeChat group.
+Session Logs stay local by default. Set `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` to share a Session Log only when submitting feedback, or `DSH_TELEMETRY_MODE=FULL` to upload continuously; `FULL` also enables dsh-sdk command telemetry reporting an anonymous ID, the command result, and redacted project configuration. Send feedback through the internal WeChat group.
 
 ## Run
 
@@ -22,7 +22,7 @@ npx @deepseek-ai/dsh web
 
 The command initializes the Web profile and prints the Web UI URL, which is `http://127.0.0.1:3080` by default. Open it, add a DeepSeek API key under **Settings → Models**, then start a session. The invoking directory is the default workspace; try `Summarize this repository and identify its main packages.`
 
-Continue with the [Web UI guide](docs/user/guide/).
+Continue with the [Web UI guide](docs/user/guide/index.md).
 
 ### Run from source
 
@@ -32,10 +32,11 @@ To run a repository checkout instead:
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 pnpm dsh web
 ```
 
-The last command builds the repository and opens the same Web UI path.
+`pnpm run build` prepares the repository artifacts. `pnpm dsh web` starts the Web UI without rebuilding and opens the same path.
 
 ## Profiles and plugins
 
