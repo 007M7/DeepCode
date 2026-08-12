@@ -57,28 +57,24 @@ Examples:
 }
 
 /**
- * Turn the parsed flags into the value injected rows read.
- * @param program - the parsed web command.
- * @returns this invocation's immutable Web options.
- */
-function planWebStartup(program: Command): WebStartupValues {
-  const options = program.opts<WebOptions>()
-  if (options.port !== undefined && !/^\d+$/.test(options.port)) {
-    program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
-  }
-  return {
-    ...options.host !== undefined && { host: options.host },
-    ...options.port !== undefined && { port: Number(options.port) },
-    trustedHosts: options.trustedHost ?? [],
-  }
-}
-
-/**
- * Parse and provide the Web invocation as an ordinary Cordis service.
+ * Parse and provide the Web invocation as an ordinary Cordis service. The
+ * command's action publishes the flags this invocation named; a non-numeric
+ * `--port` is a usage error, so on rejection (and on `--help`) nothing is
+ * provided.
  * @param ctx - plugin context carrying the command line.
- * @returns nothing once values are provided, or when the command requested exit.
  */
 export function apply(ctx: Context): void {
-  const values = parseCmdline(ctx, webCommand(), planWebStartup)
-  if (values !== undefined) ctx.provide(WEB_STARTUP_SERVICE, values)
+  const program = webCommand()
+  program.action(() => {
+    const options = program.opts<WebOptions>()
+    if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+      program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
+    }
+    ctx.provide(WEB_STARTUP_SERVICE, {
+      ...options.host !== undefined && { host: options.host },
+      ...options.port !== undefined && { port: Number(options.port) },
+      trustedHosts: options.trustedHost ?? [],
+    } satisfies WebStartupValues)
+  })
+  parseCmdline(ctx, program)
 }
