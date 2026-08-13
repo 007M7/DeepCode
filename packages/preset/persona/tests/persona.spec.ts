@@ -102,4 +102,41 @@ describe('the persona row', () => {
     expect(assembly.sections).toEqual([{ name: PERSONA_SECTION, text: 'Only this.' }])
     expect(renderPrompt(assembly)).toBe('Only this.')
   })
+
+  it('can suppress runtime context for its scope without changing the global assembly', async () => {
+    const ctx = await harness('deployment identity')
+    const key: ScopeKey = { agent: 'a1' }
+    const scope = createScope(ctx, key)
+    ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'global policy' })
+
+    const fiber = await scope.ctx.plugin(Persona, {
+      text: 'Only this.',
+      includeRuntimeContext: false,
+    })
+    const suppressed = await ctx.systemPrompt.assemble({ scope: key })
+    expect(suppressed.contexts).toEqual([])
+    const global = await ctx.systemPrompt.assemble()
+    expect(global.contexts).toEqual([
+      { name: 'policy', text: 'global policy' },
+    ])
+
+    await fiber.dispose()
+    expect((await ctx.systemPrompt.assemble({ scope: key })).contexts).toEqual([
+      { name: 'policy', text: 'global policy' },
+    ])
+  })
+
+  it('keeps runtime context by default when apply bypasses schema defaults', async () => {
+    const ctx = await harness('deployment identity')
+    const key: ScopeKey = { agent: 'a1' }
+    ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'global policy' })
+
+    await ctx.plugin(Object.assign((inner: Context) => {
+      Persona.apply(createScope(inner, key).ctx, { text: 'Scoped identity.' })
+    }, { inject: ['systemPrompt'] }))
+
+    expect((await ctx.systemPrompt.assemble({ scope: key })).contexts).toEqual([
+      { name: 'policy', text: 'global policy' },
+    ])
+  })
 })

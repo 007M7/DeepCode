@@ -1,6 +1,7 @@
 # Complete unattended minimal-agent composition for the Python SDK. The model
 # sees one deployment-selected system prompt and only the owner-scoped
-# persistent Bash and string-replace editor tools. Context compaction is absent.
+# persistent Bash and string-replace editor tools. Runtime-context injection and
+# context compaction are absent.
 
 - id: sdk-jsonrpc-server
   name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
@@ -47,6 +48,7 @@
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
     includeHarnessIdentity: false
+    includeRuntimeContext: false
     persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
     workspaceContext: false
     skills:

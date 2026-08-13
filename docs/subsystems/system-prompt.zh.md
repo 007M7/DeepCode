@@ -118,6 +118,14 @@ section(section: PromptSection): () => void
 context(context: PromptContext): () => void
 
 /**
+ * Suppress every dynamic runtime-context contribution in the calling
+ * context's scope without changing the services that own or enforce those
+ * facts. Multiple suppressors remain independently disposable.
+ * @returns the exact Cordis effect disposer.
+ */
+suppressRuntimeContext(): () => void
+
+/**
  * Register a tool-schema provider in the calling context's scope. Global and
  * matching scoped providers both contribute; returning the reserved
  * {@link TOOL_ORDER_REST} name makes assembly fail.
@@ -148,7 +156,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:334`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:338`](../../packages/core/system-prompt/src/index.ts)
 
 <a id="system-prompt-events"></a>
 

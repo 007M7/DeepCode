@@ -712,6 +712,7 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('can omit the bundled bash tool and Harness identity for a compatibility deployment', async () => {
     const ctx = await mount({
       includeHarnessIdentity: false,
+      includeRuntimeContext: false,
       persona: 'You are a helpful software engineer assistant.',
       workspaceContext: false,
       skills: { enabled: false },
@@ -720,6 +721,8 @@ describe('dsh-agent-spine-demo bundle', () => {
     }, true)
 
     expect(ctx.tools.schemas()).toEqual([])
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'hidden policy' })
+    expect((await ctx.systemPrompt.assemble()).contexts).toEqual([])
     expect(renderPrompt(await ctx.systemPrompt.assemble()))
       .toBe('You are a helpful software engineer assistant.')
 
@@ -729,7 +732,9 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('picks shared spine config without leaking entry-point fields', () => {
     const appConfig = {
       model: 'entrypoint-only',
+      maxParallelToolCalls: 3,
       includeHarnessIdentity: false,
+      includeRuntimeContext: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
@@ -741,10 +746,13 @@ describe('dsh-agent-spine-demo bundle', () => {
       jobs: { maxConcurrentJobsPerOwner: 4 },
       toolJobs: false as const,
       invariants: { enabled: false },
+      goals: false as const,
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
+      maxParallelToolCalls: appConfig.maxParallelToolCalls,
       includeHarnessIdentity: appConfig.includeHarnessIdentity,
+      includeRuntimeContext: appConfig.includeRuntimeContext,
       persona: appConfig.persona,
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
@@ -756,6 +764,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       jobs: appConfig.jobs,
       toolJobs: appConfig.toolJobs,
       invariants: appConfig.invariants,
+      goals: appConfig.goals,
     })
     expect(agentCore.pickSpineConfig({ workspaceContext: false })).toEqual({ workspaceContext: false })
   })

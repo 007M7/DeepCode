@@ -30,7 +30,7 @@
 
 ## 极简变体
 
-[`minimal.cordis.yml`](minimal.cordis.yml) 是 Web `minimal` preset 的完整独立版本。`DSH_SYSTEM_PROMPT` 选择它的系统提示词，未设置时使用 `You are a helpful software engineer assistant.`，且不挂载上下文压缩插件。面向模型的工具严格只有：
+[`minimal.cordis.yml`](minimal.cordis.yml) 是 Web `minimal` preset 的完整独立版本。`DSH_SYSTEM_PROMPT` 选择它的系统提示词，未设置时使用 `You are a helpful software engineer assistant.`。它为新建会话抑制每个 system-prompt runtime-context 贡献，且不挂载上下文压缩插件。面向模型的工具严格只有：
 
 - 所有者作用域内持久化的 `bash`
 - 提供 `view`、`create`、`str_replace` 与 `insert` 的 `str_replace_editor`

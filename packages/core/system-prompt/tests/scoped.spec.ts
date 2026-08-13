@@ -142,6 +142,23 @@ describe('scoped cache-safe context', () => {
     expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
       .toContain('global policy')
   })
+
+  it('suppresses all context for one scope and restores it when disposed', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'suppressed-context')
+    const key = scopeKeyOf(scope)
+    ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'global policy' })
+    const dispose = scope.ctx.systemPrompt.suppressRuntimeContext()
+
+    const suppressed = await ctx.systemPrompt.assemble({ scope: key })
+    expect(suppressed.contexts).toEqual([])
+    const global = await ctx.systemPrompt.assemble()
+    expect(renderContextSnapshot(global)).toContain('global policy')
+
+    dispose()
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: key })))
+      .toContain('global policy')
+  })
 })
 
 describe('scoped tool providers and toolOrder × restriction', () => {
