@@ -231,6 +231,36 @@ describe('SQLite session search', () => {
     await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('refuses search in never mode while inherited reads and traces keep working', async () => {
+    const path = await temporaryPath('never-mode.db')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const search = await ctx.plugin(SqliteSessionQueryEngine, { path, openAt: 'never' })
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    expect(service.config.openAt).toBe('never')
+
+    const parent = SessionId('never-parent')
+    const child = SessionId('never-child')
+    ctx.sessions.create(parent, { seed: messageEvents('never opened needle'), meta: { createdAt: 10 } })
+    ctx.sessions.create(child, { meta: { parentSession: parent, createdAt: 20 } })
+
+    await expect(service.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SEARCH_DISABLED'))
+    await expect(service.searchEvents({ sessionId: parent, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SEARCH_DISABLED'))
+
+    expect((await service.listSessions()).map(record => record.header.id).sort())
+      .toEqual([child, parent])
+    const lineage = await service.traceSession(parent)
+    expect(lineage.complete).toBe(true)
+    expect(lineage.descendants.map(node => node.session.header.id)).toEqual([child])
+
+    // The disabled index never touches the filesystem, in mount, use, or disposal.
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    await search.dispose()
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('opens once on the first search and reuses readiness for later searches', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

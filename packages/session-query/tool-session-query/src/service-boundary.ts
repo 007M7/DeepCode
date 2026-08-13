@@ -71,6 +71,10 @@ const SAFE_SESSION_QUERY_FAILURES = {
     code: 'SESSION_QUERY_PERSISTENCE_FAILED',
     message: 'session history storage is unavailable',
   },
+  SESSION_QUERY_SEARCH_DISABLED: {
+    code: 'SESSION_QUERY_SEARCH_DISABLED',
+    message: 'session search is disabled in this deployment',
+  },
   SESSION_QUERY_SESSION_NOT_FOUND: {
     code: 'SESSION_QUERY_SESSION_NOT_FOUND',
     message: 'session was not found',

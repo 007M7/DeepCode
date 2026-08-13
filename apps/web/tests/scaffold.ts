@@ -391,6 +391,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       },
     },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    // Content search is enabled here although the shipped bundles default it
+    // off (`openAt: never`, pinned by apps/cli/tests/lazy-search-startup):
+    // the seeded-session scenarios navigate by content search, and these e2e
+    // runs are the assembled coverage for the opt-in search path.
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
     // to an absolute temp root (removed with the workspace at close) so tests

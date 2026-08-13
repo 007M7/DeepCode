@@ -1558,7 +1558,13 @@ export interface Config extends SessionQueryConfig {
    * POSIX filesystems; existing modes are preserved.
    */
   path: string
-  /** Open the SQLite module and handle at service activation or the first search. Defaults to `startup`. */
+  /**
+   * Open the SQLite module and handle at service activation or the first
+   * search, or `never` to disable full-text search: the inherited exact
+   * reads, filters, and traces stay available, while `searchSessions` and
+   * `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
+   * never imported or opened. Defaults to `startup`.
+   */
   openAt?: OpenAt
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
@@ -1572,8 +1578,8 @@ export interface Config extends SessionQueryConfig {
   persistedInspectConcurrency?: number
 }
 
-/** SQLite module/handle opening phase. */
-export type OpenAt = 'startup' | 'first-search'
+/** SQLite module/handle opening phase; `never` disables full-text search entirely. */
+export type OpenAt = 'startup' | 'first-search' | 'never'
 
 /** Supported SQLite journal modes. */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
