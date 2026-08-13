@@ -58,7 +58,11 @@
 .table tbody .historyLoadRow td {
   height: 30px;
   padding: 0;
-  border-bottom-color: var(--dsw-alias-border-l2);
+}
+
+/* The pagination control does not create a trajectory turn boundary. */
+.table tbody .historyLoadRow + tr[data-turn-start='true'] td::before {
+  content: none;
 }
 
 .historyLoadButton {
