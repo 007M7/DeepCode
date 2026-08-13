@@ -2,7 +2,7 @@
 
 [English](index.md) | 中文
 
-先按照[根 README](../../../README.md#run-from-npm)启动 Web UI；命令会打印其访问地址。本指南从服务器已经运行的状态开始。
+先按照[根 README](../../../README.md#run)启动 Web UI；命令会打印其访问地址。本指南从服务器已经运行的状态开始。
 
 调用目录是默认工作区，因此 agent（智能体）可以检查并修改启动 `dsh` 时所在的项目。
 
