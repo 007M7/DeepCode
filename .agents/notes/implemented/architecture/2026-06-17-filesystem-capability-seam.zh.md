@@ -53,7 +53,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 
 `@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent（智能体）或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
 
-根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入 Service provider 包。
+根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入 Service Provider 包。
 
 ## `ctx.fs` 约定
 
@@ -139,7 +139,7 @@ Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需
 ## 曾考虑的替代方案
 
 - **面向模型的工具直接基于 `node:fs`**：工具包将同时承担执行策略、路径解析、原子写入、文本解码和编辑语义，耦合问题部分所列的三个独立变化的关注点，且任何后端替换都会搅动 schema。
-- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的 Service Definition / Service provider / Consumer 拆分理由否决，且合并名称从未成为公开 API。
+- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的 Service Definition / Service Provider / Consumer 拆分理由否决，且合并名称从未成为公开 API。
 - **观测状态放在 `ctx.fs` 上**：本 Agent Note 最初落地的形态；被 [拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 和 [事件门控 Agent Note](2026-06-26-file-context-as-event-gate.md) 取代：沙箱/远程后端不应继承面向模型的观测策略，因此提供方只保留版本令牌和可选的版本守护变更。
 
 ## 后果

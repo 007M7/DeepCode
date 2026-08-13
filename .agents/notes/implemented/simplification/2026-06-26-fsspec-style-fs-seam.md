@@ -105,7 +105,7 @@ This Agent Note reverses two decisions from [filesystem-capability-seam](../arch
 - Text reads no longer return backend-numbered line records or `full`/`partial` views; authorization is based on version freshness, so a windowed read can authorize edit when the file is unchanged.
 - Literal edit no longer sits behind the old `applyEdit` API that mixed backend mutation with seam-owned observation policy. It remains a provider primitive as `editText`, because version guard + literal match + atomic rewrite must stay inside the provider's mutation critical section.
 
-It keeps the Service Definition / Service provider / Consumer discipline, consumer-never-imports-backend rule, backend-defined target/version/display metadata, atomic local writes, and the shared `FsError` taxonomy.
+It keeps the Service Definition / Service Provider / Consumer discipline, consumer-never-imports-backend rule, backend-defined target/version/display metadata, atomic local writes, and the shared `FsError` taxonomy.
 
 ## Verification
 

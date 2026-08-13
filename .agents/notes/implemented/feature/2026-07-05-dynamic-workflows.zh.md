@@ -10,7 +10,7 @@ harness 可以通过 `dsh-tool-subagent` 将一个任务委派给一个子 agent
 
 ## 决策
 
-在 `packages/workflow/` 下以 bash seam 的形态（Service Definition／Service provider／Consumer）提供一组工作流能力，以及它在 subagent seam 上所需的结构化输出基础。
+在 `packages/workflow/` 下以 bash seam 的形态（Service Definition／Service Provider／Consumer）提供一组工作流能力，以及它在 subagent seam 上所需的结构化输出基础。
 
 ### 脚本约定（兼容 Claude Code）
 

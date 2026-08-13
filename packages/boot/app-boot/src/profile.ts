@@ -209,7 +209,7 @@ function ensureSymlink(link: string, target: string): void {
  * installation" contract. The closure (not just direct dependencies) is
  * required for out-of-tree plugins: their peer dependencies name Service
  * Definition packages (`dsh-compaction`, `dsh-invariants`, ...) that the app
- * reaches only through its Service provider packages. Symlinked packages
+ * reaches only through its Service Provider packages. Symlinked packages
  * resolve their own dependencies from their real directories (Node's default
  * symlink-following), so each package needs only its one flat link.
  * Idempotent: correct links are kept and moved installations are

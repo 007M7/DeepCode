@@ -9,8 +9,8 @@ This package owns the Service Definition role of the bash capability, split so e
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-shell` (this) | Service Definition: abstract service + vocabulary types |
-| `@deepseek-ai/dsh-bash-local` | Service provider: local subprocesses |
-| `@deepseek-ai/dsh-bash-sandbox` | Service provider: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
+| `@deepseek-ai/dsh-bash-local` | Service Provider: local subprocesses |
+| `@deepseek-ai/dsh-bash-sandbox` | Service Provider: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
 | `@deepseek-ai/dsh-tool-bash` | the model-facing tool schemas over `ctx.shell` |
 
 The split is a standard capability seam ([capability-seams Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): `dsh-bash-sandbox` is a sandboxing executor behind the same Service Definition — the Consumer detects its `sandboxMode` capability and adds escalation fields without importing the provider — and a containerized or remote executor slots in the same way.

@@ -46,7 +46,7 @@ export function OwnerToken(id: string): OwnerToken {
 
 ### 为什么不把 `owner` 类型标注为 `SessionId`？
 
-显而易见的捷径是直接把 `owner` 类型标注为 `SessionId`——它确实*总是*一个会话 id。我们否决这个方案。bash 执行器 seam 是能力 seam（Service Definition `dsh-shell`、Service provider `dsh-bash-local`、Consumer `dsh-tool-bash`），其 owner token 被*明确记录为刻意不透明*：执行器「从不解释它（seam 中没有访问策略——那是消费方的职责）」（`packages/shell/shell/src/types.ts`）。把 Service Definition 的字段类型标注为 `SessionId`，会把 `dsh-session` 的词汇引入一个不应知道 owner token *含义*的包——这会让通用执行后端耦合会话模型，并违背不透明 token 的设计。取代 `dsh-bash-local` 的沙箱化执行器或远程执行器不应继承会话依赖。独立的 `OwnerToken` brand 使 seam 保持解耦：`dsh-shell` 只知道「owner 是某种带 brand 的不透明 token」，而已经决定访问策略的 `dsh-tool-bash` 消费方，是把其 `SessionId` cast 为 `OwnerToken` 的唯一边界。该 brand 仍带来安全收益（不能把 `BashTaskId` 或裸 string 传到 owner 位置），且不引入耦合。
+显而易见的捷径是直接把 `owner` 类型标注为 `SessionId`——它确实*总是*一个会话 id。我们否决这个方案。bash 执行器 seam 是能力 seam（Service Definition `dsh-shell`、Service Provider `dsh-bash-local`、Consumer `dsh-tool-bash`），其 owner token 被*明确记录为刻意不透明*：执行器「从不解释它（seam 中没有访问策略——那是消费方的职责）」（`packages/shell/shell/src/types.ts`）。把 Service Definition 的字段类型标注为 `SessionId`，会把 `dsh-session` 的词汇引入一个不应知道 owner token *含义*的包——这会让通用执行后端耦合会话模型，并违背不透明 token 的设计。取代 `dsh-bash-local` 的沙箱化执行器或远程执行器不应继承会话依赖。独立的 `OwnerToken` brand 使 seam 保持解耦：`dsh-shell` 只知道「owner 是某种带 brand 的不透明 token」，而已经决定访问策略的 `dsh-tool-bash` 消费方，是把其 `SessionId` cast 为 `OwnerToken` 的唯一边界。该 brand 仍带来安全收益（不能把 `BashTaskId` 或裸 string 传到 owner 位置），且不引入耦合。
 
 ## 不在范围内 / 可能的扩展
 
@@ -64,6 +64,6 @@ export function OwnerToken(id: string): OwnerToken {
 
 ## 后果
 
-- **两个接口面的机械性改动。** 传播 brand 涉及 bash seam（Service Definition + Service provider + Consumer）以及 ACP 会话 id 接口和持久化协调器。改动面广但严重度低：遗漏的位置是编译错误而非静默 bug。从可观察行为看，这是一项纯类型变更——无快照或 e2e 行为差异。它与[统一 agent/会话标识决策](../simplification/2026-06-20-unify-agent-and-session-id.md)相邻，因为二者都触及会话 id / owner-token 边界；`OwnerToken` 出于上述解耦理由仍与统一后的 id 保持独立。
+- **两个接口面的机械性改动。** 传播 brand 涉及 bash seam（Service Definition + Service Provider + Consumer）以及 ACP 会话 id 接口和持久化协调器。改动面广但严重度低：遗漏的位置是编译错误而非静默 bug。从可观察行为看，这是一项纯类型变更——无快照或 e2e 行为差异。它与[统一 agent/会话标识决策](../simplification/2026-06-20-unify-agent-and-session-id.md)相邻，因为二者都触及会话 id / owner-token 边界；`OwnerToken` 出于上述解耦理由仍与统一后的 id 保持独立。
 - **Brand 不做校验。** Brand 是混淆防护，不是正确性证明：一个*错误的*会话 id 只要仍是格式正确的 string，就和以前一样能通过类型检查器。本决策不关闭这个缺口（见「不在范围内」）——它只阻止这类*类别*错误：传入错误*种类*的 id。
 - **「在哪里停下」仍是判断题。** 为 `BashTaskId` 加 brand 但不为 `ToolName` 加，为 `OwnerToken` 加但不为 `ModelId` 加，是对哪些 string「可能被混淆」的品味判断。合理的评审者可能想要更多或更少；`brand.ts` 中的策略是裁决依据，本决策倾向于面向模型或用于访问控制的 id。

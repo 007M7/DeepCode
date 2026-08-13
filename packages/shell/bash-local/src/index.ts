@@ -1,5 +1,5 @@
 /**
- * Local Service provider for the bash capability seam over the subprocess
+ * Local Service Provider for the bash capability seam over the subprocess
  * capability seam. Public commands run as `bash -c` in a managed process group spawned
  * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause

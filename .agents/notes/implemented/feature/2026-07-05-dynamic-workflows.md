@@ -10,7 +10,7 @@ The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work t
 
 ## Decision
 
-A workflow capability family at `packages/workflow/` in the bash seam shape (Service Definition / Service provider / Consumer), plus the structured-output foundation it needs on the subagent seam.
+A workflow capability family at `packages/workflow/` in the bash seam shape (Service Definition / Service Provider / Consumer), plus the structured-output foundation it needs on the subagent seam.
 
 ### The script contract (Claude Code-compatible)
 

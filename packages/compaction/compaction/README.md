@@ -9,7 +9,7 @@ This package owns the Service Definition role of the compaction capability, spli
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-compaction` (this) | Service Definition: abstract service + `compaction/*` events + `CompactionResult` + correlated checkpoint-source constructor + tool-pairing boundary helpers |
-| `@deepseek-ai/dsh-compaction-basic` | Service provider: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compaction-basic` | Service Provider: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-command-compact` | Consumer: the human `/compact` command over `ctx.compaction.compactNow()` |
 
 Unlike the bash seam, this Service Definition depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "Service Definition depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
