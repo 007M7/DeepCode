@@ -38,9 +38,29 @@ describe('inspectSiteFragments', () => {
 
   it('resolves clean, encoded, and same-page routes', () => {
     const root = fixture()
-    writeFileSync(join(root, 'guide/encoded.html'), '<h1 id="a b">Encoded</h1><a href="./encoded#a%20b">self</a>')
+    writeFileSync(
+      join(root, 'guide/encoded.html'),
+      '<h1 id="a b">Encoded</h1><h2 id="%">Literal</h2><a href="./encoded#a%20b">encoded</a><a href="#%">literal</a>',
+    )
 
-    expect(inspectSiteFragments(root)).toEqual({ checked: 5, broken: [] })
+    expect(inspectSiteFragments(root)).toEqual({ checked: 6, broken: [] })
+  })
+
+  it('rejects ambiguous built routes', () => {
+    const root = fixture()
+    writeFileSync(join(root, 'guide.html'), '<h1 id="flat">Flat</h1>')
+    writeFileSync(join(root, 'guide/index.html'), '<h1 id="index">Index</h1>')
+
+    expect(() => inspectSiteFragments(root)).toThrow('share route "/guide"')
+  })
+
+  it('rejects malformed fragment hrefs', () => {
+    const root = fixture()
+    writeFileSync(join(root, 'guide/invalid.html'), '<a href="http://[invalid]#fragment">invalid</a>')
+
+    expect(() => inspectSiteFragments(root)).toThrow(
+      'guide/invalid.html has invalid fragment href "http://[invalid]#fragment"',
+    )
   })
 
   it('reports missing ids and missing built routes', () => {

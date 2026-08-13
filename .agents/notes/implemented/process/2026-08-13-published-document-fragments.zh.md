@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-`docs:build` 及其 MPA 变体会在 VitePress 生成 `website/.dist` 后运行 `verify-doc-site-fragments`。该校验器解析每个生成的 HTML 页面，按照 VitePress clean URL 解析每个内部 fragment 链接，并在构建产物不存在、目标页面不存在或请求的 id 缺失时失败。单元测试覆盖缺失构建产物、clean URL、`.html` 别名、同页链接、编码 id、缺失 id、缺失路由和外部链接排除。
+`docs:build` 及其 MPA 变体会在 VitePress 生成 `website/.dist` 后运行 `verify-doc-site-fragments`。该校验器解析每个生成的 HTML 页面，按照 VitePress clean URL 解析每个内部 fragment 链接，并在构建产物不存在、路由有歧义、href 格式错误、目标页面不存在或请求的 id 缺失时失败。单元测试覆盖这些失败，以及 clean URL、`.html` 别名、同页链接、编码和字面 id 与外部链接排除。
 
-生成的配置、工具和持久化目录会在包含较多标点的标题前生成与 GitHub 兼容的显式 id 别名。如果翻译页面的 VitePress 本地化标题 id 与双语对侧文件共享的 fragment 不同，编写者会添加语言无关的显式别名。源码 Markdown 校验保持独立，仍会拒绝在仓库渲染规则下无法解析的链接。
+任何 GitHub id 与 VitePress id 不同的 fragment 目标标题都会带有与 GitHub 兼容的显式别名。英文手写页面和翻译页面会在标题前添加别名；翻译页面使用双语对侧文件共享的英文 id。生成的配置、工具和持久化目录由所属生成器输出别名。源码 Markdown 校验保持独立，仍会拒绝在仓库渲染规则下无法解析的链接。
 
 ## Alternatives considered
 

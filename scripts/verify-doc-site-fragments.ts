@@ -3,7 +3,8 @@
  * VitePress use different heading-slug algorithms, so source-link validation
  * alone cannot prove that a published fragment exists.
  *
- * Run with `tsx scripts/verify-doc-site-fragments.ts` after `docs:build`.
+ * This runs as part of `docs:build` and can also run directly after a build
+ * with `tsx scripts/verify-doc-site-fragments.ts`.
  */
 
 import { globSync, readFileSync } from 'node:fs'
@@ -61,7 +62,9 @@ function aliasesFor(page: BuiltPage): string[] {
 function decodedFragment(hash: string): string {
   try {
     return decodeURIComponent(hash.slice(1))
-  } catch {
+  } catch (error) {
+    if (!(error instanceof URIError)) throw error
+    // URIError means malformed percent encoding; preserve the literal id for comparison.
     return hash.slice(1)
   }
 }
@@ -90,7 +93,15 @@ export function inspectSiteFragments(distRoot: string): SiteFragmentReport {
 
   const byRoute = new Map<string, BuiltPage>()
   for (const page of pages) {
-    for (const alias of aliasesFor(page)) byRoute.set(alias, page)
+    for (const alias of aliasesFor(page)) {
+      const existing = byRoute.get(alias)
+      if (existing !== undefined && existing !== page) {
+        throw new Error(
+          `verify-doc-site-fragments: built pages ${existing.file} and ${page.file} share route ${JSON.stringify(alias)}.`,
+        )
+      }
+      byRoute.set(alias, page)
+    }
   }
 
   const origin = 'https://dsh-docs.invalid'
@@ -103,8 +114,11 @@ export function inspectSiteFragments(distRoot: string): SiteFragmentReport {
       let targetUrl: URL
       try {
         targetUrl = new URL(href, `${origin}${page.route}`)
-      } catch {
-        continue
+      } catch (error) {
+        throw new Error(
+          `verify-doc-site-fragments: ${page.file} has invalid fragment href ${JSON.stringify(href)}.`,
+          { cause: error },
+        )
       }
       if (targetUrl.origin !== origin || targetUrl.hash === '') continue
       const fragment = decodedFragment(targetUrl.hash)

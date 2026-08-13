@@ -10,9 +10,9 @@ English | [中文](2026-08-13-published-document-fragments.zh.md)
 
 ## Decision
 
-`docs:build` and its MPA variant run `verify-doc-site-fragments` after VitePress emits `website/.dist`. The verifier parses every emitted HTML page, resolves each internal fragment link against VitePress clean URLs, and fails when the output is absent or either the target page or requested id is missing. Unit tests cover absent output, clean URLs, `.html` aliases, same-page links, encoded ids, missing ids, missing routes, and external-link exclusion.
+`docs:build` and its MPA variant run `verify-doc-site-fragments` after VitePress emits `website/.dist`. The verifier parses every emitted HTML page, resolves each internal fragment link against VitePress clean URLs, and fails when the output is absent, routes are ambiguous, an href is malformed, or either the target page or requested id is missing. Unit tests cover those failures plus clean URLs, `.html` aliases, same-page links, encoded and literal ids, and external-link exclusion.
 
-Generated config, tool, and persistence catalogs emit explicit GitHub-compatible id aliases before punctuation-heavy headings. Authored translated pages add explicit language-neutral aliases when their localized VitePress heading id differs from the shared fragment used by the bilingual pair. Source Markdown validation remains independent and continues to reject links that do not resolve under repository rendering.
+Any fragment target heading whose GitHub id differs from its VitePress id carries an explicit GitHub-compatible alias. Authored English and translated pages place the alias before the heading; translated pages use the English id shared by the bilingual pair. Generated config, tool, and persistence catalogs emit the alias from their owning generator. Source Markdown validation remains independent and continues to reject links that do not resolve under repository rendering.
 
 ## Alternatives considered
 
