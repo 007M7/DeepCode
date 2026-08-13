@@ -9,7 +9,7 @@ This package is one third of the spill capability, split so each concern evolves
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-spill` (this) | Service Definition: abstract service + vocabulary types |
-| `@deepseek-ai/dsh-spill-local` | Service provider: private session-scoped files on the host filesystem |
+| `@deepseek-ai/dsh-spill-local` | Service Provider: private session-scoped files on the host filesystem |
 | `@deepseek-ai/dsh-spill-policy` | Consumer: the tool-result policy that spills oversized final results |
 
 The split mirrors the shell/fs seams. A future remote or virtual backend (e.g. a `spill://…` URI, a database key, or a backend-specific retrieval tool) implements this Service Definition without touching the policy plugin.

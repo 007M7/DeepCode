@@ -21,7 +21,7 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工�
 
 ### 为何不采用 bash seam 的形状
 
-bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `ShellExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmRuntime.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三类包构成的结构（Service Definition / Service provider / Consumer）；只是「一个 vs. 多个实现」这个维度不同。
+bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `ShellExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmRuntime.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三类包构成的结构（Service Definition / Service Provider / Consumer）；只是「一个 vs. 多个实现」这个维度不同。
 
 ## 决策
 

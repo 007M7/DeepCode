@@ -6,7 +6,7 @@
  * runs commands). It caps stderr, surfaces framing/decoder failures as a
  * fatal close, and exposes tree-scoped termination through the handle so the
  * instance owns teardown; group/tree mechanics live in the subprocess
- * Service provider.
+ * Service Provider.
  * @module @deepseek-ai/dsh-lsp-stdio/connection
  */
 

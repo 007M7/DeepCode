@@ -14,7 +14,7 @@ Two forces shape the design. First, compaction policy and reusable token measure
 
 ## Decision
 
-### Compaction is a capability seam with separate Service Definition and Service provider roles
+### Compaction is a capability seam with separate Service Definition and Service Provider roles
 
 Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer API evolve independently:
 

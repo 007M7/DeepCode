@@ -105,7 +105,7 @@ type FsWriteIntent =
 - 文本读取不再返回后端编号的行记录或 `full`/`partial` 视图；授权基于版本新鲜度，因此窗口化读取在文件未变时即可授权编辑。
 - 字面编辑不再位于旧的 `applyEdit` API 之后（该 API 混合了后端变更与 seam 拥有的观测策略）。它作为 `editText` 保留为提供方原语，因为版本守卫 + 字面匹配 + 原子重写必须留在提供方的变更临界区内。
 
-保留的内容：Service Definition / Service provider / Consumer 纪律、消费方不导入后端规则、后端定义的 target/version/display 元数据、原子本地写入，以及共享的 `FsError` 分类体系。
+保留的内容：Service Definition / Service Provider / Consumer 纪律、消费方不导入后端规则、后端定义的 target/version/display 元数据、原子本地写入，以及共享的 `FsError` 分类体系。
 
 ## 验证
 
