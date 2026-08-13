@@ -332,7 +332,7 @@ interface SessionEventTraceObservation extends SessionEventTrace {
 
 ## Errors
 
-The closed code union distinguishes request validation, missing targets, malformed surface logs, optional-backend failure, and contradictory source metadata.
+The closed code union distinguishes request validation, missing targets, malformed surface logs, optional-backend failure, deployment-disabled search, and contradictory source metadata.
 
 ```ts type-equiv
 /** Stable machine-routable failure taxonomy for session reads, traces, and search. */
@@ -350,6 +350,7 @@ type SessionQueryErrorCode =
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
+  | 'SESSION_QUERY_SEARCH_DISABLED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
   | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'
