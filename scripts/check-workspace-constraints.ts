@@ -231,8 +231,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.private === true) {
       errors.push(`${label}: published Landlock package must not set "private": true`)
     }
-    if (manifest.publishConfig?.access !== 'restricted') {
-      errors.push(`${label}: published Landlock package must set publishConfig.access to "restricted"`)
+    if (manifest.publishConfig?.access !== 'public') {
+      errors.push(`${label}: published Landlock package must set publishConfig.access to "public"`)
     }
     const expectedDirectory = dir
     if (manifest.repository?.type !== 'git'
@@ -242,13 +242,21 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
   } else if (releaseMemberDirectory.test(dir)) {
     // Release members state that they are publishable: npm refuses a private
-    // package, the scope is published privately, and the repository field is
-    // how a consumer of a private package finds its source.
+    // package, and the repository field is how a consumer finds the source of
+    // the package it installed.
+    //
+    // Access is per release sequence, not per scope: the vendored framework and
+    // the Landlock packages publish publicly because outside consumers install
+    // them, while the dsh family stays restricted until its own sequence goes
+    // public. A mixed scope is why no publish path passes `--access` — one flag
+    // cannot serve both, so each packed manifest decides
+    // ([rationale](../.agents/notes/implemented/process/2026-08-13-public-vendor-and-native-sequences.md)).
+    const expectedAccess = dir.startsWith('vendor/') ? 'public' : 'restricted'
     if (manifest.private === true) {
       errors.push(`${label}: release member must not set "private": true`)
     }
-    if (manifest.publishConfig?.access !== 'restricted') {
-      errors.push(`${label}: release member must set publishConfig.access to "restricted"`)
+    if (manifest.publishConfig?.access !== expectedAccess) {
+      errors.push(`${label}: release member must set publishConfig.access to "${expectedAccess}"`)
     }
     if (manifest.repository?.type !== 'git'
       || manifest.repository.url !== publishedRepositoryUrl

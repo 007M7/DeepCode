@@ -3,7 +3,7 @@
   "description": "Plugin loader for cordis",
   "version": "1.0.2-rc.4",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",
