@@ -103,7 +103,7 @@ export const en = {
 export type ModelsKey = keyof typeof en
 
 /** Chinese strings (same keys as {@link en}). */
-export const zh: typeof en = {
+export const zh: { [Key in keyof typeof en]: string } = {
   nav: '模型',
   title: '模型',
   intro: '填入各提供方的 API 密钥即可使用其模型。',
