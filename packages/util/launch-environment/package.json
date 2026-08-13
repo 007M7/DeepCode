@@ -3,7 +3,7 @@
   "description": "Immutable DeepSeek Harness launch environment that records which layer supplied each value",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

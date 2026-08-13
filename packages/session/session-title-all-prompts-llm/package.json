@@ -3,7 +3,7 @@
   "description": "All-user-messages LLM provider plugin for DeepSeek Harness session titles",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

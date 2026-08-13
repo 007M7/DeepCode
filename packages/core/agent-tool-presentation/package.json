@@ -3,7 +3,7 @@
   "description": "Agent-plane presentation selector: composes one agent's tools as Code Mode, native, or both",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

@@ -3,7 +3,7 @@
   "description": "Agent-scoped durable after, at, and fixed-rate reminders over the session event log",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

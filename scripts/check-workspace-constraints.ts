@@ -251,12 +251,11 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     // public. A mixed scope is why no publish path passes `--access` — one flag
     // cannot serve both, so each packed manifest decides
     // ([rationale](../.agents/notes/implemented/process/2026-08-13-public-vendor-and-native-sequences.md)).
-    const expectedAccess = dir.startsWith('vendor/') ? 'public' : 'restricted'
     if (manifest.private === true) {
       errors.push(`${label}: release member must not set "private": true`)
     }
-    if (manifest.publishConfig?.access !== expectedAccess) {
-      errors.push(`${label}: release member must set publishConfig.access to "${expectedAccess}"`)
+    if (manifest.publishConfig?.access !== 'public') {
+      errors.push(`${label}: release member must set publishConfig.access to "public"`)
     }
     if (manifest.repository?.type !== 'git'
       || manifest.repository.url !== publishedRepositoryUrl

@@ -43,7 +43,7 @@
     "directory": "packages/client/ui-jobs"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
     "react": "^18.2.0"

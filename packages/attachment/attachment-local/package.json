@@ -3,7 +3,7 @@
   "description": "Private content-addressed DSH_HOME attachment storage",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

@@ -3,7 +3,7 @@
   "description": "Shared E2B sandbox lifecycle for DeepSeek Harness provider adapters",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

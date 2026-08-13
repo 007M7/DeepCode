@@ -3,7 +3,7 @@
   "description": "dsh CLI: profile boot, plugin management, and the browser UI alias",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

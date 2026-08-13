@@ -3,7 +3,7 @@
   "description": "Scriptable OpenAI-compatible HTTP/SSE fault server for LLM recovery tests",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

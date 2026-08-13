@@ -3,7 +3,7 @@
   "description": "Opt-in durable per-step context with the current time and elapsed time",
   "version": "0.1.0-rc.3",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",
