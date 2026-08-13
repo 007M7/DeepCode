@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmService, { userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
@@ -67,7 +67,7 @@ async function listingServer(behavior: {
 /** A bare dormant mount: discovery is offered whether or not a route exists. */
 async function harness(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, {})
   return ctx
 }
@@ -153,7 +153,7 @@ describe('draft-provider model discovery', () => {
     // and read as a wrong key.
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     process.env['ACME_GATEWAY_KEY'] = 'stored-key'
     touchedEnv.push('ACME_GATEWAY_KEY')
     await ctx.plugin(LlmPiAi, {
@@ -183,7 +183,7 @@ describe('draft-provider model discovery', () => {
     // profile names a credential that is not set must still answer rather than
     // failing over a key the interrogation never needed.
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     Reflect.deleteProperty(process.env, 'ABSENT_FOR_DISCOVERY')
     await ctx.plugin(LlmPiAi, { providers: { deepseek: { apiKeyEnv: 'ABSENT_FOR_DISCOVERY' } } })
 
@@ -322,7 +322,7 @@ describe('draft-provider model discovery', () => {
 
   it('withdraws the offer when the plugin unloads', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     const fiber = await ctx.plugin(LlmPiAi, {})
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })).resolves.not.toHaveLength(0)
 

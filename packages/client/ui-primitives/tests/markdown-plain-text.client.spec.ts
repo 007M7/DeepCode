@@ -36,16 +36,16 @@ describe('extractMarkdownPlainText', () => {
 
   it('preserves raw HTML while removing Markdown presentation markup', () => {
     const block = [
-      '<background-task-complete id="trajectory-ui-watch">',
+      '<background-job-complete id="trajectory-ui-watch">',
       'Command: pnpm test',
       'Exit code: 0',
-      '</background-task-complete>',
+      '</background-job-complete>',
     ].join('\n')
     expect(extractMarkdownPlainText(block)).toBe(block)
     expect(extractMarkdownPlainText('**Status:** <span data-state="ok">ready</span>'))
       .toBe('Status: <span data-state="ok">ready</span>')
     expect(extractMarkdownPlainText(block, { mode: 'first-paragraph' }))
-      .toBe('<background-task-complete id="trajectory-ui-watch">')
+      .toBe('<background-job-complete id="trajectory-ui-watch">')
   })
 
   it('projects GFM tables, references, hard breaks, and block structure', () => {

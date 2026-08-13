@@ -25,11 +25,11 @@ Create the `packages/storage/` group — the `ctx.storage` hub (backend registry
 | `@deepseek-ai/dsh-storage-json` | `packages/storage/storage-json/` | registers backend `json` | ✓ |
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | registers backend `sqlite` | ✓ |
 | `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | mounts `ctx.storage.domain` | ✓ |
-| `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
+| `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspaceRegistry` | ✓ |
 | `SessionPersistence.delete` extension + cascade orchestration | `packages/session/session-persistence*` | new method on the existing seam | ✗ future work (session side untouched this phase) |
 | `workspace.*` / `session.delete` RPC, GUI wiring, boot assembly | — | — | ✗ next phase |
 
-(workspace lives in its own group rather than `packages/host/`: the host group's naming rule requires the `dsh-host-*` prefix while this package is named `dsh-workspace`; and the workspace entity is a domain concept, not bound to the host assembly tier. Unrelated to the existing `workspace-context` package — that is an AGENTS.md instruction loader.)
+(workspace lives in its own group rather than `packages/host/`: the host group's naming rule requires the `dsh-host-*` prefix while this package is named `dsh-workspace`; and the workspace entity is a domain concept, not bound to the host assembly tier. Unrelated to the existing `agent-instructions` package — that is an AGENTS.md instruction loader.)
 
 Dependency direction: `dsh-workspace` → `dsh-domain` → `dsh-storage` ← the two backends. `dsh-workspace` additionally depends on the read-only face of `ctx.sessionPersistence` (attach's cwd check reads the session header; when the service is absent, attach rejects outright — no verification, no bookkeeping). The `ctx.sessions` running-check for session deletion moves into future work together with the cascade.
 
@@ -192,7 +192,7 @@ Orchestration rules (implemented together with the cascade; the `session.delete`
 
 ### `dsh-workspace`
 
-The package owns the `WorkspaceId` brand and exposes `ctx.workspace`. The record key is a generated uuid — path is not the key: normalization rewrites it, and reference anchors must be stable.
+The package owns the `WorkspaceId` brand and exposes `ctx.workspaceRegistry`. The record key is a generated uuid — path is not the key: normalization rewrites it, and reference anchors must be stable.
 
 ```ts ignore-check
 export type WorkspaceId = Branded<'WorkspaceId'>
@@ -229,7 +229,7 @@ export interface Workspace {
 }
 
 export class WorkspaceRegistry extends Service {
-  constructor(ctx: Context)                      // super(ctx, 'workspace')
+  constructor(ctx: Context)                      // super(ctx, 'workspaceRegistry')
   // start(): this.domain = await ctx.storage.domain.open(workspaceDomainSpec)
   //          实体缓存 Map<WorkspaceId, WorkspaceEntity> 重建
   create(path: string, title?: string): Promise<Workspace>   // realpath 后撞已有 → reject
@@ -243,7 +243,7 @@ export class WorkspaceRegistry extends Service {
 - **Path canon**: the stored value = `fs.realpath(input)` (trailing slashes, `..`, and symlinks all resolved); uniqueness = string equality after normalization (a symlink resolving to the same directory counts as a collision). A missing directory makes create reject outright (realpath fails — a workspace must point at an existing directory; "Create new = make the directory" is upper-layer interaction: mkdir first, then create). The session cwd in attach checks follows the same canon. Single-valued cwd + unique path ⇒ one session structurally belongs to at most one workspace; double bookkeeping is impossible on the write side.
 - **Title**: a display name, defaults to `basename(path)`, mutable, duplicates allowed. Ownership is never derived from cwd as a fallback — cwd cannot express ordering, and ownership is a workspace-side fact; sessions started headless belong to no workspace.
 - Consumers see only the `Workspace` interface; `WorkspaceEntity` stays inside the package (a single implementation does not pre-split a seam). Entities are unique per id (registry cache); the record snapshot is swapped in place after each write, and the outside sees getters only. Every write funnels through the entity's internal `mutate(fn)` → `table.update`, with `updatedAt` refreshed inside mutate. Domain objects never cross RPC; next phase the wire layer projects records into zod wire schemas.
-- **Session deletion remains future work.** The later [Workspace registration deletion decision](../../implemented/feature/2026-07-27-workspace-registration-deletion.md) ships `ctx.workspace.delete(id)` as a metadata-only operation that preserves Sessions and logs. Recursive Session deletion, running checks, and crash-rerun convergence belong to a separate `session.delete` capability.
+- **Session deletion remains future work.** The later [Workspace registration deletion decision](../../implemented/feature/2026-07-27-workspace-registration-deletion.md) ships `ctx.workspaceRegistry.delete(id)` as a metadata-only operation that preserves Sessions and logs. Recursive Session deletion, running checks, and crash-rerun convergence belong to a separate `session.delete` capability.
 
 Consistency doctrine (the ledger = the only ownership authority; the implementation and test baseline):
 
@@ -319,7 +319,7 @@ Snapshots: no model-visible or assembly surface this phase, none added; next pha
 ## Acceptance criteria
 
 - This phase's four test suites all green: the shared backend contract suite on both json/sqlite, registry/mount disposer semantics, the domain layer (including the six open steps and fail-loud routing), and full workspace semantics (create/attach checks/consistency doctrine).
-- `ctx.workspace` completes the create → attach → list → metadata-only delete lifecycle under a test assembly.
+- `ctx.workspaceRegistry` completes the create → attach → list → metadata-only delete lifecycle under a test assembly.
 - Zero diff in the session-persistence packages (the acceptance line for not touching the session side this phase).
 - No new snapshots this phase (no model-visible or assembly surface); added next phase with the RPC wiring.
 

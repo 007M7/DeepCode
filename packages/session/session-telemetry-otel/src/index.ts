@@ -17,15 +17,15 @@ import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
-  Telemetry,
-  TelemetryCoordinator,
-  type TelemetryBackend,
-  type TelemetryRecord,
-  type TelemetrySeverity,
-  type TelemetrySharingStatus,
+  SessionTelemetryBackend,
+  SessionTelemetryCoordinator,
+  type SessionTelemetrySink,
+  type SessionTelemetryRecord,
+  type SessionTelemetrySeverity,
+  type SessionTelemetrySharingStatus,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -41,26 +41,26 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 /** Session-sharing policy selected by {@link Config.mode}. */
-export enum TelemetryMode {
+export enum SessionTelemetryMode {
   FULL = 'FULL',
   FEEDBACK_ONLY = 'FEEDBACK_ONLY',
   DISABLED = 'DISABLED',
 }
 
 /** Default session-sharing policy for schema and direct construction. */
-export const DEFAULT_TELEMETRY_MODE = TelemetryMode.DISABLED
+export const DEFAULT_TELEMETRY_MODE = SessionTelemetryMode.DISABLED
 
 const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
 const NON_CANONICAL_FEEDBACK_WARNING = 'session telemetry ignored a feedback event absent from the canonical session log'
-const DROP_RECORD: TelemetryBackend['emit'] = () => {}
+const DROP_RECORD: SessionTelemetrySink['emit'] = () => {}
 
 /** Resolve the default and reject unknown runtime values before transport setup. */
-function resolveMode(mode: TelemetryMode | undefined): TelemetryMode {
+function resolveMode(mode: SessionTelemetryMode | undefined): SessionTelemetryMode {
   const resolved = mode ?? DEFAULT_TELEMETRY_MODE
   switch (resolved) {
-    case TelemetryMode.FULL:
-    case TelemetryMode.FEEDBACK_ONLY:
-    case TelemetryMode.DISABLED:
+    case SessionTelemetryMode.FULL:
+    case SessionTelemetryMode.FEEDBACK_ONLY:
+    case SessionTelemetryMode.DISABLED:
       return resolved
     default:
       return assertNever(resolved)
@@ -73,11 +73,11 @@ function assertNever(value: never): never {
 }
 
 /** Map the serialized mode onto the seam's backend-independent sharing vocabulary. */
-function sharingStatusFor(mode: TelemetryMode): TelemetrySharingStatus {
+function sharingStatusFor(mode: SessionTelemetryMode): SessionTelemetrySharingStatus {
   switch (mode) {
-    case TelemetryMode.FULL: return 'full'
-    case TelemetryMode.FEEDBACK_ONLY: return 'feedback-only'
-    case TelemetryMode.DISABLED: return 'disabled'
+    case SessionTelemetryMode.FULL: return 'full'
+    case SessionTelemetryMode.FEEDBACK_ONLY: return 'feedback-only'
+    case SessionTelemetryMode.DISABLED: return 'disabled'
     /* v8 ignore next 2 -- resolveMode already rejected unknown values before this switch; the closed enum cannot reach the default. */
     default: return assertNever(mode)
   }
@@ -90,7 +90,7 @@ function sharingStatusFor(mode: TelemetryMode): TelemetrySharingStatus {
  */
 export interface Config {
   /** Sharing policy; defaults to local-only `DISABLED` behavior. */
-  mode?: TelemetryMode
+  mode?: SessionTelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
    * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
@@ -118,7 +118,7 @@ export interface Config {
  * silently drop every field this plugin did not repeat.
  */
 export const Config: z<Config> = z.object({
-  mode: z.union(Object.values(TelemetryMode)).default(DEFAULT_TELEMETRY_MODE),
+  mode: z.union(Object.values(SessionTelemetryMode)).default(DEFAULT_TELEMETRY_MODE),
   exporter: z.any(),
   processor: z.any(),
   shutdownTimeoutMillis: z.number(),
@@ -132,7 +132,7 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 3_000
 const MAX_TIMER_DELAY_MILLIS = 2_147_483_647
 
 /** Severity mapping from the Service Definition's three-level vocabulary to OTel severity numbers. */
-const SEVERITY: Record<TelemetrySeverity, { severityNumber: SeverityNumber; severityText: string }> = {
+const SEVERITY: Record<SessionTelemetrySeverity, { severityNumber: SeverityNumber; severityText: string }> = {
   info: { severityNumber: SeverityNumber.INFO, severityText: 'INFO' },
   warn: { severityNumber: SeverityNumber.WARN, severityText: 'WARN' },
   error: { severityNumber: SeverityNumber.ERROR, severityText: 'ERROR' },
@@ -141,23 +141,23 @@ const SEVERITY: Record<TelemetrySeverity, { severityNumber: SeverityNumber; seve
 /**
  * The backend plugin — the only entry a deployment loads. It always registers
  * the `telemetry` service (duplicate load throws). Uploading modes wire the SDK
- * pipeline and compose {@link TelemetryCoordinator}; `DISABLED` constructs no
+ * pipeline and compose {@link SessionTelemetryCoordinator}; `DISABLED` constructs no
  * SDK state and listens only to warn when recorded feedback stays local.
  */
-export class TelemetryOtel extends Telemetry {
+export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
   static inject = ['sessions']
   static Config = Config
 
-  private readonly directEmit: TelemetryBackend['emit']
+  private readonly directEmit: SessionTelemetrySink['emit']
   private readonly provider: LoggerProvider | undefined
   private readonly shutdownTimeoutMillis: number
-  override readonly sharing: TelemetrySharingStatus
+  override readonly sharing: SessionTelemetrySharingStatus
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)
     super(ctx)
     this.sharing = sharingStatusFor(mode)
-    if (mode === TelemetryMode.DISABLED) {
+    if (mode === SessionTelemetryMode.DISABLED) {
       this.directEmit = DROP_RECORD
       this.provider = undefined
       this.shutdownTimeoutMillis = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS
@@ -218,7 +218,7 @@ export class TelemetryOtel extends Telemetry {
     })
     const ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
     const ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
-    const enqueue: TelemetryBackend['emit'] = (record) => {
+    const enqueue: SessionTelemetrySink['emit'] = (record) => {
       const logger: Logger = record.channel === 'ops' ? ops : ledger
       logger.emit({
         timestamp: record.time,
@@ -230,17 +230,17 @@ export class TelemetryOtel extends Telemetry {
         attributes: record.attributes,
       })
     }
-    const backend: TelemetryBackend = {
+    const backend: SessionTelemetrySink = {
       emit: enqueue,
       shutdown: () => this.shutdown(),
     }
-    if (mode === TelemetryMode.FULL) {
+    if (mode === SessionTelemetryMode.FULL) {
       this.directEmit = enqueue
-      new TelemetryCoordinator(ctx, backend, 'live')
+      new SessionTelemetryCoordinator(ctx, backend, 'live')
       return
     }
     this.directEmit = DROP_RECORD
-    const coordinator = new TelemetryCoordinator(ctx, backend, 'on-demand')
+    const coordinator = new SessionTelemetryCoordinator(ctx, backend, 'on-demand')
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'feedback/record') return
       // Consent is the committed record, not an independently emitted bus value.
@@ -258,7 +258,7 @@ export class TelemetryOtel extends Telemetry {
    * backend capability created only for the canonical feedback listener.
    * @param record - the logical record offered directly to the service.
    */
-  emit(record: TelemetryRecord): void {
+  emit(record: SessionTelemetryRecord): void {
     this.directEmit(record)
   }
 
@@ -298,4 +298,4 @@ export class TelemetryOtel extends Telemetry {
   }
 }
 
-export default TelemetryOtel
+export default OpenTelemetrySessionBackend

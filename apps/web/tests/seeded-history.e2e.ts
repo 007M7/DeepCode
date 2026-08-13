@@ -19,7 +19,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
@@ -46,13 +46,13 @@ const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and
  * presentation through the real host and browser.
  * @param raw - the seed fixture text, already realized (placeholder-free) so
  * the shadow price below is computed from the exact strings the host folds.
- * @param meter - the composed token meter; the appended `compact/summary`'s
+ * @param meter - the composed token meter; the appended `compaction/summary`'s
  * shadow price must be the exact heuristic price of the shadowed nodes, the
- * way compact-basic derives it, because the token-meter projections subtract
+ * way compaction-basic derives it, because the token-meter projections subtract
  * it verbatim.
  * @returns the fixture with a manual compaction lifecycle appended.
  */
-function withCompaction(raw: string, meter: TokenMeterService): string {
+function withCompaction(raw: string, meter: TokenMeter): string {
   const lines = raw.trimEnd().split('\n')
   const events = lines.slice(1).map(line => JSON.parse(line) as {
     type: string
@@ -96,7 +96,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     data: { commandId, name: 'compact', args: '', source: { kind: 'user' } },
   })
   const startSeq = at({
-    type: 'compact/start',
+    type: 'compaction/start',
     data: { compactionId, sourceCommandId: commandId, turn: null },
   })
   // Load-bearing exactness: the projections subtract this count verbatim, so
@@ -125,7 +125,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     return total + priceRow(event)
   }, 0)
   const summarySeq = at({
-    type: 'compact/summary',
+    type: 'compaction/summary',
     data: {
       compactionId,
       sourceCommandId: commandId,
@@ -155,7 +155,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
   })
   at({
-    type: 'compact/end',
+    type: 'compaction/end',
     data: { compactionId, sourceCommandId: commandId, turn: null },
   })
   at({
@@ -302,7 +302,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
           + '\n</system-reminder>',
       }],
       source: {
-        kind: 'workspace-instructions',
+        kind: 'agent-instructions',
         form: 'instructions',
         baseline: true,
         changes: [{
@@ -463,9 +463,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
       if (done?.type !== 'command/done') throw new Error('feedback command did not settle')
       const [sessionLine, userLine, extraLine] = done.data.text?.split('\n') ?? []
       expect(sessionLine).toBe(`Feedback recorded for session ${SEED_ID}`)
-      expect(userLine).toMatch(/^User: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i)
+      expect(userLine).toMatch(/^Anonymous user: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i)
       expect(extraLine).toBeUndefined()
-      const userId = userLine?.match(/^User: ([0-9a-f-]+)/i)?.[1]
+      const userId = userLine?.match(/^Anonymous user: ([0-9a-f-]+)/i)?.[1]
       if (userId === undefined) throw new Error('feedback command omitted the user id')
 
       const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))

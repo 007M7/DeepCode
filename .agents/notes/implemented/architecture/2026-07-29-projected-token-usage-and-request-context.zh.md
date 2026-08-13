@@ -46,7 +46,7 @@ Web `StatsLine` 通过标准 `useProjection` 席位读取两者。窗口内节�
 
 **在 token-meter 内部解析容量。** 该包自述与模型路由无关，且在其他方面是一个从不向日志追加内容的纯读取方。AgentLoop 在写入请求头的位置已经持有已解析的元数据。
 
-**为 `session.models` RPC 增加容量字段。** 其处理器已经解析出容量又将其丢弃，因此这个字段几乎是免费的；但 `StatsLine` 位于 `ui-conversation`，模型目录位于 `ui-model`，而 `ui-conversation` 不能依赖 `ui-model`。要送达它，就得增加第二个 dock 条目、把一行文本拆到两个插件里，或者做一次跨插件的 store 写入。
+**为 `session.models` RPC 增加容量字段。** 其处理器已经解析出容量又将其丢弃，因此这个字段几乎是免费的；但 `StatsLine` 位于 `ui-conversation`，模型目录位于 `ui-model-selection`，而 `ui-conversation` 不能依赖 `ui-model-selection`。要送达它，就得增加第二个 dock 条目、把一行文本拆到两个插件里，或者做一次跨插件的 store 写入。
 
 **在模型选择器旁增加上下文圆环。** 该位置会让人以为这是所选模型的状态。统计行可以承载该数字，无需引入重复的 UI 或数据路径。
 

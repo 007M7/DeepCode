@@ -11,7 +11,7 @@ import { normalizeSessionLog, scrubRequestHeaders, type NormalizeContext } from 
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { describe, expect, it } from 'vitest'
 
 const fixtureDir = fileURLToPath(new URL('./subagent-inheritance-snapshots/parent-override', import.meta.url))
@@ -30,7 +30,7 @@ const task = 'Delegate the write probe to a subagent.'
 async function seedReadOnlyParent(root: string, cwd: string): Promise<void> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+  await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
   const meta: SessionHeader = {
     version: SESSION_FORMAT_VERSION,
     id: sessionId,

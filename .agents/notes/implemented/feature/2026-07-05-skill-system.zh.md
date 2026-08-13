@@ -12,7 +12,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 ## 决策
 
-`@deepseek-ai/dsh-skill` 是纯提供方注册表（`ctx.skills`），`@deepseek-ai/dsh-skill-local` 是随附的本地文件系统提供方，`@deepseek-ai/dsh-tool-skill` 负责持久化会话目录与面向模型的 loader 工具。`dsh-agent-spine-demo` 默认加载注册表、本地提供方和消费方，使 TUI、headless 与 ACP（Agent Client Protocol）应用获得相同行为，同时嵌入式或远程提供方可在不修改注册表或消费方的前提下贡献 skill。其 `skills` 配置将 `registry`、`local` 和 `tool` 分支分别转发给对应的所有者。
+`@deepseek-ai/dsh-skill` 是纯提供方注册表（`ctx.skills`），`@deepseek-ai/dsh-skill-filesystem` 是随附的本地文件系统提供方，`@deepseek-ai/dsh-tool-skill` 负责持久化会话目录与面向模型的 loader 工具。`dsh-agent-spine-demo` 默认加载注册表、本地提供方和消费方，使 TUI、headless 与 ACP（Agent Client Protocol）应用获得相同行为，同时嵌入式或远程提供方可在不修改注册表或消费方的前提下贡献 skill。其 `skills` 配置将 `registry`、`local` 和 `tool` 分支分别转发给对应的所有者。
 
 专用的随包提供方可以贡献不可变的 skill，无需文件系统发现。交付的 CLI（命令行界面）默认将 `@deepseek-ai/dsh-skill-badge` 声明为禁用；启用其组合配置行，就会通过同一个注册表和消费方贡献官方徽章指令（见[决策](2026-08-06-bundled-dsh-badge-skill.md)）。
 
@@ -22,7 +22,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 每个 skill 是带 YAML frontmatter 的 `<name>/SKILL.md` 或 `<name>.md`。`name` 和 `description` 为必填；`whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable` 为可选。名称采用 kebab-case。调用字段会投影到类型化的嵌套策略中，具体由[模型与用户独立调用决策](2026-07-28-skill-invocation-policy.md)定义；解析器会拒绝旧的驼峰拼写。YAML frontmatter 使用 `yaml` 包解析，而非 `js-yaml` 或手写解析器：`yaml` 是本包已声明的现代解析器，足以满足有限的 frontmatter 需求，窄解析器要么拒绝用户预期可用的合法 YAML，要么膨胀为一个未经评审的 YAML 子集。
 
-本地 skill 的文件系统 I/O 在加载了文件系统服务时通过 `ctx.fs` 进行：项目根目录查找使用 `resolve` 和 `stat` 探测 `.git`，根目录发现使用 `listDir`，skill 读取使用 `readText`。Node 文件系统作为后备，供在不挂载 fs seam 的最小上下文中加载 `dsh-skill-local` 时使用。缺失的根目录、不可读或格式错误的 skill 文件、以及提供方 `list()` 的瞬态失败均降级为警告并跳过，使一个坏源不会导致所有 agent 请求失败；格式错误的候选项仍然快速失败，因为它们违反了提供方约定。
+本地 skill 的文件系统 I/O 在加载了文件系统服务时通过 `ctx.fs` 进行：项目根目录查找使用 `resolve` 和 `stat` 探测 `.git`，根目录发现使用 `listDir`，skill 读取使用 `readText`。Node 文件系统作为后备，供在不挂载 fs seam 的最小上下文中加载 `dsh-skill-filesystem` 时使用。缺失的根目录、不可读或格式错误的 skill 文件、以及提供方 `list()` 的瞬态失败均降级为警告并跳过，使一个坏源不会导致所有 agent 请求失败；格式错误的候选项仍然快速失败，因为它们违反了提供方约定。
 
 `dsh-tool-skill` 在会话的第一个 `agent/pre-step` 注入一个持久化的 user-role `<system-reminder>` 目录，作为带来源的 `user/message`，且仅当该 agent 的工具视图解析到本插件精确的 `skill` 注册时才注入。该目录仅包含排序后的 skill 名称与描述；不包含正文、路径、来源、提供方和路由提示。描述经过空白规范化、XML 转义，并受 `catalogDescriptionMaxLength` 上限约束，其默认值为 `500`，最小值为 `3`。完整的 skill 正文从不包含在目录中。（目录最初通过仅请求的[会话前缀扩展点](../../archived/feature/2026-07-07-session-prefix.md)（已归档）传递；[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)将其移入持久化历史。）
 

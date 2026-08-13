@@ -96,7 +96,7 @@ export interface Config {
  * `ctx.sessionPersistence` and (via the coordinator) installs the write-path
  * listeners. Its torn-tail marker is the seq to delete from.
  */
-export class SessionPersistenceSqlite extends SessionPersistence implements PersistenceBackend<number> {
+export class SqliteSessionPersistence extends SessionPersistence implements PersistenceBackend<number> {
   override readonly supportsRawArtifacts = false
 
   static inject = ['sessions']
@@ -411,4 +411,4 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 }
 
-export default SessionPersistenceSqlite
+export default SqliteSessionPersistence

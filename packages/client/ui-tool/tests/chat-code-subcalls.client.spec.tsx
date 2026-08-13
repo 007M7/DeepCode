@@ -14,14 +14,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
   ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
-  EMPTY_CONVERSATION_VIEWS, SlotsService,
+  EMPTY_CONVERSATION_VIEWS, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
   ToolCallBlock, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '../src/client/apply.ts'
@@ -97,23 +97,23 @@ function AppRoot({ renderSlot }: AppRootProps) {
 }
 
 /**
- * Same real-stack bench as the toolview-slot spec: SlotsService + renderer +
+ * Same real-stack bench as the toolview-slot spec: SlotRegistry + renderer +
  * both owning package applies; fakes only at service boundaries.
  */
 async function bench(snapshot: ConversationSnapshot) {
   const ctx = new Context()
-  const slotsFiber = ctx.plugin(SlotsService)
+  const slotsFiber = ctx.plugin(SlotRegistry)
   await slotsFiber.await()
   await ctx.plugin(ConversationEventRegistry).await()
   await ctx.plugin(ConversationViewRegistry).await()
-  const slots = ctx.get('slots') as SlotsService
+  const slots = ctx.get('slots') as SlotRegistry
 
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
     byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
@@ -162,7 +162,7 @@ async function bench(snapshot: ConversationSnapshot) {
   // ui-theme's Appearance row binds a durable scope through these two.
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
-  const locale = new LocaleService(ctx)
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)
 
@@ -182,7 +182,7 @@ async function bench(snapshot: ConversationSnapshot) {
   return { ctx, slots, fiber, toolFiber, session, layout, workspaces }
 }
 
-function mountApp(slots: SlotsService) {
+function mountApp(slots: SlotRegistry) {
   return render(<>{slots.renderSlot('root', {})}</>)
 }
 
@@ -216,24 +216,23 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('renders Cordis sub-calls with lifecycle titles over the generic variants', async () => {
     const parent = 'call-cordis'
-    const code = 'return { name: "audit", apply(ctx) {} }'
     const subCalls = [
-      subCall(11, parent, 1, 'cordis_inspect', { what: 'temporary' }, '## Temporary Plugins'),
-      subCall(12, parent, 2, 'cordis_mount', { code }, 'Temporary Plugin dyn-2 is running'),
-      subCall(13, parent, 3, 'cordis_unmount', { id: 'dyn-2' }, 'Temporary Plugin dyn-2 was unmounted and removed.'),
+      subCall(11, parent, 1, 'cordis_runtime_inspect', { what: 'temporary' }, '## Dynamic Packages'),
+      subCall(12, parent, 2, 'cordis_run', { id: 'dyn-2' }, 'Dynamic package dyn-2 is running'),
+      subCall(13, parent, 3, 'cordis_undefine', { id: 'dyn-2' }, 'Dynamic package dyn-2 was discarded.'),
     ]
     const b = await bench(snapshotWith([codeResult(10, parent)], subCalls))
     const view = mountApp(b.slots)
     const nest = view.container.querySelector('[data-subcalls]')!
 
-    expect(nest.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
-    const mounted = nest.querySelector('[data-variant="code"]')
-    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
-    expect(nest.querySelector('[data-tool="cordis_unmount"]')?.textContent)
-      .toContain('Unmount temporary Plugindyn-2')
-
-    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
-    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
+    // Each run-control verb names its act and shows the package id; without the
+    // owned titles all three would read "Tool call · cordis_run · dyn-2".
+    expect(nest.querySelector('[data-tool="cordis_runtime_inspect"]')?.textContent).toContain('Inspect')
+    expect(nest.querySelector('[data-tool="cordis_run"]')?.textContent).toContain('Run Cordis Plugindyn-2')
+    expect(nest.querySelector('[data-tool="cordis_undefine"]')?.textContent).toContain('Remove Cordis Plugindyn-2')
+    // None of them is a code row: the program belongs to cordis_define, whose
+    // own keyed card renders it (the next case covers the code row itself).
+    expect(nest.querySelector('[data-variant="code"]')).toBeNull()
   })
 
   it('expanding the code row reveals the program body verbatim (shiki-tokenized)', async () => {

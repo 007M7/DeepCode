@@ -1152,32 +1152,32 @@ describe('completed reminder', () => {
   })
 })
 
-describe('background-task mirror', () => {
+describe('background-job mirror', () => {
   const view = (over: Partial<{ id: string; status: string; label: string }> = {}) => ({
     id: 'bash-1', kind: 'bash', label: 'pnpm run build', status: 'running', startedAt: 5, ...over,
   })
-  const tasksFrame = (sessionId: SessionId, tasks: unknown[]) =>
-    ({ rpcId: 't' as never, payload: { type: 'session/tasks', sessionId, tasks } as never })
+  const tasksFrame = (sessionId: SessionId, jobs: unknown[]) =>
+    ({ rpcId: 't' as never, payload: { type: 'session/jobs', sessionId, jobs } as never })
 
   it('mirrors the whole set last-wins, keyed per session, with no Session instance needed', () => {
     const manager = new SessionManager(new FakeApiClient(), fakeRemote())
     manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
     manager.handleMuxEnvelope(tasksFrame(S2, [view({ id: 'pwsh-1', label: 'other' })]))
-    const first = manager.getListSnapshot().tasksBySession
+    const first = manager.getListSnapshot().jobsBySession
     expect(first[S1]).toEqual([view()])
     expect(first[S2]?.[0]?.label).toBe('other')
 
     // Last-wins: the newer whole set replaces, it does not merge.
     manager.handleMuxEnvelope(tasksFrame(S1, [view({ status: 'completed' })]))
-    expect(manager.getListSnapshot().tasksBySession[S1]).toEqual([view({ status: 'completed' })])
+    expect(manager.getListSnapshot().jobsBySession[S1]).toEqual([view({ status: 'completed' })])
   })
 
   it('stores an emptied set as an absent key so absence and [] read alike', () => {
     const manager = new SessionManager(new FakeApiClient(), fakeRemote())
     manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
-    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(true)
+    expect(S1 in manager.getListSnapshot().jobsBySession).toBe(true)
     manager.handleMuxEnvelope(tasksFrame(S1, []))
-    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+    expect(S1 in manager.getListSnapshot().jobsBySession).toBe(false)
   })
 
   it('clears the mirror on re-subscribe, because a task-free generation sends no baseline', () => {
@@ -1187,7 +1187,7 @@ describe('background-task mirror', () => {
       rpcId: 's' as never,
       payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 3 },
     })
-    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+    expect(S1 in manager.getListSnapshot().jobsBySession).toBe(false)
   })
 
   it('drops the rows when the session is removed, whichever stream lands first', () => {
@@ -1195,7 +1195,7 @@ describe('background-task mirror', () => {
     manager.handleHostEnvelope({ rpcId: 'a' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
     manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
     manager.handleHostEnvelope({ rpcId: 'r' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
-    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+    expect(S1 in manager.getListSnapshot().jobsBySession).toBe(false)
   })
 
   it('notifies list subscribers so an open header re-renders without a poll', async () => {

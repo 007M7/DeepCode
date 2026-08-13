@@ -6,7 +6,7 @@ English | [中文](2026-08-01-windows-pwsh-default.zh.md)
 
 ## Problem
 
-The harness's shipped execution profile is bash-first on every platform. Windows hosts must install a bash shim (WSL or Git-Bash) or fall back to the POSIX-only `dsh-bash-local` behavior (hardcoded `bash -c` argv, process-group semantics); the model-facing bash tool teaches the bash dialect. The Windows-native foundation shipped in the [pwsh executor and tool decision](2026-08-01-pwsh-tool-and-executor.md) — a PowerShell implementation of the `ctx.bash` seam and a parity `pwsh` tool — but shipped compositions still mounted the bash stack on Windows, so a Windows host without a shim could not run the shipped shell.
+The harness's shipped execution profile is bash-first on every platform. Windows hosts must install a bash shim (WSL or Git-Bash) or fall back to the POSIX-only `dsh-bash-local` behavior (hardcoded `bash -c` argv, process-group semantics); the model-facing bash tool teaches the bash dialect. The Windows-native foundation shipped in the [pwsh executor and tool decision](2026-08-01-pwsh-tool-and-executor.md) — a PowerShell implementation of the `ctx.shell` seam and a parity `pwsh` tool — but shipped compositions still mounted the bash stack on Windows, so a Windows host without a shim could not run the shipped shell.
 
 ## Decision
 
@@ -23,7 +23,7 @@ The pwsh GUI rendering shipped earlier with the [pwsh UI presentation matches ba
 
 **Ship the platform layer from `apps/cli` code instead of a bundle data file.** Rejected: the patch belongs next to the rows it replaces, in the bundle that owns them, so the shipped roster stays visible as composition data and dumps carry its provenance; the launcher contributes only the win32 gate.
 
-**Keep `permission`/`ui-permission` on Windows without a confining runner.** Rejected by the original delivery: `dsh-permission` hard-requires `ctx.bash.sandboxMode` and fails loud at load over an unconfined executor. The later ACL runner removed that premise, so the current roster retains both rows.
+**Keep `permission`/`ui-permission` on Windows without a confining runner.** Rejected by the original delivery: `dsh-permission-presets` hard-requires `ctx.shell.sandboxMode` and fails loud at load over an unconfined executor. The later ACL runner removed that premise, so the current roster retains both rows.
 
 **Keep fs path-rule confinement on Windows without an OS runner.** Rejected by the original delivery: an unconfined shell could bypass fs-only path rules. The current ACL runner confines the shell and the fs provider under one policy, so this rejected half-boundary is no longer the shipped shape.
 
@@ -31,7 +31,7 @@ The pwsh GUI rendering shipped earlier with the [pwsh UI presentation matches ba
 
 ## Consequences
 
-- A Windows host running a shipped `dsh` surface gets the confined `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration; `bash` is absent from the model-visible roster there. On the Web surface the shell TOOL rows come from the session's preset (the [loader `disabled` interpolation](../architecture/2026-08-11-loader-entry-disabled-interpolation.md) note owns the one-plane mechanism): each shipped preset declares `tool-pwsh` gated by `process.platform !== 'win32'` and its `tool-bash` twin by the inverted expression, so the preset layer exposes exactly one shell tool per host.
+- A Windows host running a shipped `dsh` surface gets the confined `pwsh` as its shell tool and PowerShell as the `ctx.shell` executor without configuration; `bash` is absent from the model-visible roster there. On the Web surface the shell TOOL rows come from the session's preset (the [loader `disabled` interpolation](../architecture/2026-08-11-loader-entry-disabled-interpolation.md) note owns the one-plane mechanism): each shipped preset declares `tool-pwsh` gated by `process.platform !== 'win32'` and its `tool-bash` twin by the inverted expression, so the preset layer exposes exactly one shell tool per host.
 - Windows commands and fs operations share the sandbox policy, permission switcher, and approval service. The ACL runner confines writes but reports `enforcement: 'partial'`; explicit `danger-full-access` remains the approved bypass rather than the platform default.
 - POSIX hosts mount the bash stack as before; the pwsh rows sit disabled in their composition, because the one shared patch file lists both stacks and each row gates itself.
 - A Windows host that prefers the bash stack (e.g. with WSL/Git-Bash on PATH) overrides the shipped rows through its profile or home `cordis.patch.yml` — disabling `pwsh-sandbox`/`tool-pwsh` and re-enabling `bash-sandbox`/`tool-bash` (both executors register the same `bash` service, so an incomplete recipe fails loud at load) — composition config is the one override channel.

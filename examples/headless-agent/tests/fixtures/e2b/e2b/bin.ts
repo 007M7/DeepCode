@@ -6,8 +6,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-fs-e2b'
 import type {} from '@deepseek-ai/dsh-bash-local'
-import type {} from '@deepseek-ai/dsh-lsp-local'
-import type {} from '@deepseek-ai/dsh-pty-local'
+import type {} from '@deepseek-ai/dsh-lsp-stdio'
+import type {} from '@deepseek-ai/dsh-terminal-bash'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('usage: bin.ts <cordis.yml>')
@@ -32,7 +32,7 @@ const owner: Agent = {
   whenIdle: () => Promise.resolve(),
 }
 const unregisterOwner = ctx.agents.register(owner)
-let terminalId: Awaited<ReturnType<typeof ctx.pty.spawn>>['sessionId'] | undefined
+let terminalId: Awaited<ReturnType<typeof ctx.terminals.spawn>>['sessionId'] | undefined
 try {
   const sandbox = await ctx.e2b.getSandbox()
   const fromFs = await ctx.fs.resolve('from-fs.txt')
@@ -46,12 +46,12 @@ try {
     { oldString: 'written-by-fs', newString: 'versioned-by-fs', replaceAll: false },
     { version: observed.version },
   )
-  const bashRead = await ctx.bash.run(ctx.bash.resolve({ command: 'cat from-fs.txt' }))
+  const bashRead = await ctx.shell.run(ctx.shell.resolve({ command: 'cat from-fs.txt' }))
   if (bashRead.exitCode !== 0 || bashRead.stdout.text !== 'versioned-by-fs\n') {
     throw new Error(`E2B Bash could not read the FS write: ${JSON.stringify(bashRead)}`)
   }
 
-  const bashWrite = await ctx.bash.run(ctx.bash.resolve({ command: "printf 'written-by-bash\\n' > from-bash.txt" }))
+  const bashWrite = await ctx.shell.run(ctx.shell.resolve({ command: "printf 'written-by-bash\\n' > from-bash.txt" }))
   if (bashWrite.exitCode !== 0) {
     throw new Error(`E2B Bash could not write the shared filesystem: ${JSON.stringify(bashWrite)}`)
   }
@@ -137,13 +137,13 @@ try {
     workspaceRoot: process.cwd(),
   })
 
-  const terminal = await ctx.pty.spawn(owner, { type: 'shell' })
+  const terminal = await ctx.terminals.spawn(owner, { type: 'shell' })
   terminalId = terminal.sessionId
-  const terminalEcho = await ctx.pty.startSend(owner, terminal.sessionId, {
+  const terminalEcho = await ctx.terminals.startSend(owner, terminal.sessionId, {
     text: "printf 'PTY-你好\\n'",
     submit: true,
   }).done
-  const sleeping = ctx.pty.startSend(owner, terminal.sessionId, {
+  const sleeping = ctx.terminals.startSend(owner, terminal.sessionId, {
     text: "printf 'DSH_SLEEP_%s\\n' READY; sleep 30",
     submit: true,
   })
@@ -161,17 +161,17 @@ try {
     }
     if (Date.now() >= sleepReadyDeadline) throw new Error(`E2B PTY successor did not execute: ${sleepReadyOutput}`)
   }
-  const terminalSignal = await ctx.pty.signal(owner, terminal.sessionId, 'SIGINT')
+  const terminalSignal = await ctx.terminals.signal(owner, terminal.sessionId, 'SIGINT')
   const interrupted = await sleeping.done
-  const stubborn = await ctx.pty.startSend(owner, terminal.sessionId, {
+  const stubborn = await ctx.terminals.startSend(owner, terminal.sessionId, {
     text: "bash -c 'trap \"\" TERM; exec sleep 30' & printf 'DSH_STUBBORN_PID=%s\\n' \"$!\"",
     submit: true,
   }).done
   const stubbornMatch = /DSH_STUBBORN_PID=([1-9][0-9]*)/.exec(stubborn.viewport)
   if (stubbornMatch?.[1] === undefined) throw new Error(`E2B PTY did not report its stubborn child: ${stubborn.viewport}`)
   const stubbornPid = Number(stubbornMatch[1])
-  const terminalScrollback = ctx.pty.read(owner, terminal.sessionId, { count: 50 })
-  await ctx.pty.kill(owner, terminal.sessionId, 'live E2B composition complete')
+  const terminalScrollback = ctx.terminals.read(owner, terminal.sessionId, { count: 50 })
+  await ctx.terminals.kill(owner, terminal.sessionId, 'live E2B composition complete')
   terminalId = undefined
   const stubbornProbe = await sandbox.commands.run(`if kill -0 ${stubbornPid} 2>/dev/null; then printf alive; else printf gone; fi`)
   const terminalTreeCleanup = stubbornProbe.stdout === 'gone'
@@ -195,7 +195,7 @@ try {
     },
   })}\n`)
 } finally {
-  if (terminalId !== undefined) await ctx.pty.kill(owner, terminalId, 'fixture cleanup').catch(() => false)
+  if (terminalId !== undefined) await ctx.terminals.kill(owner, terminalId, 'fixture cleanup').catch(() => false)
   unregisterOwner()
   await ownerFiber.dispose()
   await ctx.fiber.dispose()

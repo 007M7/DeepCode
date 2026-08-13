@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`apps/cli/config/base.cordis.yml` 明确挂载 `dsh-web`，配置 `searchProvider: deepseek-official`，同时挂载 `dsh-web-search-deepseek`，并以 `fetch: false` 和 `searchTimeoutMs: 60000` 挂载 `dsh-tool-web`。它不挂载 `dsh-web-fetch-local`，也不选择抓取提供方。共享 base 只将 `web_search` 设为 TUI、浏览器与无头会话的默认工具。显式搜索提供方 id 使选择不受注册顺序影响，同时个人覆盖层或 `--config` 覆盖层仍可替换或禁用这些配置项。已交付的一分钟预算用于覆盖一次辅助 DeepSeek Messages 请求及服务端检索，同时保持 `dsh-tool-web` 提供方无关的 30 秒默认值不变，以供自定义组合使用。
+`apps/cli/config/base.cordis.yml` 明确挂载 `dsh-web`，配置 `searchProvider: deepseek-official`，同时挂载 `dsh-web-search-deepseek`，并以 `fetch: false` 和 `searchTimeoutMs: 60000` 挂载 `dsh-tool-web`。它不挂载 `dsh-web-fetch-http`，也不选择抓取提供方。共享 base 只将 `web_search` 设为 TUI、浏览器与无头会话的默认工具。显式搜索提供方 id 使选择不受注册顺序影响，同时个人覆盖层或 `--config` 覆盖层仍可替换或禁用这些配置项。已交付的一分钟预算用于覆盖一次辅助 DeepSeek Messages 请求及服务端检索，同时保持 `dsh-tool-web` 提供方无关的 30 秒默认值不变，以供自定义组合使用。
 
 DeepSeek 搜索使用与官方会话适配器相同的 `DEEPSEEK_API_KEY` 凭据引用。提供方在每次搜索内部通过可选的 `ctx.credentials` 服务解析该引用；只有未挂载该 seam 的组合才会回退到启动进程的环境变量，非空的 `apiKey` 字面值仍作为程序化配置的最后兜底。因此，由 Web 的 Models 页存储或轮换的密钥无需重启即可用于下一次搜索，提供方也无需保留该值。由于 `WebSearchProvider.available()` 是同步方法，它会将已安装解析器视为本地可用；若动态凭据缺失，操作会以提供方专属错误码 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败，而稳定的工具 schema 仍保持注册。
 
@@ -30,7 +30,7 @@ DeepSeek 搜索使用与官方会话适配器相同的 `DEEPSEEK_API_KEY` 凭据
 
 **提高 `dsh-tool-web` 的提供方无关超时。** 不予采纳：自定义提供方和部署有各自不同的延迟预期；这一部署预算应归已交付的 DeepSeek 组合所有。
 
-**同时启用搜索和抓取。** 不予采纳：默认启用 `web_fetch` 会允许模型自行选择任意 URL，执行匿名出站 HTTP(S) 抓取。搜索负责发现信息；接受更广泛抓取范围的部署可以在覆盖层中选择启用 `dsh-web-fetch-local`，并将 `dsh-tool-web` 的 `fetch` 选项设为 `true`。
+**同时启用搜索和抓取。** 不予采纳：默认启用 `web_fetch` 会允许模型自行选择任意 URL，执行匿名出站 HTTP(S) 抓取。搜索负责发现信息；接受更广泛抓取范围的部署可以在覆盖层中选择启用 `dsh-web-fetch-http`，并将 `dsh-tool-web` 的 `fetch` 选项设为 `true`。
 
 ## 后果
 

@@ -7,8 +7,8 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { ClientModuleHostService } from '../src/index.ts'
+import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { ClientModuleRegistry } from '../src/index.ts'
 
 let root: string | undefined
 
@@ -38,7 +38,7 @@ function writePackage(
 }
 
 /** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleHostService; route: WebRoute } {
+function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
@@ -49,7 +49,7 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleHost
     },
   })
   let route: WebRoute | undefined
-  const httpServer: Pick<HttpServerService, 'port' | 'register' | 'tapIndex'> = {
+  const webServer: Pick<WebServer, 'port' | 'register' | 'tapIndex'> = {
     port: 0,
     register: (candidate) => {
       if (candidate.path === '/plugins') route = candidate
@@ -57,14 +57,14 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleHost
     },
     tapIndex: () => () => {},
   }
-  ctx.provide('httpServer', httpServer as HttpServerService)
-  const service = new ClientModuleHostService(ctx)
+  ctx.provide('webServer', webServer as WebServer)
+  const service = new ClientModuleRegistry(ctx)
   if (route === undefined) throw new Error('client bundle route was not registered')
   return { service, route }
 }
 
 /** Construct the node-half service over the enabled fixture entries. */
-function construct(packageNames: string[]): ClientModuleHostService {
+function construct(packageNames: string[]): ClientModuleRegistry {
   return constructWithRoute(packageNames).service
 }
 

@@ -31,8 +31,8 @@ import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 
 const testToolSignal = new AbortController().signal
 
-declare module '@deepseek-ai/dsh-tasks' {
-  interface TaskKindMap {
+declare module '@deepseek-ai/dsh-jobs' {
+  interface JobKindMap {
     probe: 'probe'
   }
 }
@@ -69,7 +69,7 @@ async function mount(config: agentCore.Config, withBash = false): Promise<Contex
   process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-agents-'))
   const ctx = new Context()
   if (withBash) {
-    ctx.provide('bash', {
+    ctx.provide('shell', {
       sandboxMode: undefined,
       resolve() { throw new Error('composition test does not execute bash') },
       run() { throw new Error('composition test does not execute bash') },
@@ -156,7 +156,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('tools')).toBeDefined()
     expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
-    expect(ctx.get('tasks')).toBeDefined()
+    expect(ctx.get('jobs')).toBeDefined()
     expect(ctx.get('invariants')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('goals')).toBeUndefined()
@@ -302,11 +302,11 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('forwards task admission config to the process-local provider', async () => {
     const ctx = await mount({
-      tasks: { maxConcurrentTasksPerOwner: 1 },
+      jobs: { maxConcurrentJobsPerOwner: 1 },
       workspaceContext: false,
     })
     let settle!: (outcome: { status: 'killed' }) => void
-    ctx.tasks.start({
+    ctx.jobs.start({
       kind: 'probe',
       label: 'hold configured slot',
       run: () => ({
@@ -314,7 +314,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         done: new Promise((resolve) => { settle = resolve }),
       }),
     })
-    expect(() => ctx.tasks.start({
+    expect(() => ctx.jobs.start({
       kind: 'probe',
       label: 'blocked configured task',
       run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
@@ -375,7 +375,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
       expect(firstRequestText).toContain('hi')
       expect(firstRequestText).toContain('bundled project rule')
-      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
+      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by DeepSeek Harness.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
       await ctx.fiber.dispose()
@@ -384,7 +384,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
   })
 
-  it('forwards workspace-context config to the bundled loader', async () => {
+  it('forwards agent-instructions config to the bundled loader', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-workspace-context-disabled-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
@@ -425,7 +425,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: {
         registry: { collectCacheMaxEntries: 4 },
-        local: {
+        filesystem: {
           dshHome: join(home, '.dsh'),
           agentsHome: join(agentsHome, '.agents'),
           customSkillDirs: [custom],
@@ -460,7 +460,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const ctx = await mount({
         workspaceContext: false,
         skills: {
-          local: {
+          filesystem: {
             dshHome: join(home, '.dsh'),
             agentsHome: join(home, '.agents'),
             watchStabilityThresholdMs: 20,
@@ -598,7 +598,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     const ctx = await mount({
       dshHome: home,
       workspaceContext: false,
-      skills: { local: { agentsHome } },
+      skills: { filesystem: { agentsHome } },
     }, true)
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
@@ -610,7 +610,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       name: 'bash',
       arguments: { command: 'true' },
     }
-    expect(ctx.bashEnv.collect(execution)).toMatchObject({ DSH_HOME: home, DSH_SHELL: '1' })
+    expect(ctx.shellEnv.collect(execution)).toMatchObject({ DSH_HOME: home, DSH_SHELL: '1' })
     await ctx.fiber.dispose()
   })
 
@@ -619,9 +619,9 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentCore.apply(new Context(), {
         dshHome: '/global-dsh-home',
         workspaceContext: false,
-        skills: { local: { dshHome: '/nested-dsh-home' } },
+        skills: { filesystem: { dshHome: '/nested-dsh-home' } },
       })
-    }).toThrow('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
+    }).toThrow('agent-spine-demo: dshHome and skills.filesystem.dshHome must resolve to the same directory')
   })
 
   it('delivers workspace instructions ahead of the first-step skill catalog', async () => {
@@ -665,11 +665,11 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
   })
 
-  it('forwards its bundled tool configs to tool-bash and tool-tasks', async () => {
+  it('forwards its bundled tool configs to tool-bash and tool-jobs', async () => {
     const ctx = await mount({
       workspaceContext: false,
       toolBash: { enableRunInBackground: false },
-      toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
+      toolJobs: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
     }, true)
 
     const bash = ctx.tools.schemas().find(tool => tool.name === 'bash')
@@ -677,17 +677,17 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(Object.keys((bash!.parameters as { properties: Record<string, unknown> }).properties))
       .not.toContain('run_in_background')
 
-    const id = ctx.tasks.start({
+    const id = ctx.jobs.start({
       kind: 'probe',
       label: 'config forwarding probe',
       run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
     })
-    const wait = vi.spyOn(ctx.tasks, 'wait')
+    const wait = vi.spyOn(ctx.jobs, 'wait')
     await ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId('task-config-forwarding'),
-      name: 'task_output',
-      arguments: { task_id: id, wait: true },
+      name: 'job_output',
+      arguments: { job_id: id, wait: true },
     })
     expect(wait).toHaveBeenCalledWith(id, 7, undefined, testToolSignal)
 
@@ -699,12 +699,12 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
-      toolTasks: false,
+      toolJobs: false,
     }, true)
 
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['bash'])
     expect(ctx.get('skills')).toBeUndefined()
-    expect(ctx.get('tasks')).toBeDefined()
+    expect(ctx.get('jobs')).toBeDefined()
 
     await ctx.fiber.dispose()
   })
@@ -717,7 +717,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: { enabled: false },
       toolBash: false,
-      toolTasks: false,
+      toolJobs: false,
     }, true)
 
     expect(ctx.tools.schemas()).toEqual([])
@@ -743,8 +743,8 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false as const,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
-      tasks: { maxConcurrentTasksPerOwner: 4 },
-      toolTasks: false as const,
+      jobs: { maxConcurrentJobsPerOwner: 4 },
+      toolJobs: false as const,
       invariants: { enabled: false },
       goals: false as const,
     }
@@ -761,8 +761,8 @@ describe('dsh-agent-spine-demo bundle', () => {
       workspaceContext: false,
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,
-      tasks: appConfig.tasks,
-      toolTasks: appConfig.toolTasks,
+      jobs: appConfig.jobs,
+      toolJobs: appConfig.toolJobs,
       invariants: appConfig.invariants,
       goals: appConfig.goals,
     })
@@ -782,7 +782,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('forwards toolOrder to the system-prompt assembly', async () => {
     const ctx = await mount({ toolOrder: ['zulu', TOOL_ORDER_REST], workspaceContext: false })
-    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // The bundle's own bash tools pend on the absent `ctx.shell` executor in
     // this providerless mount, so register two plain tools to order.
     for (const name of ['alpha', 'zulu']) {
       ctx.get('tools')!.register({
@@ -794,7 +794,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill', 'task_kill', 'task_list', 'task_output'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'job_kill', 'job_list', 'job_output', 'skill'])
     await ctx.fiber.dispose()
   })
 

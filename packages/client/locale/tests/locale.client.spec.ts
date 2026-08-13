@@ -3,17 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { LocaleSettings, LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const make = (host?: StubSettingsScope<LocaleSettings>): {
   ctx: Context
-  svc: LocaleService
+  svc: LocaleRuntime
   events: LocaleSnapshot[]
 } => {
   const ctx = new Context()
   const events: LocaleSnapshot[] = []
   ctx.on('locale/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, svc: new LocaleService(ctx, host?.scope), events }
+  return { ctx, svc: new LocaleRuntime(ctx, host?.scope), events }
 }
 
 /**
@@ -27,7 +27,7 @@ const stubLanguages = (...tags: string[]): void => {
   vi.stubGlobal('navigator', { languages: tags, language: tags[0] ?? '' })
 }
 
-describe('LocaleService', () => {
+describe('LocaleRuntime', () => {
   beforeEach(() => {
     // A Chinese browser is the baseline these specs assert their zh state on.
     stubLanguages('zh-CN')

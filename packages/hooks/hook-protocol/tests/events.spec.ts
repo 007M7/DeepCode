@@ -10,12 +10,12 @@ function output(over: Partial<HookOutput> = {}): HookOutput {
 describe('hook/* session events', () => {
   it('appendHookInvoked records a log-only hook/invoked (with matcher when present)', () => {
     const session = Session.create(SessionId('s'))
-    appendHookInvoked(session, { turn: 1, point: 'PreToolUse', dialect: 'claude', handlerId: 'h1', matcher: 'Bash' })
+    appendHookInvoked(session, { turn: 1, point: 'PreToolUse', dialect: 'claude-code', handlerId: 'h1', matcher: 'Bash' })
 
     const ev = [...session.events].find(e => e.type === 'hook/invoked')
     expect(ev?.type).toBe('hook/invoked')
     if (ev?.type === 'hook/invoked') {
-      expect(ev.data).toMatchObject({ turn: 1, point: 'PreToolUse', dialect: 'claude', handlerId: 'h1', matcher: 'Bash' })
+      expect(ev.data).toMatchObject({ turn: 1, point: 'PreToolUse', dialect: 'claude-code', handlerId: 'h1', matcher: 'Bash' })
     }
     // Log-only: no surfaceOp on the event.
     expect((ev as unknown as { surfaceOp?: unknown }).surfaceOp).toBeUndefined()
@@ -95,7 +95,7 @@ describe('hook/* session events', () => {
 
   it('an invoked/result pair correlates by handlerId', () => {
     const session = Session.create(SessionId('s'))
-    appendHookInvoked(session, { turn: 1, point: 'PreToolUse', dialect: 'claude', handlerId: 'pair-1' })
+    appendHookInvoked(session, { turn: 1, point: 'PreToolUse', dialect: 'claude-code', handlerId: 'pair-1' })
     appendHookResult(session, { turn: 1, point: 'PreToolUse', handlerId: 'pair-1', stderrSummaryMaxChars: 500, durationMs: 5, output: output({ decision: 'allow' }) })
 
     const invoked = [...session.events].find(e => e.type === 'hook/invoked')

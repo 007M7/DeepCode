@@ -9,7 +9,7 @@
 | 命令 | 用途 |
 |---|---|
 | `dsh --profile <name>` | 启动位于 `$DSH_HOME/profiles/<name>` 的指定 profile。 |
-| `dsh --profile headless "task"` | 运行一个新的持久化会话，打印最终答案并退出。 |
+| `dsh --profile headless "job"` | 运行一个新的持久化会话，打印最终答案并退出。 |
 | `dsh web` | `--profile web` 的别名。 |
 | `dsh plugin --profile <name> <pnpm args>` | 通过在 profile 目录中转发给 pnpm 来管理该 profile 的插件。 |
 

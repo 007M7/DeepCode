@@ -24,7 +24,7 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
-`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compact/summary` 记录与引用它的替换留在同一页。
+`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compaction/summary` 记录与引用它的替换留在同一页。
 
 `session.history` 的尾页（不带 `beforeSeq`）额外携带一个可选的 `projections` 块——`ctx.sessionProjections`（`@deepseek-ai/dsh-session-projection`）上每个已注册单元的水位线快照，`asOfSeq` = 这些值共同反映到的最后一个事件 seq（空日志为 `-1`）。网关还订阅注册表的变更流，为每个状态发生变化的单元生成一个 `session/projection` mux 帧（`{sessionId, key, value, seq}`——实时推送状态，绝不入日志；客户端按 seq 高者胜维护一个按会话的通用值仓）。载体不持有其他领域的知识（每个值在注册表内部已过其单元自己的 schema；协议 schema 对 `values`/`value` 保持宽松）；loadOlder 页永不携带该块，未装注册表的组合则两个面都不提供。网关唯一自己注册的单元是 `imageLimits`：它在 prompt 准入时执行的 attachments 配置，以每次启动恒定的值发布（`apply` 保持状态引用不变，因此只靠基线携带、绝不产生变更帧），供客户端在提交前拒绝超限的加入并给上传入口标注上限；该单元仅在注册表与 attachments 服务同时组合时激活。
 
@@ -40,7 +40,7 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 待处理的 queued 输入属于实时控制平面约定，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。认领操作的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
-后台任务沿用同一种实时推送姿态。当组合中有 `ctx.tasks` 时，网关订阅它的变更订阅，并在注册表每一次改变某个会话可见内容的提交后——注册、转入 stopping、结算，以及 owner 销毁时的移除——广播一份完整的 `session/tasks` 快照，另外为每个已经有任务的会话发送订阅 baseline（没有 baseline 即表示空集；把集合清空的那次变更仍然发送 `[]`）。带 owner 的变更通过那个确切的 `Agent` 读取，因此推送在其 scope 拆除期间依然正确；baseline 读 `ctx.agents.get(sessionId)`，对没有活体 Agent 的会话只得到无主任务，且绝不恢复冷会话。无主变更向每一个已订阅会话扇出，因为无主任务对所有调用方可见。线路上的 `TaskView` 丢弃 `ownerSession`、`reported` 和 `outputLimitBytes`：第一个由帧自身的 `sessionId` 携带，另外两个分别是内部通知位和模型呈现策略。没有该注册表的组合不发出这类帧。
+后台任务沿用同一种实时推送姿态。当组合中有 `ctx.jobs` 时，网关订阅它的变更订阅，并在注册表每一次改变某个会话可见内容的提交后——注册、转入 stopping、结算，以及 owner 销毁时的移除——广播一份完整的 `session/jobs` 快照，另外为每个已经有任务的会话发送订阅 baseline（没有 baseline 即表示空集；把集合清空的那次变更仍然发送 `[]`）。带 owner 的变更通过那个确切的 `Agent` 读取，因此推送在其 scope 拆除期间依然正确；baseline 读 `ctx.agents.get(sessionId)`，对没有活体 Agent 的会话只得到无主任务，且绝不恢复冷会话。无主变更向每一个已订阅会话扇出，因为无主任务对所有调用方可见。线路上的 `JobView` 丢弃 `ownerSession`、`reported` 和 `outputLimitBytes`：第一个由帧自身的 `sessionId` 携带，另外两个分别是内部通知位和模型呈现策略。没有该注册表的组合不发出这类帧。
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create({ path })` 会接纳已有的规范目录，并允许由 basename 派生的标题重复。`workspace.insertBefore({ workspaceId, beforeWorkspaceId? })` 提交一次注册表顺序移动并应答完整顺序；单纯重排序会通过 `host/workspace-order-changed` 推送同一份完整顺序，而未知来源或锚点返回 `workspace-not-found`。`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`workspace.archiveSession` 向注册表级全局归档集合添加一个会话，并应答完整的更新后集合；`workspace.list` 携带该集合作为重连基线，`host/archived-sessions-changed` 在每次持久变更后推送完整快照。归档只把会话从各分组视图中隐藏，不触碰其日志和 workspace 记账；既非活动会话也未持久化的会话以 `session-not-found` 失败。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
@@ -76,7 +76,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 - **转发的 Remote 事件寄居在这套 legacy 帧联合里**：`host/remote-event` 住在 `HostFrame` 中，是为了让投递路径复用现有宿主流、不必新开第三条下行通道，因此读起来像是本包拥有 Remote 事件契约。并非如此：名单归 `dsh-api-remotes`，消费端动词是 `ctx.remote.$on`。将来宿主流整体搬离本包时，该帧随之搬走，消费端契约不受影响（[原委](../../../.agents/notes/implemented/architecture/2026-08-10-remote-event-delivery.md)）。
 - **待处理交互状态位于宿主侧**：wire 使用 POST `/api/respond` 加 `RpcReceipt`；`src/api-proxy.ts` 中的表只处理问题，不包含审批条目。
-- **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'`、`task.list` 和描述字段 `hostInstanceId` 都是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
+- **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'`、`job.list` 和描述字段 `hostInstanceId` 都是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **搜索失败会包含提供方诊断信息**：网关是单用户本地服务。将其暴露给多名用户的载体必须用可安全公开的诊断信息替代内部搜索细节。
 - **Linux 原生选择器依赖桌面工具**：在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是 browse 后端（见 [native 后端 README](../directory-picker-native/README.md)）。

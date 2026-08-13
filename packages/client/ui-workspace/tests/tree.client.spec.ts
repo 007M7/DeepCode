@@ -3,7 +3,7 @@ import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, projectLabel, relativeTime,
+  deriveFlat, deriveGroups, deriveSearchResults, workspaceLabel, relativeTime,
   UNGROUPED_KEY, UNGROUPED_LABEL,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
@@ -18,14 +18,14 @@ const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
-  phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+  phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedProjects: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
-  expandedProjects,
+const view = (expandedGroups: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
+  expandedGroups,
   ...(ungroupedOrder === undefined ? {} : { ungroupedOrder }),
 })
 const noArchive: readonly SessionId[] = []
@@ -155,7 +155,7 @@ describe('deriveGroups', () => {
       list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
       [],
       noArchive,
-      { expandedProjects: [UNGROUPED_KEY] },
+      { expandedGroups: [UNGROUPED_KEY] },
     )
 
     expect(groups).toHaveLength(1)
@@ -398,42 +398,42 @@ describe('createWorkspaceViewStore', () => {
     expect(store.getSnapshot().orderBy).toBe('manual')
     store.actions.setGroupBy('flat')
     store.actions.setOrderBy('updated')
-    store.actions.setWorkspaceExpanded('alpha', true)
-    store.actions.syncRecentSessions('alpha', ['two', 'one'], { one: 1, two: 2 })
-    store.actions.setRecentSessionOrder('alpha', ['one', 'two'])
+    store.actions.setGroupExpanded('alpha', true)
+    store.actions.syncSessionOrderAccount('alpha', ['two', 'one'], { one: 1, two: 2 })
+    store.actions.setSessionOrder('alpha', ['one', 'two'])
     expect(store.getSnapshot().groupBy).toBe('flat')
     expect(store.getSnapshot()).toMatchObject({
       orderBy: 'updated',
-      workspaceExpansion: { alpha: true },
-      recentSessionOrder: { alpha: ['one', 'two'] },
-      recentSessionUpdatedAt: { alpha: { one: 1, two: 2 } },
+      groupExpansion: { alpha: true },
+      sessionOrderByAccount: { alpha: ['one', 'two'] },
+      sessionUpdatedAtByAccount: { alpha: { one: 1, two: 2 } },
     })
   })
 
   it('removes view state outside the retained Workspace key set', () => {
     const store = createWorkspaceViewStore().create()
-    store.actions.setWorkspaceExpanded('', true)
-    store.actions.setWorkspaceExpanded('alpha', true)
-    store.actions.setWorkspaceExpanded('deleted', true)
-    store.actions.syncRecentSessions('alpha', ['alpha-session'], { 'alpha-session': 2 })
-    store.actions.syncRecentSessions('deleted', ['deleted-session'], { 'deleted-session': 1 })
+    store.actions.setGroupExpanded('', true)
+    store.actions.setGroupExpanded('alpha', true)
+    store.actions.setGroupExpanded('deleted', true)
+    store.actions.syncSessionOrderAccount('alpha', ['alpha-session'], { 'alpha-session': 2 })
+    store.actions.syncSessionOrderAccount('deleted', ['deleted-session'], { 'deleted-session': 1 })
 
-    store.actions.retainWorkspaceKeys(['', 'alpha'])
+    store.actions.retainAccountKeys(['', 'alpha'])
 
     const snapshot = store.getSnapshot()
-    expect(snapshot.workspaceExpansion).toEqual({ '': true, alpha: true })
-    expect(snapshot.recentSessionOrder).toEqual({ alpha: ['alpha-session'] })
-    expect(snapshot.recentSessionUpdatedAt).toEqual({ alpha: { 'alpha-session': 2 } })
+    expect(snapshot.groupExpansion).toEqual({ '': true, alpha: true })
+    expect(snapshot.sessionOrderByAccount).toEqual({ alpha: ['alpha-session'] })
+    expect(snapshot.sessionUpdatedAtByAccount).toEqual({ alpha: { 'alpha-session': 2 } })
   })
 })
 
-describe('projectLabel', () => {
+describe('workspaceLabel', () => {
   it('uses the Ungrouped fallback and extracts POSIX and Windows basenames', () => {
-    expect(projectLabel(undefined)).toBe(UNGROUPED_LABEL)
-    expect(projectLabel('')).toBe(UNGROUPED_LABEL)
-    expect(projectLabel('/projects/demo/')).toBe('demo')
-    expect(projectLabel('C:\\projects\\demo\\')).toBe('demo')
-    expect(projectLabel('/')).toBe('/')
+    expect(workspaceLabel(undefined)).toBe(UNGROUPED_LABEL)
+    expect(workspaceLabel('')).toBe(UNGROUPED_LABEL)
+    expect(workspaceLabel('/projects/demo/')).toBe('demo')
+    expect(workspaceLabel('C:\\projects\\demo\\')).toBe('demo')
+    expect(workspaceLabel('/')).toBe('/')
   })
 })
 

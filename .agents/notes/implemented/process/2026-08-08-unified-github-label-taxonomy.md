@@ -36,7 +36,7 @@ Repository policy rejects unsupported `kind/*` values and reserves every alias r
 Areas name durable product or engineering subjects rather than temporary initiatives, ownership, or every path touched incidentally. A pull request carries multiple areas when it changes distinct behavior or APIs, but it does not combine an umbrella and a narrower label for the same change. GitHub's live `area/*` names and descriptions own the current inventory; this record defines selection cases that cannot fit reliably in short label descriptions.
 
 - `area/web` covers browser and Electron graphical interfaces, `area/vscode` covers the editor extension, and `area/api` covers cross-interface protocols and language SDKs.
-- `area/planning` covers goals, plans, todos, and scheduling, while `area/workflow` covers executable workflows and background task runtimes.
+- `area/planning` covers goals, plans, todos, and scheduling, while `area/workflow` covers executable workflows and background job runtimes.
 - `area/artifact` deliberately combines artifacts, attachments, and multimodal delivery. Split labels become justified only when those concerns again need independent review or queries.
 - `area/tools` applies to generic registry, schema, and execution contracts. A concrete capability uses its own area unless it also changes one of those contracts.
 - `area/hooks` means the Claude Code and Codex bridges, `area/infra` covers build, release, CI, repository gates, generators, dependencies, and developer tooling, and `area/windows` covers native Windows product support rather than CI runner selection.

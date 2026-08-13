@@ -37,7 +37,7 @@ message feedback 不是 Session 日志内容或 Session 投影。它不发出 `f
 
 ## 服务与 Host Remote 契约
 
-`GatewayService` 与 `@Remote` 将 `MessageFeedbackService` 的同三个方法发布出去；Host endpoint 名称为 `messageFeedback.list`、`messageFeedback.put` 与 `messageFeedback.delete`。每个方法都返回判别式业务 union：`{ ok: true, value }` 或 `{ ok: false, error }`。存储、损坏或缺少 durability listener 等操作故障会产生 reject，不会被误标为业务错误。
+`TypertRemoteService` 与 `@Remote` 将 `MessageFeedbackService` 的同三个方法发布出去；Host endpoint 名称为 `messageFeedback.list`、`messageFeedback.put` 与 `messageFeedback.delete`。每个方法都返回判别式业务 union：`{ ok: true, value }` 或 `{ ok: false, error }`。存储、损坏或缺少 durability listener 等操作故障会产生 reject，不会被误标为业务错误。
 
 | 方法 | 请求 | 成功 `value` | 拒绝的 `error.code` |
 |---|---|---|---|

@@ -18,7 +18,7 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

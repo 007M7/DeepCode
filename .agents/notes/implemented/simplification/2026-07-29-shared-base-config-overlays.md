@@ -10,7 +10,7 @@ English | [中文](2026-07-29-shared-base-config-overlays.zh.md)
 
 Neither file was what its location claimed. `examples/tui-agent` was not an example: `apps/cli/src/tui.ts` hardcoded it as the product's default config, and it owned the TUI PTY smoke, the eight terminal snapshot scenarios, and the PTY harness the `cordis-agent` leaf imported. `dsh-tui-demo` was not a demo either — it was the application, mounted by the shipped binary from `packages/examples/`.
 
-The duplication was the load-bearing problem. Of the 43 shared rows, 38 were byte-identical and 5 differed for a defensible per-surface reason, so every capability change had to be made twice and could silently drift. The bundle also inverted a default: `composeTuiApp` read `config.goals ?? {}`, so the shipped TUI mounted goals, `tool-goal`, `goal-session`, and `/goal` although no config key requested them.
+The duplication was the load-bearing problem. Of the 43 shared rows, 38 were byte-identical and 5 differed for a defensible per-surface reason, so every capability change had to be made twice and could silently drift. The bundle also inverted a default: `composeTuiApp` read `config.goals ?? {}`, so the shipped TUI mounted goals, `tool-goal`, `goal-round-driver`, and `/goal` although no config key requested them.
 
 ## Decision
 
@@ -24,7 +24,7 @@ Precedence is list order, last write winning per row: base, then the surface ove
 
 A patch replaces its target row's whole `config` rather than merging. Therefore, a row whose value differs per surface lives in the overlays, never in the base, so no row is patched by three layers at once. Session identity cannot ride a config key at all — it moved to `dsh-agent-loop`'s `CONFIGURED_AGENT_IDENTITIES_KEY`, as the launcher-owned identity record documented.
 
-`examples/tui-agent`, `examples/cordis-agent`, `examples/code-mode`, and `packages/examples/tui-demo` are deleted. The TUI tests move to `apps/cli/tests/`, the cordis-toolset e2e to `packages/self-modification/tool-cordis/tests/`, and the supported Code Mode demo remains the ACP overlay at `examples/acp-agent/code-mode.cordis.yml`.
+`examples/tui-agent`, `examples/cordis-agent`, `examples/code-mode`, and `packages/examples/tui-demo` are deleted. The TUI tests move to `apps/cli/tests/`, the cordis-toolset e2e to `packages/extensions/tool-cordis/tests/`, and the supported Code Mode demo remains the ACP overlay at `examples/acp-agent/code-mode.cordis.yml`.
 
 ## Alternatives considered
 

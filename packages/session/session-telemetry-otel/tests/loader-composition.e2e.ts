@@ -14,11 +14,11 @@ import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 const driver = fileURLToPath(new URL(
-  '../../../../examples/headless-agent/tests/fixtures/telemetry-otel-driver.ts',
+  '../../../../examples/headless-agent/tests/fixtures/session-telemetry-otel-driver.ts',
   import.meta.url,
 ))
 const configPath = fileURLToPath(new URL(
-  '../../../../examples/headless-agent/tests/fixtures/telemetry-otel.cordis.yml',
+  '../../../../examples/headless-agent/tests/fixtures/session-telemetry-otel.cordis.yml',
   import.meta.url,
 ))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))

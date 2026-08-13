@@ -12,7 +12,7 @@ import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
+import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
@@ -180,7 +180,7 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
 }
 
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
-export class GoalService extends GatewayService {
+export class GoalService extends TypertRemoteService {
   static inject = ['agents']
 
   static Config: z<Config> = z.object({

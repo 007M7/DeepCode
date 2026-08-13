@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
-import SkillService, {
+import SkillRegistry, {
   isModelInvocable,
   isUserInvocable,
   renderSkillContent,
@@ -51,16 +51,16 @@ function registerProvider(ctx: Context, provider: SkillProvider): () => void {
 }
 
 /** The skills service as a scoped caller resolves it (scope contexts declare no inject). */
-function scopedSkills(ctx: Context): SkillService {
+function scopedSkills(ctx: Context): SkillRegistry {
   const skills = ctx.get('skills')
   if (skills === undefined) throw new Error('skills service missing')
   return skills
 }
 
-describe('SkillService registry', () => {
+describe('SkillRegistry registry', () => {
   it('registers providers, resolves duplicates first-wins, and disposes providers', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const provider = new MemoryProvider([
       memorySkill('z-skill', 'Z skill', 20),
       memorySkill('a-skill', 'A skill', 10),
@@ -142,7 +142,7 @@ describe('SkillService registry', () => {
     expect(failedSignal?.reason).toBe(factoryFailure)
 
     const effectContext = new Context()
-    const effectService = new SkillService(effectContext)
+    const effectService = new SkillRegistry(effectContext)
     const effectFailure = new Error('effect registration failed')
     vi.spyOn(effectContext, 'effect').mockImplementation(() => { throw effectFailure })
     let effectSignal: AbortSignal | undefined
@@ -162,7 +162,7 @@ describe('SkillService registry', () => {
 
   it('returns an invocation-neutral catalog and resolves model and user policy independently', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const registrations = [
       { name: 'both', invocation: undefined },
       { name: 'model-only', invocation: { modelInvocable: true, userInvocable: false } },
@@ -190,7 +190,7 @@ describe('SkillService registry', () => {
 
   it('validates parsed candidate fields', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const badDescription = { value: 'object-description' }
     registerProvider(ctx, {
       name: 'bad-candidate',
@@ -205,7 +205,7 @@ describe('SkillService registry', () => {
     await expect(ctx.skills.list()).rejects.toThrow('non-string description')
 
     const badBoolean = new Context()
-    await badBoolean.plugin(SkillService)
+    await badBoolean.plugin(SkillRegistry)
     registerProvider(badBoolean, {
       name: 'bad-boolean',
       list: () => Promise.resolve([{
@@ -222,7 +222,7 @@ describe('SkillService registry', () => {
     const malformedOutputs: unknown[] = [null, 1, {}, { candidates: [], complete: 'yes' }]
     for (const [index, output] of malformedOutputs.entries()) {
       const badList = new Context()
-      await badList.plugin(SkillService)
+      await badList.plugin(SkillRegistry)
       registerProvider(badList, {
         name: `malformed-list-${index}`,
         list: () => Promise.resolve(output as readonly SkillCandidate[] | SkillProviderObservation),
@@ -241,7 +241,7 @@ describe('SkillService registry', () => {
     ]
     for (const [index, { patch, expected }] of cases.entries()) {
       const ctx = new Context()
-      await ctx.plugin(SkillService)
+      await ctx.plugin(SkillRegistry)
       const providerName = `candidate-provider-${index}`
       const candidate = {
         name: `candidate-${index}`,
@@ -267,7 +267,7 @@ describe('SkillService registry', () => {
 
   it('borrows the exact lookup options through discovery and loading', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const options: SkillLookupOptions = { cwd: '/workspace/a' }
     let listedWith: SkillLookupOptions | undefined
     let loadedWith: SkillLookupOptions | undefined
@@ -301,7 +301,7 @@ describe('SkillService registry', () => {
 
   it('rechecks cancellation after cached discovery before provider loading', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let getCalls = 0
     registerProvider(ctx, {
       name: 'cached',
@@ -337,7 +337,7 @@ describe('SkillService registry', () => {
 
   it('stops waiting for cached provider loading when a hostile abort reason fires', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let markStarted: (() => void) | undefined
     let release: (() => void) | undefined
     let seenSignal: AbortSignal | undefined
@@ -406,7 +406,7 @@ describe('SkillService registry', () => {
 
   it('borrows cached candidates and loaded definitions from the provider', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const locator = { id: 'provider-owned' }
     const invocation = { modelInvocable: true, userInvocable: true }
     const candidate: SkillCandidate = {
@@ -466,7 +466,7 @@ describe('SkillService registry', () => {
 
   it('preserves readonly runtime resource identities while adding the default provider', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const resourceBase = { kind: 'opaque' as const, description: 'runtime resources' }
     const metadata = { owner: 'runtime' }
     const invocation = { modelInvocable: true, userInvocable: true }
@@ -527,7 +527,7 @@ describe('SkillService registry', () => {
     ]
     for (const [index, { patch, expected }] of cases.entries()) {
       const ctx = new Context()
-      await ctx.plugin(SkillService)
+      await ctx.plugin(SkillRegistry)
       const providerName = `definition-provider-${index}`
       const skillName = `definition-${index}`
       registerProvider(ctx, {
@@ -559,11 +559,11 @@ describe('SkillService registry', () => {
   })
 
   it('validates provider candidates and invalid registry caps', async () => {
-    const defaultedService = new SkillService(new Context())
+    const defaultedService = new SkillRegistry(new Context())
     expect(await defaultedService.list()).toEqual([])
 
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, {
       name: 'bad',
       async list() {
@@ -582,7 +582,7 @@ describe('SkillService registry', () => {
     ]
     for (const candidate of invalidCandidates) {
       const invalid = new Context()
-      await invalid.plugin(SkillService)
+      await invalid.plugin(SkillRegistry)
       registerProvider(invalid, {
         name: candidate.name,
         async list() {
@@ -595,12 +595,12 @@ describe('SkillService registry', () => {
       await expect(invalid.skills.list()).rejects.toThrow('skill provider')
     }
 
-    await expect(new Context().plugin(SkillService, { collectCacheMaxEntries: 1.5 })).rejects.toThrow('collectCacheMaxEntries')
+    await expect(new Context().plugin(SkillRegistry, { collectCacheMaxEntries: 1.5 })).rejects.toThrow('collectCacheMaxEntries')
   })
 
   it('sorts model-visible summaries without locale-sensitive collation', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, new MemoryProvider([
       memorySkill('z-skill', 'Z skill', 10),
       memorySkill('a-skill', 'A skill', 10),
@@ -624,7 +624,7 @@ describe('SkillService registry', () => {
 
   it('caches provider discovery, skips failing providers, and invalidates on runtime skills', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService, { collectCacheMaxEntries: 1 })
+    await ctx.plugin(SkillRegistry, { collectCacheMaxEntries: 1 })
     const provider = new MemoryProvider([memorySkill('first-skill', 'First', 10)])
     registerProvider(ctx, provider)
 
@@ -679,7 +679,7 @@ describe('SkillService registry', () => {
 
   it('keeps candidates from incomplete provider observations loadable without caching them', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let listCalls = 0
     registerProvider(ctx, {
       name: 'incomplete-candidates',
@@ -706,7 +706,7 @@ describe('SkillService registry', () => {
 
   it('invalidates only the exact registered provider and ignores its late callbacks', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const provider = new MemoryProvider([memorySkill('first-skill', 'First', 10)])
     let invalidate = (): void => {}
     let signal: AbortSignal | undefined
@@ -735,7 +735,7 @@ describe('SkillService registry', () => {
 
   it('emits catalog invalidations for live provider and runtime mutations', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const provider = new MemoryProvider([memorySkill('provider-skill', 'Provider', 10)])
     let changes = 0
     ctx.on('skills/change', () => { changes += 1 })
@@ -766,7 +766,7 @@ describe('SkillService registry', () => {
 
   it('contains synchronous and asynchronous catalog observer failures', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const disposeThrowing = ctx.on('skills/change', () => { throw new Error('observer threw') })
@@ -791,7 +791,7 @@ describe('SkillService registry', () => {
 
   it('retries an in-flight catalog invalidated by its provider', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let release: (() => void) | undefined
     const started = Promise.withResolvers<undefined>()
     const gate = new Promise<void>((resolve) => { release = resolve })
@@ -824,7 +824,7 @@ describe('SkillService registry', () => {
 
   it('bounds repeated in-flight invalidation and leaves the result uncached', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let listCalls = 0
     ctx.skills.registerProvider(control => ({
       name: 'self-invalidating',
@@ -859,7 +859,7 @@ describe('SkillService registry', () => {
 
   it('invalidates a provider whose loaded definition changed identity', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let listCalls = 0
     const provider: SkillProvider = {
       name: 'renamed',
@@ -888,7 +888,7 @@ describe('SkillService registry', () => {
 
   it('returns undefined when a discovered candidate disappears before loading', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, {
       name: 'vanished-body',
       async list() {
@@ -904,7 +904,7 @@ describe('SkillService registry', () => {
 
   it('propagates a load failure raced against an armed abort signal', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, {
       name: 'failing-loader',
       list: () => Promise.resolve([{
@@ -924,7 +924,7 @@ describe('SkillService registry', () => {
 
   it('contains a provider rejection whose string coercion throws', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const hostileFailure = {
@@ -952,7 +952,7 @@ describe('SkillService registry', () => {
 
   it('abandons an in-flight catalog when provider registrations change', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let markStarted: (() => void) | undefined
     let release: (() => void) | undefined
     const started = new Promise<void>((resolve) => { markStarted = resolve })
@@ -979,7 +979,7 @@ describe('SkillService registry', () => {
 
   it('stops waiting for discovery when its lookup signal aborts', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     let markStarted: (() => void) | undefined
     let release: (() => void) | undefined
     let seenSignal: AbortSignal | undefined
@@ -1021,7 +1021,7 @@ describe('SkillService registry', () => {
 
   it('rejects invalid runtime skill registrations and ignores duplicates', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     expect(() => ctx.skills.register({ name: 'Bad_Name', description: 'Bad', source: 'runtime', content: 'bad' })).toThrow('invalid skill name')
     expect(() => ctx.skills.register({ name: 'no-description', description: '', source: 'runtime', content: 'bad' })).toThrow('requires a description')
     expect(() => ctx.skills.register({
@@ -1105,10 +1105,10 @@ describe('renderSkillContent', () => {
   })
 })
 
-describe('SkillService scoped layers', () => {
+describe('SkillRegistry scoped layers', () => {
   it('files a scoped provider into its layer and merges it into that scope view only', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, new MemoryProvider([memorySkill('global-skill', 'Global', 100)]))
     const preset = createScope(ctx, { preset: 'a' })
     const presetProvider: SkillProvider = {
@@ -1140,7 +1140,7 @@ describe('SkillService scoped layers', () => {
 
   it('lets the nearest layer win a duplicate name regardless of rank', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, new MemoryProvider([memorySkill('shared-name', 'Global wins ranks', 10)]))
     const preset = createScope(ctx, { preset: 'shadow' })
     scopedSkills(preset.ctx).registerProvider(() => ({
@@ -1171,7 +1171,7 @@ describe('SkillService scoped layers', () => {
 
   it('resolves the scope chain so an agent key inherits its preset layer and recompose follows the new parent', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const presetA = createScope(ctx, { preset: 'a' })
     const presetB = createScope(ctx, { preset: 'b' })
     for (const [scope, label] of [[presetA, 'a'], [presetB, 'b']] as const) {
@@ -1195,7 +1195,7 @@ describe('SkillService scoped layers', () => {
 
   it('scopes provider-name uniqueness per layer and reports scoped duplicates distinctly', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     registerProvider(ctx, new MemoryProvider([]))
     const presetA = createScope(ctx, { preset: 'a' })
     const presetB = createScope(ctx, { preset: 'b' })
@@ -1211,7 +1211,7 @@ describe('SkillService scoped layers', () => {
 
   it('keeps runtime duplicate handling per layer and shadows a global runtime name', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const warn = vi.fn()
     ctx.logger.warn = warn as never
     ctx.skills.register({ name: 'told-twice', description: 'Global runtime', source: 'runtime', content: 'Global body.' })
@@ -1234,7 +1234,7 @@ describe('SkillService scoped layers', () => {
 
   it('drops a disposed scoped registration from its scope view and notifies change', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const changes = vi.fn()
     ctx.on('skills/change', changes)
     const preset = createScope(ctx, { preset: 'hmr' })
@@ -1249,7 +1249,7 @@ describe('SkillService scoped layers', () => {
 
   it('invalidates through a scoped provider control only while its exact registration is live', async () => {
     const ctx = new Context()
-    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillRegistry)
     const preset = createScope(ctx, { preset: 'invalidate' })
     const provider = new MemoryProvider([memorySkill('watched', 'Watched', 100)])
     let control: { invalidate: () => void } | undefined

@@ -8,13 +8,13 @@ Status: implemented
 
 harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化／远程执行器和替代模型提供方。一项能力涉及三个关注点，它们以不同速率、因不同原因变化：*约定*（这项能力是什么）、*实现*（它如何运行）、*消费方 API*（模型和其他插件面向什么编程）。将三者捆绑在一个包中会耦合这些变化速率——把本地执行器换成沙箱化执行器时，模型看到的工具 schema 也会被搅动，尽管面向模型的约定从未改变。
 
-这与「谁在运行时提供、谁需要一项能力」是不同的问题，后者 Cordis 已通过服务 + `inject` 解决（提供方注册 `ctx.bash`；消费方声明 `inject: ['bash']`，其 fiber 挂起直到服务存在）。该机制是必要的，但不决定包的边界；本 Agent Note 决定的是包的边界。
+这与「谁在运行时提供、谁需要一项能力」是不同的问题，后者 Cordis 已通过服务 + `inject` 解决（提供方注册 `ctx.shell`；消费方声明 `inject: ['bash']`，其 fiber 挂起直到服务存在）。该机制是必要的，但不决定包的边界；本 Agent Note 决定的是包的边界。
 
 ## 决策
 
 一项可替换的能力包含**三个角色**：
 
-1. **Service Definition**——拥有 `ctx.<key>` 的 Cordis `Service` 和词汇类型，仅依赖约定所需的词汇（例如 `dsh-bash`：`BashExecutor`、`BashRunResult`、`BashProcess`）。Service Definition 可以是抽象类，也可以是具体的注册表服务；绝不是 TypeScript `interface`。
+1. **Service Definition**——拥有 `ctx.<key>` 的 Cordis `Service` 和词汇类型，仅依赖约定所需的词汇（例如 `dsh-shell`：`ShellExecutor`、`ShellRunResult`、`ShellProcess`）。Service Definition 可以是抽象类，也可以是具体的注册表服务；绝不是 TypeScript `interface`。
 2. **Service provider**——提供或注册实现的插件（例如 `dsh-bash-local`：子进程、进程组 kill、spill 文件截断）。沙箱化和远程 Service provider 是依据同一 Service Definition 实现或注册的兄弟包。
 3. **Consumer**——模型和插件编程所面向的内容（例如 `dsh-tool-bash`：`bash` schema，后台句柄注册到通用任务运行时）。Consumer 注入服务键，从不导入 Service provider 特有的类型。
 
@@ -24,7 +24,7 @@ Service provider 与 Consumer 由此独立演进：沙箱化执行器替换 `dsh
 
 ## 术语：seam 指三者组合，而非接口
 
-一个 **seam** 是完整的能力——三个角色合在一起：**Service Definition**（拥有 `ctx.<key>` 和词汇的 Cordis `Service`）、一个或多个 **Service provider**，以及一个或多个 **Consumer**。`packages/bash` 是规范范例——`dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`。一个包可以承担多个角色，但单个角色本身不是 seam。「seam」一词严格保留给这种完整能力；命名其中一个组成部分时，应使用其角色、类、服务、约定或扩展点。[术语表](../../../../docs/glossary.md#capability-seam)是规范条目。
+一个 **seam** 是完整的能力——三个角色合在一起：**Service Definition**（拥有 `ctx.<key>` 和词汇的 Cordis `Service`）、一个或多个 **Service provider**，以及一个或多个 **Consumer**。`packages/shell` 是规范范例——`dsh-shell` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`。一个包可以承担多个角色，但单个角色本身不是 seam。「seam」一词严格保留给这种完整能力；命名其中一个组成部分时，应使用其角色、类、服务、约定或扩展点。[术语表](../../../../docs/glossary.md#capability-seam)是规范条目。
 
 ## 曾考虑的替代方案
 

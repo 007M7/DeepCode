@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Settings, SettingsConflictError, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
+import { SettingsProvider, SettingsConflictError, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
 
 /** A provider implementing only the three primitives: the Service Definition owns initialization. */
-class BareProvider extends Settings {
+class BareProvider extends SettingsProvider {
   doc: Record<string, unknown>
 
-  constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: { doc?: Record<string, unknown> }) {
+  constructor(ctx: ConstructorParameters<typeof SettingsProvider>[0], options?: { doc?: Record<string, unknown> }) {
     super(ctx)
     this.doc = structuredClone(options?.doc ?? {})
   }

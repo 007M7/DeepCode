@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md
-2026-08-11-remove-sdk-project-toolchain.md: 5c147560a2a9a796d6ca98d1acaf648049ae6a9f
-2026-08-11-remove-sdk-project-toolchain.zh.md: 07624052e936d8705958e826c68f39f34dcd146a
+2026-08-11-remove-sdk-project-toolchain.md: cfaf0df46e34d419f5d0b2d5a2a25580675fdc31
+2026-08-11-remove-sdk-project-toolchain.zh.md: 3b563007bf92f94adab6c68eeaa9c6c1522815e4

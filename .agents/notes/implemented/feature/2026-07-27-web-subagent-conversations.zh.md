@@ -20,7 +20,7 @@ Web 产品通过页头操作公开选中会话中由会话支撑的直接 subage
 
 通用 Host 领域遵守同一所有权边界。`session.history` 与 `session.fork` 的源端会读取已附加 Session 或检查持久化存储，而不获取 Agent；history 从所检查的确切前缀归并冷态投影值，fork 则发布一个普通的独立会话。绑定到 Agent 的通用会话、命令与目标路由会对由会话支撑的 subagent 返回 `agent-busy`；显式 id 的 `session.create` 接纳与仅针对已附加会话的队列控件亦然。拒绝分类器接受粗粒度 `origin` 标记、会话自身后缀中的 `subagent/descriptor`，或 parent 对其确切的存活运行时所有权；这些信号只会阻止通用路径取得所有权，绝不取代目录 mode 或直接 parent 授权。
 
-停止一个已寻址 child 绝不回退到 `session.cancel`。`SubagentService.followup()` 只负责消息被 inbox 接受前的准入，不授予取消句柄；正在运行的可继续 child 通过专用的 `subagent.interrupt` 路由停止，遵循[当前轮次中断约定](2026-08-06-continuable-subagent-interrupt.md)，该约定会停放并保留待处理工作，而不是将其丢弃。one-shot child 在 Web 端仍不可取消。
+停止一个已寻址 child 绝不回退到 `session.cancel`。`SubagentRuntime.followup()` 只负责消息被 inbox 接受前的准入，不授予取消句柄；正在运行的可继续 child 通过专用的 `subagent.interrupt` 路由停止，遵循[当前轮次中断约定](2026-08-06-continuable-subagent-interrupt.md)，该约定会停放并保留待处理工作，而不是将其丢弃。one-shot child 在 Web 端仍不可取消。
 
 本决策涵盖 Web 端发现、transcript 查看与经 parent 授权的用户继续交互。它不会让 subagent 成为用户独立所有的对象；这类产品仍然属于[交互式 side session](../../proposed/feature/2026-07-08-interactive-side-sessions.md)。
 
@@ -77,7 +77,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 ## 默认 Web 组合
 
-已交付的 Web 组合会在 JSONL 持久化旁挂载 SQLite 会话查询，并将 spawn 与 fork 后台委派配置为可继续模式。它还会挂载面向模型的 `send_message` 与 `list_agents` 适配器，以保持 coordinator 对等性，但 GUI 会通过宿主 RPC 域调用共享的 `SubagentService`，而不是调用模型工具。one-shot child 仍在目录中可见且只读。
+已交付的 Web 组合会在 JSONL 持久化旁挂载 SQLite 会话查询，并将 spawn 与 fork 后台委派配置为可继续模式。它还会挂载面向模型的 `send_message` 与 `list_agents` 适配器，以保持 coordinator 对等性，但 GUI 会通过宿主 RPC 域调用共享的 `SubagentRuntime`，而不是调用模型工具。one-shot child 仍在目录中可见且只读。
 
 ## 备选方案
 

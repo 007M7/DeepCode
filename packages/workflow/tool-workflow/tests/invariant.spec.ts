@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry, { InvariantError } from '@deepseek-ai/dsh-invariants'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { WorkflowRunId, type WorkflowRunId as WorkflowRunIdType } from '@deepseek-ai/dsh-workflow/types'
 import * as ToolWorkflowInvariant from '../src/invariant.ts'
@@ -9,7 +9,7 @@ import type {} from '../src/types.ts'
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService, { enabled: true })
+  await ctx.plugin(InvariantRegistry, { enabled: true })
   await ctx.plugin(ToolWorkflowInvariant)
   return ctx
 }
@@ -182,7 +182,7 @@ describe('durable workflow-record invariants', () => {
     valid.append('tool-workflow/agent-start', {
       runId: WorkflowRunId('valid'), seq: 1, label: 'open', childId: SessionId('child'),
     })
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     await expect(ctx.plugin(ToolWorkflowInvariant)).resolves.toBeDefined()
 
     const brokenCtx = new Context()
@@ -193,7 +193,7 @@ describe('durable workflow-record invariants', () => {
     broken.append('tool-workflow/agent-start', {
       runId: WorkflowRunId('broken'), seq: 1, label: 'late', childId: SessionId('late'),
     })
-    await brokenCtx.plugin(InvariantService, { enabled: true })
+    await brokenCtx.plugin(InvariantRegistry, { enabled: true })
     await expect(brokenCtx.plugin(ToolWorkflowInvariant)).rejects.toThrow(/appears after/)
   })
 })

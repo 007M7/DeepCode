@@ -71,7 +71,7 @@ export interface LocaleSnapshot {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    locale: LocaleService
+    locale: LocaleRuntime
   }
   interface Events {
     /**
@@ -111,7 +111,7 @@ const LOCALES: readonly LocaleDefinition[] = Object.freeze([
  * LocaleFace getSnapshot/subscribe pair the render machinery consumes
  * (installed via `ctx.slots.installLocale`).
  */
-export class LocaleService {
+export class LocaleRuntime {
   private dicts = new Map<string, Map<string, LocaleDict>>()
   private bound = new Map<string, Translate>()
   private snapshot: LocaleSnapshot
@@ -354,7 +354,7 @@ export const inject = ['slots', 'connection', 'remote', 'settingsScope']
  */
 export function apply(ctx: ClientContext): void {
   const host = ctx.settingsScope.bind<LocaleSettings>({ namespace: LOCALE_SETTINGS_NAMESPACE })
-  const locale = new LocaleService(ctx, host)
+  const locale = new LocaleRuntime(ctx, host)
   locale.register(COMMON_NS, { zh, en })
   locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })
   ctx.provide('locale', locale)

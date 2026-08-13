@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 
 // This lifecycle proof has goal-specific timestamp normalization and semantic
 // assertions, so it owns a separate snapshot root from the generic suite.
-const scenarioDir = join(dirname(fileURLToPath(import.meta.url)), 'goal-snapshots/goal-session')
+const scenarioDir = join(dirname(fileURLToPath(import.meta.url)), 'goal-snapshots/goal-round-driver')
 const fixtureFile = join(scenarioDir, 'session.jsonl')
 const overrideFile = join(scenarioDir, 'replay.override.json')
 const stdoutExpected = join(scenarioDir, 'stdout.expected.jsonl')
@@ -90,7 +90,7 @@ describe('same-session goal snapshot through the ACP automation driver', () => {
     expect(rounds).toEqual([1, 2])
     expect(foldGoal(events)).toMatchObject({
       goal: {
-        objective: 'Finish the ACP goal-session snapshot proof',
+        objective: 'Finish the ACP goal-round-driver snapshot proof',
         phase: 'paused',
         revision: 2,
         maxGoalRounds: 2,

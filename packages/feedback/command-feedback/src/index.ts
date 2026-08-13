@@ -8,9 +8,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { Telemetry, TelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
+import type { SessionTelemetryBackend, SessionTelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 
 export const name = 'command-feedback'
 export const inject = ['commands']
@@ -24,7 +24,7 @@ function assertNever(value: never): never {
 }
 
 /** The acknowledgement's sharing sentence for a disclosed policy. */
-function sharingSentence(sharing: TelemetrySharingStatus): string {
+function sharingSentence(sharing: SessionTelemetrySharingStatus): string {
   switch (sharing) {
     case 'full':
       return 'Session sharing is enabled.'
@@ -46,7 +46,7 @@ function sharingSentence(sharing: TelemetrySharingStatus): string {
  * @param telemetry - the mounted telemetry service, or undefined.
  * @returns one sentence describing this session's sharing policy.
  */
-function sharingDisclosure(telemetry: Telemetry | undefined): string {
+function sharingDisclosure(telemetry: SessionTelemetryBackend | undefined): string {
   if (telemetry === undefined) {
     return 'Session sharing is not configured.'
   }
@@ -89,10 +89,10 @@ function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): Co
     return { kind: 'error', text: `Feedback text is required. ${USAGE}` }
   }
   recordFeedback(invocation.agent.session, invocation.rawInput)
-  const telemetry = ctx.get('telemetry')
+  const telemetry = ctx.get('sessionTelemetry')
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}\nUser: ${getOrCreateAnonymousUserId()}. ${sharingDisclosure(telemetry)}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}. ${sharingDisclosure(telemetry)}`,
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-fs",
   "description": "Model-facing filesystem tools (read, write, edit) over the DeepSeek Harness filesystem seam (ctx.fs)",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.5",
   "publishConfig": {
     "access": "restricted"
   },
@@ -55,7 +55,7 @@
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
-    "@deepseek-ai/dsh-fs-policy": "workspace:^",
+    "@deepseek-ai/dsh-fs-observation-policy": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:^",

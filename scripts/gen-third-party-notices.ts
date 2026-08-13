@@ -32,8 +32,8 @@ const ALL_KINDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'p
  */
 const DEV_ONLY_AREAS = [
   'package.json',
-  'packages/support/',
-  'packages/client/test-runtime/',
+  'packages/test-support/',
+  'packages/test-support/client-runtime/',
   'website/',
   'examples/',
   'native/',

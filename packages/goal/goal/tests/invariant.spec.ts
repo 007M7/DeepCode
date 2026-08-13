@@ -6,7 +6,7 @@ import {
   type GoalSnapshotChangeMeta,
 } from '@deepseek-ai/dsh-goal'
 import * as GoalInvariantCompanion from '@deepseek-ai/dsh-goal/invariant'
-import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry, { InvariantError } from '@deepseek-ai/dsh-invariants'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 
 const change: GoalSnapshotChangeMeta = {
@@ -28,7 +28,7 @@ const change: GoalSnapshotChangeMeta = {
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService, { enabled: true })
+  await ctx.plugin(InvariantRegistry, { enabled: true })
   await ctx.plugin(GoalInvariantCompanion)
   return ctx
 }
@@ -68,7 +68,7 @@ describe('goal stream invariants', () => {
     const session = ctx.sessions.create(SessionId('goal-invariant-late-load'))
     session.append('goal/change', change)
 
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     await ctx.plugin(GoalInvariantCompanion)
     session.append('turn/start', { turn: 1 })
     expect(() => {

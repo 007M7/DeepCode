@@ -12,7 +12,7 @@ The existing visual-only menu row also left deletion semantics undefined across 
 
 ## Decision
 
-`ctx.workspace.delete(id)` deletes only the Workspace registration: its id leaves durable `workspaceIds`, its `workspaces` table row and entity-cache entry disappear, and its ordered `sessionIds` account disappears with that row. It never calls filesystem removal or `SessionPersistence`; the directory, every user file, every live Session, and every persisted Session log remain. Because sidebar grouping is the complement of all surviving Workspace accounts, those Sessions immediately appear under Ungrouped, including the current Session.
+`ctx.workspaceRegistry.delete(id)` deletes only the Workspace registration: its id leaves durable `workspaceIds`, its `workspaces` table row and entity-cache entry disappear, and its ordered `sessionIds` account disappears with that row. It never calls filesystem removal or `SessionPersistence`; the directory, every user file, every live Session, and every persisted Session log remain. Because sidebar grouping is the complement of all surviving Workspace accounts, those Sessions immediately appear under Ungrouped, including the current Session.
 
 Unknown ids return `false` at the domain contract. `workspace.delete({ workspaceId })` maps that distinction to `workspace-not-found`; success returns `{ deleted: true }`. `workspace.list` remains the reconnect baseline.
 

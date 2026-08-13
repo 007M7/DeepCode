@@ -6,17 +6,17 @@ English | [中文](2026-08-10-unary-apiproxy-remote-migration.zh.md)
 
 ## Problem
 
-The Host API Proxy still owns many unary methods whose implementation is only service lookup, argument projection, one business call, and response projection. That duplicates the contract across the business Service, API Proxy interface, Zod schemas, route table, client stub, and Client caller even though [TypeRT Remote calls](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md) already let the business package own this class of call.
+The Host API Proxy still owns many unary methods whose implementation is only service lookup, argument projection, one business call, and response projection. That duplicates the contract across the business Service, API Proxy interface, Zod schemas, route table, client stub, and Client caller even though [Typert Remote calls](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md) already let the business package own this class of call.
 
 Moving a method mechanically is not sufficient. Agent-bound API Proxy methods call `agentFor()`, which reuses a live Agent, resumes an ordinary cold Session with its recorded preset, deduplicates concurrent resumes, and rejects subagent-owned identities. A Remote method that resolved an `Agent` or `Session` differently would change lifecycle behavior even when the final business call looked identical.
 
 The API Proxy also contains BFF operations whose contract is not a business method: Session lifecycle and transcript assembly, model-selection state, live-only input control, configuration filtering, skill presentation, Host composition facts, and native desktop operations. Stateful interactions and streams have different lifecycles again. Treating all unary syntax as evidence that a method is simple would move product policy into arbitrary Service packages or force new packages that have no independent business owner.
 
-Finally, Connection currently applies its loopback-only privileged-method list inside the API Proxy fallback. A TypeRT interceptor claims its endpoint before that fallback, so migrating credential or preset authoring calls without moving the privilege check would grant trusted-LAN callers operations that are currently loopback-only.
+Finally, Connection currently applies its loopback-only privileged-method list inside the API Proxy fallback. A Typert interceptor claims its endpoint before that fallback, so migrating credential or preset authoring calls without moving the privilege check would grant trusted-LAN callers operations that are currently loopback-only.
 
 ## Proposal
 
-Migrate only unary calls whose business operation already has a natural Service owner and whose remaining adaptation is a small parameter or result projection. The Service binds a TypeRT namespace and decorates an existing method directly with `@Remote` when its signature is the intended consumer contract. A new method is justified only when it performs real adaptation; an identity `remote*` forwarding wrapper is not.
+Migrate only unary calls whose business operation already has a natural Service owner and whose remaining adaptation is a small parameter or result projection. The Service binds a Typert namespace and decorates an existing method directly with `@Remote` when its signature is the intended consumer contract. A new method is justified only when it performs real adaptation; an identity `remote*` forwarding wrapper is not.
 
 `@deepseek-ai/dsh-api-remotes/client` will mount each selected business package's generated `/remote` contribution. Client business packages will call `ctx.remote.<service>` and perform Client-owned joins or presentation projection there. The corresponding API Proxy interface member, schema, route, handler, generated client method, fixture implementation, and production invocation will be removed together in that Service's vertical commit.
 
@@ -27,9 +27,9 @@ Large BFF methods remain in `dsh-host-apiproxy`. A method leaves this migration 
 | Legacy RPC | Remote destination | Host method | Adaptation |
 |---|---|---|---|
 | `session.rename` | `ctx.remote.sessionTitle` in `@deepseek-ai/dsh-session-title` | `SessionTitleService.rename(Session, title)` | Direct `@Remote`; Client maps `eventSeq` to its title projection sequence. |
-| `command.list`, `command.execute` | `ctx.remote.commands` in `@deepseek-ai/dsh-commands` | `CommandService.list(Agent)`, `execute(Agent, line, signal)` | Direct `@Remote`; Client maps `undefined` to unmatched and preserves caller cancellation. |
-| `llm.providers` | `ctx.remote.llm` in `@deepseek-ai/dsh-llm` | `LlmService.listProviders()`, `listConfigurableProviders()` | Direct `@Remote` on both reads; the Client joins registration and configuration-directory rows. |
-| `credentials.describe`, `credentials.set`, `credentials.unset` | `ctx.remote.credentials` in `@deepseek-ai/dsh-credentials-local` | `CredentialsLocal.describe(ref)`, `set(ref, value)`, `unset(ref)` | Direct `@Remote`; Client batches `describe` calls when its UI requests several refs. |
+| `command.list`, `command.execute` | `ctx.remote.commands` in `@deepseek-ai/dsh-commands` | `CommandRuntime.list(Agent)`, `execute(Agent, line, signal)` | Direct `@Remote`; Client maps `undefined` to unmatched and preserves caller cancellation. |
+| `llm.providers` | `ctx.remote.llm` in `@deepseek-ai/dsh-llm` | `LlmRuntime.listProviders()`, `listConfigurableProviders()` | Direct `@Remote` on both reads; the Client joins registration and configuration-directory rows. |
+| `credentials.describe`, `credentials.set`, `credentials.unset` | `ctx.remote.credentials` in `@deepseek-ai/dsh-credentials-local` | `LocalCredentialProvider.describe(ref)`, `set(ref, value)`, `unset(ref)` | Direct `@Remote`; Client batches `describe` calls when its UI requests several refs. |
 | `agentPreset.read`, `agentPreset.copy`, `agentPreset.remove` | `ctx.remote.agentPresets` in `@deepseek-ai/dsh-agent-presets` | `readDocument(id)`, `copy(from, id, name?)`, `remove(id)` | `copy` and `remove` are direct; `readDocument` combines stored content with metadata from one live discovery. |
 | `subagent.interrupt` | `ctx.remote.subagents` in `@deepseek-ai/dsh-subagent` | `interruptByParent(targetSessionId, parentSessionId)` | Adapter constructs the internal user-authority variant without resolving or resuming either Agent. |
 | `workspace.list`, `workspace.insertSessionBefore`, `workspace.archiveSession` | `ctx.remote.workspace` in `@deepseek-ai/dsh-workspace` | `snapshot()`, `insertSessionBefore(workspaceId, sessionId, before?)`, `archiveSession(sessionId)` | Registry adapters detach mutable entities and return the settled workspace or archive snapshot. |
@@ -64,21 +64,21 @@ The migration must pin these outcomes with integration tests:
 - concurrent Agent and Session lookups for one id share one resume;
 - a live or cold subagent-owned identity fails with `agent-busy` before business invocation;
 - an id missing from durable persistence fails with `session-not-found`;
-- resolver failures keep their existing `RpcError` through `TypeRTLookupFailure`.
+- resolver failures keep their existing `RpcError` through `TypertLookupFailure`.
 
-Lookup policy is key-wide, not endpoint-specific. Methods such as prompt, queue editing, cancellation, model selection, and skill listing cannot use the shared `agent` or `session` lookup while retaining live-only or no-resume behavior, so they remain in the API Proxy until TypeRT supports an explicit per-endpoint policy.
+Lookup policy is key-wide, not endpoint-specific. Methods such as prompt, queue editing, cancellation, model selection, and skill listing cannot use the shared `agent` or `session` lookup while retaining live-only or no-resume behavior, so they remain in the API Proxy until Typert supports an explicit per-endpoint policy.
 
-Methods whose signatures contain only branded ids do not invoke TypeRT object lookup. `subagents.interruptByParent()` must retain the existing process-local Activation lookup and parent-offline behavior: it does not call `agentFor`, read the catalog, inspect persistence, or cold-resume a parent or child.
+Methods whose signatures contain only branded ids do not invoke Typert object lookup. `subagents.interruptByParent()` must retain the existing process-local Activation lookup and parent-offline behavior: it does not call `agentFor`, read the catalog, inspect persistence, or cold-resume a parent or child.
 
 ## Client and error behavior
 
 Generated Remote methods return business values and throw an Error whose `cause` contains the existing RPC failure. Client business services own adaptation to their current result/store interfaces. They must settle successful results immediately exactly as they do today so event frames remain idempotent replays rather than the only update path.
 
-Resolver-owned `session-not-found` and `agent-busy` errors remain stable because the shared resolver raises `TypeRTLookupFailure`. Ordinary business exceptions become the Gateway's existing `internal` RPC failure. A selected Client consumer may migrate only if it does not branch on a more specific legacy business error code; if implementation finds such a branch, that RPC leaves this set unless the business package gains a transport-independent typed failure.
+Resolver-owned `session-not-found` and `agent-busy` errors remain stable because the shared resolver raises `TypertLookupFailure`. Ordinary business exceptions become the Gateway's existing `internal` RPC failure. A selected Client consumer may migrate only if it does not branch on a more specific legacy business error code; if implementation finds such a branch, that RPC leaves this set unless the business package gains a transport-independent typed failure.
 
 ## Privileged authority
 
-Connection must enforce privileged endpoint authority before choosing the TypeRT interceptor or API Proxy fallback. The check must recognize both legacy dotted names and Remote slash endpoints and keep these migrated operations loopback-only:
+Connection must enforce privileged endpoint authority before choosing the Typert interceptor or API Proxy fallback. The check must recognize both legacy dotted names and Remote slash endpoints and keep these migrated operations loopback-only:
 
 - `agentPresets/readDocument`, `agentPresets/copy`, and `agentPresets/remove`;
 - `credentials/describe`, `credentials/set`, and `credentials/unset`.
@@ -93,7 +93,7 @@ The final commit generates every `/remote` artifact from a clean state, updates 
 
 ## Alternatives considered
 
-**Keep simple methods in the central API Proxy.** This preserves one transport facade but continues the duplicated interfaces, schemas, route rows, stubs, and business projections that TypeRT was introduced to remove.
+**Keep simple methods in the central API Proxy.** This preserves one transport facade but continues the duplicated interfaces, schemas, route rows, stubs, and business projections that Typert was introduced to remove.
 
 **Move every unary API Proxy method.** Unary syntax does not imply single-owner behavior. Session orchestration, live-only control, configuration exposure, and native Host operations would either leak BFF policy into generic Services or create ownerless packages.
 
@@ -121,4 +121,4 @@ Generated Remote contracts add build ordering and publication entries to each bu
 
 Moving privilege enforcement to composite dispatch changes security-sensitive carrier code. Tests must exercise both a Remote-owned endpoint and a legacy fallback endpoint so neither path can bypass the loopback decision.
 
-This note applies the existing TypeRT Remote architecture rather than superseding it. It partially supersedes the central unary ownership and five-step extension checklist in the [GUI RPC protocol note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) and the central wiring inventory in the [Web configuration plane note](../../implemented/architecture/2026-07-30-web-config-plane.md); those notes remain authoritative for Connection envelopes and configuration behavior outside the migrated methods. The title, command, configuration-boundary, subagent-interrupt, and archive notes continue to own their business behavior and require factual transport updates rather than archival. The [browser trust boundary](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md) and [generated-contract build order](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md) remain authoritative and require no archival action.
+This note applies the existing Typert Remote architecture rather than superseding it. It partially supersedes the central unary ownership and five-step extension checklist in the [GUI RPC protocol note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) and the central wiring inventory in the [Web configuration plane note](../../implemented/architecture/2026-07-30-web-config-plane.md); those notes remain authoritative for Connection envelopes and configuration behavior outside the migrated methods. The title, command, configuration-boundary, subagent-interrupt, and archive notes continue to own their business behavior and require factual transport updates rather than archival. The [browser trust boundary](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md) and [generated-contract build order](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md) remain authoritative and require no archival action.

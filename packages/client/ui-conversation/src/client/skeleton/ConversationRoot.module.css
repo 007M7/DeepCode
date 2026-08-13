@@ -280,7 +280,7 @@
   overflow-y: auto;
 }
 
-.scrollBody:has([data-conversation-composer-overlay]) > .viewArea {
+.scrollBody:has([data-conversation-composer-overlay]) > :global([data-slot='conversation.session']) > .viewArea {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;

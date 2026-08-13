@@ -84,7 +84,7 @@ Snapshot coverage pins the visible multi-call transcript: pending calls may over
 
 **Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` leaves an insertion point for a policy hook.
 
-**Convert scheduler failures into tool results.** AgentLoop cannot determine whether a rejected dispatch invoked the tool body; ToolRegistry owns body-invocation state and typed tool outcomes. Internal scheduler failures therefore remain terminal instead of being reclassified as `ABORTED` results.
+**Convert scheduler failures into tool results.** AgentLoop cannot determine whether a rejected dispatch invoked the tool body; ToolRuntime owns body-invocation state and typed tool outcomes. Internal scheduler failures therefore remain terminal instead of being reclassified as `ABORTED` results.
 
 **Start calls while the model streams.** This may reduce latency further but changes assistant-message authority, replay, and call/result pairing. The scheduler starts only after the assistant message is complete.
 

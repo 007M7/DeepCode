@@ -10,11 +10,11 @@ import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-ag
 
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
-import { HarnessSdkServer } from '../src/index.ts'
+import { HarnessSdkJsonRpcServer } from '../src/index.ts'
 
 class FakeTransport implements JsonRpcTransportPeer {
   notifications: { method: string; params?: Record<string, unknown> }[] = []
@@ -62,8 +62,8 @@ async function mockCompletionServer(): Promise<{ url: string; requests: unknown[
 async function makeHarness(storageDir: string) {
   const ctx = new Context()
   await ctx.plugin(agentCore, { workspaceContext: false })
-  await ctx.plugin(SubagentService)
-  await ctx.plugin(SessionPersistenceJsonl, { root: storageDir })
+  await ctx.plugin(SubagentRuntime)
+  await ctx.plugin(JsonlSessionPersistence, { root: storageDir })
   await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
 }
@@ -108,7 +108,7 @@ async function settleSubagent(
   }
 }
 
-describe('HarnessSdkServer', () => {
+describe('HarnessSdkJsonRpcServer', () => {
   it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 15_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-'))
     const llmServer = await mockCompletionServer()
@@ -117,7 +117,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
 
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
@@ -192,7 +192,7 @@ describe('HarnessSdkServer', () => {
       agents: { create, get: (id: SessionId) => liveAgents.get(String(id)) },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
     const prompt = (sessionId: string, text: string) => server.prompt({
       sessionId,
       contentBlocks: [{ type: 'text', text }],
@@ -228,7 +228,7 @@ describe('HarnessSdkServer', () => {
       },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
     const prompt = (text: string) => server.prompt({
       sessionId: 'zombie',
       contentBlocks: [{ type: 'text', text }],
@@ -247,7 +247,7 @@ describe('HarnessSdkServer', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     const transport = new FakeTransport()
-    const server = new HarnessSdkServer(ctx, transport)
+    const server = new HarnessSdkJsonRpcServer(ctx, transport)
     const session = ctx.sessions.create(SessionId('message-outcome'))
     const agent = ({
       id: SessionId('message-outcome'),
@@ -271,7 +271,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
 
       ctx.sessions.create(SessionId('root-session'), {
         meta: { cwd: storageDir },
@@ -302,7 +302,7 @@ describe('HarnessSdkServer', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
     const ctx = await makeHarness(storageDir)
     try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport())
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
       await server.initialize({ cwd: storageDir, provider: 'deepseek-official', model: 'plain-model' })
       await server.prompt({
@@ -323,7 +323,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
 
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('main'),
@@ -394,7 +394,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('collision-parent'),
         meta: { cwd: storageDir },
@@ -433,7 +433,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('continuation-parent'),
         meta: { cwd: storageDir },
@@ -478,7 +478,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
       const oldParent = await ctx.agents.create({
         sessionId: SessionId('old-parent'),
         meta: { cwd: storageDir },
@@ -577,7 +577,7 @@ describe('HarnessSdkServer', () => {
     const ctx = await makeHarness(storageDir)
     try {
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
       const parent = await ctx.agents.create({
         sessionId: SessionId('provider-reuse-parent'),
         meta: { cwd: storageDir },
@@ -707,7 +707,7 @@ describe('HarnessSdkServer', () => {
         signal: new AbortController().signal,
       })
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport, { maxTokensAsSuccess: true })
+      const server = new HarnessSdkJsonRpcServer(ctx, transport, { maxTokensAsSuccess: true })
 
       missedStartResult.resolve({ output: [], stopReason: 'max-tokens' })
       await missedStartRun.result
@@ -781,7 +781,7 @@ describe('HarnessSdkServer', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     await ctx.plugin(LlmDeepSeek)
     try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport())
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
       const inspect = server as unknown as { hasAdapterFor(provider: string): boolean }
 
       expect(inspect.hasAdapterFor('deepseek-official')).toBe(true)
@@ -802,7 +802,7 @@ describe('HarnessSdkServer', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     await ctx.plugin(LlmDeepSeek)
     try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport())
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
       await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'new-model' }))
         .rejects.toThrow('no adapter registered for provider "private"')
@@ -821,7 +821,7 @@ describe('HarnessSdkServer', () => {
       const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-max-tokens-'))
       const ctx = await makeHarness(storageDir)
       try {
-        const server = new HarnessSdkServer(ctx, new FakeTransport())
+        const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
         await expect(server.initialize({
           cwd: storageDir,
           provider: 'deepseek-official',
@@ -839,7 +839,7 @@ describe('HarnessSdkServer', () => {
   it('reports no adapter when the LLM service is absent', async () => {
     const ctx = new Context()
     try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
         hasAdapterFor(model: string): boolean
         shutdown(): Promise<Record<string, never>>
       }
@@ -855,7 +855,7 @@ describe('HarnessSdkServer', () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-unknown-'))
     const ctx = await makeHarness(storageDir)
     try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport())
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
       await expect(server.handleRequest('does/not/exist', {}))
         .rejects
@@ -882,7 +882,7 @@ describe('HarnessSdkServer', () => {
       agents: { create, get: () => undefined },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
       getOrCreateSession(sessionId: string): Promise<{ handle: AgentHandle }>
       shutdown(): Promise<Record<string, never>>
     }
@@ -912,7 +912,7 @@ describe('HarnessSdkServer', () => {
       agents: { create, get: () => undefined },
       get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
       initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
@@ -936,7 +936,7 @@ describe('HarnessSdkServer', () => {
       agents: { create: vi.fn(), get: () => undefined },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
       sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined; activePrompt: boolean }>
       shutdown(): Promise<Record<string, never>>
     }
@@ -960,7 +960,7 @@ describe('HarnessSdkServer', () => {
       agents: { create: vi.fn(), get: () => undefined },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
     expect(on).toHaveBeenCalledTimes(4)

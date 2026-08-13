@@ -78,7 +78,7 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 - Compaction: pressure on `agent/pre-step`; canonical overflow repair on `agent/request-error`
 - Model-request recovery: `dsh-llm-retry` records and waits exact-provider normal or unbounded backoff on `agent/request-error`, emits non-surface `llm/retry` status, then returns a retry action
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
-- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while generic [`ctx.tasks`](../../tasks/tasks/) plus [`dsh-tool-subagent`](../../subagent/tool-subagent/) own background collection.
+- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while generic [`ctx.jobs`](../../jobs/jobs/) plus [`dsh-tool-subagent`](../../subagent/tool-subagent/) own background collection.
 - Persistence: eager write-behind from `session/event`; `session/flush` is an explicit observation barrier
 - UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)
 

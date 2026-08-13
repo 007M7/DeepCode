@@ -77,7 +77,7 @@ export interface SearchResultSet {
 
 /** Viewing state consumed by the derivation. */
 export interface TreeView {
-  expandedProjects: readonly string[]
+  expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
 }
@@ -97,7 +97,7 @@ interface Group {
  * @param cwd - directory path, or undefined for the ungrouped bucket.
  * @returns basename, the raw cwd when it has no basename, or the ungrouped label.
  */
-export function projectLabel(cwd: string | undefined): string {
+export function workspaceLabel(cwd: string | undefined): string {
   if (cwd === undefined || cwd === '') return UNGROUPED_LABEL
   const base = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
   return base !== undefined && base !== '' ? base : cwd
@@ -248,7 +248,7 @@ export function deriveGroups(
   view: TreeView,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
-  const expandedProjects = new Set(view.expandedProjects)
+  const expandedGroups = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined
     ? undefined
@@ -256,7 +256,7 @@ export function deriveGroups(
         ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
-    const expanded = expandedProjects.has(g.key)
+    const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -338,7 +338,7 @@ export function deriveSearchResults(
     }
   }
   const labelOf = (summary: SessionSummary): string =>
-    workspaceBySession.get(summary.id) ?? projectLabel(summary.cwd)
+    workspaceBySession.get(summary.id) ?? workspaceLabel(summary.cwd)
   const contentBySession = new Map<SessionId, SessionSearchResultItem>()
   for (const item of content.items) {
     if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)

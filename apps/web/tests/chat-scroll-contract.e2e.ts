@@ -268,7 +268,7 @@ async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: str
   if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
   const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
   // Cold summaries initially show the temporary workspace basename, so the
-  // persisted first-message marker is the stable user-facing identity. The
+  // persisted first-prompt marker is the stable user-facing identity. The
   // query itself triggers lazy content-index reconciliation; no transient
   // empty-state paint is used as a barrier.
   await search.fill(fixture.markers.user(1))

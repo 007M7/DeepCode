@@ -1,6 +1,6 @@
 /** Host BFF entry and Loader shell for the Remote contribution assembly. */
 
-import type { TypeRTForwardableEvent } from '@deepseek-ai/dsh-type-meta'
+import type { TypertForwardableEvent } from '@deepseek-ai/dsh-typert-protocol'
 import { API_REMOTE_FORWARDED_EVENTS } from './remote-events.ts'
 
 // The owner packages' client-safe `./types` exports carry the cordis `Events`
@@ -8,6 +8,7 @@ import { API_REMOTE_FORWARDED_EVENTS } from './remote-events.ts'
 // makes the shape assertion below judge real signatures rather than an empty
 // event vocabulary.
 import type {} from '@deepseek-ai/dsh-commands/types'
+import type {} from '@deepseek-ai/dsh-cordis-host-runner/types'
 import type {} from '@deepseek-ai/dsh-credentials/types'
 import type {} from '@deepseek-ai/dsh-llm/types'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -37,7 +38,7 @@ export type { ApiRemoteForwardedEvent } from './types.ts'
 // and every entry is ONE-WAY (a waterfall or bail shape returns something other
 // than void and is excluded). Widening the array to an event that fails any of
 // these fails here, not on the wire.
-API_REMOTE_FORWARDED_EVENTS satisfies readonly TypeRTForwardableEvent[]
+API_REMOTE_FORWARDED_EVENTS satisfies readonly TypertForwardableEvent[]
 
 /** Host plugin body; the selected contributions mount only in Client environments. */
 export function apply(): void {}

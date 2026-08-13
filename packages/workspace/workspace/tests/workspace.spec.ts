@@ -69,7 +69,7 @@ async function harness(options: HarnessOptions = {}) {
     ctx,
     fiber,
     pool,
-    registry: ctx.workspace,
+    registry: ctx.workspaceRegistry,
     changes,
     initChanges,
     list,
@@ -188,13 +188,13 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const pool = new MemoryMediaPool()
     const ctx = await storageContext(pool)
     const fiber = await ctx.plugin(WorkspaceRegistry)
-    expect(ctx.get('workspace')).toBeUndefined()
+    expect(ctx.get('workspaceRegistry')).toBeUndefined()
     expect(pool.media.has('workspace')).toBe(false)
 
     const list = vi.fn(async () => [] as SessionHeader[])
     ctx.provide('sessionPersistence', { list } as never)
     await fiber.await()
-    expect(ctx.workspace.list()).toEqual([])
+    expect(ctx.workspaceRegistry.list()).toEqual([])
     expect(list).toHaveBeenCalledTimes(1)
     expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
   })
@@ -346,7 +346,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const first = await result.registry.create(dir)
     await result.fiber.dispose()
     const nextFiber = await result.ctx.plugin(WorkspaceRegistry)
-    expect(result.ctx.workspace.list().map(workspace => workspace.id)).toEqual([first.id])
+    expect(result.ctx.workspaceRegistry.list().map(workspace => workspace.id)).toEqual([first.id])
     await nextFiber.dispose()
   })
 })

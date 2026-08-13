@@ -36,7 +36,7 @@ interface CodeRunRequest {
 }
 ```
 
-The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (matching `BashExecutor.run`'s resolve-on-failure contract):
+The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (matching `ShellExecutor.run`'s resolve-on-failure contract):
 
 ```ts type-equiv
 /**

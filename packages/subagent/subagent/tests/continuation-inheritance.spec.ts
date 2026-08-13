@@ -19,11 +19,11 @@ import SandboxPolicyService, { effectiveSandboxMode, setSandboxMode } from '@dee
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
-import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
+import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import ApprovalService, { effectiveApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import SubagentService from '../src/index.ts'
+import SubagentRuntime from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -45,7 +45,7 @@ async function setup(script: Script) {
   await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: root })
   await ctx.plugin(ApprovalService)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))

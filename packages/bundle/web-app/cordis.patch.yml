@@ -34,7 +34,7 @@
 - id: tools
   config:
     # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
-    # process into Code Mode while per-session tool-mode selection is being
+    # process into Code Mode while per-session tool-presentation selection is being
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
@@ -45,7 +45,7 @@
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
     - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-worker'
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
     - id: storage
       name: '@deepseek-ai/dsh-storage'
@@ -66,8 +66,8 @@
         maxNoteBytes: 8192
 
     # Browser Session export: `/export` command plus the shared download dialog.
-    - id: session-export
-      name: '@deepseek-ai/dsh-session-export'
+    - id: session-log-download
+      name: '@deepseek-ai/dsh-session-log-export'
 
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
@@ -97,6 +97,9 @@
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
+
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
 
     # Ordinary provider for the parsed Web flags. Its plugin-level injection
     # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
@@ -164,6 +167,9 @@
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'
 
+    - id: cordis-client-runner
+      name: '@deepseek-ai/dsh-cordis-client-runner'
+
     - id: ui-theme
       name: '@deepseek-ai/dsh-client-ui-theme'
 
@@ -182,11 +188,11 @@
     - id: ui-settings-general
       name: '@deepseek-ai/dsh-client-ui-settings-general'
 
-    - id: ui-models
-      name: '@deepseek-ai/dsh-client-ui-models'
+    - id: ui-settings-models
+      name: '@deepseek-ai/dsh-client-ui-settings-models'
 
-    - id: ui-plugins
-      name: '@deepseek-ai/dsh-client-ui-plugins'
+    - id: ui-settings-plugin-inventory
+      name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
@@ -194,6 +200,9 @@
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
+
+    - id: ui-cordis
+      name: '@deepseek-ai/dsh-client-ui-cordis'
 
     # Durable workflow lifecycle as an independent Chat node after the
     # existing generic workflow tool row.
@@ -209,13 +218,13 @@
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
 
-    # Input triggers: the '/' | '@' pipeline (ui-slash), the command surface over
-    # it (ui-command), and the two reference sources (ui-skill / ui-subagent).
-    - id: ui-slash
-      name: '@deepseek-ai/dsh-client-ui-slash'
+    # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
+    # it (ui-commands), and the two reference sources (ui-skill / ui-subagent).
+    - id: ui-input-trigger
+      name: '@deepseek-ai/dsh-client-ui-input-trigger'
 
-    - id: ui-command
-      name: '@deepseek-ai/dsh-client-ui-command'
+    - id: ui-commands
+      name: '@deepseek-ai/dsh-client-ui-commands'
 
     - id: ui-skill
       name: '@deepseek-ai/dsh-client-ui-skill'
@@ -223,9 +232,9 @@
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
 
-    # Background tasks: the session-header list over the tasksBySession mirror.
-    - id: ui-task
-      name: '@deepseek-ai/dsh-client-ui-task'
+    # Background jobs: the session-header list over the jobsBySession mirror.
+    - id: ui-jobs
+      name: '@deepseek-ai/dsh-client-ui-jobs'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
@@ -233,15 +242,15 @@
 
     # Per-message feedback: Like/Dislike plus an optional note in the
     # assistant-message action strip, over the messageFeedback Remote.
-    - id: ui-feedback
-      name: '@deepseek-ai/dsh-client-ui-feedback'
+    - id: ui-message-feedback
+      name: '@deepseek-ai/dsh-client-ui-message-feedback'
 
     # Model selection: the /model popupSelect + composer seat over session.models.
-    - id: ui-model
-      name: '@deepseek-ai/dsh-client-ui-model'
+    - id: ui-model-selection
+      name: '@deepseek-ai/dsh-client-ui-model-selection'
 
     - id: ui-permission
-      name: '@deepseek-ai/dsh-client-ui-permission'
+      name: '@deepseek-ai/dsh-client-ui-permission-presets'
 
     # The agent-preset row in General settings: the default preset for
     # sessions created later. Absent a roster it renders nothing.
@@ -250,15 +259,15 @@
 
     # Plugin configuration: the host-plane sections a user owns, as expandable
     # cards. A namespace this deployment does not expose renders nothing.
-    - id: ui-plugin-config
-      name: '@deepseek-ai/dsh-client-ui-plugin-config'
+    - id: ui-settings-plugins
+      name: '@deepseek-ai/dsh-client-ui-settings-plugins'
 
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
 
-    - id: ui-question
-      name: '@deepseek-ai/dsh-client-ui-question'
+    - id: ui-user-questions
+      name: '@deepseek-ai/dsh-client-ui-user-questions'
 
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
@@ -274,7 +283,7 @@
 # absent from a surface overlay would silently reappear the day someone reorders
 # the composition.
 
-# `bash-env` STAYS in the host plane: `apps/cli/src/web.ts` injects it to
+# `shell-env` STAYS in the host plane: `apps/cli/src/web.ts` injects it to
 # publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
 # the criterion for host-plane ownership — injection resolves before any session
 # exists, so there is no agent to key by. Behind a preset realm those variables
@@ -286,17 +295,17 @@
 - id: tool-pwsh
   disabled: true
 
-# The background-task REGISTRY stays on the host plane; only the model-facing
-# `task_*` controls move. Its producers — `tool-bash` here, `tool-pty` and a
+# The background-job REGISTRY stays on the host plane; only the model-facing
+# `job_*` controls move. Its producers — `tool-bash` here, `tool-terminal` and a
 # non-continuable `tool-subagent` elsewhere — are preset rows that resolve it
 # with `ctx.get`, and an entry-local realm around the registry is invisible to
 # every sibling row outside that realm, so `run_in_background` answered
-# "background tasks unavailable" while the controls sat in the catalog. That is
+# "background jobs unavailable" while the controls sat in the catalog. That is
 # the `goals` criterion read from inside the preset: a Service a row outside its
 # realm READS belongs to the plane both can see. The registry is keyed by owning
 # agent, so one host instance serves every session exactly as before presets.
 
-- id: tool-tasks
+- id: tool-jobs
   disabled: true
 
 - id: tool-fs
@@ -310,14 +319,14 @@
 
 # The `skill` REGISTRY stays in the host plane. It is host+per-scope layered
 # (the tools-registry shape): deployment-level providers — repository plugins,
-# a host skill-local row — register into its global layer, while a preset's
-# `skill-local` registers into that preset's layer, and each agent reads the
+# a host skill-filesystem row — register into its global layer, while a preset's
+# `skill-filesystem` registers into that preset's layer, and each agent reads the
 # merged catalog its scope chain selects. Only the per-agent rows move behind
-# presets: the base host `skill-local` row is disabled here (presets own local
+# presets: the base host `skill-filesystem` row is disabled here (presets own local
 # discovery), and `tool-skill` is what a preset mounts to give its agent the
 # catalog and loader at all.
 
-- id: skill-local
+- id: skill-filesystem
   disabled: true
 
 - id: tool-skill
@@ -328,7 +337,7 @@
 # domain as Remote endpoints, and a Remote method picks its receiver Service
 # from a generated descriptor — it resolves `goals` on the host, so a
 # per-session realm would answer `service-unavailable` for every browser call.
-# That is the `bash-env` criterion read from the other side: injection is not
+# That is the `shell-env` criterion read from the other side: injection is not
 # the only host relationship a Service can have. The registry is keyed by
 # session, so one host instance serves every session exactly as before presets.
 
@@ -345,13 +354,13 @@
 # `tasks` and `goals`; the reasoning has one home in
 # `.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md`.
 
-- id: compact-basic
+- id: compaction-basic
   disabled: true
 
 - id: command-compact
   disabled: true
 
-- id: tool-result-prune
+- id: tool-result-pruner
   disabled: true
 
 # The subagent registry and its backends STAY in the host plane. `subagents` is
@@ -379,7 +388,7 @@
 # scope-aware — one copy per mounted preset means every child gets `report`
 # registered once per live session, which throws on the second.
 
-- id: workflow-workerthread
+- id: workflow-worker-thread
   disabled: true
 
 - id: tool-workflow
@@ -388,7 +397,7 @@
 - id: tool-ralph
   disabled: true
 
-- id: workspace-context
+- id: agent-instructions
   disabled: true
 
 - id: tool-todo

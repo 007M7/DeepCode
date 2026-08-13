@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, type Plugin } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { remoteMethods } from '@deepseek-ai/dsh-type-meta'
-import PluginInventoryService from '../src/index.ts'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import PluginInventoryGateway from '../src/index.ts'
 
 const contexts: Context[] = []
 
@@ -18,22 +18,22 @@ const pendingPlugin: Plugin.Object = {
 
 async function harness(): Promise<{
   ctx: Context
-  inventory: PluginInventoryService
+  inventory: PluginInventoryGateway
 }> {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(Loader)
   ctx.loader.builtins.active = activePlugin
   ctx.loader.builtins.pending = pendingPlugin
-  await ctx.plugin(PluginInventoryService)
-  const inventory = ctx.get('pluginInventory') as PluginInventoryService
+  await ctx.plugin(PluginInventoryGateway)
+  const inventory = ctx.get('pluginInventory') as PluginInventoryGateway
   return { ctx, inventory }
 }
 
-describe('PluginInventoryService', () => {
+describe('PluginInventoryGateway', () => {
   it('publishes one direct list method under the pluginInventory namespace', async () => {
     const { inventory } = await harness()
-    expect(inventory.typertGateway).toMatchObject({
+    expect(inventory.typertRemote).toMatchObject({
       serviceKey: 'pluginInventory',
       namespace: 'pluginInventory',
     })

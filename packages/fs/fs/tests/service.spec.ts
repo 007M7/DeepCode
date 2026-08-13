@@ -1,7 +1,7 @@
 /**
  * Tests for the filesystem Service Definition: registration, duplicate-service
  * behavior, disposal, and the branded id factories. The provider primitives and
- * policy live in `dsh-fs-local` and `dsh-fs-policy`; this seam owns only the
+ * policy live in `dsh-fs-local` and `dsh-fs-observation-policy`; this seam owns only the
  * abstract service contract, so a minimal fake backend exercises it.
  */
 

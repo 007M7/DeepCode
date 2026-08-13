@@ -27,6 +27,6 @@ In `edit.ts` the `fs/edit-intent` waterfall now sits inside the same `try` as th
 
 ## Consequences
 
-Model-visible text for the two codes changes; the `fs-policy-reject` keyless snapshot is re-recorded, and the READMEs of `dsh-tool-fs` and `dsh-fs-policy` pin the exact appended text. Unit tests cover the wrapper directly (remedy text, code preservation, cause chaining, passthrough of other codes and non-`FsError` values) and the assembled tool paths assert the remedy reaches the model for both codes.
+Model-visible text for the two codes changes; the `fs-policy-reject` keyless snapshot is re-recorded, and the READMEs of `dsh-tool-fs` and `dsh-fs-observation-policy` pin the exact appended text. Unit tests cover the wrapper directly (remedy text, code preservation, cause chaining, passthrough of other codes and non-`FsError` values) and the assembled tool paths assert the remedy reaches the model for both codes.
 
 The [filesystem absence-observation follow-up](../bug-fix/2026-08-09-filesystem-absence-observation.md) makes the stale remedy actionable for external deletion. The failed reread still returns `FS_NOT_FOUND`, but records confirmed absence: edit then returns `FS_NOT_FOUND` without another stale remedy, while write retries as an atomic `createIfAbsent` and preserves any concurrent creator.

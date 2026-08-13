@@ -15,8 +15,8 @@ import { Context, type FiberState } from '@deepseek-ai/cordis'
 import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Group from '@deepseek-ai/cordis-plugin-group'
-import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { createEnvironmentSnapshot, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
+import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-hmr'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -177,7 +177,7 @@ function readEnvLayer(
 export function loadLayeredEnv(
   binName: string, cwd: string = process.cwd(),
   warn: (line: string) => void = line => void process.stderr.write(line),
-): EnvironmentSnapshot {
+): LaunchEnvironmentSnapshot {
   const home = resolveDshHome()
   const inherited = { ...process.env } as Record<string, string>
   // Parse both layers first: a rejection must not leave one file applied.
@@ -190,7 +190,7 @@ export function loadLayeredEnv(
       if (process.env[name] === undefined) process.env[name] = value
     }
   }
-  return createEnvironmentSnapshot([
+  return createLaunchEnvironmentSnapshot([
     { source: 'process', values: inherited },
     ...project === undefined ? [] : [{ source: 'project-env' as const, path: project.path, values: project.values }],
     ...user === undefined ? [] : [{ source: 'user-env' as const, path: user.path, values: user.values }],
@@ -665,7 +665,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 
 /**
  * Value mirrors used because Cordis's const enum has no runtime object to import.
- * Keep aligned with `packages/self-modification/tool-cordis/src/fiber-state.ts` and
+ * Keep aligned with `packages/extensions/tool-cordis/src/fiber-state.ts` and
  * `packages/client/web/src/loader-status.ts`.
  */
 const FIBER_PENDING = 0 as FiberState.PENDING

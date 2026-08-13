@@ -1,4 +1,4 @@
-# dsh-timeout-policy
+# dsh-tool-call-timeout-policy
 
 English | [中文](README.zh.md)
 
@@ -10,7 +10,7 @@ A function/namespace plugin (`name` / `inject` / `apply`), not a service. It reg
 
 ```yaml
 - id: timeout-policy
-  name: '@deepseek-ai/dsh-timeout-policy'
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 ```
 
 The per-tool budget is declared by the tool plugin (e.g. `dsh-tool-web`'s `fetchTimeoutMs`/`searchTimeoutMs` config, attached as `ToolDefinition.timeoutMs`); this plugin only enforces it, so a mistyped tool name is not possible.

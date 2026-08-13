@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-新增一个用于选择单个文件夹的 `host.pickDirectory` RPC，并通过 `WorkspacesService` 暴露该 RPC。工作区菜单提供平铺操作 **添加工作区…**（本决策做出时是两个操作：**打开本地文件夹…** 与一个按名称创建的入口，后者已被[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)删除）。选定文件夹后，系统复用现有的 `workspace.create({ path })` 流程，选中返回的工作区，并启动一个空白会话。
+新增一个用于选择单个文件夹的 `host.pickDirectory` RPC，并通过 `WorkspaceRuntime` 暴露该 RPC。工作区菜单提供平铺操作 **添加工作区…**（本决策做出时是两个操作：**打开本地文件夹…** 与一个按名称创建的入口，后者已被[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)删除）。选定文件夹后，系统复用现有的 `workspace.create({ path })` 流程，选中返回的工作区，并启动一个空白会话。
 
 工作区管理器必须在选择回调运行前插入或更新返回的工作区。因此，新纳入的目录会立即显示其 basename。再次打开已注册的路径时，则保留该工作区现有的标题。
 

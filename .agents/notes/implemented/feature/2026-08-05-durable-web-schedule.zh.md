@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-[`examples/web-schedule`](../../../../examples/web-schedule/README.md) overlay 显式加载 `@deepseek-ai/dsh-time-context` 与 `@deepseek-ai/dsh-tool-schedule`；默认 Web 配置树保持不变。Schedule 只观察插件加载后发布的根 Agent，并在该 Agent scope 中安装三个工具和一个可丢弃 owner。cold history 读取、已发布的根、child Agent 与其他 host 都不会激活它。
+[`examples/web-schedule`](../../../../examples/web-schedule/README.md) overlay 显式加载 `@deepseek-ai/dsh-time-context` 与 `@deepseek-ai/dsh-schedule`；默认 Web 配置树保持不变。Schedule 只观察插件加载后发布的根 Agent，并在该 Agent scope 中安装三个工具和一个可丢弃 owner。cold history 读取、已发布的根、child Agent 与其他 host 都不会激活它。
 
 用户可见边界是 `session-local`：原 Session 只有在 live 时才会准时运行提醒，cold 期间不发送任何外部通知；该 Session 再次 live 后才会处理 overdue 提醒。到期工作会等待 Agent 完全 idle，再通过 `followup()` 进入普通的下一轮队列；它绝不会中途引导当前轮次，也没有独立 Web 回执（[对话式交付](../simplification/2026-08-09-conversational-schedule-delivery.md)）。
 
@@ -58,7 +58,7 @@ dispatch 记录的是队列准入，而不是模型完成或用户收到提醒�
 
 ## 已考虑的替代方案
 
-**使用 `ctx.tasks`。** Task 拥有进程本地工作、结果和通知，而不是 Session 日志状态和对话 follow-up。
+**使用 `ctx.jobs`。** Task 拥有进程本地工作、结果和通知，而不是 Session 日志状态和对话 follow-up。
 
 **把提醒存入私有数据库或全局 scheduler。** 这样可以运行 cold Session，却需要第二套身份映射、启动扫描、ownership lease、崩溃协议和通知策略。
 

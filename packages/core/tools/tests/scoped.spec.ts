@@ -4,7 +4,7 @@ import type { Events } from '@deepseek-ai/cordis'
 import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
@@ -17,7 +17,7 @@ const testToolSignal = new AbortController().signal
 async function mount(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, {})
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   return ctx
 }
 

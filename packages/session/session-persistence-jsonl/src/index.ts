@@ -118,7 +118,7 @@ function isENOENT(error: unknown): boolean {
  * listeners. Its torn-tail marker carries the byte offset and any events
  * recovered from an incomplete final Zstandard frame.
  */
-export class SessionPersistenceJsonl extends SessionPersistence implements PersistenceBackend<JsonlTornMarker> {
+export class JsonlSessionPersistence extends SessionPersistence implements PersistenceBackend<JsonlTornMarker> {
   override readonly supportsRawArtifacts = true
 
   static inject = ['sessions']
@@ -964,4 +964,4 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   /* v8 ignore stop */
 }
 
-export default SessionPersistenceJsonl
+export default JsonlSessionPersistence

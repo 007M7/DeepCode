@@ -36,11 +36,11 @@ interface ResolvedCredential {
 ```ts type-equiv
 /** Source and writability facts for one reference, safe for configuration UIs — never the value. */
 interface CredentialInfo {
-  /** Whether {@link Credentials.resolve} would currently return a value. */
+  /** Whether {@link CredentialProvider.resolve} would currently return a value. */
   configured: boolean
   /** Source layer currently supplying the value; absent while unconfigured. */
   source?: string
-  /** Whether {@link Credentials.set} would currently succeed for this reference. */
+  /** Whether {@link CredentialProvider.set} would currently succeed for this reference. */
   writable: boolean
 }
 ```
@@ -57,9 +57,9 @@ interface CredentialInfo {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxcredentials--credentials-abstract-seam"></a>
+<a id="ctxcredentials--credentialprovider-abstract-seam"></a>
 
-### `ctx.credentials` — `Credentials` (abstract seam)
+### `ctx.credentials` — `CredentialProvider` (abstract seam)
 
 Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.
 

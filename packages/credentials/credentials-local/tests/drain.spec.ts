@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { CredentialsLocal } from '../src/index.ts'
+import { LocalCredentialProvider } from '../src/index.ts'
 
 // The atomic write is the gated asynchronous hold point inside a queued
 // write; gating it makes the dispose-versus-queued-write race fully
@@ -42,7 +42,7 @@ describe('write-drain teardown', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-credentials-drain-'))
     cleanups.push(() => rm(dir, { recursive: true, force: true }))
     const ctx = new Context()
-    const fiber = ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
+    const fiber = ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
     await fiber
     const service = ctx.credentials
 

@@ -13,7 +13,7 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Default model selection for Agents created without an explicit model. */
-    agentDefaultModel: AgentDefaultModelService
+    agentDefaultModel: AgentDefaultModelConfig
   }
 }
 
@@ -61,7 +61,7 @@ function selection(settings: AgentDefaultModelSettings): ModelSelection {
  * The composition entry remains usable without a settings provider; when one
  * is mounted, its user layer is read live.
  */
-export class AgentDefaultModelService extends Service {
+export class AgentDefaultModelConfig extends Service {
   static Config: z<Config> = z.object({
     provider: z.string().required(),
     model: z.string().required(),
@@ -104,4 +104,4 @@ export class AgentDefaultModelService extends Service {
   }
 }
 
-export default AgentDefaultModelService
+export default AgentDefaultModelConfig

@@ -7,7 +7,7 @@
  * (callbacks from inject, live state from useProjection).
  */
 
-import type { RemoteResult } from '@deepseek-ai/dsh-type-meta'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 
 /**
  * Settled outcome of one goal mutation, rendered inline by the strip. The

@@ -409,9 +409,9 @@ const VENDORED_LIBRARY = /^@deepseek-ai\\/(cosmokit|schemastery)(\\/|$)/
     // repository's vendored copies; cosmokit comes along as cordis's own dependency.
     id: 'packed-install-vendored-peer',
     file: 'packages/sandbox/sandbox-local/tests/packed-install.e2e.ts',
-    find: `  'packages/support/invariants',
+    find: `  'packages/runtime-diagnostics/invariants',
 ]`,
-    replace: `  'packages/support/invariants',
+    replace: `  'packages/runtime-diagnostics/invariants',
   // The framework and the vendored packages the closure declares outright:
   // rescoped into @deepseek-ai, so the consumer installs this repository's
   // copies. Schemastery is a hard dependency of three members above, not a

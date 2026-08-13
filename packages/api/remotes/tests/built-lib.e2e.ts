@@ -51,7 +51,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const { Context } = cordis
       const { default: AgentRegistry } = await import(urls.agent)
       const connectionHost = await import(urls.connectionHost)
-      const { default: TypertGatewayService } = await import(urls.apiGatewayHost)
+      const { default: TypertRemoteService } = await import(urls.apiGatewayHost)
       const { default: GoalService } = await import(urls.goal)
       const { TYPERT } = await import(urls.goalTypert)
       const { default: TypertRegistry } = await import(urls.registryHost)
@@ -59,7 +59,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
 
       const routes = []
       const host = new Context()
-      host.provide('httpServer', {
+      host.provide('webServer', {
         register(route) {
           routes.push(route)
           return () => { routes.splice(routes.indexOf(route), 1) }
@@ -70,7 +70,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       await host.plugin({ inject: connectionHost.inject, apply: connectionHost.apply })
       await host.plugin(TypertRegistry)
       await host.plugin(AgentRegistry)
-      await host.plugin(TypertGatewayService)
+      await host.plugin(TypertRemoteService)
       await host.plugin(GoalService)
       host.typert.register(TYPERT)
 

@@ -123,9 +123,9 @@ function bench(over?: BenchOptions) {
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
       ? {
-        slash: (() => ({
+        inputTriggers: (() => ({
           lexicon: { getSnapshot: () => lex, subscribe: () => () => {} },
-        })) as unknown as NonNullable<ShellDeps['slash']>,
+        })) as unknown as NonNullable<ShellDeps['inputTriggers']>,
       }
       : {}),
   })
@@ -147,7 +147,7 @@ function bench(over?: BenchOptions) {
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,

@@ -36,11 +36,11 @@ const WORKSPACE_CLOSURE = [
   'packages/core/session',
   'packages/core/scope',
   'packages/llm/llm',
-  'packages/typert/type-meta',
+  'packages/typert/protocol',
   'packages/attachment/attachment',
   'packages/util/brand',
   'packages/util/timeout',
-  'packages/support/invariants',
+  'packages/runtime-diagnostics/invariants',
   // The framework and the vendored packages the closure declares outright:
   // rescoped into @deepseek-ai, so the consumer installs this repository's
   // copies. Schemastery is a hard dependency of three members above, not a

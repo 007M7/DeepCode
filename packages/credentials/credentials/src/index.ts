@@ -37,17 +37,17 @@ export interface ResolvedCredential {
 
 /** Source and writability facts for one reference, safe for configuration UIs — never the value. */
 export interface CredentialInfo {
-  /** Whether {@link Credentials.resolve} would currently return a value. */
+  /** Whether {@link CredentialProvider.resolve} would currently return a value. */
   configured: boolean
   /** Source layer currently supplying the value; absent while unconfigured. */
   source?: string
-  /** Whether {@link Credentials.set} would currently succeed for this reference. */
+  /** Whether {@link CredentialProvider.set} would currently succeed for this reference. */
   writable: boolean
 }
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    credentials: Credentials
+    credentials: CredentialProvider
   }
 }
 
@@ -57,7 +57,7 @@ declare module '@deepseek-ai/cordis' {
  * value is absent everywhere — `resolve` skips it, `describe` reports it
  * unconfigured — so a blank never masquerades as a configured secret.
  */
-export abstract class Credentials extends Service {
+export abstract class CredentialProvider extends Service {
   constructor(ctx: Context) {
     super(ctx, 'credentials')
   }
@@ -142,4 +142,4 @@ export abstract class Credentials extends Service {
   }
 }
 
-export default Credentials
+export default CredentialProvider

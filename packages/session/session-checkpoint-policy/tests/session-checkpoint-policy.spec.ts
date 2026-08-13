@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import LlmService, { CallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { CallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import * as checkpointPolicy from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -43,9 +43,9 @@ async function setup(): Promise<Context> {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(TestPersistence)
   await ctx.plugin(checkpointPolicy)
   return ctx
@@ -242,9 +242,9 @@ describe('session-checkpoint-policy lifecycle', () => {
     const ctx = new Context()
     contexts.push(ctx)
     await ctx.plugin(SessionStore)
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(TestPersistence)
     const session = ctx.sessions.create(SessionId('disposed-policy'))
     let flushes = 0

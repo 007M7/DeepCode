@@ -16,11 +16,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import PlanModeService from '@deepseek-ai/dsh-plan-mode'
+import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 
 interface Bench {
   ctx: Context
@@ -32,11 +32,11 @@ async function harness(withPlanMode: boolean): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
-  if (withPlanMode) await ctx.plugin(PlanModeService, { section: 'plan policy' })
+  if (withPlanMode) await ctx.plugin(PlanModeController, { section: 'plan policy' })
   const session = ctx.sessions.create()
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return {
@@ -115,7 +115,7 @@ describe('plan projection unit', () => {
 
   it('drops the key when the plan-mode fiber unloads (HMR safety)', async () => {
     const bench = await harness(false)
-    const fiber = await bench.ctx.plugin(PlanModeService, { section: 'plan policy' })
+    const fiber = await bench.ctx.plugin(PlanModeController, { section: 'plan policy' })
     expect(bench.values().plan).toEqual({ active: false, pending: false })
     await fiber.dispose()
     expect('plan' in bench.values()).toBe(false)

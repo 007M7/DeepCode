@@ -4,7 +4,7 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
-import SubagentService, {
+import SubagentRuntime, {
   foldSubagentDescriptor,
   snapshotSubagentDescriptor,
   SUBAGENT_DESCRIPTOR_VERSION,
@@ -62,13 +62,13 @@ class StubProvider implements SubagentProvider {
   }
 }
 
-async function service(): Promise<{ ctx: Context; subagents: SubagentService }> {
+async function service(): Promise<{ ctx: Context; subagents: SubagentRuntime }> {
   const ctx = new Context()
-  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentRuntime)
   return { ctx, subagents: ctx.subagents }
 }
 
-describe('SubagentService', () => {
+describe('SubagentRuntime', () => {
   it('registers, lists, looks up, starts, and removes providers', async () => {
     const { ctx, subagents } = await service()
     const added: string[] = []
@@ -122,7 +122,7 @@ describe('SubagentService', () => {
       },
     })
     expect(provider.lastRequest).not.toBe(request)
-    expectTypeOf<Parameters<SubagentService['start']>[1]>().toExtend<SubagentStartRequest>()
+    expectTypeOf<Parameters<SubagentRuntime['start']>[1]>().toExtend<SubagentStartRequest>()
     expect('resume' in subagents).toBe(false)
     expect('resume' in provider).toBe(false)
   })

@@ -42,4 +42,4 @@ The keyless headless `subagent-settlement` scenario omits `run_in_background`, r
 - Independent subagent calls in one assistant message overlap under the tool loop's concurrency-safe dispatch, while dependent foreground calls can still be issued one at a time.
 - Parent guidance, tool schema, runtime resolution, and settlement delivery state the same default.
 - A compliant child reports one self-contained final result and may report important findings earlier. Every Activation also produces an unconditional settlement notice, so a completed run may deliver overlapping final content twice.
-- One-shot background Tasks and disabled-background tool instances retain their existing behavior.
+- One-shot background Jobs and disabled-background tool instances retain their existing behavior.

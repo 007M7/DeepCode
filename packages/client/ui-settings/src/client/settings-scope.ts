@@ -213,7 +213,7 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    settingsScope: SettingsScopeService
+    settingsScope: SettingsScopeBinder
   }
 }
 
@@ -224,7 +224,7 @@ declare module '@deepseek-ai/cordis' {
  * cross-plugin collaboration through cordis services
  * (`packages/client/tsdown.client.ts`).
  */
-export class SettingsScopeService extends Service {
+export class SettingsScopeBinder extends Service {
   /**
    * @param ctx - the providing plugin's context.
    */

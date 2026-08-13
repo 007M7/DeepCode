@@ -62,20 +62,20 @@ class FactoryOwnership {
   }
 
   /** Join config startup work that begins before an agent exists. */
-  trackStartup(task: Promise<void>): void {
-    this.startupTasks.add(task)
-    const forget = () => { this.startupTasks.delete(task) }
-    void task.then(forget, forget)
+  trackStartup(job: Promise<void>): void {
+    this.startupTasks.add(job)
+    const forget = () => { this.startupTasks.delete(job) }
+    void job.then(forget, forget)
   }
 
   /** Join one public create/resume continuation; factory dispose awaits its settlement. */
-  trackWrapper(task: Promise<unknown>): void {
-    this.trackStartup(task.then(() => undefined, () => undefined))
+  trackWrapper(job: Promise<unknown>): void {
+    this.trackStartup(job.then(() => undefined, () => undefined))
   }
 
   /** Resolve `task`, or stop waiting when factory teardown begins. */
-  async waitWhileActive(task: Promise<void>): Promise<void> {
-    await Promise.race([task, this.inactive.promise])
+  async waitWhileActive(job: Promise<void>): Promise<void> {
+    await Promise.race([job, this.inactive.promise])
   }
 
   async dispose(): Promise<void> {

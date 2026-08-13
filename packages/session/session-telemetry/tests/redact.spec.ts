@@ -1,6 +1,6 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
- * The `telemetry/record` waterfall contract: pass-through when no listener is
+ * The `session-telemetry/record` waterfall contract: pass-through when no listener is
  * mounted, listener stacking and replacement, ops-record coverage, the
  * untouched canonical log, and the fail-closed containment of a throwing rule.
  */
@@ -9,16 +9,16 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  TelemetryCoordinator,
-  type TelemetryBackend,
-  type TelemetryRecord,
+  SessionTelemetryCoordinator,
+  type SessionTelemetrySink,
+  type SessionTelemetryRecord,
 } from '../src/index.ts'
 
 const FIXTURE_SECRET = 'sk-fixture1234567890'
 
-class CollectingBackend implements TelemetryBackend {
-  records: TelemetryRecord[] = []
-  emit(record: TelemetryRecord): void {
+class CollectingBackend implements SessionTelemetrySink {
+  records: SessionTelemetryRecord[] = []
+  emit(record: SessionTelemetryRecord): void {
     this.records.push(record)
   }
   async shutdown(): Promise<void> {}
@@ -31,12 +31,12 @@ async function setup() {
   const fiber = await ctx.plugin({
     name: 'fake-telemetry',
     inject: ['sessions'],
-    apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    apply: (inner: Context) => void new SessionTelemetryCoordinator(inner, backend),
   })
   return { ctx, backend, fiber }
 }
 
-describe('telemetry/record waterfall', () => {
+describe('session-telemetry/record waterfall', () => {
   it('passes records through unchanged when no listener is mounted', async () => {
     const { ctx, backend } = await setup()
     const session = ctx.sessions.create(SessionId('w'))
@@ -49,7 +49,7 @@ describe('telemetry/record waterfall', () => {
 
   it('applies a mounted rule to every outbound record, ops records included', async () => {
     const { ctx, backend, fiber } = await setup()
-    ctx.on('telemetry/record', (_record, next) => {
+    ctx.on('session-telemetry/record', (_record, next) => {
       const record = next()
       return { ...record, body: { scrubbed: true } }
     })
@@ -67,7 +67,7 @@ describe('telemetry/record waterfall', () => {
 
   it('keeps the canonical log untouched by a mounted rule', async () => {
     const { ctx } = await setup()
-    ctx.on('telemetry/record', (_record, next) => ({ ...next(), body: null }))
+    ctx.on('session-telemetry/record', (_record, next) => ({ ...next(), body: null }))
     const session = ctx.sessions.create(SessionId('log'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' },
@@ -79,13 +79,13 @@ describe('telemetry/record waterfall', () => {
   it('stacks listeners outermost-first around next()', async () => {
     const { ctx, backend } = await setup()
     const order: string[] = []
-    ctx.on('telemetry/record', (_record, next) => {
+    ctx.on('session-telemetry/record', (_record, next) => {
       order.push('outer-before')
       const record = next()
       order.push('outer-after')
       return { ...record, attributes: { ...record.attributes, outer: 1 } }
     })
-    ctx.on('telemetry/record', (_record, next) => {
+    ctx.on('session-telemetry/record', (_record, next) => {
       order.push('inner')
       const record = next()
       return { ...record, attributes: { ...record.attributes, inner: 1 } }
@@ -101,8 +101,8 @@ describe('telemetry/record waterfall', () => {
   it('a listener that skips next() replaces everything beneath it', async () => {
     const { ctx, backend } = await setup()
     const inner = { called: false }
-    ctx.on('telemetry/record', () => ({ channel: 'ops', time: 0, severity: 'info', attributes: {}, body: 'replaced' } satisfies TelemetryRecord))
-    ctx.on('telemetry/record', (_record, next) => {
+    ctx.on('session-telemetry/record', () => ({ channel: 'ops', time: 0, severity: 'info', attributes: {}, body: 'replaced' } satisfies SessionTelemetryRecord))
+    ctx.on('session-telemetry/record', (_record, next) => {
       inner.called = true
       return next()
     })
@@ -116,7 +116,7 @@ describe('telemetry/record waterfall', () => {
 
   it('a throwing rule withholds the record fail-closed without disturbing the log', async () => {
     const { ctx, backend } = await setup()
-    ctx.on('telemetry/record', () => {
+    ctx.on('session-telemetry/record', () => {
       throw new Error('rule exploded')
     })
     const session = ctx.sessions.create(SessionId('closed'))

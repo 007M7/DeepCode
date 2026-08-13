@@ -161,7 +161,7 @@ type ActivationState = 'running' | 'waiting' | 'settled'
 /**
  * Hooks the manager needs from the owning service. Declared here, by the
  * dependent, so the manager states exactly what it requires instead of
- * depending back on the whole {@link SubagentService}. Package-private: no
+ * depending back on the whole {@link SubagentRuntime}. Package-private: no
  * consumer outside this package supplies a host.
  */
 interface ContinuationHost {

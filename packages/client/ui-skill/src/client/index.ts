@@ -14,7 +14,7 @@
  * services off a per-call argument. Draft chip visuals derive from
  * the lexicon scan; this source implements no reference codec.
  *
- * Catalog fetches are cached per session (the small twin of the ui-command
+ * Catalog fetches are cached per session (the small twin of the ui-commands
  * directory): the per-keystroke candidates re-poll filters a settled
  * snapshot locally, so one session costs one RPC. The scope-birth warm hook
  * prewarms the session's key; a preset switch drops that one key (the
@@ -32,7 +32,7 @@
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { SkillRow } from './SkillRow.tsx'
@@ -54,7 +54,7 @@ interface CatalogFetch {
 }
 
 /** Required services: reference source faces plus the tool-row and locale registries. */
-export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale', 'remote']
+export const inject = ['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote']
 
 /**
  * Client plugin body: register the '/' source, dictionaries, and keyed tool row.
@@ -130,7 +130,7 @@ export function apply(ctx: ClientContext): void {
   // locale service's own fallback ladder; candidate-time reads stay plain text.
   const t = ctx.locale.bind(NS)
 
-  const source: SlashSource = {
+  const source: InputTriggerSource = {
     trigger: '/',
     name: 'skill',
     order: 2,
@@ -176,13 +176,13 @@ export function apply(ctx: ClientContext): void {
       return { text: `/${candidate.name} ` }
     },
   }
-  const slash = ctx.get('slash') as SlashServiceContract
+  const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
   // A preset decides which skill providers an agent reads, so a switched
   // session's cached catalog belongs to the composition it no longer runs.
   ctx.remote.$on('agent-preset/selected', invalidate)
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
-    const unregister = slash.registerSource(source)
+    const unregister = inputTriggers.registerSource(source)
     return () => {
       unregister()
       clearAll()

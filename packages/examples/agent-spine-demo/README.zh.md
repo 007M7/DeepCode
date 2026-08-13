@@ -18,13 +18,13 @@
 @deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
 @deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
 @deepseek-ai/dsh-skill            skill provider registry
-@deepseek-ai/dsh-skill-local      local filesystem skill provider
+@deepseek-ai/dsh-skill-filesystem      local filesystem skill provider
 @deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
 @deepseek-ai/dsh-goal             optional persisted same-session goal domain
 @deepseek-ai/dsh-tool-goal        optional model-facing goal controls
-@deepseek-ai/dsh-goal-session     optional same-session goal-round driver
+@deepseek-ai/dsh-goal-round-driver     optional same-session goal-round driver
 @deepseek-ai/dsh-llm-retry        provider-routed request retry policy
-@deepseek-ai/dsh-tasks-local      generic background-task registry
+@deepseek-ai/dsh-jobs-local      generic background-job registry
 @deepseek-ai/dsh-invariants       configurable invariant registry service
 @deepseek-ai/dsh-session/invariant
 @deepseek-ai/dsh-agent/invariant
@@ -32,9 +32,9 @@
 @deepseek-ai/dsh-agent-loop/invariant
                                   package-owned relational checks
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema (unless toolBash=false)
-@deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
+@deepseek-ai/dsh-agent-instructions  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
-@deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
+@deepseek-ai/dsh-tool-jobs       job_output/job_list/job_kill schemas + completion notices
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
                                   (dsh-system-prompt gets the forwarded `persona`)
 ```
@@ -45,7 +45,7 @@
 
 - **LLM（大语言模型）适配器**：组合包交付抽象 `llm` 服务；叶节点在 `ctx.llm` 上注册具体适配器（`llm-deepseek`、`llm-pi-ai`、`llm-replay`）。
 - **基于模型的会话标题提供方**：组合包挂载带可覆盖示例限制的后备服务（5 个词、40 个后备字节、80 个可接受标题字节）；叶节点可以恰好选用一个首消息或全消息 LLM 提供方。
-- **bash 执行器**：组合包交付 `tool-bash`（消费方 schema）；叶节点提供 `ctx.bash`（`bash-local` 或沙箱化实现）。
+- **bash 执行器**：组合包交付 `tool-bash`（消费方 schema）；叶节点提供 `ctx.shell`（`bash-local` 或沙箱化实现）。
 - **非本地 skill 提供方**：组合包交付 skill 注册表、本地文件系统提供方和 `skill` 工具；部署可以把嵌入式目录或远程目录等其他提供方作为同级插件添加。
 - **入口与各应用基础设施**：无头、ACP（Agent Client Protocol）和 JSON-RPC 应用包负责传输、stdout 与重新加载选择。`timer` 保留在主干中，因为它是共有组件且不写 stdout。
 
@@ -55,13 +55,13 @@
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, maxParallelToolCalls?, includeHarnessIdentity?, includeRuntimeContext?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, tasks?, toolTasks?, goals?, invariants? }
+// { agents?, maxParallelToolCalls?, includeHarnessIdentity?, includeRuntimeContext?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, jobs?, toolJobs?, goals?, invariants? }
 // workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-组合包将每个字段转发给拥有它的子节点。应用包提供预创建的 agent：无头和 JSON-RPC 组合会创建 `main`，ACP 应用则在 `session/new` 按需创建 agent。`includeRuntimeContext: false` 会转发给 `dsh-system-prompt`，为新建会话抑制所有动态上下文快照，但不禁用其策略服务。提示词、工具、标题、skill、工作区上下文、不变式、目标和任务设置沿用其所属包记录的 schema 与默认值；`tasks.maxConcurrentTasksPerOwner` 配置本地 Service provider，并与面向模型的 `toolTasks` 控制工具相互独立。`pickSpineConfig()` 只复制该组合包拥有的字段，`dshHome` 值冲突会在组合时失败。
+组合包将每个字段转发给拥有它的子节点。应用包提供预创建的 agent：无头和 JSON-RPC 组合会创建 `main`，ACP 应用则在 `session/new` 按需创建 agent。`includeRuntimeContext: false` 会转发给 `dsh-system-prompt`，为新建会话抑制所有动态上下文快照，但不禁用其策略服务。提示词、工具、标题、skill、工作区上下文、不变式、目标和任务设置沿用其所属包记录的 schema 与默认值；`jobs.maxConcurrentJobsPerOwner` 配置本地 Service provider，并与面向模型的 `toolJobs` 控制工具相互独立。`pickSpineConfig()` 只复制该组合包拥有的字段，`dshHome` 值冲突会在组合时失败。
 
-例如，`{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` 会让包拥有的配套插件保持挂载，但抑制被阻止的拥有者。Blocklist 匹配优先于 allowlist 匹配；正则表达式与生命周期规则见 [`dsh-invariants`](../../support/invariants/README.md)。
+例如，`{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` 会让包拥有的配套插件保持挂载，但抑制被阻止的拥有者。Blocklist 匹配优先于 allowlist 匹配；正则表达式与生命周期规则见 [`dsh-invariants`](../../runtime-diagnostics/invariants/README.md)。
 
 ## 为何使用代码组合包，而非共享 YAML include
 

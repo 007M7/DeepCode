@@ -7,10 +7,10 @@ import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
-import SkillService from '@deepseek-ai/dsh-skill'
-import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
+import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 
 const testToolSignal = new AbortController().signal
@@ -28,10 +28,10 @@ async function writeSkill(root: string, name: string, description: string, body:
 async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(SkillService)
-  await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+  await ctx.plugin(SkillRegistry)
+  await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -160,11 +160,11 @@ describe('dsh-tool-skill', () => {
   it('registers the skill tool schema and removes it on dispose', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
-    await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
     ctx.skills.register({ name: 'lifecycle-skill', description: 'Lifecycle', source: 'runtime', content: 'body' })
 
     const fiber = await ctx.plugin(toolSkill)
@@ -749,10 +749,10 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-invalid-catalog-cap')
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
 
     await expect(ctx.plugin(toolSkill, { catalogDescriptionMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
   })
@@ -776,7 +776,7 @@ describe('dsh-tool-skill', () => {
     if (result.isError) throw new Error('expected skill success')
     expect(result.value).toEqual({
       name: 'project-skill',
-      provider: 'local',
+      provider: 'filesystem',
       resourceBase: { kind: 'directory', path: join(project, '.dsh/skills/project-skill') },
       content: 'Project instructions.',
     })

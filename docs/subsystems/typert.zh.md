@@ -1,8 +1,8 @@
-# TypeRT 远程调用
+# Typert 远程调用
 
 [English](typert.md) | 中文
 
-以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) 和 [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts) 中公共约定的字面定义。
+以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[Typert Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-typert-protocol`](../../packages/typert/protocol/src/types.ts) 和 [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts) 中公共约定的字面定义。
 
 ## Lookup 与上下文声明
 
@@ -10,19 +10,19 @@
 
 ```ts type-equiv
 /** Merge-extensible Host object lookup declarations. */
-interface TypeRTLookupMap {}
+interface TypertLookupMap {}
 ```
 
 ```ts type-equiv
 /** Merge-extensible scoped Context declarations. */
-interface TypeRTContextMap {}
+interface TypertContextMap {}
 ```
 
 lookup 的 resolver 卸载后，注册表仍会保留其 wire 声明。因此 SRC 发现过程会继续把该参数归类为 lookup，并因不可用而失败，而不会把 wire 值当作普通业务对象接受。
 
 ```ts type-equiv
 /** Stable wire declaration retained after a lookup provider unloads. */
-interface TypeRTLookupDefinition {
+interface TypertLookupDefinition {
   /** Merge-declared lookup key. */
   readonly key: string
   /** Source parameter name recognized by the SRC weak parser. */
@@ -42,11 +42,11 @@ interface TypeRTLookupDefinition {
 
 ```ts type-equiv
 /** Codec attached to one invocation parameter or result. */
-type TypeRTCodec =
+type TypertCodec =
   | {
     readonly mode: 'strict'
     readonly typeSymbol: string
-    readonly schema: TypeRTSchema
+    readonly schema: TypertSchema
   }
   | {
     readonly mode: 'src-json'
@@ -65,7 +65,7 @@ interface InvocationParameterDescriptor {
   /** Lookup key when `source` is `lookup`. */
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
-  readonly codec: TypeRTCodec
+  readonly codec: TypertCodec
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
@@ -91,7 +91,7 @@ interface InvocationDescriptor {
       readonly kind: 'context'
       readonly context: string
       readonly wire: string
-      readonly codec: TypeRTCodec
+      readonly codec: TypertCodec
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -108,36 +108,36 @@ interface InvocationDescriptor {
     readonly parameter: 'signal'
   }
   /** Codec for the resolved method result. */
-  readonly result: TypeRTCodec
+  readonly result: TypertCodec
   /** Source declaration used only for diagnostics. */
   readonly sourceLocation?: InvocationSourceLocation
 }
 ```
 
-## TypeRT 注册表
+## Typert 注册表
 
 `ctx.typert` 分开保存当前环境的 descriptor、显式选择的 Remote contribution、lookup 提供方与作用域上下文提供方。lookup 提供方拥有稳定 wire 声明和默认 resolver；Host 组合可以为同一个 key 配置 effect-scoped 同步或异步 resolver，配置卸载后恢复默认策略。各项注册都是由 Cordis 持有的 effect，并返回可等待的 disposer。
 
 ```ts type-equiv
-/** Minimal TypeRT runtime consumed through dependency inversion. */
-interface TypeRTService {
-  readonly local: TypeRTLocalRegistry
-  readonly remotes: TypeRTRemoteRegistry
-  readonly lookups: TypeRTLookupRegistry
-  readonly contexts: TypeRTContextRegistry
+/** Minimal Typert runtime consumed through dependency inversion. */
+interface TypertRegistryContract {
+  readonly local: TypertLocalRegistry
+  readonly remotes: TypertRemoteRegistry
+  readonly lookups: TypertLookupRegistry
+  readonly contexts: TypertContextRegistry
 }
 ```
 
-生成的消费方声明会把 direct namespace 合并到 `TypeRTClientRemote` 继承的 map 中。
+生成的消费方声明会把 direct namespace 合并到 `TypertClientRemote` 继承的 map 中。
 
 ```ts type-equiv
 /** Merge-extensible direct namespace surface generated for Client Remote services. */
-interface TypeRTRemoteNamespaceMap {}
+interface TypertRemoteNamespaceMap {}
 ```
 
 ## Host Gateway
 
-Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段与 carrier 的取消 signal 分开携带；基础设施与边界失败使用 Gateway 的进程内错误分类体系，普通异常由 RPC 适配器归并为传输层的 `internal` 错误码，lookup 策略通过 `TypeRTLookupFailure` 携带的既有 RPC error 则原样返回。
+Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段与 carrier 的取消 signal 分开携带；基础设施与边界失败使用 Gateway 的进程内错误分类体系，普通异常由 RPC 适配器归并为传输层的 `internal` 错误码，lookup 策略通过 `TypertLookupFailure` 携带的既有 RPC error 则原样返回。
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -194,13 +194,13 @@ interface TypertGateway {
 
 ```ts type-equiv
 /** Client Remote capability implemented by the Gateway and consumed by Remote assemblies. */
-interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
+interface TypertClientRemote extends TypertRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.
    * @returns disposer after namespace services and concrete methods are ready.
    */
-  $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
+  $mount(contribution: TypertRemoteContribution): Promise<TypertDisposer>
   /**
    * Subscribe to one forwarded Host event; delivery is one-way, in registration
    * order, and isolates a throwing listener from the rest.
@@ -209,11 +209,11 @@ interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
    * @param listener - receives the Host's argument list as declared by Cordis `Events`.
    * @returns disposer owned by the calling fiber.
    */
-  $on<Event extends TypeRTRemoteEvent>(event: Event, listener: Events[Event]): () => void
+  $on<Event extends TypertRemoteEvent>(event: Event, listener: Events[Event]): () => void
   /**
    * Hand one decoded forwarded frame to the subscription table. The carrier
    * owning the Host frame sink calls this; a consumer subscribes with
-   * {@link TypeRTClientRemote.$on} and never calls it.
+   * {@link TypertClientRemote.$on} and never calls it.
    *
    * `event` is a plain string because this is the wire boundary: the name is
    * whatever the Host assembly's allowlist selected, and one nobody subscribed
@@ -233,6 +233,23 @@ interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxapiproxy--apiproxy"></a>
+
+### `ctx.apiProxy` — `ApiProxy`
+
+Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row.
+
+```ts cordis-catalog
+/**
+ * Response entry for server requests; not a domain method.
+ * @param message - Client response carrying the server request's rpcId.
+ * @returns Transport receipt for the response delivery.
+ */
+respond(message: ClientResponse): Promise<RpcReceipt>
+```
+
+Source: [`packages/host/apiproxy/src/api/index.ts:22`](../../packages/host/apiproxy/src/api/index.ts)
+
 <a id="ctxtypert--typertregistry"></a>
 
 ### `ctx.typert` — `TypertRegistry`
@@ -247,7 +264,7 @@ Registry of generated schemas, package reflection, invocations, and Remote depen
  * @param contribution - generated schemas, reflection, and Host invocations.
  * @returns the exact effect disposer that removes this contribution.
  */
-register(contribution: TypertContribution): TypeRTDisposer
+register(contribution: TypertContribution): TypertDisposer
 
 /**
  * Look up one schema by `<package>#<name>`.
@@ -303,7 +320,7 @@ Source: [`packages/typert/registry/src/service.ts:446`](../../packages/typert/re
 
 ### `ctx.typertGateway` — `TypertGatewayService`
 
-Resolve strict generated definitions or conservative SRC markers against current Cordis Services and TypeRT providers.
+Resolve strict generated definitions or conservative SRC markers against current Cordis Services and Typert providers.
 
 ```ts cordis-catalog
 /**

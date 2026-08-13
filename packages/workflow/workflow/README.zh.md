@@ -2,15 +2,15 @@
 
 [English](README.md) | 中文
 
-工作流 seam（扩展点，`ctx.workflows`）执行由模型编写、可扇出 subagent 的编排脚本。该 seam 定义脚本、运行、结果、错误和事件契约；引擎负责决定如何隔离并执行脚本。
+工作流 seam（扩展点，`ctx.workflowEngine`）执行由模型编写、可扇出 subagent 的编排脚本。该 seam 定义脚本、运行、结果、错误和事件契约；引擎负责决定如何隔离并执行脚本。
 
-`@deepseek-ai/dsh-workflow-workerthread` 是当前引擎，`@deepseek-ai/dsh-tool-workflow` 是面向模型的消费方。未来的进程或沙箱引擎可以替换实现，而无需更改工具。
+`@deepseek-ai/dsh-workflow-worker-thread` 是当前引擎，`@deepseek-ai/dsh-tool-workflow` 是面向模型的消费方。未来的进程或沙箱引擎可以替换实现，而无需更改工具。
 
 包根是 Host face。浏览器安全的 `@deepseek-ai/dsh-workflow/types` 子路径包含运行身份、元数据、结果和仅供观察的生命周期 payload，不导入 `Agent`、Cordis service 或 Host Context 声明；Host 专用的 `WorkflowStartRequest` 与 `WorkflowRun` 只从包根提供。
 
 ## 服务与运行契约
 
-`WorkflowService.start(request): WorkflowRun` 会同步完成足够多的校验，在运行创建前拒绝格式错误的 meta 块、无法解析的脚本、不可用的提供方路由或不受支持的单次运行限制。返回后，`WorkflowRun.result` 绝不拒绝：执行失败以 `stopReason: 'error'` 兑现，取消则在引擎有限的宽限时间内以 `cancelled` 兑现。
+`WorkflowEngine.start(request): WorkflowRun` 会同步完成足够多的校验，在运行创建前拒绝格式错误的 meta 块、无法解析的脚本、不可用的提供方路由或不受支持的单次运行限制。返回后，`WorkflowRun.result` 绝不拒绝：执行失败以 `stopReason: 'error'` 兑现，取消则在引擎有限的宽限时间内以 `cancelled` 兑现。
 
 运行由持有方负责。引擎插件卸载会阻止新的启动，但不会撤销已接受的运行。持有方必须在每条路径上调用 `dispose()`；dispose（资源释放）会取消剩余工作，并在文档规定的期限内达到或放弃完全停稳。
 

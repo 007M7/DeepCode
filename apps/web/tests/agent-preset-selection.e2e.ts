@@ -34,7 +34,7 @@ const HEADER_EXPECTED = join(SNAPSHOT_DIR, 'header.expected.md')
 const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'agent-preset-selection-web-e2e'
-/** A project skill only a preset that mounts `skill-local` can discover. */
+/** A project skill only a preset that mounts `skill-filesystem` can discover. */
 const SKILL_NAME = 'preset-catalog-demo'
 
 /**

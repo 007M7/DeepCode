@@ -42,7 +42,7 @@ SNAPSHOT_SESSION_ID = "advanced-executable"
 SNAPSHOT_DIRECT_CHILD_PROMPT = "Reply with exactly DIRECT_CHILD_OK and nothing else."
 SNAPSHOT_WORKFLOW_CHILD_PROMPT = "Reply with exactly WORKFLOW_CHILD_OK and nothing else."
 SNAPSHOT_FINAL_TEXT = "ADVANCED_EXECUTABLE_OK"
-SNAPSHOT_MOUNT_CODE = """\
+SNAPSHOT_PLUGIN_CODE = """\
 return (ctx) => {
   harness.registerTool(ctx, harness.defineTool({
     name: 'snapshot_double',
@@ -70,8 +70,8 @@ SNAPSHOT_DIRECTORY = (
 )
 SNAPSHOT_FILENAMES = ("result.json", "session.jsonl", "session.1.jsonl", "session.2.jsonl")
 CUSTOM_CORDIS = """\
-- id: jsonrpc
-  name: '@deepseek-ai/dsh-jsonrpc'
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
@@ -87,11 +87,11 @@ CUSTOM_CORDIS = """\
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
 - id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker'
+  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
-- id: subagent-spawn
-  name: '@deepseek-ai/dsh-subagent-spawn'
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
   config:
     providerName: spawn
 - id: subagent-tool
@@ -99,11 +99,13 @@ CUSTOM_CORDIS = """\
   config:
     provider: spawn
 - id: workflow-engine
-  name: '@deepseek-ai/dsh-workflow-workerthread'
+  name: '@deepseek-ai/dsh-workflow-worker-thread'
   config:
     provider: spawn
 - id: workflow-tool
   name: '@deepseek-ai/dsh-tool-workflow'
+- id: cordis-host-runner
+  name: '@deepseek-ai/dsh-cordis-host-runner'
 - id: cordis-tool
   name: '@deepseek-ai/dsh-tool-cordis'
 """
@@ -200,11 +202,16 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
     if prompt == SNAPSHOT_WORKFLOW_CHILD_PROMPT:
         return text_chunks("WORKFLOW_CHILD_OK")
     if prompt == SNAPSHOT_PROMPT:
-        assert_advertised_tool(body, "cordis_mount")
+        assert_advertised_tool(body, "cordis_define")
         return tool_call_chunks(
-            "advanced-mount",
-            "cordis_mount",
-            {"code": SNAPSHOT_MOUNT_CODE},
+            "advanced-define",
+            "cordis_define",
+            {
+                "plugin": {"kind": "new", "idPrefix": "snap"},
+                "name": "Snapshot Double",
+                "purpose": "Expose a deterministic doubling tool for executable snapshot verification.",
+                "code": {"host": SNAPSHOT_PLUGIN_CODE},
+            },
         )
     if prompt == CODE_PROMPT:
         assert_advertised_tool(body, "run_code")
@@ -289,9 +296,20 @@ def advanced_tool_followup(
     """Advance the executable snapshot's deterministic parent tool chain."""
     if not call_id.startswith("advanced-"):
         return None
-    if call_id == "advanced-mount" and tool_name == "cordis_mount":
-        if "Temporary Plugin dyn-1 is running" not in tool_text:
-            raise AssertionError(f"cordis_mount returned no temporary Plugin id: {tool_text}")
+    if call_id == "advanced-define" and tool_name == "cordis_define":
+        if "Defined snap-1/pkg-1 (Snapshot Double)" not in tool_text:
+            raise AssertionError(f"cordis_define returned no dynamic Package ids: {tool_text}")
+        if "snapshot_double" in advertised_tool_names(body):
+            raise AssertionError("snapshot_double was advertised before cordis_run")
+        assert_advertised_tool(body, "cordis_run")
+        return tool_call_chunks(
+            "advanced-run",
+            "cordis_run",
+            {"pluginId": "snap-1", "packageId": "pkg-1", "mode": "run"},
+        )
+    if call_id == "advanced-run" and tool_name == "cordis_run":
+        if "snap-1/pkg-1 is running (run-1)" not in tool_text:
+            raise AssertionError(f"cordis_run returned no running Package ids: {tool_text}")
         assert_advertised_tool(body, "run_code")
         assert_advertised_tool(body, "snapshot_double")
         return tool_call_chunks(
@@ -332,17 +350,17 @@ def advanced_tool_followup(
     if call_id == "advanced-workflow" and tool_name == "workflow":
         if "WORKFLOW_CHILD_OK" not in tool_text:
             raise AssertionError(f"workflow returned no expected child value: {tool_text}")
-        assert_advertised_tool(body, "cordis_unmount")
+        assert_advertised_tool(body, "cordis_undefine")
         return tool_call_chunks(
-            "advanced-unmount",
-            "cordis_unmount",
-            {"id": "dyn-1"},
+            "advanced-undefine",
+            "cordis_undefine",
+            {"pluginId": "snap-1"},
         )
-    if call_id == "advanced-unmount" and tool_name == "cordis_unmount":
-        if "Temporary Plugin dyn-1 was unmounted and removed." not in tool_text:
-            raise AssertionError(f"cordis_unmount returned no unmount result: {tool_text}")
+    if call_id == "advanced-undefine" and tool_name == "cordis_undefine":
+        if "Removed dynamic Plugin snap-1 and all of its Packages." not in tool_text:
+            raise AssertionError(f"cordis_undefine returned no removal result: {tool_text}")
         if "snapshot_double" in advertised_tool_names(body):
-            raise AssertionError("snapshot_double remained advertised after cordis_unmount")
+            raise AssertionError("snapshot_double remained advertised after cordis_undefine")
         return text_chunks(SNAPSHOT_FINAL_TEXT)
     raise AssertionError(f"unexpected advanced tool follow-up: {call_id} {tool_name}: {tool_text}")
 

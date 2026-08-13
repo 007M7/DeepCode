@@ -3,13 +3,13 @@
  * ui-deliverables browser half: the derivation contract of
  * `producedForClosing` over engine-published Turn data, the row's rendering
  * and opener wiring, and the plugin registrations' fiber-teardown removal
- * (HMR safety) against the real SlotsService.
+ * (HMR safety) against the real SlotRegistry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
+  ConversationEventRegistry, ConversationNodeAssembler, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
@@ -27,7 +27,6 @@ import {
   type DeliverablesTurnData,
 } from '../src/client/turn-deliverables.ts'
 import { apply, inject } from '../src/client/index.ts'
-import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -438,9 +437,7 @@ describe('producedFileMentions resolver', () => {
 })
 
 describe('package shells', () => {
-  it('the node half mounts inert and the invariant companion registers ownership', async () => {
-    // The node half is deliberately inert; mounting it must simply not throw.
-    applyNode()
+  it('the invariant companion registers ownership', async () => {
     const registered: string[] = []
     const ctx = new Context()
     ctx.provide('invariants')
@@ -456,7 +453,7 @@ describe('package shells', () => {
 describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
-    await ctx.plugin(SlotsService).await()
+    await ctx.plugin(SlotRegistry).await()
     await ctx.plugin(ConversationEventRegistry).await()
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({

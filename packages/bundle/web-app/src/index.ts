@@ -16,11 +16,11 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
-import * as FrontendStatic from '@deepseek-ai/dsh-frontend-static'
+import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-bash-env'
+import type {} from '@deepseek-ai/dsh-shell-env'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
@@ -32,7 +32,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
 const WEB_RUNTIME_SERVICE = 'webRuntime'
 
 /** Services required before the web runtime can mount. */
-export const inject = ['httpServer']
+export const inject = ['webServer']
 
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
@@ -102,13 +102,13 @@ function webSurfacePrompt(webUrl: string): string {
     + updateContract
     + 'Starting another server does not update this GUI. '
     + 'The apps/web Vite entry builds the shell but is not a standalone application because only dsh web injects window.__DSH_BOOT__. '
-    + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background task and verify its exact URL.'
+    + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background job and verify its exact URL.'
 }
 
 /** Resolve the canonical loopback URL from the active Web server. */
 function localWebUrl(ctx: Context): string {
-  const port = ctx.get('httpServer')?.port
-  if (port === undefined) throw new Error('web-app: httpServer service missing while resolving Web runtime')
+  const port = ctx.get('webServer')?.port
+  if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
   return `http://${LOOPBACK_HOST}:${String(port)}`
 }
 
@@ -116,7 +116,7 @@ function localWebUrl(ctx: Context): string {
 function resolveDistIndex(): string {
   const require = createRequire(import.meta.url)
   try {
-    return require.resolve('@deepseek-ai/dsh-frontend/dist/index.html')
+    return require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
   } catch {
     /* v8 ignore next 2 -- reachable only on a checkout without a built dist; the test tree builds it */
     throw new Error('web-app: frontend dist not built; run pnpm run build from the repository root first')
@@ -129,11 +129,11 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
 /**
  * Mount the Web runtime: dist serving, surface prompt, the bash runtime
  * variable, and the URL line.
- * @param ctx - plugin context carrying the httpServer service.
+ * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  const runtime = resolveLanTrust(ctx.httpServer.host, config.trustedHosts)
+  const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
@@ -146,8 +146,8 @@ export function apply(ctx: Context, config: Config): void {
         text: () => webSurfacePrompt(localWebUrl(promptCtx)),
       })
     })
-    ctx.inject(['bashEnv'], (runtimeCtx) => {
-      runtimeCtx.bashEnv.register({
+    ctx.inject(['shellEnv'], (runtimeCtx) => {
+      runtimeCtx.shellEnv.register({
         name: 'web-runtime',
         variables: {
           [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
@@ -164,7 +164,7 @@ export function apply(ctx: Context, config: Config): void {
     const printUrl = (): void => {
       // Reuse the exact LAN snapshot provided to the /api trust fence.
       const lanCandidate = runtime.lanAddresses[0]
-      const port = ctx.httpServer.port
+      const port = ctx.webServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }
     // This row's own activation can precede a sibling failure. The app owns
@@ -177,7 +177,7 @@ export function apply(ctx: Context, config: Config): void {
         // The tree can be disposed while the boot was in flight (early
         // SIGTERM); a URL line for a dead server would only mislead, and
         // reading the torn-down port would turn a clean shutdown into a crash.
-        if (ctx.get('httpServer') !== undefined) printUrl()
+        if (ctx.get('webServer') !== undefined) printUrl()
       // Loader reports a failed boot; this row only stays quiet.
       }, () => {})
     }

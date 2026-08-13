@@ -6,7 +6,20 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /** Keyed atomic Tool call view, dispatched by the wire Tool name. */
+    /**
+     * Keyed atomic Tool call view, dispatched by the wire Tool name. Register
+     * with `key: '<tool name>'` to own how one tool's calls render inside a
+     * turn — the key domain is open (any wire tool name, including a tool your
+     * own package registered), so there is no compile-time key set to pick
+     * from and a typo simply never renders.
+     *
+     * A key the shipped composition already covers is replaced, not shared;
+     * an unclaimed key falls back to the generic tool row, so registering is
+     * additive for your own tool and a takeover for a shipped one. The owner
+     * passes the call's identity, its frozen running-or-settled node, and the
+     * expansion state (see ToolCallOwnerProps), so the view stays a pure
+     * function of what the turn already knows.
+     */
     'tool.call.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolCallOwnerProps }
   }
 }

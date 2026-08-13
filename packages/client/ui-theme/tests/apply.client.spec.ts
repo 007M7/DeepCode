@@ -3,12 +3,12 @@
  * projection into the row store, and HMR collapse recovery. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { SettingsScopeService } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { AppearanceRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
@@ -27,8 +27,8 @@ function deferred<T>() {
 
 async function bench(isLoopback = true) {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
-  const locale = new LocaleService(ctx)
+  await ctx.plugin(SlotRegistry).await()
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   let preference = 'system'
   const namespace = () => ({
@@ -56,15 +56,15 @@ async function bench(isLoopback = true) {
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
   // The settings transport and the forwarded-event port the plugin injects.
   new TestRemote(ctx)
-  await ctx.plugin(SettingsScopeService).await()
+  await ctx.plugin(SettingsScopeBinder).await()
   return {
-    ctx, slots: ctx.get('slots') as SlotsService, locale, describe, mutate,
+    ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate,
     setHostPreference: (next: string) => { preference = next },
   }
 }
 
 /** Stand in for the settings shell: declare the General item slot from root. */
-function declareItems(slots: SlotsService): () => void {
+function declareItems(slots: SlotRegistry): () => void {
   return slots.register(
     { name: 'root', children: { [SLOT]: { kind: 'list', scope: 'root' } } } as never,
     () => null,
@@ -73,7 +73,7 @@ function declareItems(slots: SlotsService): () => void {
 
 /** Mirror the framework's inject choreography: bake a real instance from the
  * declared handle and hand its actions to the entry's inject factory. */
-function faceOf(slots: SlotsService) {
+function faceOf(slots: SlotRegistry) {
   const entry = slots.entries(SLOT).find(e => e.component === AppearanceRow)!
   const handle = entry.store as ReturnType<typeof createAppearanceRowStore>
   const instance = handle.create()
@@ -109,7 +109,7 @@ describe('ui-theme apply', () => {
     const b = await bench()
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const theme = b.ctx.get('theme') as ThemeService
+    const theme = b.ctx.get('theme') as ThemeRuntime
     // An event ahead of any inject hits the unbound-actions arm.
     theme.setTheme('dark')
 
@@ -130,7 +130,7 @@ describe('ui-theme apply', () => {
     b.setHostPreference('dark')
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const theme = b.ctx.get('theme') as ThemeService
+    const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
     b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
     expect(b.describe).toHaveBeenCalledOnce()
@@ -144,7 +144,7 @@ describe('ui-theme apply', () => {
     const remote = await bench(false)
     declareItems(remote.slots)
     await remote.ctx.plugin({ inject: [...inject], apply }).await()
-    const remoteTheme = remote.ctx.get('theme') as ThemeService
+    const remoteTheme = remote.ctx.get('theme') as ThemeRuntime
     remoteTheme.setTheme('dark')
     await Promise.resolve()
     expect(remote.describe).not.toHaveBeenCalled()
@@ -159,7 +159,7 @@ describe('ui-theme apply', () => {
     b.describe.mockImplementationOnce(() => pending.promise)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const theme = b.ctx.get('theme') as ThemeService
+    const theme = b.ctx.get('theme') as ThemeRuntime
     expect(theme.getTheme().preference).toBe('system')
     pending.resolve(await describe())
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
@@ -170,7 +170,7 @@ describe('ui-theme apply', () => {
     const b = await bench()
     b.setHostPreference('sepia')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const theme = b.ctx.get('theme') as ThemeService
+    const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledOnce() })
     expect(theme.getTheme().preference).toBe('system')
   })

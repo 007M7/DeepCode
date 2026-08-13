@@ -34,11 +34,11 @@ function collectServices(root: string): ServiceEntry[] {
   return collectServicesWithPolicy(root, TEST_POLICY)
 }
 
-function renderEvents(events: EventEntry[], onPage = 'bash.md'): string {
+function renderEvents(events: EventEntry[], onPage = 'shell.md'): string {
   return renderPageRegion(onPage, [], events, TEST_POLICY)
 }
 
-function renderServices(services: ServiceEntry[], onPage = 'bash.md'): string {
+function renderServices(services: ServiceEntry[], onPage = 'shell.md'): string {
   return renderPageRegion(onPage, services, [], TEST_POLICY)
 }
 

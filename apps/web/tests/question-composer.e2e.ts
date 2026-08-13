@@ -1,5 +1,5 @@
 // Web e2e scenario: the resident question composer. The shipped composition
-// already exposes ask_user_question (the ui-question row's node half mounts
+// already exposes ask_user_question (the ui-user-questions row's node half mounts
 // the tool), so a recorded turn where the model asks blocks mid-turn on the
 // real userInteraction seam: the composer renders in the browser, the test
 // answers through it, and the turn completes with the answer in the log.

@@ -1,21 +1,21 @@
 // @vitest-environment jsdom
 /**
  * Scenario-chain integration (scenarios A/C/D/H/I): the real per-session
- * SlashController pipeline over a real session scope (SessionsService over
+ * InputTriggerController pipeline over a real session scope (SessionRuntime over
  * a listed host session) + a command source implementing the decision
  * table's relevant cells + the real SessionInput machine (scoped-event
- * listeners wired the way the hub does) + the real InputBar. ui-command
+ * listeners wired the way the hub does) + the real InputBar. ui-commands
  * itself is not a dependency of this package; the source below is the
- * decision-table contract at the `SlashSource` boundary.
+ * decision-table contract at the `InputTriggerSource` boundary.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import {
-  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, SessionsService,
+  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, SessionRuntime,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
-import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { FakeApiClient, fakeRemote, ok } from '../../runtime/tests/fake-api.client.ts'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -89,25 +89,25 @@ const COMMANDS: FakeCommand[] = [
   { name: 'compact', description: '压缩上下文' },
 ]
 
-/** Real scope bench: SessionsService over one listed session + SlashController + shell listeners (the hub wiring shape). */
-async function scopedBench(register?: (slash: SlashService) => void) {
+/** Real scope bench: SessionRuntime over one listed session + InputTriggerController + shell listeners (the hub wiring shape). */
+async function scopedBench(register?: (inputTriggers: InputTriggerService) => void) {
   const ctx = new Context()
   const api = new FakeApiClient()
   api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
-  const sessionId = 'scenario-s1' as Parameters<SessionsService['open']>[0]
+  const sessionId = 'scenario-s1' as Parameters<SessionRuntime['open']>[0]
   api.onList = () => Promise.resolve(ok({
     items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],
   }) as never)
-  const sessions = new SessionsService(ctx, api, fakeRemote()) // provides 'sessions' itself
+  const sessions = new SessionRuntime(ctx, api, fakeRemote()) // provides 'sessions' itself
   await sessions.refresh()
   await Promise.resolve() // manager notifier flush
-  await ctx.plugin(SlashService).await()
-  const slash = ctx.get('slash') as SlashService
-  register?.(slash)
+  await ctx.plugin(InputTriggerService).await()
+  const inputTriggers = ctx.get('inputTriggers') as InputTriggerService
+  register?.(inputTriggers)
   const actx = sessions.scope(sessionId)!
-  const controller = slash.sessionOf(actx)
+  const controller = inputTriggers.sessionOf(actx)
   const sink = vi.fn()
-  const shell = new SessionInputShell({ actx, slash: () => controller, defaultSink: sink })
+  const shell = new SessionInputShell({ actx, inputTriggers: () => controller, defaultSink: sink })
   // The hub's listener wiring, verbatim.
   actx.on('slash/input-begin-command', req => shell.beginCommand(req.claim, req.span) ? true : undefined)
   actx.on('slash/input-insert-reference', req => shell.insertReference(req.reference, req.span) ? true : undefined)
@@ -126,7 +126,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -164,14 +164,14 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   const type = (text: string): void => {
     fireEvent.change(textarea, { target: { value: text } })
   }
-  return { ctx, slash, controller, shell, wiring, view, textarea, type, sink }
+  return { ctx, inputTriggers, controller, shell, wiring, view, textarea, type, sink }
 }
 
 async function bench(executeImpl?: (line: string) => Promise<SubmitOutcome>) {
   const execute = vi.fn(executeImpl ?? ((line: string) =>
     Promise.resolve({ kind: 'success' as const, text: `已执行 ${line}` })))
   const { source, executed } = commandSource(COMMANDS, execute)
-  const base = await scopedBench((slash) => { slash.registerSource(source) })
+  const base = await scopedBench((inputTriggers) => { inputTriggers.registerSource(source) })
   return { ...base, execute, executed }
 }
 
@@ -266,8 +266,8 @@ describe('scenario: reference decoration lights up when the lexicon settles', ()
   it('a typed /name token gains the text-ref mark without further input once the roll goes hot', async () => {
     let roll: readonly string[] | undefined
     let notify: (() => void) | undefined
-    const b = await scopedBench((slash) => {
-      slash.registerSource({
+    const b = await scopedBench((inputTriggers) => {
+      inputTriggers.registerSource({
         trigger: '/', name: 'skill',
         candidates: () => Promise.resolve([]),
         onPick: () => undefined,
@@ -302,8 +302,8 @@ describe('scenario I: unknown /xyz + enter', () => {
   })
 
   it('adjudication failure (source warmup throw) notices and keeps the draft', async () => {
-    const b = await scopedBench((slash) => {
-      slash.registerSource({
+    const b = await scopedBench((inputTriggers) => {
+      inputTriggers.registerSource({
         trigger: '/', name: 'command',
         candidates: () => Promise.resolve([]),
         onPick: () => undefined,

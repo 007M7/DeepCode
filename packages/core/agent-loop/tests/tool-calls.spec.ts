@@ -8,8 +8,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -18,10 +18,10 @@ import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtim
 
 async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, {
     agents: [],
@@ -276,10 +276,10 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
 
   it('defaults the cap when direct construction bypasses the config schema', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt, { persona: '' })
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
 
     const loop = new AgentLoop(ctx, { agents: [] })
@@ -344,10 +344,10 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
       textResponse('done'),
     ])
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt, { persona: '' })
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -644,7 +644,7 @@ describe('tool-call scheduler: failure quiescence', () => {
     ctx.tools.register(gated.tool)
     // The registry contains expected failures as results; replace its internal
     // view only to inject the invariant violation this boundary must contain.
-    const scheduler = ctx.tools[TOOL_REGISTRY_SCHEDULER]
+    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
     const prepare = scheduler.prepare.bind(scheduler)
     const dispatch = scheduler.dispatch.bind(scheduler)
     const prepareGate = Promise.withResolvers<undefined>()
@@ -702,10 +702,10 @@ describe('code-mode native-tool denial through the agent loop', () => {
 
   async function codeModeHarness(adapter: MockAdapter) {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt, { persona: '' })
-    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'code' })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FakeCodeRuntime is an internal test helper with an opaque type shape
     await ctx.plugin(FakeCodeRuntime as any)
     await ctx.plugin(AgentRegistry)

@@ -1,21 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import WorkflowServiceDefault, {
+import WorkflowEngineDefault, {
   isFatalWorkflowError,
   WorkflowError,
   WorkflowRunId,
-  WorkflowService,
+  WorkflowEngine,
 } from '../src/index.ts'
 import type { WorkflowRun, WorkflowRunInfo, WorkflowStartRequest } from '../src/index.ts'
 
 /** A minimal concrete subclass exposing the protected emit helper for tests. */
-class StubEngine extends WorkflowService {
+class StubEngine extends WorkflowEngine {
   start(request: WorkflowStartRequest): WorkflowRun {
     void request
     throw new Error('not under test')
   }
 
-  emit(name: Parameters<WorkflowService['emitWorkflowEvent']>[0], ...args: unknown[]): void {
+  emit(name: Parameters<WorkflowEngine['emitWorkflowEvent']>[0], ...args: unknown[]): void {
     this.emitWorkflowEvent(name, ...args)
   }
 }
@@ -43,12 +43,12 @@ describe('dsh-workflow (interface)', () => {
     expect(isFatalWorkflowError('string')).toBe(false)
   })
 
-  it('registers as ctx.workflows and unregisters when its fiber is disposed (HMR safety)', async () => {
+  it('registers as ctx.workflowEngine and unregisters when its fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(StubEngine)
-    expect(ctx.get('workflows')).toBeInstanceOf(StubEngine)
+    expect(ctx.get('workflowEngine')).toBeInstanceOf(StubEngine)
     await fiber.dispose()
-    expect(ctx.get('workflows')).toBeUndefined()
+    expect(ctx.get('workflowEngine')).toBeUndefined()
   })
 
   it('emitWorkflowEvent dispatches to every listener with the payload tuple', async () => {
@@ -57,7 +57,7 @@ describe('dsh-workflow (interface)', () => {
     const seen: unknown[][] = []
     ctx.on('workflow/log', (info, message) => { seen.push([info, message]) })
     ctx.on('workflow/agent-start', (info, agent) => { seen.push([info, agent]) })
-    const engine = ctx.workflows as StubEngine
+    const engine = ctx.workflowEngine as StubEngine
     engine.emit('workflow/start', INFO)
     engine.emit('workflow/log', INFO, 'hello')
     engine.emit('workflow/agent-start', INFO, { seq: 1, label: 'l', childId: 'c' })
@@ -78,7 +78,7 @@ describe('dsh-workflow (interface)', () => {
     // oxlint-disable-next-line typescript/no-misused-promises -- exercises rejected-listener containment
     ctx.on('workflow/agent-start', async () => { throw new Error('async observer failed') })
     ctx.on('workflow/agent-start', (_info, agent) => { seen.push(agent.label) })
-    const engine = ctx.workflows as StubEngine
+    const engine = ctx.workflowEngine as StubEngine
     const payload = { seq: 1, label: 'original', childId: 'c' }
     engine.emit('workflow/start', INFO)
     engine.emit('workflow/agent-start', INFO, payload)
@@ -96,7 +96,7 @@ describe('dsh-workflow (interface)', () => {
     const reached: string[] = []
     ctx.on('workflow/phase', () => { throw new Error('bad listener') })
     ctx.on('workflow/phase', (_info, title) => { reached.push(title) })
-    const engine = ctx.workflows as StubEngine
+    const engine = ctx.workflowEngine as StubEngine
     engine.emit('workflow/start', INFO)
     expect(() => { engine.emit('workflow/phase', INFO, 'Scan') }).not.toThrow()
     engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 0 })
@@ -114,7 +114,7 @@ describe('dsh-workflow (interface)', () => {
       throw { toString: () => { throw new Error('coercion trap') } }
     })
     ctx.on('workflow/phase', (_info, title) => { reached.push(title) })
-    const engine = ctx.workflows as StubEngine
+    const engine = ctx.workflowEngine as StubEngine
     engine.emit('workflow/start', INFO)
     expect(() => { engine.emit('workflow/phase', INFO, 'Scan') }).not.toThrow()
     engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 0 })
@@ -124,6 +124,6 @@ describe('dsh-workflow (interface)', () => {
   })
 
   it('has the expected exports (default = the abstract service class)', () => {
-    expect(WorkflowServiceDefault).toBe(WorkflowService)
+    expect(WorkflowEngineDefault).toBe(WorkflowEngine)
   })
 })

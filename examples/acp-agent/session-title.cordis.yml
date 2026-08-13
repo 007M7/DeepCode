@@ -1,4 +1,4 @@
-# Session-title snapshot composition: the optional first-message provider uses
+# Session-title snapshot composition: the optional first-prompt provider uses
 # the ordinary DeepSeek route while the ACP app and every other capability stay
 # identical to the base example.
 - id: base
@@ -8,7 +8,7 @@
     patches:
       - insert:
           - id: session-title-provider
-            name: '@deepseek-ai/dsh-session-title-first-message-llm'
+            name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
             config:
               targetWords: 5
               targetCjkCharacters: 10

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import * as CommandInvariant from '@deepseek-ai/dsh-commands/invariant'
-import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry, { InvariantError } from '@deepseek-ai/dsh-invariants'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { CommandId } from '@deepseek-ai/dsh-commands'
 
@@ -9,7 +9,7 @@ async function mount(installCompanion = true): Promise<{ ctx: Context; session: 
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   const session = ctx.sessions.create(SessionId('commands-invariant'))
-  await ctx.plugin(InvariantService, { enabled: true })
+  await ctx.plugin(InvariantRegistry, { enabled: true })
   if (installCompanion) await ctx.plugin(CommandInvariant)
   return { ctx, session }
 }

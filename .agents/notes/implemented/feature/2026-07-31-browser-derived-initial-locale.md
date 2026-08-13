@@ -6,7 +6,7 @@ English | [中文](2026-07-31-browser-derived-initial-locale.zh.md)
 
 ## Problem
 
-The Settings Language row opened every first visit in Chinese: `LocaleService` read `dsh.locale` from localStorage and fell straight back to `zh` when nothing was stored. The browser already states which languages its user reads — `navigator.languages` is that statement — and the app ignored it, so an English reader met a Chinese product and had to find a Chinese-labelled settings row to escape it. The fallback was doing two jobs at once: the last resort for an unresolvable locale, and the answer for every user who had simply never chosen.
+The Settings Language row opened every first visit in Chinese: `LocaleRuntime` read `dsh.locale` from localStorage and fell straight back to `zh` when nothing was stored. The browser already states which languages its user reads — `navigator.languages` is that statement — and the app ignored it, so an English reader met a Chinese product and had to find a Chinese-labelled settings row to escape it. The fallback was doing two jobs at once: the last resort for an unresolvable locale, and the answer for every user who had simply never chosen.
 
 ## Decision
 
@@ -32,5 +32,5 @@ The Settings Language row opened every first visit in Chinese: `LocaleService` r
 
 - A first visit from an English browser lands in English, and the Language row still shows the same two self-described options, so the escape hatch is unchanged in either direction.
 - `FALLBACK_LOCALE` narrows to its real job — the dictionary fallback and the no-signal answer — and stops standing in for "the user has not chosen".
-- Tests that construct a `LocaleService` under jsdom now depend on the environment's `navigator`: specs asserting localized copy declare their browser with one suite-level `usePinnedBrowserLanguages('zh-CN')` (dsh-client-test-runtime), and any future spec asserting a default must do the same. This package's own specs stub the globals directly, because they need shapes the helper deliberately cannot express (absent `languages`, a list decoupled from `language`, no `window` at all).
+- Tests that construct a `LocaleRuntime` under jsdom now depend on the environment's `navigator`: specs asserting localized copy declare their browser with one suite-level `usePinnedBrowserLanguages('zh-CN')` (dsh-client-test-runtime), and any future spec asserting a default must do the same. This package's own specs stub the globals directly, because they need shapes the helper deliberately cannot express (absent `languages`, a list decoupled from `language`, no `window` at all).
 - Detection cost is one array walk per service construction and no implicit settings write; an explicit Host preference may cause one live convergence after plugin activation.

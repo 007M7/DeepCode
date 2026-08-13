@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
+import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 
 /** Caller-facing failures preserved by the Gateway's RPC adapter. */
@@ -111,12 +111,12 @@ export async function inspectApiRemoteSession(
 }
 
 /**
- * Create the Host's shared Agent resolver and configure Agent/Session TypeRT lookups.
+ * Create the Host's shared Agent resolver and configure Agent/Session Typert lookups.
  * Live Agents are reused, ordinary cold sessions resume once per identity, and
  * subagent-owned identities retain the legacy `agent-busy` fence.
  * @param ctx - owning Host Context.
  * @param options - defaults and Agent-scope setup used only for cold resume.
- * @returns resolver shared by legacy API Proxy methods and TypeRT lookups.
+ * @returns resolver shared by legacy API Proxy methods and Typert lookups.
  */
 export function createApiRemoteAgentResolver(
   ctx: Context,
@@ -199,7 +199,7 @@ export function createApiRemoteAgentResolver(
   ctx.inject(['typert'], (typeCtx) => {
     const resolveAgent = async (sessionId: SessionId): Promise<Agent> => {
       const found = await agentFor(sessionId)
-      if ('error' in found) throw new TypeRTLookupFailure(found.error)
+      if ('error' in found) throw new TypertLookupFailure(found.error)
       return found.agent
     }
     typeCtx.typert.lookups.configure('agent', resolveAgent)

@@ -11,11 +11,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
+import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import {
   PersistenceCoordinator,
@@ -42,7 +42,7 @@ describe('sessions.list cold merge', () => {
   it('summarizes unattached sessions: log mtime, locate-less and vanished-log createdAt fallbacks, lineage', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const root = mkdtempSync(join(tmpdir(), 'dsh-cold-'))
     const logPath = join(root, 'a.log')
     writeFileSync(logPath, 'log-bytes')
@@ -90,7 +90,7 @@ describe('attached updatedAt excludes end-seed', () => {
   it('reports the last real work, not the pickup, so a resumed-untouched session does not float', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     await ctx.plugin(AgentRegistry)
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
@@ -126,7 +126,7 @@ describe('cold history recovery view', () => {
   it('shows in-memory interruption repair without activating the session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const sessionId = sid('session-interrupted')
     const meta = header(sessionId, 1000)
     const stored: StoredPrefix<never> = {
@@ -188,7 +188,7 @@ describe('Remote Agent and Session lookup policy', () => {
     await ctx.plugin(TypertRegistry)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const sessionId = sid('session-remote-cold')
     const meta = header(sessionId, 1000)
     const inspect = vi.fn(() => Promise.resolve({ meta, events: [] as SessionEvent[] }))
@@ -230,7 +230,7 @@ describe('Remote Agent and Session lookup policy', () => {
     await ctx.plugin(TypertRegistry)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const coldId = sid('session-remote-cold-child')
     const coldMeta = header(coldId, 1000, {
       parentSession: sid('session-parent'),
@@ -267,9 +267,9 @@ describe('Remote Agent and Session lookup policy', () => {
 
     const coldFailure = Promise.resolve(agentLookup.resolve(coldId))
     const liveFailure = Promise.resolve(sessionLookup.resolve(liveSession.id))
-    await expect(coldFailure).rejects.toBeInstanceOf(TypeRTLookupFailure)
+    await expect(coldFailure).rejects.toBeInstanceOf(TypertLookupFailure)
     await expect(coldFailure).rejects.toMatchObject(ownershipFailure)
-    await expect(liveFailure).rejects.toBeInstanceOf(TypeRTLookupFailure)
+    await expect(liveFailure).rejects.toBeInstanceOf(TypertLookupFailure)
     await expect(liveFailure).rejects.toMatchObject(ownershipFailure)
     expect(resume).not.toHaveBeenCalled()
     expect(inspect).toHaveBeenCalledOnce()
@@ -281,7 +281,7 @@ describe('subagent ownership fence', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const sessionId = sid('session-child')
     const meta = header('session-child', 1000, {
       parentSession: sid('session-parent'),
@@ -346,7 +346,7 @@ describe('subagent ownership fence', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const sessionId = sid('session-legacy-child')
     const meta = header('session-legacy-child', 1000, {
       parentSession: sid('session-parent'),
@@ -387,7 +387,7 @@ describe('subagent ownership fence', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const parentSession = ctx.sessions.create(sid('session-parent'), { meta: { cwd: '/proj' } })
     const parent = { id: parentSession.id, session: parentSession, status: 'idle', ctx } as Agent
     ctx.agents.register(parent)
@@ -445,7 +445,7 @@ describe('subagent ownership fence', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const session = ctx.sessions.create(sid('session-ordinary-fork'), {
       seed: [{
         type: 'subagent/descriptor',
@@ -473,7 +473,7 @@ describe('subagent ownership fence', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const session = ctx.sessions.create(sid('session-browser-zone'), { meta: { cwd: '/proj' } })
     const followup = vi.fn()
     const agent = { id: session.id, session, status: 'idle', ctx, followup } as unknown as Agent
@@ -549,7 +549,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
     const listed = await api.sessions.list(request({}))
@@ -569,7 +569,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const inspect = vi.fn()
     ctx.provide('sessionPersistence', {
       list: () => Promise.resolve([]),
@@ -589,7 +589,7 @@ describe('sessions.prompt synchronous rejection', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const session = ctx.sessions.create(sid('session-throwing'))
     // A live structural stub whose delivery verbs throw synchronously, the
     // shape a disposed loop presents at this gateway boundary.
@@ -622,7 +622,7 @@ describe('sessions.prompt synchronous rejection', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(UserQuestionService)
     const sessionId = sid('race-resume')
     const meta: SessionHeader = header('race-resume', 1000)
     ctx.provide('sessionPersistence', {

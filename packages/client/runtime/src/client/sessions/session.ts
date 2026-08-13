@@ -21,7 +21,7 @@ import { EMPTY_CHAT_SNAPSHOT } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { Notifier } from './notifier.ts'
-import type { RemoteResult } from '@deepseek-ai/dsh-type-meta'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionRemotes } from './remotes.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
@@ -125,7 +125,7 @@ export class Session implements SessionFace {
   private snapshotCache: ConversationSnapshot
   private readonly notifier: Notifier
   /**
-   * Agent-scoped cordis context, bound once by SessionsService when it
+   * Agent-scoped cordis context, bound once by SessionRuntime when it
    * mints the scope (the client mirror of the host Agent's loopCtx). The
    * Session dispatches its own scoped events through it; undefined means
    * unbound (bare object-layer construction) or already pruned — both skip
@@ -162,7 +162,7 @@ export class Session implements SessionFace {
   }
 
   /**
-   * Bind the Agent-scoped context minted by SessionsService (single write;
+   * Bind the Agent-scoped context minted by SessionRuntime (single write;
    * a second bind is a wiring error and throws). Direction stays one-way at
    * this binding boundary: consumers still reach the Session via `sessions.sessionOf`,
    * while the Session holds its own dispatch point (host Agent.loopCtx

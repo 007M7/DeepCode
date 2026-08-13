@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Exercises selection persistence through the real SlotsService store axis;
+ * Exercises selection persistence through the real SlotRegistry store axis;
  * component stubs cannot prove per-session identity or disposal.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -96,7 +96,7 @@ describe('selection survives on the store seat', () => {
     expect(localStorage.getItem('dsh.conversation.chat.s1')).not.toBeNull()
 
     // TestSessions.remove drives the same public slot lifecycle contract the
-    // production SessionsService calls when the scope dies (pruneStoreScope).
+    // production SessionRuntime calls when the scope dies (pruneStoreScope).
     await b.runtime.sessions.remove('s1')
 
     // Persisted residue is gone with the session...

@@ -1,6 +1,6 @@
 /**
  * LLM service: adapter registry with a waterfall-interceptable streaming call
- * API. Exports the `LlmService` default, the abstract `LlmAdapter` for
+ * API. Exports the `LlmRuntime` default, the abstract `LlmAdapter` for
  * provider backends, and `BlockAssembler` for chunk assembly.
  *
  * @module @deepseek-ai/dsh-llm
@@ -45,13 +45,13 @@ export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    llm: LlmService
+    llm: LlmRuntime
   }
 
   interface Events {
     /**
      * Waterfall around every streaming model call (retry, replay, routing).
-     * Bound to the {@link LlmService}; call `next()` to reach the resolved
+     * Bound to the {@link LlmRuntime}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
      * @param options - the full request. A LOOP-built request carries the
      *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
@@ -61,7 +61,7 @@ declare module '@deepseek-ai/cordis' {
      *   the immutable creation contract.
      * @mode waterfall
      */
-    'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
+    'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 
   }
 }
@@ -233,7 +233,7 @@ export abstract class LlmAdapter {
 }
 
 /**
- * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * What {@link LlmRuntime.registerAdapter} returns: the disposer, plus an
  * atomic route replacement for the same adapter instance.
  */
 export interface AdapterRegistrationHandle {
@@ -281,7 +281,7 @@ export interface DirectoryRegistrationHandle {
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * API, interceptable via the `llm/stream` waterfall.
  */
-export class LlmService extends Service {
+export class LlmRuntime extends Service {
   private adapters = new Map<string, AdapterRegistration>()
   private directory = new Map<string, LlmConfigurableProvider>()
   private discoveries = new Map<
@@ -342,7 +342,7 @@ export class LlmService extends Service {
     // The disposer has run: `owned` being empty cannot say so on its own,
     // because `replace([])` legally leaves a live registration holding none.
     let released = false
-    const dispose = this.ctx.effect(function* (this: LlmService) {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
       this.commitRoutes(owned, this.prepareRoutes(providers, adapter, owned))
       yield () => {
@@ -460,7 +460,7 @@ export class LlmService extends Service {
       this.emitAdaptersUpdated()
     }
 
-    const dispose = this.ctx.effect(function* (this: LlmService) {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
       if (entries.length === 0) {
         throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
       }
@@ -505,7 +505,7 @@ export class LlmService extends Service {
     settingsNs: string,
     discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
   ): () => void {
-    const dispose = this.ctx.effect(function* (this: LlmService) {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
       if (settingsNs.length === 0) {
         throw new LlmError('model discovery needs a non-empty settings namespace', 'INVALID_DISCOVERY')
       }
@@ -944,4 +944,4 @@ interface AdapterRegistration {
   readonly retryPolicy: ResolvedRetryPolicy
 }
 
-export default LlmService
+export default LlmRuntime
