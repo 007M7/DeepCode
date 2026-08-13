@@ -53,7 +53,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
   return defineStore({
     init: (): WorkspaceViewState => ({
       groupBy: 'workspace',
-      orderBy: 'manual',
+      orderBy: 'updated',
       groupExpansion: {},
       sessionOrderByAccount: {},
       sessionUpdatedAtByAccount: {},
