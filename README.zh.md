@@ -4,7 +4,7 @@
 
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
-它基于 [Cordis](https://github.com/cordiverse/cordis) 构建，采用**一切皆插件**的架构。
+它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动。
 
 ## 开发者预览
 
@@ -12,7 +12,7 @@ DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**
 
 ## 通过 `npm` 运行
 
-安装 `Node.js`，然后运行已发布的包：
+安装 `Node.js`，然后运行：
 
 ```sh
 npx @deepseek-ai/dsh web
@@ -34,12 +34,7 @@ pnpm dsh web
 
 ## 社区与支持
 
-### 反馈问题与提出改进建议
-
 - 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-
-### 分享插件
-
 - 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 主题，便于被发现。
 
 ## 参与贡献
