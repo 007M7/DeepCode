@@ -229,7 +229,7 @@ describe('SettingsPanel navigation', () => {
 
   it('paints no takeover chrome of its own around the mounted step', () => {
     // The chrome (mask, opaque stage, #root inert) belongs to the step via
-    // the OnboardingSurface primitive — a mounted-but-deciding step that
+    // the step-owned dialog surface — a mounted-but-deciding step that
     // renders null must show and block nothing (the reload white-flash fix;
     // onboarding-surface.spec.tsx pins the primitive's half).
     const appRoot = document.createElement('div')

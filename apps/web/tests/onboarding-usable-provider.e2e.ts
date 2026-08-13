@@ -44,14 +44,17 @@ describe.skipIf(MODE === 'record')('web e2e: another usable provider ends first-
 
   it('closes the setup card without discarding the add card beside it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-setup-card-cancel'))
-    const credentialStep = page.getByRole('region', { name: CREDENTIAL_STEP })
+    const credentialStep = page.getByRole('dialog', { name: CREDENTIAL_STEP })
     await credentialStep.waitFor({ timeout: 15_000 })
-    await credentialStep.getByRole('button', { name: '前往配置' }).click()
+    await credentialStep.getByRole('button', { name: '稍后配置' }).click()
     await credentialStep.waitFor({ state: 'detached', timeout: 15_000 })
 
+    await page.getByRole('button', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     await settings.waitFor({ timeout: 10_000 })
-    // Nothing is reachable yet, so DeepSeek presents itself as its open card.
+    // The onboarding step no longer navigates into Settings on dismissal, so
+    // enter the Models section explicitly before exercising its normal cards.
+    await settings.getByRole('button', { name: '模型' }).click()
     const setupKey = settings.getByRole('textbox', { name: 'API 密钥', exact: true })
     await setupKey.waitFor({ timeout: 10_000 })
 
@@ -66,15 +69,14 @@ describe.skipIf(MODE === 'record')('web e2e: another usable provider ends first-
       { timeout: 10_000 },
     ).toBe(2)
 
-    // Cancelling the setup card is the regression: it used to leave itself open
-    // and close the add card, discarding that draft.
+    // Cancelling the setup card must not close the independent add-provider
+    // draft beside it.
     await settings.getByRole('button', { name: '取消', exact: true }).first().click()
     expect(await settings.getByLabel('提供方').count()).toBe(1)
     await expect.poll(
       async () => settings.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
       { timeout: 10_000 },
     ).toBe(1)
-    // DeepSeek is now an ordinary row: a missing-key dot and an Edit button.
     await settings.getByRole('button', { name: '编辑 DeepSeek (deepseek-official)' }).waitFor({ timeout: 10_000 })
     const dismissed = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DISMISSED_EXPECTED, dismissed, MODE)
@@ -104,10 +106,9 @@ describe.skipIf(MODE === 'record')('web e2e: another usable provider ends first-
     // The regression: the step read only the official route's credential, so a
     // fully configured user was taken over on every blank session.
     await expect.poll(
-      async () => page.getByRole('region', { name: CREDENTIAL_STEP }).count(),
+      async () => page.getByRole('dialog', { name: CREDENTIAL_STEP }).count(),
       { timeout: 10_000 },
     ).toBe(0)
-    expect(await page.locator('[class*="onboardingStage"]').count()).toBe(0)
     expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(false)
 
     // The Models page agrees: DeepSeek stays a row rather than reopening its

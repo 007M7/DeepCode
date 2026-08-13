@@ -1,8 +1,9 @@
 /**
- * Models settings plugin, browser half. Registers the `models` nav entry and
- * official-DeepSeek first-run overlay into shell-declared slots. Both consume
- * one provider/settings/credential join; the overlay routes missing-key users
- * to the full page's single credential editor. Export discipline:
+ * Models settings and product-onboarding plugin, browser half. It registers
+ * the Models page plus the ordered internal-testing and official-DeepSeek
+ * onboarding dialogs, whose UI shares this package's modal wrapper. The Host
+ * settings and credential contracts stay behind their existing wire APIs.
+ * Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -19,15 +20,19 @@ import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
+import { WelcomeNotice } from './WelcomeNotice.tsx'
+import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
+import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
+import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
 export type { ModelsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** The Models page + onboarding overlay copy. */
+    /** The Models page + product-onboarding copy. */
     'settings.models': ModelsKey
   }
 }
@@ -74,21 +79,38 @@ export function apply(ctx: ClientContext): void {
     api: connection.api,
     t,
   })
-  const onboardingInjected = (): DeepSeekOnboardingInjected => ({
+  const deepSeekOnboardingInjected = (): DeepSeekOnboardingInjected => ({
     controller,
-    useSnapshot,
+    hooks: { models: controller.store },
+    api: connection.api,
+    t,
+  })
+  const welcomeController = new WelcomeNoticeStore(
+    connection.api,
+    connection.isLoopback ? 'host' : 'memory',
+  )
+  const welcomeInjected = (): WelcomeNoticeInjected => ({
+    controller: welcomeController,
+    hooks: { welcome: welcomeController.store },
     t,
   })
 
   // Pushed invalidations converge every open surface without polling: any
   // settings/credentials/topology change refetches once the page loaded.
   ctx.effect(() => {
-    const refresh = (): void => { refreshIfLoaded(controller) }
+    const refreshModels = (): void => { refreshIfLoaded(controller) }
+    const refreshAll = (): void => {
+      refreshModels()
+      refreshWelcomeIfLoaded(welcomeController)
+    }
     const disposers = [
-      ctx.remote.$on('settings/document-updated', refresh),
-      ctx.remote.$on('credentials/updated', refresh),
-      ctx.remote.$on('llm/adapters-updated', refresh),
-      ctx.on('connection/reset', refresh),
+      ctx.remote.$on('settings/document-updated', (ns) => {
+        refreshModels()
+        if (ns === WELCOME_NOTICE_SETTINGS_NAMESPACE) refreshWelcomeIfLoaded(welcomeController)
+      }),
+      ctx.remote.$on('credentials/updated', refreshModels),
+      ctx.remote.$on('llm/adapters-updated', refreshModels),
+      ctx.on('connection/reset', refreshAll),
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings-models: pushed invalidations')
@@ -102,8 +124,14 @@ export function apply(ctx: ClientContext): void {
   }, ModelsSection))
   ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding',
+    id: 'welcome-notice',
+    order: -100,
+    inject: welcomeInjected,
+  }, WelcomeNotice))
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding',
     id: 'deepseek-official',
     order: 0,
-    inject: onboardingInjected,
+    inject: deepSeekOnboardingInjected,
   }, DeepSeekOnboardingDialog))
 }
