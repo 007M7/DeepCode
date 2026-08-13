@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-compaction-tool-result-pruner",
   "description": "Replay-safe model-free head/middle/tail pruning for tool-result surface nodes",
-  "version": "0.1.0-rc.3",
+  "version": "0.1.0-rc.5",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

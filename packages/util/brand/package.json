@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-brand",
   "description": "Type-only Branded<B> nominal-typing primitive for the DeepSeek Harness",
-  "version": "0.1.0-rc.3",
+  "version": "0.1.0-rc.5",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

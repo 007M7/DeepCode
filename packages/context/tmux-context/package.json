@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-tmux-context",
   "description": "Opt-in durable per-step context with this agent's tmux pane and window location",
-  "version": "0.1.0-rc.3",
+  "version": "0.1.0-rc.5",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

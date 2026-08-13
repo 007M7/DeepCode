@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-spill-local",
   "description": "Local-filesystem implementation of the DeepSeek Harness spill storage seam (private session-scoped files)",
-  "version": "0.1.0-rc.3",
+  "version": "0.1.0-rc.5",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",
