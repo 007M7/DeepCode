@@ -2,7 +2,7 @@
 
 English | [中文](index.zh.md)
 
-Start the Web UI through the [root README](../../../README.md#run); the command prints its URL. This guide begins after that server is running.
+Start the Web UI through the [root README](../../../README.md#run-from-npm); the command prints its URL. This guide begins after that server is running.
 
 The invoking directory is the default workspace, so the agent can inspect and modify the project where you started `dsh`.
 
