@@ -355,6 +355,65 @@ describe('ModelsSection', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
+  it('reuses the provider editor as a required credential-only onboarding form', async () => {
+    let finishSet: ((response: RpcResponse<Record<string, never>>) => void) | undefined
+    const set = vi.fn(() => new Promise<RpcResponse<Record<string, never>>>((resolve) => {
+      finishSet = resolve
+    }))
+    const { face, mutate } = scriptedFace({ set })
+    const onClose = vi.fn()
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+
+    render(<ProviderEditor
+      provider="deepseek-official"
+      displayName="DeepSeek"
+      hideTitle
+      namespace={wireNamespaces()[0]!}
+      settingsPath={[]}
+      api={face as never}
+      t={t}
+      readOnly={false}
+      credentialOnly
+      credentialRequired
+      autoFocusCredential
+      cancelLabel="onboardingLater"
+      submitLabel="onboardingSave"
+      submitBusyLabel="onboardingSaving"
+      onClose={onClose}
+    />)
+
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    const save = screen.getByText<HTMLButtonElement>(en.onboardingSave)
+    expect(document.activeElement).toBe(key)
+    expect(key.required).toBe(true)
+    expect(save.disabled).toBe(true)
+    expect(screen.getByText(en.onboardingLater)).toBeTruthy()
+    expect(screen.queryByText(en.customized)).toBeNull()
+    expect(screen.queryByLabelText(en.baseUrl)).toBeNull()
+
+    fireEvent.change(key, { target: { value: '   ' } })
+    expect(screen.getByText(en.keyRequired)).toBeTruthy()
+    expect(key.getAttribute('aria-invalid')).toBe('true')
+    expect(save.disabled).toBe(true)
+
+    fireEvent.change(key, { target: { value: '  sk-onboarding  ' } })
+    expect(screen.queryByText(en.keyRequired)).toBeNull()
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+
+    expect(await screen.findByText(en.onboardingSaving)).toBeTruthy()
+    expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-onboarding' })
+    expect(mutate).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+
+    if (finishSet === undefined) throw new Error('credential write did not start')
+    await act(async () => {
+      finishSet?.(ok({}))
+      await Promise.resolve()
+    })
+    expect(onClose).toHaveBeenCalledWith(true)
+  })
+
   it('applies customized deepseek fields as path ops', async () => {
     const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),

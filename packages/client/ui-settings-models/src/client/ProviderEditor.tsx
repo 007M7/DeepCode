@@ -69,6 +69,18 @@ export interface ProviderEditorProps {
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
   readOnly: boolean
+  /** Render only the credential field and actions, without provider settings. */
+  credentialOnly?: boolean
+  /** Require a newly entered credential before this editor can submit. */
+  credentialRequired?: boolean
+  /** Give the credential field initial focus when this editor mounts. */
+  autoFocusCredential?: boolean
+  /** Override the dismiss action copy. */
+  cancelLabel?: keyof typeof en
+  /** Override the idle commit action copy. */
+  submitLabel?: keyof typeof en
+  /** Override the in-flight commit action copy. */
+  submitBusyLabel?: keyof typeof en
   /** Close the editor; `changed` reports whether an Apply committed. */
   onClose: (changed: boolean) => void
 }
@@ -198,6 +210,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // as "no key supplied" rather than as a key — that is how a card whose
   // provider already has a stored key is edited without re-entering it.
   const keyValue = keyDraft.trim()
+  const credentialRequiredFailure = props.credentialRequired === true
+    && keyDraft.length > 0 && keyValue.length === 0
+    ? 'keyRequired' as const
+    : undefined
+  const shownKeyFailure = credentialRequiredFailure ?? keyFailure
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
@@ -225,7 +242,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
-    {
+    if (props.credentialOnly !== true) {
       // The same checker gates the submit button, so a card cannot reach this
       // with a bad row; it stays because the schema check below would refuse
       // the write with a message naming a path instead of the row, and because
@@ -237,7 +254,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       }
     }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
-    if (node !== undefined && settingsPath.length === 0) {
+    if (props.credentialOnly !== true && node !== undefined && settingsPath.length === 0) {
       const sectionError = validateDraft(node, next)
       if (sectionError !== undefined) return sectionError
     }
@@ -245,9 +262,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && fallback === undefined
       && committedOriginal === undefined
       && Object.keys(next).length === 0
-    const ops: SettingsPathOpView[] = materializesNativeProfile
-      ? [{ op: 'set', path: [...settingsPath], value: {} }]
-      : pathOps(settingsPath, committedOriginal, next)
+    const ops: SettingsPathOpView[] = props.credentialOnly === true
+      ? []
+      : materializesNativeProfile
+        ? [{ op: 'set', path: [...settingsPath], value: {} }]
+        : pathOps(settingsPath, committedOriginal, next)
     if (ops.length > 0) {
       const response = await api.settings.mutate({ ns, ops, expectedRevision })
       if (!response.result.ok) {
@@ -324,7 +343,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const defaultMaxTokens = getPath(fallback, ['maxTokens'])
     const keyPlaceholder = keyLocked
       ? t('keyEnvLocked')
-      : keyState?.configured === true
+      : keyState?.configured === true && props.credentialRequired !== true
         ? t('keyStored')
         : family === 'pi-ai' ? t('keyPlaceholderNative') : t('keyPlaceholder')
     /** What both family editors take: the rows, whose layer owns them, and the two writes. */
@@ -349,12 +368,15 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             value={keyDraft}
             placeholder={keyPlaceholder}
             aria-label={t('keyInput')}
+            aria-invalid={shownKeyFailure !== undefined}
+            required={props.credentialRequired === true}
+            autoFocus={props.autoFocusCredential === true}
             disabled={disabled || keyLocked}
             onChange={(event) => { setKeyDraft(event.target.value) }}
           />
-          {keyFailure === undefined ? null : <p className={styles['error']}>{t(keyFailure)}</p>}
+          {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
         </div>
-        <details className={styles['customized']}>
+        {props.credentialOnly === true ? null : <details className={styles['customized']}>
           <summary className={styles['customizedSummary']}>{t('customized')}</summary>
           <div className={styles['customizedBody']}>
             {/* The name and the protocol are the create card's two remaining
@@ -440,13 +462,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
               )
               : <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />}
           </div>
-        </details>
+        </details>}
       </>
     )
   }
 
   return (
-    <div className={styles['editor']}>
+    <div className={props.credentialOnly === true ? styles['addBlock'] : styles['editor']}>
       {props.hideTitle === true
         ? null
         : (
@@ -461,7 +483,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         ? <p className={styles['advancedHint']}>{`${t('advancedHint')} (${namespace.ns})`}</p>
         : curatedFields(layout)}
       {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
-      {modelFailure === undefined
+      {props.credentialOnly === true || modelFailure === undefined
         ? null
         : (
           <p className={styles['advancedHint']}>
@@ -471,10 +493,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       <EditorFooter
         t={t}
         busy={busy}
-        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined
-          || keyFailure !== undefined}
-        submitLabel="apply"
-        submitBusyLabel="applying"
+        submitDisabled={disabled || layout === 'unknown'
+          || (props.credentialOnly !== true && modelFailure !== undefined)
+          || shownKeyFailure !== undefined
+          || (props.credentialRequired === true && keyValue.length === 0)}
+        submitLabel={props.submitLabel ?? 'apply'}
+        submitBusyLabel={props.submitBusyLabel ?? 'applying'}
+        {...props.cancelLabel === undefined ? {} : { cancelLabel: props.cancelLabel }}
         onCancel={() => { props.onClose(false) }}
         onSubmit={() => { void apply() }}
       />

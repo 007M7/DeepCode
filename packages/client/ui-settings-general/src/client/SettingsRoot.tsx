@@ -7,9 +7,8 @@
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
  * open state and the active section id are component-local viewing state;
  * the onboarding coordinator mounts exactly one ordered registrant while the
- * sessions-derived empty-Hero fact is active — the takeover chrome
- * (OnboardingSurface) belongs to the step, so a mounted-but-deciding step
- * paints nothing here.
+ * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
+ * to the step, so a mounted-but-deciding step paints nothing here.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -160,10 +159,9 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onClose={close}
         />
       )}
-      {/* The takeover chrome (OnboardingSurface: mask, opaque stage, `#root`
-          inert) lives inside the step component, wrapped around its visible
-          content — a step still deciding (private facts loading) renders
-          null, so nothing paints or blocks while it decides. */}
+      {/* Dialog chrome and `#root` inert ownership live inside each step's
+          visible branch. A step still deciding (private facts loading)
+          renders null, so nothing paints or blocks while it decides. */}
       {onboardingStep !== undefined && renderSlot('settings.onboarding', {
         stepId: onboardingStep.id,
         complete: () => { completeOnboardingStep(onboardingStep.id) },

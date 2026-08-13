@@ -10,7 +10,7 @@ Every GUI first launch opened with a full-viewport internal-test statement (å†…æ
 
 ## Decision
 
-The first-run notice is removed from the assembled product rather than reworded. `ui-settings-general` seats no `settings.onboarding` step; the notice component, its durable acknowledgement store, its copy owner, and its locale keys are deleted. The `settings.onboarding` coordinator and its takeover stage stay ([ordered onboarding](../feature/2026-07-30-versioned-gui-welcome-onboarding.md)), and the conditional DeepSeek credential step is the only shipped occupant. The Host half still registers the `ui-onboarding` settings namespace: its `welcomeNoticeVersion` field keeps acknowledgements already stored in `$DSH_HOME/settings.yaml` valid, and nothing reads or writes it. Telemetry opt-in remains an explicit deployment environment choice documented in the [CLI reference README](../../../../apps/cli/reference/README.md); the product presents no prompt about enabling it.
+This decision removed the first-run notice from the assembled product rather than rewording it. `ui-settings-general` seated no `settings.onboarding` step; the notice component, acknowledgement store, copy owner, and locale keys were deleted, while the Host kept the `ui-onboarding` namespace so stored documents remained valid. The later [shared-modal product onboarding](../feature/2026-08-13-shared-modal-product-onboarding.md) restores a new concise testing-stage notice in `ui-settings-models`, reusing that field and backend contract without restoring the removed takeover layout or telemetry instructions. Telemetry opt-in remains an explicit deployment environment choice documented in the [CLI reference README](../../../../apps/cli/reference/README.md); the restored notice says nothing about enabling it.
 
 ## Alternatives considered
 
@@ -22,4 +22,4 @@ The first-run notice is removed from the assembled product rather than reworded.
 
 ## Consequences
 
-A fresh profile boots into the credential step when the DeepSeek credential is missing and directly into the product otherwise; no full-viewport notice precedes either. The assembled onboarding scenario starts at the credential step, the remote-notice scenario is deleted with the feature, and the goal-bar fixture keeps the settings shell disabled because the fixture API client rejects settings traffic. Restoring a first-run notice requires a new onboarding registration and a new versioned field; the retained namespace does not resurrect the old acknowledgement semantics.
+This removal eliminated the full-viewport notice and its telemetry copy. The later restoration is intentionally a different presentation and copy revision: a shared modal precedes the inline credential dialog, the remote scenario again covers process-local acknowledgement, and the existing `welcomeNoticeVersion` field records the new copy version. The historical telemetry prompt remains absent.
