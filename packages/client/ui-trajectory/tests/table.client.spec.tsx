@@ -438,6 +438,65 @@ describe('TrajectoryTable', () => {
     expect(tablePane.scrollTop).toBe(60)
   })
 
+  it('keeps an idle older-history control as the first row until paging completes', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    let resolveOlder: ((advanced: boolean) => void) | undefined
+    const older = new Promise<boolean>((resolve) => { resolveOlder = resolve })
+    const onLoadOlder = vi.fn(() => older)
+    const view = render(
+      <TrajectoryTable
+        turns={TURNS}
+        {...FOLD_PROPS}
+        hasOlderRecords
+        onLoadOlder={onLoadOlder}
+      />,
+    )
+
+    const table = screen.getByRole('table')
+    const loadButton = screen.getByRole('button', { name: 'Load earlier history' })
+    expect(table.querySelector('tbody > tr:first-child')?.contains(loadButton)).toBe(true)
+    expect(table.getAttribute('aria-rowcount')).toBe('4')
+    expect((await screen.findByRole('row', { name: /ASSISTANT/ })).getAttribute('aria-rowindex'))
+      .toBe('2')
+
+    fireEvent.click(loadButton)
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+    expect(loadButton.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Loading earlier history…')
+
+    resolveOlder?.(false)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Load earlier history' })
+        .hasAttribute('disabled')).toBe(false)
+    })
+
+    view.rerender(
+      <TrajectoryTable turns={TURNS} {...FOLD_PROPS} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Load earlier history' })).toBeNull()
+    expect(table.getAttribute('aria-rowcount')).toBe('3')
+  })
+
+  it('reflects an older page started outside the ledger in the persistent control', () => {
+    render(
+      <TrajectoryTable
+        turns={TURNS}
+        {...FOLD_PROPS}
+        hasOlderRecords
+        olderHistoryLoading
+        onLoadOlder={vi.fn(async () => true)}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Loading earlier history…' })
+      .hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Loading earlier history…')
+  })
+
   it('covers the ledger while the initial tail is loading', () => {
     const view = render(
       <TrajectoryTable turns={TURNS} {...FOLD_PROPS} historyLoading />,

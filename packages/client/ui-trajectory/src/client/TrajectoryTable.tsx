@@ -364,6 +364,8 @@ export interface TrajectoryTableProps {
   recordFocus?: { readonly index: number } | null
   /** Whether the initial history tail is still loading. */
   historyLoading?: boolean
+  /** Whether another surface is loading one older history page. */
+  olderHistoryLoading?: boolean
   /** First loaded raw event, used to preserve scroll position after prepending a page. */
   historyStartSeq?: number | undefined
   /** Whether one older history page can be requested. */
@@ -1698,6 +1700,7 @@ export function TrajectoryTable({
   recordSelection = null,
   recordFocus = null,
   historyLoading = false,
+  olderHistoryLoading = false,
   historyStartSeq,
   hasOlderRecords = false,
   onLoadOlder,
@@ -2123,12 +2126,13 @@ export function TrajectoryTable({
     virtualIndexByRecordId,
     virtualizationEnabled,
   ])
-  const requestOlder = useCallback((pane: HTMLDivElement) => {
+  const requestOlder = useCallback((pane: HTMLDivElement, requireTop: boolean) => {
     if (
       !hasOlderRecords
       || onLoadOlder === undefined
       || loadingOlder.current
-      || pane.scrollTop > OLDER_LOAD_THRESHOLD_PX
+      || olderHistoryLoading
+      || (requireTop && pane.scrollTop > OLDER_LOAD_THRESHOLD_PX)
     ) return
     loadingOlder.current = true
     setOlderLoading(true)
@@ -2143,7 +2147,7 @@ export function TrajectoryTable({
       loadingOlder.current = false
       setOlderLoading(false)
     })
-  }, [hasOlderRecords, historyStartSeq, onLoadOlder])
+  }, [hasOlderRecords, historyStartSeq, olderHistoryLoading, onLoadOlder])
   useLayoutEffect(() => {
     const pane = tablePaneRef.current
     if (pane === null) return
@@ -2176,10 +2180,9 @@ export function TrajectoryTable({
     virtualizationEnabled,
   ])
 
-  const loadingLabel = olderLoading
-    ? 'Loading earlier history…'
-    : 'Loading trajectory…'
-  const showLoading = historyLoading || olderLoading || !tableScrollReady
+  const olderBusy = olderHistoryLoading || olderLoading
+  const showInitialLoading = historyLoading || !tableScrollReady
+  const historyRowOffset = hasOlderRecords ? 1 : 0
 
   return (
     <div ref={rootRef} className={css.split} style={splitStyle}>
@@ -2192,30 +2195,55 @@ export function TrajectoryTable({
           followsTableTail.current =
             pane.scrollHeight - pane.clientHeight - pane.scrollTop
               <= BOTTOM_FOLLOW_THRESHOLD_PX
-          requestOlder(pane)
+          requestOlder(pane, true)
         }}
         onClick={(event) => {
           if (event.target === event.currentTarget) clearAllSelections()
         }}
       >
-        {showLoading && (
+        {showInitialLoading && (
           <div className={css.historyLoading} role="status" aria-live="polite">
             <span className={css.historyLoadingBar}>
               <span className={css.historyLoadingSpinner} aria-hidden="true" />
-              {loadingLabel}
+              Loading trajectory…
             </span>
           </div>
         )}
         <table
           className={css.table}
           data-scroll-ready={tableScrollReady || undefined}
-          aria-rowcount={records.length}
+          aria-rowcount={records.length + historyRowOffset}
         >
           <colgroup>
             <col className={css.eventColumn} />
             <col className={css.contentColumn} />
           </colgroup>
           <tbody>
+            {hasOlderRecords && (
+              <tr className={css.historyLoadRow} data-history-load="">
+                <td colSpan={2}>
+                  <button
+                    type="button"
+                    className={css.historyLoadButton}
+                    disabled={olderBusy || onLoadOlder === undefined}
+                    onClick={() => {
+                      const pane = tablePaneRef.current
+                      if (pane !== null) requestOlder(pane, false)
+                    }}
+                  >
+                    {olderBusy && (
+                      <span className={css.historyLoadingSpinner} aria-hidden="true" />
+                    )}
+                    <span
+                      role={olderBusy ? 'status' : undefined}
+                      aria-live={olderBusy ? 'polite' : undefined}
+                    >
+                      {olderBusy ? 'Loading earlier history…' : 'Load earlier history'}
+                    </span>
+                  </button>
+                </td>
+              </tr>
+            )}
             {virtualTop > 0 && (
               <tr className={css.virtualSpacer} data-virtual-spacer="top" aria-hidden="true">
                 <td
@@ -2263,7 +2291,7 @@ export function TrajectoryTable({
                   return (
                     <tr
                       tabIndex={isRequestOnly ? -1 : 0}
-                      aria-rowindex={position + 1}
+                      aria-rowindex={position + 1 + historyRowOffset}
                       aria-label={isCollapsedSummary
                         ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
                         : isRequestOnly
