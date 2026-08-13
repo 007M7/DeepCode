@@ -14,7 +14,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`api/`](api/README.md) | Remote BFF 装配与 Typert RPC 网关 | 产品：稳定 API |
 | [`typert/`](typert/README.md) | 类型图生成、产物加载与运行时注册表 | 产品：稳定 API |
 | [`goal/`](goal/README.md) | 同会话 goal 的持久化与生命周期 | 产品：稳定 API |
-| [`schedule/`](schedule/README.md) | 仅限会话内的定时 follow-up | 产品：稳定 API |
+| [`schedule/`](schedule/README.md) | 仅限会话内的定时后续操作 | 产品：稳定 API |
 | [`feedback/`](feedback/README.md) | 人类反馈 | 产品：稳定 API |
 | [`identity/`](identity/README.md) | 共享匿名身份 | 产品：稳定 API |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定 API |
@@ -41,7 +41,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 | 产品：稳定 API |
 | [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定 API |
 | [`extensions/`](extensions/README.md) | agent 运行时自修改：实时插件／服务检查和模型所写插件挂载／卸载（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定 API |
-| [`hooks/`](hooks/README.md) | 钩子桥接 + 共享的 Claude Code／Codex wire protocol 库 | 产品：稳定 API |
+| [`hooks/`](hooks/README.md) | 钩子桥接 + 共享的 Claude Code／Codex 线协议库 | 产品：稳定 API |
 | [`session/`](session/README.md) | 持久会话数据平面：持久化 seam + JSONL/SQLite 后端、投影 seam、基于日志的标题、会话上报 | 产品：稳定 API |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定 API |
 | [`settings/`](settings/README.md) | 用户设置 seam + 基于文件的提供方 | 产品：稳定 API |
