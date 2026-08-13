@@ -322,8 +322,8 @@ export interface SessionEventMap {
    * companion deliberately constrains nothing here, so a plugin appending one
    * would silently classify every live bracket before it as seed history.
    *
-   * An owner of a standalone open/close bracket (`compact/start` …
-   * `compact/end`) reads it because seed history and live work are otherwise
+   * An owner of a standalone open/close bracket (`compaction/start` …
+   * `compaction/end`) reads it because seed history and live work are otherwise
    * byte-identical: an unmatched opening marker before this event belongs to
    * an ended lifecycle, whatever ended it. NOT a liveness signal about other
    * writers — a concurrently live session holds its own boundary elsewhere,

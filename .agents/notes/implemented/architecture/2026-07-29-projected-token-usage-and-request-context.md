@@ -46,7 +46,7 @@ That cost bought a worse display: occupancy went blank after every reconnect and
 
 **Resolve capacity inside token-meter.** The package documents itself as independent of model routing and is otherwise a pure reader that never appends to the log. AgentLoop already holds the resolved metadata where the header is written.
 
-**Extend the `session.models` RPC with capacity.** The handler already resolves and discards it, so the field is nearly free — but `StatsLine` lives in `ui-conversation` while the model directory lives in `ui-model`, and `ui-conversation` cannot depend on `ui-model`. Delivering it would have required either a second dock entry splitting one text row across two plugins, or a cross-plugin store write.
+**Extend the `session.models` RPC with capacity.** The handler already resolves and discards it, so the field is nearly free — but `StatsLine` lives in `ui-conversation` while the model directory lives in `ui-model-selection`, and `ui-conversation` cannot depend on `ui-model-selection`. Delivering it would have required either a second dock entry splitting one text row across two plugins, or a cross-plugin store write.
 
 **Add a context circle beside the model selector.** That placement suggests selected-model state. The stats line carries the figure without a duplicate UI or data path.
 

@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import CommandService from '@deepseek-ai/dsh-commands'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -44,7 +44,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
 async function harness(): Promise<Harness> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(CommandService)
+  await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(GoalService)
   const plugin = await ctx.plugin(commandGoal)
@@ -69,7 +69,7 @@ function domainEvents(session: Session): readonly Session['events'][number][] {
 }
 
 /** Execute `/goal` through the same registry boundary as a UI adapter. */
-async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>['result']> {
+async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandRuntime['execute']>>>['result']> {
   const execution = await test.ctx.commands.execute(
     test.agent,
     `/goal${suffix}`,

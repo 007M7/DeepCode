@@ -29,12 +29,12 @@ import {
   watchUserPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 /** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
 const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
 
-import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
+import { DSH_LAUNCH_ENVIRONMENT_KEY, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
@@ -54,7 +54,7 @@ export function homePatchPath(): string {
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
-const TELEMETRY_ROW_ID = 'telemetry-otel'
+const TELEMETRY_ROW_ID = 'session-telemetry-otel'
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
@@ -173,7 +173,7 @@ function composeProfile(
 /** Options for {@link runProfile}. */
 export interface RunProfileOptions {
   /** This run's frozen environment snapshot, provided before any entry mounts. */
-  environment: EnvironmentSnapshot
+  environment: LaunchEnvironmentSnapshot
   /** The profile name to boot. */
   profile: string
   /** `--patch` overlay paths, in argv order. */
@@ -249,7 +249,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     app.current = hostCtx
     // Before any config-tree entry mounts, so plugins resolve all launch-time
     // environment values from the same immutable provenance snapshot.
-    hostCtx.provide(DSH_ENVIRONMENT_KEY, options.environment)
+    hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
     // The command line and bounded exit request are launcher facts available
     // to every app plugin that injects the argument snapshot.
     provideCmdline(hostCtx, {

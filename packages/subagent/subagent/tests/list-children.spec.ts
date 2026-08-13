@@ -16,12 +16,12 @@ import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import SubagentService, {
+import SubagentRuntime, {
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
 } from '@deepseek-ai/dsh-subagent'
-import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
-import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
+import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -51,7 +51,7 @@ async function setup(
     ctx.provide('storageDomain', facility)
     await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
   }
-  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
@@ -145,13 +145,13 @@ const hostileProjectionDefinition: ProjectionDefinition<'subagentListHostileProb
   stateVersion: 1,
 }
 
-describe('SubagentService.listChildren', () => {
+describe('SubagentRuntime.listChildren', () => {
   it('lists live children without persistence, query services, or the continuation runtime', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(SubagentService)
-    expect(ctx.get('tasks')).toBeUndefined()
+    await ctx.plugin(SubagentRuntime)
+    expect(ctx.get('jobs')).toBeUndefined()
     expect(ctx.get('agents')).toBeUndefined()
     expect(ctx.get('sessionPersistence')).toBeUndefined()
 
@@ -184,7 +184,7 @@ describe('SubagentService.listChildren', () => {
   it('fails loud when the session store is not mounted', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentRuntime)
     await expect(ctx.subagents.listChildren(SessionId('no-store-parent'))).rejects.toThrow(
       expect.objectContaining({ code: 'SUBAGENT_CONTROL_SESSION_STORE_UNAVAILABLE' }) as Error,
     )
@@ -973,7 +973,7 @@ describe('SubagentService.listChildren', () => {
   })
 })
 
-describe('SubagentService.listDescendants', () => {
+describe('SubagentRuntime.listDescendants', () => {
   it('flattens the complete tree in stable pre-order with verified parent and depth', async () => {
     const { ctx, parent } = await setup([])
     const childA = await authorChild(ctx, '00000000-0000-4000-8000-00000000aaa1', {

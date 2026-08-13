@@ -123,7 +123,7 @@ function checkBuild(
     addViolation(
       violations,
       tsconfigPath,
-      'TypeScript project references must include ../../support/invariants',
+      'TypeScript project references must include ../../runtime-diagnostics/invariants',
     )
   }
 
@@ -137,7 +137,7 @@ function checkBuild(
 
 function projectReferencesInvariants(root: string, ownerDir: string, entryPath: string): boolean {
   const ownerRoot = resolve(root, ownerDir)
-  const target = resolve(root, 'packages/support/invariants')
+  const target = resolve(root, 'packages/runtime-diagnostics/invariants')
   const pending = [resolve(root, entryPath)]
   const visited = new Set<string>()
   while (pending.length > 0) {

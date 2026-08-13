@@ -18,7 +18,7 @@ Status: proposed
 
 ### 全局唯一存储根（已落地，形态修正）；构造时 resolve 一次（仍开放）
 
-- **已落地**：出厂 Web overlay 通过 app-boot 提供的 `dshHomePath('storages')`，直接在 `storage-json` 行内把 `root` 锚定到 `$DSH_HOME/storages`（默认 `~/.dsh/storages`，与 `~/.dsh/sessions` 并肩；目录名不带点——home 本身已是隐藏树）。该辅助函数委托给规范的 `dsh-paths` 解析器，会话根也使用同一个函数，无需重复其回退和波浪号规则。最终选用按行形态（用户决定）而非「launcher patch + `storageRoot` profile 键」（见 Alternatives）；按行覆盖仍走个人 `~/.dsh/config.yaml` patch 层。web e2e scaffold 本就把该行 patch 到临时绝对根，测试不触用户 home。
+- **已落地**：出厂 Web overlay 通过 app-boot 提供的 `dshHomePath('storages')`，直接在 `storage-json` 行内把 `root` 锚定到 `$DSH_HOME/storages`（默认 `~/.dsh/storages`，与 `~/.dsh/sessions` 并肩；目录名不带点——home 本身已是隐藏树）。该辅助函数委托给规范的 `dsh-home-paths` 解析器，会话根也使用同一个函数，无需重复其回退和波浪号规则。最终选用按行形态（用户决定）而非「launcher patch + `storageRoot` profile 键」（见 Alternatives）；按行覆盖仍走个人 `~/.dsh/config.yaml` patch 层。web e2e scaffold 本就把该行 patch 到临时绝对根，测试不触用户 home。
 - **仍开放**：`JsonStorageBackend` 在构造时对配置根 `resolve` 一次，原样采纳 JSONL 后端已记录的理由：后续 `process.cwd()` 变化不得把一个后端劈到多个根下。SQLite 存储后端已经 resolve 其路径。
 - 适用 pre-release 立场（已按此执行）：不做迁移垫片。曾在 `<cwd>/.storages` 下缓存过的部署要么全部重新派生（工作区从 header 索引重新 bootstrap；投影缓存惰性重折），要么手动把两个 json 文件挪一次。
 

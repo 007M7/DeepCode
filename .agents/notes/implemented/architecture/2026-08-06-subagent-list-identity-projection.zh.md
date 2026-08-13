@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-重写前的 `SubagentService.listChildren` 对每个 `header.origin === 'subagent'` 的直接 child，每次列表都执行 `listEvents` 加 `readEvent` 两次整日志物化，且每次物化都伴随整日志 structuredClone，只为从描述符事件里折出 mode 与 label 两个字段。描述符在日志中的位置不固定——fork 前缀任意长，zstd 压缩帧没有 seq 索引——因此定位没有捷径；这条路径没有任何缓存，代价随 transcript（文本记录）长度 × child 数量 × 列表频率放大。它还把 session-query 拉成列表的硬依赖：没有 query backend 的部署，`list_agents` 以 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 整体拒绝，尽管枚举所需只是 header 事实。
+重写前的 `SubagentRuntime.listChildren` 对每个 `header.origin === 'subagent'` 的直接 child，每次列表都执行 `listEvents` 加 `readEvent` 两次整日志物化，且每次物化都伴随整日志 structuredClone，只为从描述符事件里折出 mode 与 label 两个字段。描述符在日志中的位置不固定——fork 前缀任意长，zstd 压缩帧没有 seq 索引——因此定位没有捷径；这条路径没有任何缓存，代价随 transcript（文本记录）长度 × child 数量 × 列表频率放大。它还把 session-query 拉成列表的硬依赖：没有 query backend 的部署，`list_agents` 以 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 整体拒绝，尽管枚举所需只是 header 事实。
 
 同一根因还有第二个症状：host 侧的 `hasSubagentDescriptor()` 在每次 Agent（智能体）绑定 RPC 的属主判定上扫描目标会话的 own suffix，即便 `SessionHeader.origin` 已经回答了同一个问题的绝大部分。
 

@@ -3,6 +3,7 @@
 exports[`sidebar shell snapshots > renders the collapsed rail after the crossfade settles, in place 1`] = `
 <div
   data-slot="sidebar"
+  style="display: contents;"
 >
   <div
     class="root collapsed railIn quietBars"
@@ -52,10 +53,32 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
     </button>
     <div
       class="regionArea"
-    />
+    >
+      <div
+        data-slot="sidebar.workspaces"
+        style="display: contents;"
+      />
+    </div>
     <div
       class="footArea"
-    />
+    >
+      <div
+        class="footerActions"
+      >
+        <div
+          data-slot="sidebar.footer.action"
+          style="display: contents;"
+        />
+      </div>
+      <div
+        class="settingsArea"
+      >
+        <div
+          data-slot="sidebar.settings"
+          style="display: contents;"
+        />
+      </div>
+    </div>
   </div>
 </div>
 `;
@@ -63,6 +86,7 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
 exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsule, empty holes) 1`] = `
 <div
   data-slot="sidebar"
+  style="display: contents;"
 >
   <div
     class="root quietBars"
@@ -122,10 +146,32 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
     </button>
     <div
       class="regionArea"
-    />
+    >
+      <div
+        data-slot="sidebar.workspaces"
+        style="display: contents;"
+      />
+    </div>
     <div
       class="footArea"
-    />
+    >
+      <div
+        class="footerActions"
+      >
+        <div
+          data-slot="sidebar.footer.action"
+          style="display: contents;"
+        />
+      </div>
+      <div
+        class="settingsArea"
+      >
+        <div
+          data-slot="sidebar.settings"
+          style="display: contents;"
+        />
+      </div>
+    </div>
   </div>
 </div>
 `;
@@ -133,6 +179,7 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
 exports[`sidebar shell snapshots > renders the expanded column in the default locale (zh, no setLocale) 1`] = `
 <div
   data-slot="sidebar"
+  style="display: contents;"
 >
   <div
     class="root quietBars"
@@ -192,10 +239,32 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
     </button>
     <div
       class="regionArea"
-    />
+    >
+      <div
+        data-slot="sidebar.workspaces"
+        style="display: contents;"
+      />
+    </div>
     <div
       class="footArea"
-    />
+    >
+      <div
+        class="footerActions"
+      >
+        <div
+          data-slot="sidebar.footer.action"
+          style="display: contents;"
+        />
+      </div>
+      <div
+        class="settingsArea"
+      >
+        <div
+          data-slot="sidebar.settings"
+          style="display: contents;"
+        />
+      </div>
+    </div>
   </div>
 </div>
 `;

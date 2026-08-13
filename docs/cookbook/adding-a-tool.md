@@ -2,7 +2,7 @@
 
 English | [中文](adding-a-tool.zh.md)
 
-Reference for the contracts a model-facing tool must satisfy. For an ordered first tool, follow [Build a tool](../user/develop/basic/tool.md). `packages/bash/tool-bash` is the production-grade three-package example.
+Reference for the contracts a model-facing tool must satisfy. For an ordered first tool, follow [Build a tool](../user/develop/basic/tool.md). `packages/shell/tool-bash` is the production-grade three-package example.
 
 ## The minimal shape
 
@@ -50,9 +50,9 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool. S
 
 ## Long-running work
 
-Gate `run_in_background` with producer config, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The registry rejects a pre-aborted invocation before the producer body; the runtime validates ownership and task-controller availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup. A successful background branch returns a typed canonical handle such as `{ kind: 'background', taskId }`; its Native renderer may keep human prose such as `started background task bash-1`, but Code Mode must never parse that prose to recover the id.
+Gate `run_in_background` with producer config, then register through `ctx.jobs.start({ kind, label, owner: exec.agent, run })`. The registry rejects a pre-aborted invocation before the producer body; the runtime validates ownership and task-controller availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup. A successful background branch returns a typed canonical handle such as `{ kind: 'background', jobId }`; its Native renderer may keep human prose such as `started background job bash-1`, but Code Mode must never parse that prose to recover the id.
 
-The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. A pre-aborted call is a failure because no task exists whose id could satisfy the successful output schema. Once `ctx.tasks.start()` publishes the id, use a task-owned cancellation signal rather than `exec.signal`: later outer-call cancellation stops waiting for the call but does not kill published work; `task_kill`, owner disposal, and service teardown own that lifetime. Foreground work remains coupled to `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
+The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. A pre-aborted call is a failure because no task exists whose id could satisfy the successful output schema. Once `ctx.jobs.start()` publishes the id, use a task-owned cancellation signal rather than `exec.signal`: later outer-call cancellation stops waiting for the call but does not kill published work; `job_kill`, owner disposal, and service teardown own that lifetime. Foreground work remains coupled to `exec.signal`. See the [background job runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
 ## Execution policy and observation
 

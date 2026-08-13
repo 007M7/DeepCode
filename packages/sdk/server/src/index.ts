@@ -6,22 +6,18 @@
  * owns EOF and signal exits. Keep named plugin exports with no default export so
  * Loader `unwrapExports` preserves `name`, `inject`, `Config`, and `apply`.
  *
- * FIXME: rename to `@deepseek-ai/dsh-sdk-server` before the first tagged release —
- * the current name says the wire encoding, not the role; it is the server half of
- * the SDK protocol ([regrouping Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md)).
- *
- * @module @deepseek-ai/dsh-jsonrpc
+ * @module @deepseek-ai/dsh-sdk-jsonrpc-server
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Readable, Writable } from 'node:stream'
 import Schema from '@deepseek-ai/schemastery'
 import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
-import { HarnessSdkServer } from './server.ts'
+import { HarnessSdkJsonRpcServer } from './server.ts'
 
 export * from './server.ts'
 
-export const name = 'jsonrpc'
+export const name = 'sdk-jsonrpc-server'
 // Only the agent factory is required; initialize reads the optional LLM seam with ctx.get().
 export const inject = ['agents']
 
@@ -61,7 +57,7 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const exit = config.exit ?? ((code: number): void => { process.exit(code) })
 
   const transport = new JsonRpcLineTransport(input, output)
-  const server = new HarnessSdkServer(ctx, transport, {
+  const server = new HarnessSdkJsonRpcServer(ctx, transport, {
     maxTokensAsSuccess: resolvedConfig.maxTokensAsSuccess,
   })
 

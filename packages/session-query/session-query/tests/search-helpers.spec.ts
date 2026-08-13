@@ -17,7 +17,7 @@ import {
   materializeSessionResultFilters,
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
-import { TestSessionQueryService } from './test-service.ts'
+import { TestSessionQueryEngine } from './test-service.ts'
 
 const id = SessionId('session')
 
@@ -274,7 +274,7 @@ describe('session-query document and filter helpers', () => {
   it('exposes the scan path on the combined query service', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(TestSessionQueryService)
+    await ctx.plugin(TestSessionQueryEngine)
     const session = ctx.sessions.create(id)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Alpha\n beta' }], source: { kind: 'user' },
@@ -290,7 +290,7 @@ describe('session-query document and filter helpers', () => {
 it('registers exact and abstract search behavior under one ctx key', async () => {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  const fiber = await ctx.plugin(TestSessionQueryService)
+  const fiber = await ctx.plugin(TestSessionQueryEngine)
   const session = ctx.sessions.create(id)
   await expect(ctx.sessionQuery.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
   await expect(ctx.sessionQuery.searchEvents({ sessionId: id, query: 'AI' }))

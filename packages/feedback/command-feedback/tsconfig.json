@@ -21,13 +21,13 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session/user-id"
+      "path": "../../identity/anonymous-user-id"
     },
     {
       "path": "../../session/session-telemetry"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

@@ -34,7 +34,7 @@ Status: implemented
 
 ## 验证
 
-agent loop（智能体循环）覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的暂存、替换与同一步骤进入、plan/goal/钩子行为、UI 清理、压缩（compaction）、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 waterfall 与载荷。
+agent loop（智能体循环）覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、agent-instructions 的暂存、替换与同一步骤进入、plan/goal/钩子行为、UI 清理、压缩（compaction）、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 waterfall 与载荷。
 
 ## 后果
 

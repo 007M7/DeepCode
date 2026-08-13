@@ -7,12 +7,12 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { hasTypeRTRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
+import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
-// (the group dirs — core/llm/bash/… — are pure containers with no manifest).
+// (the group dirs — core/llm/shell/… — are pure containers with no manifest).
 const workspaceGlobs = [
   { dir: 'vendor', depth: 1 },
   { dir: 'packages', depth: 2 },
@@ -55,7 +55,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'config'],
   // The Web build emits sourcemaps for browser debugging; publishing them is
   // what the payload policy forbids, so the bundle ships without them.
-  '@deepseek-ai/dsh-frontend': ['dist', '!dist/**/*.map'],
+  '@deepseek-ai/dsh-web-frontend': ['dist', '!dist/**/*.map'],
 }
 
 /** The subset of package.json fields this constraint check cares about. */
@@ -138,7 +138,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   // The Python runtime uses a distinct closed-resolution bin; the public CLI
   // keeps config-owned bare-package resolution through lib/bin.js.
-  '@deepseek-ai/dsh-jsonrpc-demo': ['lib/packaged-bin.js'],
+  '@deepseek-ai/dsh-sdk-jsonrpc-demo': ['lib/packaged-bin.js'],
   // The argv-prefix runner entry ships beside the lib as its own bundle;
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.
@@ -185,7 +185,7 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     ...hasExportPair(manifest, './client/typert', './lib/typert.client.d.ts', './lib/typert.client.js')
       ? ['lib/typert.client.js', 'lib/typert.client.d.ts']
       : [],
-    ...hasTypeRTRemoteNavigation(manifest)
+    ...hasTypertRemoteNavigation(manifest)
       ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts']
       : [],
   ]

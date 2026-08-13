@@ -58,7 +58,7 @@ declare module 'cordis' {
 
 ### 已交付的消费方：subagent 身份单元
 
-注册表的两处既有读法已经服务于本 RFC 协议计划之外的一个已交付消费方：[subagent 列表经投影单元读取身份](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md)注册了 `subagent` 单元——从 `subagent/descriptor` 按 last-wins 折叠出的持久化 mode/label 身份——`SubagentService.listChildren` 对 live child 经 `snapshot()` 读取（水位缓存，零日志读），对 cold child 则用一次持久化整读的结果调用 `restore({}, events, 0)` 读取。注册表约定不变：没有失败通道、没有新读法——单元永不抛错，值缺席本身就是信号，缺席如何呈现是该消费方自己的决定。
+注册表的两处既有读法已经服务于本 RFC 协议计划之外的一个已交付消费方：[subagent 列表经投影单元读取身份](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md)注册了 `subagent` 单元——从 `subagent/descriptor` 按 last-wins 折叠出的持久化 mode/label 身份——`SubagentRuntime.listChildren` 对 live child 经 `snapshot()` 读取（水位缓存，零日志读），对 cold child 则用一次持久化整读的结果调用 `restore({}, events, 0)` 读取。注册表约定不变：没有失败通道、没有新读法——单元永不抛错，值缺席本身就是信号，缺席如何呈现是该消费方自己的决定。
 
 ### 协议层：历史尾页上的 projections 块
 

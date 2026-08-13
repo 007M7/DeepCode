@@ -9,7 +9,7 @@ import type { SlotEntryDef, SlotSpec, StoredEntry, Translate } from './index.ts'
  * active-locale or registry change; the renderer re-derives each entry's `t`
  * from (namespace, revision), so a locale switch hands out NEW function
  * references and memoized components re-render naturally. Implemented by the
- * locale plugin, installed through the runtime SlotsService (installLocale).
+ * locale plugin, installed through the runtime SlotRegistry (installLocale).
  * Install before the first render that needs the seat: outlets bind their
  * revision subscription at mount, and a face appearing later has no channel
  * to notify already-mounted outlets (the locale plugin is immediately-tier
@@ -97,7 +97,7 @@ export interface RenderOpts {
   hookContext?: unknown
 }
 
-/** Host API the runtime SlotsService presents to the installed renderer. */
+/** Host API the runtime SlotRegistry presents to the installed renderer. */
 export interface SlotRendererHost {
   /**
    * Subscribe to a key's registration changes (microtask-batched).
@@ -118,6 +118,27 @@ export interface SlotRendererHost {
    * @returns entries in registration (list: order) sequence.
    */
   entriesOf(key: string): readonly StoredEntry[]
+  /**
+   * Shadowing winners per cell for a key — the render read for single/keyed/
+   * list dispatch: the first live (non-abdicated) entry of each cell in
+   * priority order; chain keys pass through unchanged (election consumes
+   * every entry). Fresh array per call — a render-body read, not a uSES
+   * getSnapshot source.
+   * @param key - slot key.
+   * @returns the winning entry per occupied cell.
+   */
+  entriesOfSlot(key: string): readonly StoredEntry[]
+  /**
+   * Report an entry boundary crash. With `info.abdicate` (shadowing kinds)
+   * the entry retires from its cell, one-shot, so the next survivor renders;
+   * chain crashes report without abdicating. The registration stays on the
+   * ledger either way.
+   * @param key - slot key the entry rendered under.
+   * @param entry - the crashed entry.
+   * @param error - the crash cause.
+   * @param info - `abdicate`: whether the crash retires the entry from its cell.
+   */
+  reportEntryError(key: string, entry: StoredEntry, error: unknown, info: { abdicate: boolean }): void
   /**
    * Declared runtime spec from the declarations ledger.
    * @param key - slot key.

@@ -29,15 +29,15 @@ const install: InvariantInstaller = Object.assign(
     ctx.on('domain/changed', (change: DomainChanged) => {
       if (change.domain !== 'workspace' || change.table !== 'workspaces') return
       if (change.operation === 'deleted') {
-        if (ctx.workspace.get(WorkspaceId(change.key)) !== undefined) {
+        if (ctx.workspaceRegistry.get(WorkspaceId(change.key)) !== undefined) {
           fail(
             `workspace record '${change.key}' was deleted while the registry cache still `
-            + 'publishes it — some write path bypassed ctx.workspace',
+            + 'publishes it — some write path bypassed ctx.workspaceRegistry',
           )
         }
         return
       }
-      if (ctx.workspace.get(WorkspaceId(change.key)) === undefined) {
+      if (ctx.workspaceRegistry.get(WorkspaceId(change.key)) === undefined) {
         fail(
           `workspace record '${change.key}' landed durably but the registry cache holds `
           + 'no entity for it — the cache and the domain table have diverged',
@@ -45,7 +45,7 @@ const install: InvariantInstaller = Object.assign(
       }
     })
   },
-  { inject: ['workspace'] },
+  { inject: ['workspaceRegistry'] },
 )
 
 /**

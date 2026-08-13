@@ -16,7 +16,7 @@ DeepSeek Harness has one standalone external-Plugin distribution path: installab
 
 The `@deepseek-ai/dsh-repository-plugin` package, `.dsh-plugin` authoring format, `dsh-plugin-prepare` executable, generated wrapper, immutable repository cache, base `repository-plugins` row, and dedicated GitHub acceptance lane are removed. The unused vendored `@cordisjs/plugin-loader/repository` subpath and its bundled pnpm dependency are removed with their only consumer. Existing repository cache directories are inert user data; DSH neither reads nor deletes them.
 
-Bundles compose existing owners directly. A bundle that contributes Skills mounts `@deepseek-ai/dsh-skill-local`; one that contributes MCP servers mounts `@deepseek-ai/dsh-mcp-client`; native behavior mounts an ordinary compiled Cordis Plugin. These packages retain their own validation, lifecycle, registration, and teardown contracts. No compatibility parser or migration from `.dsh-plugin` is retained under the pre-release compatibility policy.
+Bundles compose existing owners directly. A bundle that contributes Skills mounts `@deepseek-ai/dsh-skill-filesystem`; one that contributes MCP servers mounts `@deepseek-ai/dsh-mcp-client`; native behavior mounts an ordinary compiled Cordis Plugin. These packages retain their own validation, lifecycle, registration, and teardown contracts. No compatibility parser or migration from `.dsh-plugin` is retained under the pre-release compatibility policy.
 
 This note consolidates the removed repository cache, static format, config-only integration, npm-backed preparation, and trusted code-entry decisions. Their original motivation survives here: standalone users need package-manager-owned external composition, Git and npm dependencies may execute trusted lifecycle code, static Skill and MCP contributions should reuse their existing owners, and source identity belongs in the profile dependency specification and lockfile. Their implementation-specific wrappers, cache generations, and preparation protocol no longer constrain the product.
 
@@ -37,7 +37,7 @@ This note consolidates the removed repository cache, static format, config-only 
 - Profile installation requires `pnpm` on the host `PATH`. This is acceptable for an explicit package-management operation and avoids shipping the removed cache's pinned package-manager runtime solely for configuration-time activation.
 - `.dsh-plugin` packages and existing repository source-list patches stop working. Their cache files remain removable by the user but are not migrated or automatically deleted.
 - The dedicated pnpm runtime, preparation executable, wrapper generator, Git credential CI setup, repository cache, and repository-specific tests disappear.
-- Package-relative static assets need a bundle-owned path form so a declarative bundle can point `dsh-skill-local`, `dsh-mcp-client`, or another Plugin at files it ships without custom runtime glue. That capability is owned by the bundle format rather than a repository adapter.
+- Package-relative static assets need a bundle-owned path form so a declarative bundle can point `dsh-skill-filesystem`, `dsh-mcp-client`, or another Plugin at files it ships without custom runtime glue. That capability is owned by the bundle format rather than a repository adapter.
 
 ## Testing
 

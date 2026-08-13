@@ -14,7 +14,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`hmr/`](hmr/README.md) | Refreshes client plugins during development. |
 | [`locale/`](locale/README.md) | Provides localization preferences and message dictionaries. |
 | [`schema-form/`](schema-form/README.md) | Provides schema-backed draft handling for settings editors. |
-| [`test-runtime/`](test-runtime/README.md) | Provides shared repository test support for client feature packages. |
+| [`test-runtime/`](../test-support/client-runtime/README.md) | Provides shared repository test support for client feature packages. |
 | [`ui-slots/`](ui-slots/README.md) | Defines how UI features register and compose extension slots. |
 | [`ui-theme/`](ui-theme/README.md) | Applies the selected color theme. |
 | [`ui-primitives/`](ui-primitives/README.md) | Provides shared React controls, icons, and content renderers. |
@@ -27,21 +27,21 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-workflow-run/`](ui-workflow-run/README.md) | Replays durable workflow runs as nested Chat disclosures with live-only child navigation. |
 | [`ui-goal/`](ui-goal/README.md) | Presents and manages the current goal. |
 | [`ui-trajectory/`](ui-trajectory/README.md) | Presents alternate views of agent activity. |
-| [`ui-command/`](ui-command/README.md) | Provides session-aware command discovery and dispatch. |
-| [`ui-slash/`](ui-slash/README.md) | Coordinates inline command and reference suggestions. |
+| [`ui-commands/`](ui-commands/README.md) | Provides session-aware command discovery and dispatch. |
+| [`ui-input-trigger/`](ui-input-trigger/README.md) | Coordinates inline command and reference suggestions. |
 | [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions. |
 | [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references. |
-| [`ui-task/`](ui-task/README.md) | Lists this session's background tasks in the conversation header. |
-| [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
-| [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
+| [`ui-jobs/`](ui-jobs/README.md) | Lists this session's background jobs in the conversation header. |
+| [`ui-model-selection/`](ui-model-selection/README.md) | Provides model selection in conversation surfaces. |
+| [`ui-permission/`](ui-permission-presets/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
-| [`ui-plugin-config/`](ui-plugin-config/README.md) | Owns the Plugins settings section, its tab extension point, and configurable host-plane plugin cards. |
-| [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
+| [`ui-settings-plugins/`](ui-settings-plugins/README.md) | Owns the Plugins settings section, its tab extension point, and configurable host-plane plugin cards. |
+| [`ui-user-questions/`](ui-user-questions/README.md) | Presents interactive questions requested by the agent. |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | Selects a session's agent preset and authors preset compositions. |
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |
 | [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
-| [`ui-models/`](ui-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
-| [`ui-plugins/`](ui-plugins/README.md) | Contributes the read-only Host Loader inventory tab to Plugins settings. |
+| [`ui-settings-models/`](ui-settings-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
+| [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | Contributes the read-only Host Loader inventory tab to Plugins settings. |
 
 Each child reference owns its contract and detailed behavior. The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) and [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) own the cross-package composition and loading decisions.
 

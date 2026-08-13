@@ -49,6 +49,10 @@ function makeHost() {
     subscribe: () => () => {},
     getVersion: () => 0,
     entriesOf: key => key === 'root' ? [rootEntry] : sessionEntries,
+    // Single-kind everywhere and no crashes in this suite: the projection is
+    // the raw view and crash reports never fire.
+    entriesOfSlot: key => key === 'root' ? [rootEntry] : sessionEntries,
+    reportEntryError: () => {},
     specOf: key => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
     isLive: () => true,
     storeOf: () => undefined,

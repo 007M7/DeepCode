@@ -4,9 +4,9 @@
 
 为本应用选定的 Host Remote 能力提供双侧 BFF。Host 入口负责 Agent/Session 身份策略；Client 入口以运行时值形式导入生成的 `/remote` 产物，通过 `ctx.remote.$mount()` 挂载每项贡献，并重新导出对应的声明合并。Client 业务包依赖该外观，而不依赖 Gateway 实现或单独的 Remote 运行时入口。
 
-`createApiRemoteAgentResolver()` 会复用 live Agent、恢复普通冷会话、对并发恢复去重、保留 subagent ownership fence，并为 TypeRT `agent` 和 `session` lookup 配置同一个 resolver。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，再将返回的 resolver 用于旧方法，使已迁移与未迁移方法共用同一份策略实现。
+`createApiRemoteAgentResolver()` 会复用 live Agent、恢复普通冷会话、对并发恢复去重、保留 subagent ownership fence，并为 Typert `agent` 和 `session` lookup 配置同一个 resolver。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，再将返回的 resolver 用于旧方法，使已迁移与未迁移方法共用同一份策略实现。
 
-当前 Client 组合挂载 Goal Remote 贡献和只读 Host 插件清单贡献（`pluginInventory/list`）。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用与取消。Client 入口通过 Cordis 消费共享的 `TypeRTClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
+当前 Client 组合挂载 Goal Remote 贡献和只读 Host 插件清单贡献（`pluginInventory/list`）。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用与取消。Client 入口通过 Cordis 消费共享的 `TypertClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
 
 本包不包含传输逻辑或 Host 服务发现逻辑。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 约定，均可复用其 Client face。
 
@@ -14,11 +14,11 @@
 
 `src/remote-events.ts` 持有 `API_REMOTE_FORWARDED_EVENTS`——本应用原样转发给消费端的 Host cordis 事件名单（无投影、无脱敏、无改名），它同时就是 `ctx.remote.$on` 的合法键集；只含类型的 `src/types.ts` 派生其选择面。多转发一个事件只需在该数组里加一行：类型投影、消费端键面与 Host 转发循环全部由它派生。
 
-监听器签名不在此处重写。名单内每条事件的 cordis `Events` 声明都住在其 owner 包 client-safe 的 `./types` 出口（`dsh-agent-presets`、`dsh-commands`、`dsh-credentials`、`dsh-llm`、`dsh-settings`），本包两个 face 都把那些声明纳入编译面，因此「原样转发」是构造性成立的，不需要另立证明。Host face 还额外把名单断言给 `TypeRTForwardableEvent`：未声明的事件名、绑定 AgentScope 的事件、以及形状不是单向的事件都会在此被拒绝。
+监听器签名不在此处重写。名单内每条事件的 cordis `Events` 声明都住在其 owner 包 client-safe 的 `./types` 出口（`dsh-agent-presets`、`dsh-commands`、`dsh-credentials`、`dsh-llm`、`dsh-settings`），本包两个 face 都把那些声明纳入编译面，因此「原样转发」是构造性成立的，不需要另立证明。Host face 还额外把名单断言给 `TypertForwardableEvent`：未声明的事件名、绑定 AgentScope 的事件、以及形状不是单向的事件都会在此被拒绝。
 
 ## 构建边界
 
-仓库中的普通包只属于一个 TypeScript face：Host 包登记在根 `tsconfig.host.json`，Client 包登记在根 `tsconfig.client.json`。`api-remotes` 是唯一刻意拆分的特例，因为它的 Host 入口要参与 Host TypeRT 图，而 `src/client/index.ts` 必须等 Host tsdown 生成业务包的 `/remote` 声明后才能编译。
+仓库中的普通包只属于一个 TypeScript face：Host 包登记在根 `tsconfig.host.json`，Client 包登记在根 `tsconfig.client.json`。`api-remotes` 是唯一刻意拆分的特例，因为它的 Host 入口要参与 Host Typert 图，而 `src/client/index.ts` 必须等 Host tsdown 生成业务包的 `/remote` 声明后才能编译。
 
 本包根 `tsconfig.json` 只是引用 `tsconfig.host.json` 与 `tsconfig.client.json` 的 solution。Host aggregate 和 Host 直接消费方引用前者，Client aggregate 和 Client 直接消费方引用后者；禁止把包根 solution 放进任一 aggregate 的依赖图。两个 project 拥有互不重叠的源码和 `.tsbuildinfo`，但共享 `lib/types` 输出目录——只有一处刻意的例外：`src/remote-events.ts` 与 `src/types.ts` **同时**列进两个 face 的 `files`，因为转发事件名单是「消费端能收到什么」的唯一控制点，Host 转发循环与 Client 的 `ctx.remote.$on` 键面必须读同一份声明，而不是两份可能彼此漂移的声明。
 

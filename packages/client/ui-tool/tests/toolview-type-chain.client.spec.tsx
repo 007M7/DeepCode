@@ -2,12 +2,12 @@
 // atomic-view props. Generic slot-system duals live in ui-slots tests.
 import { describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallViewProps } from '../src/client/contract/slots.ts'
 
 describe('toolview type negatives (compile-time; body never runs)', () => {
   it('holds the negative samples as expect-error sites', () => {
-    const negatives = (slots: SlotsService) => {
+    const negatives = (slots: SlotRegistry) => {
       // Keyed registration requires the key shape field.
       // @ts-expect-error missing `key` on a keyed-slot registration
       slots.register({ name: 'tool.call.toolview' }, (_p: ToolCallViewProps) => null)

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`ToolRegistry` 通过新增的私有 `resolveExecution(name, scope, nested)` 解析可执行定义，在拥有该决策的操作边界上应用模式塌缩。当 `modeFor(scope)` 解析为 `code` 时，模型直呼（`nested = false`）只允许命名保留的 `run_code` 传输工具；任何原生名字都解析为 `undefined`，并以执行器既有的 `UNKNOWN_TOOL` 错误呈现，其消息会指出改走 `run_code` 的正确路径——因为这个名字对当前模型而言是**已声明过**的（已中止的调用方 signal 保留取消契约：`ABORTED_BEFORE_DISPATCH`，并应用可见工具的 finalizer）。有效的 scope 模式包括从 agent preset 继承的声明，因此其 wire schema 与执行权限保持一致。被塌缩的调用在 `createExecution`（`prepare` 的第一阶段）即终止——在可扩展策略流水线之前，因此 `tools/pre-execute` 监听器、approval `ask` 与 guard 永远不会观察到一个注定被拒绝的调用，人类也不会被提示去批准它。嵌套子调用（`nested = true`——即设置了 `parent` token，生产代码中只有 `run_code` SDK 绑定会设置）可以调用任意可见工具，因此程序保留生成 SDK 声明的全部绑定。
+`ToolRuntime` 通过新增的私有 `resolveExecution(name, scope, nested)` 解析可执行定义，在拥有该决策的操作边界上应用模式塌缩。当 `modeFor(scope)` 解析为 `code` 时，模型直呼（`nested = false`）只允许命名保留的 `run_code` 传输工具；任何原生名字都解析为 `undefined`，并以执行器既有的 `UNKNOWN_TOOL` 错误呈现，其消息会指出改走 `run_code` 的正确路径——因为这个名字对当前模型而言是**已声明过**的（已中止的调用方 signal 保留取消契约：`ABORTED_BEFORE_DISPATCH`，并应用可见工具的 finalizer）。有效的 scope 模式包括从 agent preset 继承的声明，因此其 wire schema 与执行权限保持一致。被塌缩的调用在 `createExecution`（`prepare` 的第一阶段）即终止——在可扩展策略流水线之前，因此 `tools/pre-execute` 监听器、approval `ask` 与 guard 永远不会观察到一个注定被拒绝的调用，人类也不会被提示去批准它。嵌套子调用（`nested = true`——即设置了 `parent` token，生产代码中只有 `run_code` SDK 绑定会设置）可以调用任意可见工具，因此程序保留生成 SDK 声明的全部绑定。
 
 执行链路的四处查表——`executionMode`、`dispatchToolBody`、`postExecute`、`normalizeDispatchResult`——改走 `resolveExecution`。`createExecution` 通过共享的 `collapses(name, nested)` 谓词应用同一塌缩，以便在策略流水线之前区分被塌缩的调用与真正未知的名字。公共注册表视图（`get`）与 SDK 投影（`schemas`）语义不变：展示、检查与绑定枚举仍看到完整可见集合。通告（`wireSchemas`）与执行器现在一致。带非 JSON 可序列化参数的塌缩调用报告参数 `TypeError`（invalid-args 契约），而非 `UNKNOWN_TOOL`——函数体仍不会运行，策略也不会执行。
 
@@ -41,6 +41,6 @@ guard 是可选的插件扩展；安全不变量不能依赖部署恰好组装�
 - `mode: 'code'` 现在兑现其通告：模型直呼原生工具变为 `UNKNOWN_TOOL`，模型可以通过改走 `run_code` 自行纠正（已中止的调用仍按取消契约解析为 `ABORTED_BEFORE_DISPATCH`）。
 - `both` 与 `native` 行为不变；SDK 子调用不变（判别信号是 `parent` token）。
 - 被塌缩的调用在 `prepare` 阶段即被拒绝——在可扩展策略流水线之前：pre-execute 监听器、approval `ask` 与 guard 永远不会观察到它。`executionMode` 同样 fail-closed（`exclusive`），调度无可观察差异。
-- 原生工具指引段（`tool:read`、`tool:write`、`tool:bash` 等）保留在系统提示词中，因为它们同时描述了通过生成 SDK 及原生函数调用可用的能力，其中若干段还承载着任何单个工具描述都装不下的跨工具路由策略（`read` 优先于 `bash cat`、默认 fs-policy 要求先 `read` 再 `write`、一两个委派用 `subagent` 而非 `workflow`）。防止模型直呼原生工具的是执行器塌缩，而非提示词过滤。
+- 原生工具指引段（`tool:read`、`tool:write`、`tool:bash` 等）保留在系统提示词中，因为它们同时描述了通过生成 SDK 及原生函数调用可用的能力，其中若干段还承载着任何单个工具描述都装不下的跨工具路由策略（`read` 优先于 `bash cat`、默认 fs-observation-policy 要求先 `read` 再 `write`、一两个委派用 `subagent` 而非 `workflow`）。防止模型直呼原生工具的是执行器塌缩，而非提示词过滤。
 - 提示词会**声明**这条塌缩，位于排在 100–199 指导段之前的 `tools:code-only` 段。那些段只写出工具名而不限定其可达方式，因此只读到它们的模型会发出原生调用，为一个同一份提示词刚刚声明过的工具收到 `UNKNOWN_TOOL`，进而判定部署不一致，而不是自行纠正。拒绝信息给出正确路径也是同一原因。`both` 下该规则渲染为空：它的原生调用确实会执行，在那里声明就是假话——这也是 `both-mode-turn` 不再与 `code-mode-turn` 共用期望提示词的原因。
 - 未来任何设置 `parent` token 的组合传输，其子调用自动走全表，与该 token 已有的嵌套调用语义一致。

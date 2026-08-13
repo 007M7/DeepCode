@@ -6,7 +6,7 @@
  * signal is a local stream-control parameter, independent of the request (never on the wire).
  */
 
-import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
+import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { Message } from '@deepseek-ai/dsh-llm/types'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -14,7 +14,7 @@ import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
-import type { TaskView } from './tasks.ts'
+import type { JobView } from './jobs.ts'
 import type { WorkspaceView } from './workspace.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
@@ -83,7 +83,7 @@ export type MuxFrame =
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**
-   * Complete set of background tasks this session can see, after every registry
+   * Complete set of background jobs this session can see, after every registry
    * commit that changes it: registration, the stopping transition, settlement,
    * and owner-disposal removal. The registry is process-local and holds no
    * durable event, so — exactly like `session/queue` — the whole snapshot is
@@ -95,7 +95,7 @@ export type MuxFrame =
    * still sends `[]`, since that transition is the only one absence cannot
    * express.
    */
-  | { type: 'session/tasks'; sessionId: SessionId; tasks: TaskView[] }
+  | { type: 'session/jobs'; sessionId: SessionId; jobs: JobView[] }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

@@ -1,5 +1,5 @@
 /**
- * Loader fixture that resumes the seeded workspace-context session.
+ * Loader fixture that resumes the seeded agent-instructions session.
  * @module workspace-context-resume-agent
  */
 

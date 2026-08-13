@@ -14,19 +14,19 @@ Status: implemented
 
 ### 适配器拥有精确路由容量
 
-`LlmAdapter.resolveModel(provider, model, signal?)` 返回一条精确路由的聚合元数据，其中可选的 `LlmModelContext` 位于 `context` 字段下。`LlmService.resolveModelInfo()` 选择已注册的路由所属方，验证 `contextWindow` 为正整数，并返回与适配器内部状态分离的元数据。该查询独立于 `listModels()`：不在目录中的动态模型也可以拥有容量元数据，而缺少 `context` 只表示适配器无法描述容量。
+`LlmAdapter.resolveModel(provider, model, signal?)` 返回一条精确路由的聚合元数据，其中可选的 `LlmModelContext` 位于 `context` 字段下。`LlmRuntime.resolveModelInfo()` 选择已注册的路由所属方，验证 `contextWindow` 为正整数，并返回与适配器内部状态分离的元数据。该查询独立于 `listModels()`：不在目录中的动态模型也可以拥有容量元数据，而缺少 `context` 只表示适配器无法描述容量。
 
 手写 DeepSeek 适配器允许每个已配置模型提供可选 `contextWindow`，并支持适配器级 `defaultContextWindow`。精确模型容量优先；未提供容量的模型项与未列出的透传 id 会继承适配器默认值，若默认值也不存在则省略 `context`。两个内置模型项都公开精确的 256,000 token 容量。pi-ai 适配器从同一个目录描述符解析容量，该描述符也用于权威解析请求模型。
 
 ### Token 计量保持模型无关
 
-`dsh-token-meter` 没有配置，也没有模型 profile。它拥有一个固定回放折叠，并返回绝对估算 token 压力，以及按位置排列的表层节点 token 估值。移除全局容量后，未加载 compact-basic 时仍可复用计量，同时避免让回放核算变成另一套模型注册表。
+`dsh-token-meter` 没有配置，也没有模型 profile。它拥有一个固定回放折叠，并返回绝对估算 token 压力，以及按位置排列的表层节点 token 估值。移除全局容量后，未加载 compaction-basic 时仍可复用计量，同时避免让回放核算变成另一套模型注册表。
 
 ### Compact-basic 解析目标规格
 
 Compact-basic 拥有消费方策略。顶层字段定义默认值；`modelPolicies` 包含以精确 `{ provider, model }` 组合为键的部分覆盖。重复目标、未知字段或无效字段都会让插件加载失败。`thresholdRatio` 默认为 `0.8`，保留策略默认为 `retainRatio: 0.16`；调用方也可以改用绝对 `retainTokens`，但两种保留形式互斥。完成继承后，如果保留比例不小于阈值比例，插件也会加载失败，因为任何模型容量都无法让该策略有效。
 
-对于主动压力检查，compact-basic 读取最新持久请求路由，解析其适配器容量与精确目标策略，再把比例缩放为 `ResolvedCompactSpec`。每次检查都会重新解析，因此同一会话切换提供方或模型后，容量与策略会立即变化。若绝对保留预算不小于缩放后的阈值，系统会在目标容量首次允许比较两者时失败。
+对于主动压力检查，compaction-basic 读取最新持久请求路由，解析其适配器容量与精确目标策略，再把比例缩放为 `ResolvedCompactSpec`。每次检查都会重新解析，因此同一会话切换提供方或模型后，容量与策略会立即变化。若绝对保留预算不小于缩放后的阈值，系统会在目标容量首次允许比较两者时失败。
 
 同一精确目标覆盖还可以选择摘要提供方/模型、摘要输出上限、收敛重试次数与溢出重试上限。这些都属于压缩问题，不会进入任何 LLM 提供方。
 
@@ -40,7 +40,7 @@ Compact-basic 拥有消费方策略。顶层字段定义默认值；`modelPolici
 
 ## 考虑过的替代方案
 
-- **把容量与所有策略都放进 compact-basic**——不予采纳，因为 compact-basic 会复制适配器的模型知识，未列出的动态模型需要并行注册，而且未安装压缩时容量也会消失。
+- **把容量与所有策略都放进 compaction-basic**——不予采纳，因为 compaction-basic 会复制适配器的模型知识，未列出的动态模型需要并行注册，而且未安装压缩时容量也会消失。
 - **把压缩策略放进各个 LLM 适配器**——不予采纳，因为适配器必须独立于可选消费方，而摘要与重试策略也不是提供方事实。
 - **让 `listModels()` 成为权威来源**——不予采纳，因为发现能力只是建议信息，一些适配器有意接受动态 id。正确性元数据不能把选择器成员关系变成路由白名单。
 - **给 token-meter 增加逐模型折叠**——不予采纳，因为回放算法可以共享，变化的只有容量与消费方策略。多个折叠会重复状态，却不会改善估算。
@@ -49,8 +49,8 @@ Compact-basic 拥有消费方策略。顶层字段定义默认值；`modelPolici
 ## 后果
 
 - 容量在提供方约定上拥有唯一权威归属方，而压缩策略留在可选消费插件中。
-- 同一个 compact-basic 实例无需查询发现元数据，就能安全处理不同窗口、提供方切换，以及不同提供方下的相同模型 id。
-- 仅 LLM 与仅 meter 的组合仍然有效；加载 compact-basic 不会让适配器产生反向依赖。
+- 同一个 compaction-basic 实例无需查询发现元数据，就能安全处理不同窗口、提供方切换，以及不同提供方下的相同模型 id。
+- 仅 LLM 与仅 meter 的组合仍然有效；加载 compaction-basic 不会让适配器产生反向依赖。
 - DeepSeek 部署可以设置精确的逐模型容量，也可以让未提供容量的模型项与未列出的透传 id 使用 `defaultContextWindow`。
 - 比例默认值会随模型自然缩放，同时仍可按精确目标使用绝对保留值，以满足部署专用行为。
 

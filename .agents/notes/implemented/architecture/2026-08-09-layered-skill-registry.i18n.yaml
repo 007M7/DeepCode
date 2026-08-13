@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-09-layered-skill-registry.md
-2026-08-09-layered-skill-registry.md: 73897c3cb7e0055ff59221b7ea47c5d6ced06991
-2026-08-09-layered-skill-registry.zh.md: f628a96cfba734ed43e0e72fee58ab6e07afdc9a
+2026-08-09-layered-skill-registry.md: bf49dda62f7ce9bfb594828cca80c797522b3b04
+2026-08-09-layered-skill-registry.zh.md: 2f3f9c207b8766bd31a840b5c319dc8c73dbcb36

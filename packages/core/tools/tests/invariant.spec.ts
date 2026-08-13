@@ -5,14 +5,14 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolsInvariant from '@deepseek-ai/dsh-tools/invariant'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 const testToolSignal = new AbortController().signal
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(InvariantRegistry)
   await ctx.plugin(ToolsInvariant)
   return ctx
 }
@@ -219,7 +219,7 @@ describe('tool-pipeline invariants', () => {
       content: [{ type: 'text', text: 'ok' }],
     })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).resolves.toBeUndefined()
   })
 
@@ -233,7 +233,7 @@ describe('tool-pipeline invariants', () => {
       name: 'echo',
       arguments: {},
     })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 })

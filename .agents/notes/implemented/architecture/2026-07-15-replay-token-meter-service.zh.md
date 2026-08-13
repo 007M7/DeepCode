@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-上下文压力并不只对压缩（compaction）有用。压缩后端、溢出保护或未来的请求策略插件都可能需要回答同一个问题：持久请求消耗了多少 token？如果把该折叠逻辑留在 `dsh-compact-basic` 内部，就会重复实现回放逻辑，使未加载压缩的调用方无法使用计量，并诱使调用方复用陈旧的核算结果。
+上下文压力并不只对压缩（compaction）有用。压缩后端、溢出保护或未来的请求策略插件都可能需要回答同一个问题：持久请求消耗了多少 token？如果把该折叠逻辑留在 `dsh-compaction-basic` 内部，就会重复实现回放逻辑，使未加载压缩的调用方无法使用计量，并诱使调用方复用陈旧的核算结果。
 
 提供方 usage 也不是完整答案。它只描述某个精确请求信封下的一次成功调用，而当前表层之后还可能增长、缩小或被替换。会话也可能切换提供方与模型，旧日志可能缺少构成 assistant 消息的分片 seq，usage 字段还会分别报告输入、缓存读取、缓存写入、输出与推理计数。因此，可用的服务必须把最新精确锚点与保守的启发式重新定价结合起来，并公开每个结果已经消费的日志修订号。
 
@@ -14,7 +14,7 @@ Status: implemented
 
 ### 一个具体的 LLM（大语言模型）家族服务
 
-`@deepseek-ai/dsh-token-meter` 是 `packages/llm/` 下的单个具体包，并注册 `ctx.tokenMeter`。在第二种实现出现之前，它不会被拆成接口与后端。`TokenMeterService` 本身公开 `measure(session, requestHeader?)` 与 `estimateMessage(message)`；消费方直接调用这个单例服务。
+`@deepseek-ai/dsh-token-meter` 是 `packages/llm/` 下的单个具体包，并注册 `ctx.tokenMeter`。在第二种实现出现之前，它不会被拆成接口与后端。`TokenMeter` 本身公开 `measure(session, requestHeader?)` 与 `estimateMessage(message)`；消费方直接调用这个单例服务。
 
 服务没有配置。估算采用固定的每 token 四个字符启发式规则，并加上结构开销。服务不提供模型 profile、容量设置、密度设置、分词器后端或语言专用策略。对精确提供方/模型容量的查询由适配器单独负责，具体见[路由模型上下文与压缩策略 Agent Note](2026-07-20-routed-model-context-and-compaction-policy.md)。
 
@@ -28,11 +28,11 @@ Status: implemented
 
 Usage 会对互不重叠的输入、缓存读取、缓存写入与输出 bucket 求和，不会再次加入推理计数。每次成功模型调用都会记录 `assistant/message`，包括无内容调用与达到 token 上限的调用，并带上精确的更早分片 seq。显式的空 `sourceEventSeqs` 列表表示已知为空的提供方流；旧日志中缺失的列表则保守地把持久 assistant 输出视为提供方输出。
 
-### compact-basic 消费计量，但不拥有计量
+### compaction-basic 消费计量，但不拥有计量
 
-`dsh-compact-basic` 要求 `ctx.tokenMeter`；`CompactService` 不增加 token 方法或类型。配置、区域事务与摘要分别保留在独立模块中，服务自身注册自动监听器，而 `summarize()` 仍是唯一的子类钩子。单例计量器一致用于压力、保留、被遮蔽内容、引用的源事件以及非缩小摘要拒绝的定价。
+`dsh-compaction-basic` 要求 `ctx.tokenMeter`；`CompactionEngine` 不增加 token 方法或类型。配置、区域事务与摘要分别保留在独立模块中，服务自身注册自动监听器，而 `summarize()` 仍是唯一的子类钩子。单例计量器一致用于压力、保留、被遮蔽内容、引用的源事件以及非缩小摘要拒绝的定价。
 
-自动压缩的每次阈值与保留联合决策只使用一次统一计量。区域事务会在追加持久 `compact/start` 锁后执行计量，在异步摘要完成后再次计量，随后比较分离的表层节点向量。期间发生的表层变更会阻止替换；`logRevision` 可以因无关的纯日志事实而推进，而不会使未变的选定范围失效。
+自动压缩的每次阈值与保留联合决策只使用一次统一计量。区域事务会在追加持久 `compaction/start` 锁后执行计量，在异步摘要完成后再次计量，随后比较分离的表层节点向量。期间发生的表层变更会阻止替换；`logRevision` 可以因无关的纯日志事实而推进，而不会使未变的选定范围失效。
 
 压缩策略采用服务级默认值：阈值比例 `0.8`、保留尾部比例 `0.16`、`summarizationProvider: ''`、`summarizationModel: ''`、`maxTokens: 8192`、`compactionRetries: 1`、`maxOverflowRetries: 1` 与 `auto: true`。顶层字段适用于每个路由目标；`modelPolicies` 中的精确提供方/模型项可以部分覆盖这些字段。压力检查以所属适配器解析的容量为基准换算这些比例，`retainTokens` 可以替代 `retainRatio`；保留值必须小于最终阈值。摘要提供方与模型必须同时设置或同时为空；空组合先解析最近记录的请求目标，再使用 `AgentOptions` 中的组合。
 
@@ -40,20 +40,20 @@ Usage 会对互不重叠的输入、缓存读取、缓存写入与输出 bucket 
 
 ## 测试
 
-单元测试覆盖固定估算、信封失效与锚点替换、回放边界、不可变快照、已路由压力、收敛、溢出 generation 证明与回滚。真实 Loader/Include fixture（测试前置数据）验证零配置 token-meter 与 compact-basic 按依赖顺序加载的路径。
+单元测试覆盖固定估算、信封失效与锚点替换、回放边界、不可变快照、已路由压力、收敛、溢出 generation 证明与回滚。真实 Loader/Include fixture（测试前置数据）验证零配置 token-meter 与 compaction-basic 按依赖顺序加载的路径。
 
 ## 考虑过的替代方案
 
-- **把估算保留在 `CompactService` 内**——不予采纳，因为计量拥有独立于压缩的消费方与回放语义；它还会强迫每个压缩器暴露同一套无关 API。
+- **把估算保留在 `CompactionEngine` 内**——不予采纳，因为计量拥有独立于压缩的消费方与回放语义；它还会强迫每个压缩器暴露同一套无关 API。
 - **立即把 token meter 拆成接口与启发式后端**——不予采纳，因为目前只有一种实现。单个具体服务保留未来的 seam，同时避免推测性的包与配置。
-- **把模型键控窗口与密度 profile 放进 meter**——不予采纳，因为回放估算不拥有模型路由或容量事实。路由所属适配器公开容量，compact-basic 则拥有消费方专用的阈值与保留策略。
+- **把模型键控窗口与密度 profile 放进 meter**——不予采纳，因为回放估算不拥有模型路由或容量事实。路由所属适配器公开容量，compaction-basic 则拥有消费方专用的阈值与保留策略。
 - **保留独立的标量与表层计量**——不予采纳，因为消费方必须为一次决策执行两次读取并匹配修订号。仅读取标量可以避免在低于阈值时复制节点，但拆分 API 会在消费方引入竞态窗口；统一快照接受 O(surface) 复制成本，以换取结果一致性。
 - **在不同信封之间移用提供方 usage**——不予采纳，因为模型、工具、前缀与调用配置都是请求事实。不匹配时会重新定价完整当前请求。
 
 ## 后果
 
 - Token 压力拥有一个可供压缩与未来插件共享的回放感知所有者。
-- 默认值让 meter 成为零配置组合项；部署时在各个路由所属适配器上配置容量，并在 compact-basic 上配置可选策略覆盖。
+- 默认值让 meter 成为零配置组合项；部署时在各个路由所属适配器上配置容量，并在 compaction-basic 上配置可选策略覆盖。
 - 固定启发式定价仍然只是提供方行为的估计，并不是精确分词器或请求序列化器。
 - 每次计量都会复制当前带位置信息的表层，因此成本为 O(surface)，低于阈值即可结束的压力检查也不例外。
 - 遇到畸形持久边界时，计量会明确失败。这会把损坏的回放转化为具名集成错误，而不是让压力静默漂移。

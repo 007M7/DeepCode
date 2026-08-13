@@ -106,7 +106,7 @@ A post-creation revocation check can reject the Activation only after the Agent 
 - Waking delivery is the validated default: it creates exactly one later FIFO turn and never steers an open turn. Quiet delivery never starts a parent request.
 - Child cancellation or disposal after parent acceptance does not retract the report. Before acceptance, child disposal, drain, parent loss, or caller cancellation rejects the operation.
 - Fresh and resumed Activations compose current setup contributions before publication. Grants wait for the next Activation; revocation is immediate for resident children.
-- Unit coverage pins visibility, allow-list behavior, both delivery modes, stable message and sender identities, nested routing, invalid senders, absent parents, cancellation, drain, revocation races, and the absence of Tasks or implicit final reporting.
+- Unit coverage pins visibility, allow-list behavior, both delivery modes, stable message and sender identities, nested routing, invalid senders, absent parents, cancellation, drain, revocation races, and the absence of Jobs or implicit final reporting.
 - The keyless assembled snapshot proves the real child tool, the one waking parent turn, durable parent framing, and later parent consumption.
 
 ### Accepted risks

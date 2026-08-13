@@ -38,8 +38,8 @@ Two adjacent fixes ride along. All generic toolview leading icons (and the hover
 
 The row verdict strings are the one remaining hardcoded-English surface of the question flow; localizing them is deferred follow-up. The approval composer takeover shipped ([web permission and approval](2026-07-23-web-permission-and-approval.md), height-capped per the [approval-panel note](../bug-fix/2026-07-30-approval-panel-command-cap.md)), and `PendingCard` no longer exists.
 
-`ui-question` gains a `dsh-client-locale` dependency and an inject face where it previously had none; its contract (`QuestionComposerInjected`) lives with the consumer in `contract/slots.ts`.
+`ui-user-questions` gains a `dsh-client-locale` dependency and an inject face where it previously had none; its contract (`QuestionComposerInjected`) lives with the consumer in `contract/slots.ts`.
 
 ## Verification
 
-`ui-conversation` tests pin the row's waiting/answered/skipped/cancelled/interrupted/fallback matrix, the approval-only pending filter, and the slot registration; `ui-question` tests pin the redesigned composer (checkbox multi-select, always-visible custom row, footer pager, dictionary-key feedback re-translation, IME-safe Enter) and the plugin's dictionary registration plus inject face; `ui-primitives` tests pin the icon set. The assembled Web GUI was exercised against a live session covering answer, cancel, and turn-interrupt paths.
+`ui-conversation` tests pin the row's waiting/answered/skipped/cancelled/interrupted/fallback matrix, the approval-only pending filter, and the slot registration; `ui-user-questions` tests pin the redesigned composer (checkbox multi-select, always-visible custom row, footer pager, dictionary-key feedback re-translation, IME-safe Enter) and the plugin's dictionary registration plus inject face; `ui-primitives` tests pin the icon set. The assembled Web GUI was exercised against a live session covering answer, cancel, and turn-interrupt paths.

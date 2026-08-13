@@ -22,7 +22,7 @@ Status: implemented
 
 **这个面恰好服务于已注册模型提供方所指向的那些 namespace。**`ctx.llm.listConfigurableProviders()` 就是允许列表，于是产品边界是被执行的，而不是从今天的插件集合里推断出来的；将来的 namespace 只有加入该目录才会变得可在 Web 上配置。未注册的 namespace 与未暴露的 namespace 得到完全相同的答复（`settings-not-exposed`），因此探测无法枚举注册表。
 
-**持有局部视图的调用方，点名它真正要改的字段。**`Settings.mutate(ns, ops)` 会把 `set`/`unset` 路径 op 施加在写入排到队首那一刻的分节上。客户端通过对比自己打开时的快照与草稿来构造 op，因此它只提及自己看得见的字段：两侧都没有的机密不会产生任何 op，它的留存是构造使然，而非小心使然。`replace` 仍是那个刻意的整体重置。
+**持有局部视图的调用方，点名它真正要改的字段。**`SettingsProvider.mutate(ns, ops)` 会把 `set`/`unset` 路径 op 施加在写入排到队首那一刻的分节上。客户端通过对比自己打开时的快照与草稿来构造 op，因此它只提及自己看得见的字段：两侧都没有的机密不会产生任何 op，它的留存是构造使然，而非小心使然。`replace` 仍是那个刻意的整体重置。
 
 **陈旧状态会被检测出来，而不是靠排序绕过去。**每个 namespace 都带有一个针对其**原始**分节的单调 `revision`；写入可携带 `expectedRevision`，不匹配即以 `SettingsConflictError` 拒绝——在协议上是 `settings-conflict`，并附上两个 revision。编辑器记住自己打开时的 revision，冲突时请用户重新打开，而不是把自己的快照重放上去。
 

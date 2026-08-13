@@ -30,6 +30,6 @@ None.
 
 ## Known Limitations and Deferred Work
 
-- Only top-level calls through `dsh-tool-workflow` produce these records; nested Code Mode calls and direct `WorkflowService` consumers do not.
+- Only top-level calls through `dsh-tool-workflow` produce these records; nested Code Mode calls and direct `WorkflowEngine` consumers do not.
 - Navigation is intentionally live-only. Terminal members remain visible for review but never expose a cold-session opener from this node.
 - The node shows run, phase, member identity, and status only; scripts, outputs, errors, logs, usage, static topology, and controls remain outside this surface.

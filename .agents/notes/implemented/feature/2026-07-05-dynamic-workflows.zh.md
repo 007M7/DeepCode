@@ -20,9 +20,9 @@ harness 可以通过 `dsh-tool-subagent` 将一个任务委派给一个子 agent
 
 ### seam（dsh-workflow）
 
-`ctx.workflows` 是 bash 形态的抽象 `WorkflowService`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` 永不 reject（失败时结算为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带数据快照（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [subsystems/workflow.md](../../../../docs/subsystems/workflow.md)。
+`ctx.workflowEngine` 是 bash 形态的抽象 `WorkflowEngine`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` 永不 reject（失败时结算为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带数据快照（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [subsystems/workflow.md](../../../../docs/subsystems/workflow.md)。
 
-### 引擎（dsh-workflow-workerthread）：每次运行一个 worker 线程
+### 引擎（dsh-workflow-worker-thread）：每次运行一个 worker 线程
 
 **信任前提**：工作流脚本与模型的 bash 访问具有相同的信任级别。引擎会约束有缺陷脚本的影响，并保证结果已 settled、值可安全表示为 JSON、取消后完全停稳；它不防御恶意代码。vm 上下文和 worker 线程不是安全边界：脚本可以逃逸到具有进程级权限的 Node API。沙箱化需要在此 seam 背后使用独立进程或 isolated-vm 引擎。
 
@@ -44,7 +44,7 @@ harness 可以通过 `dsh-tool-subagent` 将一个任务委派给一个子 agent
 
 ### 基础：subagent seam 上的结构化输出
 
-`SubagentStartRequest.outputSchema` 由 `dsh-subagent-inprocess` 为两个进程内后端实现。每个结构化子 agent 在 `child.ctx` 上获得自己的作用域捕获工具、指令和强制注册；并发子 agent 可以使用不同的 schema 而不共享可变策略，dispose 子 agent 时移除整个附件。
+`SubagentStartRequest.outputSchema` 由 `dsh-subagent-in-process-driver` 为两个进程内后端实现。每个结构化子 agent 在 `child.ctx` 上获得自己的作用域捕获工具、指令和强制注册；并发子 agent 可以使用不同的 schema 而不共享可变策略，dispose 子 agent 时移除整个附件。
 
 输出 schema 使一次 schema 有效的已提交捕获成为子 agent 成功完成的必要条件。作用域运行时呈现捕获工具和指令，仅提交成功的最终结果（包括 SDK 调用时外层 `run_code` 的结果），在捕获变为 pending 后拒绝后续副作用，并在提交后不再进行模型步骤即停止子 agent。校验失败仍是可重试的工具错误；没有已提交捕获的正常完成以错误结算。
 
@@ -56,7 +56,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 
 ## 延迟（明确的非目标）
 
-- **后台收集**（启动工具 → run id → 完成通知 → 收集），与 bash/subagent 后台统一一起设计。
+- **后台收集**（启动工具 → run id → 完成通知 → 收集），与 shell/subagent 后台统一一起设计。
 - **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本约定收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。
 - **保存／打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令 API）和**脚本持久化到运行目录**（工具调用事件已经持久记录了脚本）。
 - **嵌套 `workflow()`**、**token `budget`**，以及 `effort`/`isolation`/`agentType` agent 选项（每个都会明确拒绝，并在消息中注明其已延迟实现）。

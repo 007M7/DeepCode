@@ -188,8 +188,8 @@ describe('Trajectory conversation Definitions', () => {
 
   it('assembles compaction lifecycle, checkpoint replacement, and orphan interruption', () => {
     const current = snapshot(assembler([
-      at(1, 'compact/start', { compactionId: 'complete', turn: null }),
-      at(2, 'compact/summary', {
+      at(1, 'compaction/start', { compactionId: 'complete', turn: null }),
+      at(2, 'compaction/summary', {
         compactionId: 'complete',
         turn: null,
         summary: 'summary',
@@ -204,8 +204,8 @@ describe('Trajectory conversation Definitions', () => {
         content: [{ type: 'text', text: 'summary checkpoint' }],
         source: { kind: 'plugin', plugin: 'compact', compactionId: 'complete' },
       }),
-      at(4, 'compact/end', { compactionId: 'complete', turn: null }),
-      at(5, 'compact/start', { compactionId: 'orphan', turn: null }),
+      at(4, 'compaction/end', { compactionId: 'complete', turn: null }),
+      at(5, 'compaction/start', { compactionId: 'orphan', turn: null }),
       at(6, 'session/end-seed', {}),
     ]))
 

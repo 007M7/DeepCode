@@ -38,8 +38,8 @@ Web GUI 已经可以通过 `QuestionComposer` 的输入区接管收集回答，�
 
 行内裁决字符串是问题流程仅剩的硬编码英文面；将其本地化是推迟的后续工作。审批输入区接管已交付（[Web 权限与审批](2026-07-23-web-permission-and-approval.md)，并按[审批面板 Agent Note](../bug-fix/2026-07-30-approval-panel-command-cap.md)施加高度上限），`PendingCard` 已不复存在。
 
-`ui-question` 新增 `dsh-client-locale` 依赖和此前没有的 inject face；其约定（`QuestionComposerInjected`）与消费方一起放在 `contract/slots.ts`。
+`ui-user-questions` 新增 `dsh-client-locale` 依赖和此前没有的 inject face；其约定（`QuestionComposerInjected`）与消费方一起放在 `contract/slots.ts`。
 
 ## 验证
 
-`ui-conversation` 测试钉住行的 waiting/answered/skipped/cancelled/interrupted/回退矩阵、仅审批的待处理过滤和 slot 注册；`ui-question` 测试钉住重设计的输入区（复选框多选、始终可见的自定义行、底部分页、词典 key 反馈重翻译、IME 安全的 Enter）以及插件的词典注册与 inject face；`ui-primitives` 测试钉住图标集。组装后的 Web GUI 在真实会话中演练了回答、取消与轮次打断路径。
+`ui-conversation` 测试钉住行的 waiting/answered/skipped/cancelled/interrupted/回退矩阵、仅审批的待处理过滤和 slot 注册；`ui-user-questions` 测试钉住重设计的输入区（复选框多选、始终可见的自定义行、底部分页、词典 key 反馈重翻译、IME 安全的 Enter）以及插件的词典注册与 inject face；`ui-primitives` 测试钉住图标集。组装后的 Web GUI 在真实会话中演练了回答、取消与轮次打断路径。

@@ -15,7 +15,7 @@ import {
   foldScheduleEvents,
   resolveEveryOccurrence,
   type EveryScheduleRecord,
-} from '@deepseek-ai/dsh-tool-schedule'
+} from '@deepseek-ai/dsh-schedule'
 import {
   assertFixtureInventory,
   captureStableAria,
@@ -167,7 +167,7 @@ function requestText(options: GenerateOptions): string {
 /** Require one assembled request to preserve the reminder-content trust boundary. */
 function expectReminderFraming(options: GenerateOptions): void {
   const reminder = options.messages.find(message => (
-    message.source.kind === 'plugin' && message.source.plugin === 'tool-schedule'
+    message.source.kind === 'plugin' && message.source.plugin === 'schedule'
   ))
   expect(reminder?.role).toBe('user')
   const text = reminder?.content.find(block => block.type === 'text')?.text
@@ -242,7 +242,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       .toBe(AT_BROWSER_ZONE)
 
     const cwd = join(scaffold.workspaceCwd, 'workspace')
-    const workspace = await scaffold.ctx.workspace.resolveByPath(cwd)
+    const workspace = await scaffold.ctx.workspaceRegistry.resolveByPath(cwd)
     if (workspace === undefined) throw new Error('connected Web workspace was not registered')
 
     afterHandle = await scaffold.ctx.agents.create({
@@ -421,7 +421,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     const batch = everyHandle.agent.session.events.find(event => (
       event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'tool-schedule'
+      && event.data.source.plugin === 'schedule'
       && event.data.content.some(block => block.type === 'text'
         && block.text.startsWith('[SCHEDULE REMINDER BATCH]'))
     ))

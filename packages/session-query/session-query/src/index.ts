@@ -67,7 +67,7 @@ export { assertSessionHeadersCompatible } from './sources.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    sessionQuery: SessionQueryService
+    sessionQuery: SessionQueryEngine
   }
 }
 
@@ -78,7 +78,7 @@ declare module '@deepseek-ai/cordis' {
  * A backend implements full-text observation, reconciliation, ranking, cursor
  * generations, and query execution on the same `ctx.sessionQuery` service.
  */
-export abstract class SessionQueryService extends Service {
+export abstract class SessionQueryEngine extends Service {
   static inject = ['sessions']
 
   private readonly _readWindowMax: number
@@ -356,4 +356,4 @@ export abstract class SessionQueryService extends Service {
   }
 }
 
-export default SessionQueryService
+export default SessionQueryEngine

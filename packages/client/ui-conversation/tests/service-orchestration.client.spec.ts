@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// ConversationService scope addressing over the runtime's real scope tag:
+// ConversationController scope addressing over the runtime's real scope tag:
 // TestSessions mints tagged scopes through the production createScope, so the
 // service's scopeOf/binding path runs against production resolution (no local
 // tag probe).
@@ -10,7 +10,7 @@ import { makeTranslate, SlotTestRuntime } from '@deepseek-ai/dsh-client-test-run
 import type { QueuedMessage, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
-import { ConversationService, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
+import { ConversationController, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
 import { zh } from '../src/client/locales.ts'
 
 async function bench(readAttachment?: SessionFace['readAttachment']) {
@@ -26,18 +26,18 @@ async function bench(readAttachment?: SessionFace['readAttachment']) {
   // config.input is required (the apply shares its hub with the inject
   // factories); the bench passes its own instance explicitly.
   const hub = new InputHub(runtime.ctx, makeTranslate(zh, {}))
-  const fiber = runtime.ctx.plugin(ConversationService, {
+  const fiber = runtime.ctx.plugin(ConversationController, {
     input: hub,
     blocks: new ComposerBlockRegistry(),
   })
   await fiber.await()
-  const root = runtime.ctx.get('conversation') as ConversationService
-  const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
+  const root = runtime.ctx.get('conversation') as ConversationController
+  const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationController
   const shell = hub.shellFor(runtime.sessions.binding('s1')!)
   return { runtime, fiber, root, scoped, hub, shell, prompt, updateQueue, cancel, loadOlder }
 }
 
-describe('ConversationService', () => {
+describe('ConversationController', () => {
   it('routes operations through the public Session binding', async () => {
     const b = await bench()
     await b.scoped.send('hello')
@@ -129,19 +129,19 @@ describe('ConversationService', () => {
     await b.runtime.dispose()
   })
 
-  it('fails loudly from the root scope, on an unbound session, or without SessionsService', async () => {
+  it('fails loudly from the root scope, on an unbound session, or without SessionRuntime', async () => {
     const b = await bench()
     await expect(b.root.send('x')).rejects.toThrow(/requires a session scope/)
     await b.runtime.sessions.remove('s1')
     await expect(b.scoped.send('x')).rejects.toThrow(/resolved no binding/)
     await b.runtime.dispose()
-    // No SessionsService at all: a bare context (the runtime always provides one).
+    // No SessionRuntime at all: a bare context (the runtime always provides one).
     const bare = new Context()
-    await bare.plugin(ConversationService, {
+    await bare.plugin(ConversationController, {
       input: new InputHub(bare, makeTranslate(zh, {})),
       blocks: new ComposerBlockRegistry(),
     }).await()
-    const orphan = bare.get('conversation') as ConversationService
+    const orphan = bare.get('conversation') as ConversationController
     await expect(orphan.send('x')).rejects.toThrow(/sessions service unavailable/)
   })
 })

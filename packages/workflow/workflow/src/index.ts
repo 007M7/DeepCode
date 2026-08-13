@@ -30,7 +30,7 @@ export type { WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    workflows: WorkflowService
+    workflowEngine: WorkflowEngine
   }
 
   interface Events {
@@ -90,7 +90,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** The full set of `workflow/*` event names {@link WorkflowService.emitWorkflowEvent} dispatches. */
+/** The full set of `workflow/*` event names {@link WorkflowEngine.emitWorkflowEvent} dispatches. */
 export type WorkflowEventName =
   | 'workflow/start'
   | 'workflow/phase'
@@ -154,9 +154,9 @@ export function isFatalWorkflowError(error: unknown): boolean {
  * listener failures are contained, and `workflow/end` fires exactly once as the
  * result settles.
  */
-export abstract class WorkflowService extends Service {
+export abstract class WorkflowEngine extends Service {
   constructor(ctx: Context) {
-    super(ctx, 'workflows')
+    super(ctx, 'workflowEngine')
   }
 
   /**
@@ -200,4 +200,4 @@ function renderListenerError(error: unknown): string {
   }
 }
 
-export default WorkflowService
+export default WorkflowEngine

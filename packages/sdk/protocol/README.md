@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delimited JSON-RPC 2.0 transport class plus the named request, result, and notification types both wire ends speak. The package root enumerates the protocol consumer interface; source modules are not exported as deep imports. The server side is the [`dsh-jsonrpc`](../server/README.md) plugin; clients are [`dsh-sdk-client`](../client/README.md) (TypeScript) and the [Python SDK](../../../python/README.md) (which mirrors these shapes but does not import them). A pure library — no plugin, no Config, no registration.
+The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delimited JSON-RPC 2.0 transport class plus the named request, result, and notification types both wire ends speak. The package root enumerates the protocol consumer interface; source modules are not exported as deep imports. The server side is the [`dsh-sdk-jsonrpc-server`](../server/README.md) plugin; clients are [`dsh-sdk-client`](../client/README.md) (TypeScript) and the [Python SDK](../../../python/README.md) (which mirrors these shapes but does not import them). A pure library — no plugin, no Config, no registration.
 
 ## Transport
 
@@ -10,7 +10,7 @@ The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delim
 
 ## Wire types
 
-`types.ts` names every payload of the protocol served by `HarnessSdkServer`:
+`types.ts` names every payload of the protocol served by `HarnessSdkJsonRpcServer`:
 
 | Direction | Method | Types |
 |---|---|---|
@@ -26,7 +26,7 @@ The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delim
 
 ## Model Experience
 
-None, as this package defines the client-facing wire protocol; the model-visible surfaces belong to the runtime plugins composed behind the serving [`dsh-jsonrpc`](../server/README.md) entry.
+None, as this package defines the client-facing wire protocol; the model-visible surfaces belong to the runtime plugins composed behind the serving [`dsh-sdk-jsonrpc-server`](../server/README.md) entry.
 
 #### KV Cache effect
 
@@ -35,5 +35,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **No protocol-version negotiation** — the handshake carries only `serverInfo.version` (`0.0.1`, unvalidated by clients); pre-release stance, no compatibility promise.
-- **No cancel or session-close methods** — a client abandons a turn by closing the runtime process; see the [`dsh-jsonrpc` README](../server/README.md).
+- **No cancel or session-close methods** — a client abandons a turn by closing the runtime process; see the [`dsh-sdk-jsonrpc-server` README](../server/README.md).
 - **Server→client requests are dead capability** — the transport supports them, but the server never sends one; the Python SDK's responder surface exists for future approval flows.

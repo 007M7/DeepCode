@@ -1,6 +1,6 @@
 /**
- * Real-composition guard for the dormant pi-ai posture: LlmService,
- * settings-local, credentials-local, and a bare `llm-pi-ai` row boot from a
+ * Real-composition guard for the dormant pi-ai posture: LlmRuntime,
+ * settings-file, credentials-local, and a bare `llm-pi-ai` row boot from a
  * test-only cordis.yml through the actual Loader + Include path, an external
  * edit of settings.yaml registers the route live, and the next request
  * carries the credential the credentials document supplies. A hand-mounted `ctx.plugin` cannot
@@ -16,9 +16,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import LlmService from '@deepseek-ai/dsh-llm'
-import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
-import SettingsLocal from '@deepseek-ai/dsh-settings-local'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -47,7 +47,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     '- id: llm',
     "  name: 'test-llm-service'",
     '- id: settings',
-    "  name: '@deepseek-ai/dsh-settings-local'",
+    "  name: '@deepseek-ai/dsh-settings-file'",
     '  config:',
     `    path: ${JSON.stringify(settingsPath)}`,
     '    debounceMs: 10',
@@ -67,9 +67,9 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
-    ['test-llm-service', LlmService],
-    ['@deepseek-ai/dsh-settings-local', SettingsLocal],
-    ['@deepseek-ai/dsh-credentials-local', CredentialsLocal],
+    ['test-llm-service', LlmRuntime],
+    ['@deepseek-ai/dsh-settings-file', FileSettingsProvider],
+    ['@deepseek-ai/dsh-credentials-local', LocalCredentialProvider],
     ['@deepseek-ai/dsh-llm-pi-ai', LlmPiAi],
   ])
   ctx.loader.internal = {

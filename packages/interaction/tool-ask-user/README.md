@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the model ask the human a concise question when it needs confirmation, a choice, or missing information before continuing.
+Model-facing `ask_user_question` tool over `ctx.userQuestions`. It lets the model ask the human a concise question when it needs confirmation, a choice, or missing information before continuing.
 
 ## Tool
 
@@ -15,11 +15,11 @@ Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the mo
 - `options` — optional choices with `label` and `description`. If recommending a choice, put it first and append `(Recommended)` to that label.
 - `multi_select` — whether that question may return more than one selected option.
 
-The tool calls `ctx.userInteraction.ask()` and returns canonical `{ answers: [{ id, selected, custom? }] }`. `selected` contains option labels; `custom` carries a free-form answer, supplementing `selected` for a multi-select question and overriding it for a single-select question. The Native renderer preserves the compact JSON text shape `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`.
+The tool calls `ctx.userQuestions.ask()` and returns canonical `{ answers: [{ id, selected, custom? }] }`. `selected` contains option labels; `custom` carries a free-form answer, supplementing `selected` for a multi-select question and overriding it for a single-select question. The Native renderer preserves the compact JSON text shape `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`.
 
 ## Role
 
-This is the Consumer package for the user-interaction seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
+This is the Consumer package for the user-questions seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
 
 ## Model Experience
 

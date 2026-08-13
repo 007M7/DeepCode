@@ -5,5 +5,5 @@
     - id: time-context
       name: '@deepseek-ai/dsh-time-context'
 
-    - id: tool-schedule
-      name: '@deepseek-ai/dsh-tool-schedule'
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'

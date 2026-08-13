@@ -22,7 +22,7 @@ Status: implemented
 
 ### 回放从日志推导模型脚本
 
-`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 在终止的 `finish` 分片处切分已记录的 `assistant/chunk` 事件，并用 `(turn, step)` 变化拒绝前一条未终止的调用。携带 `llmStreamCall: true` 的 `compact/summary` 会在其持久日志位置贡献一次调用：回放根据 `rawOutput` 重建规范块边界，保留已记录的 usage（如有），并提供终止的 `stop`。该标记将这次本地调用与模板摘要或远程摘要区分开；后两者即使保留了 `rawOutput`，也未使用此上下文的适配器。
+`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 在终止的 `finish` 分片处切分已记录的 `assistant/chunk` 事件，并用 `(turn, step)` 变化拒绝前一条未终止的调用。携带 `llmStreamCall: true` 的 `compaction/summary` 会在其持久日志位置贡献一次调用：回放根据 `rawOutput` 重建规范块边界，保留已记录的 usage（如有），并提供终止的 `stop`。该标记将这次本地调用与模板摘要或远程摘要区分开；后两者即使保留了 `rawOutput`，也未使用此上下文的适配器。
 
 ### 内存中的回放条目遵守完整的 LLM 约定
 

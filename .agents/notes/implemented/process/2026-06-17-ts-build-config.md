@@ -32,8 +32,8 @@ In-package relative imports use explicit `.ts` specifiers.
 
 `pnpm run build` orders Host lib, Client lib, and Web; each lib phase keeps tsc emission before tsdown bundling:
 
-- Host tsc runs `tsc -b` against `tsconfig.host.json`, emitting per-module `.js`, `.d.ts`, `.js.map`, and `.d.ts.map` into `lib/types` for each package in the Host graph; Host tsdown then reads that JavaScript, produces published entries, and runs Host TypeRT.
-- Client tsc runs `tsc -b` against `tsconfig.client.json` after Host TypeRT has generated the Remote Client declarations; Client tsdown then reads the JavaScript emitted by the Client graph and produces the Client packages' Node loader entries and browser bundles.
+- Host tsc runs `tsc -b` against `tsconfig.host.json`, emitting per-module `.js`, `.d.ts`, `.js.map`, and `.d.ts.map` into `lib/types` for each package in the Host graph; Host tsdown then reads that JavaScript, produces published entries, and runs Host Typert.
+- Client tsc runs `tsc -b` against `tsconfig.client.json` after Host Typert has generated the Remote Client declarations; Client tsdown then reads the JavaScript emitted by the Client graph and produces the Client packages' Node loader entries and browser bundles.
 - The Web build starts only after both lib phases complete.
 
 `tsdown` is no longer the owner of TypeScript compilation or declaration output.

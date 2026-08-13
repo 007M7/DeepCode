@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-提供方偶尔会返回一种退化的 completion：流本身格式完好，以终止性的 `stop` 结束，却没有任何内容块——没有文本、没有推理（reasoning）、没有工具调用。如果适配器把这种形态映射为成功的 `{kind: 'stop'}` 结束，主循环就会记录一条空的 `assistant/message`，并把该轮次以 `completed` 结束。系统不会重试，失败也不会向调用方暴露，而像 goal-session 这样的驱动方会消耗一个 Round，却没有取得任何进展。
+提供方偶尔会返回一种退化的 completion：流本身格式完好，以终止性的 `stop` 结束，却没有任何内容块——没有文本、没有推理（reasoning）、没有工具调用。如果适配器把这种形态映射为成功的 `{kind: 'stop'}` 结束，主循环就会记录一条空的 `assistant/message`，并把该轮次以 `completed` 结束。系统不会重试，失败也不会向调用方暴露，而像 goal-round-driver 这样的驱动方会消耗一个 Round，却没有取得任何进展。
 
 ## 决策
 

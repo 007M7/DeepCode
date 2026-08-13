@@ -15,7 +15,7 @@ export type {} from './conversation-nodes/turn-max-tokens.ts'
 export type {} from './conversation-nodes/turn-tail.ts'
 
 export { apply, inject } from './apply.ts'
-export { ConversationService } from './service.ts'
+export { ConversationController } from './service.ts'
 export type { IConversation } from './service.ts'
 export type { DraftAttachmentId } from './input/contract.ts'
 

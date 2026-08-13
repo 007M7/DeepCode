@@ -395,7 +395,7 @@ export function ChatView({
               t={t}
             />
           ))}
-          {/* No pending placeholders: questions (ui-question) and approvals
+          {/* No pending placeholders: questions (ui-user-questions) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token

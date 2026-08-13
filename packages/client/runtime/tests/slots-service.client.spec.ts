@@ -1,5 +1,5 @@
 /**
- * SlotsService terminal-design account:
+ * SlotRegistry terminal-design account:
  * built-in 'root', the three load-time throws (duplicate declaration /
  * undeclared contribution / cross-scope store handle), the renderer installation
  * contract (double install / not installed / non-root key), store instance
@@ -9,7 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { FC } from 'react'
 import type { SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotsService } from '../src/client/slots.ts'
+import { SlotRegistry } from '../src/client/slots.ts'
 
 // Test-only slot keys (merged so the typed entries/spec faces accept them).
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -36,13 +36,13 @@ interface ErasedService {
 
 interface Bench {
   ctx: Context
-  svc: SlotsService
+  svc: SlotRegistry
   erased: ErasedService
 }
 
 async function boot(): Promise<Bench> {
   const ctx = new Context()
-  const fiber = ctx.plugin(SlotsService)
+  const fiber = ctx.plugin(SlotRegistry)
   await fiber
   // Service accessor (ctx.get reads the reflect store, which Service-class
   // plugins do not write; the accessor is the product path).

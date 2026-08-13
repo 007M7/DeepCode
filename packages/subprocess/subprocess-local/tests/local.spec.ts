@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { childEnv } from '../src/spawn.ts'
 
@@ -20,13 +20,13 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
   }
 }
 
-describe('LocalSubprocessService', () => {
+describe('LocalSubprocessRuntime', () => {
   it('places the host-exit finalizer before listeners that predate the service', async () => {
     const baseline = new Set(process.listeners('exit'))
     const prior = vi.fn()
     process.on('exit', prior)
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     try {
       const listeners = process.listeners('exit')
       const finalizer = listeners.find(candidate => !baseline.has(candidate) && candidate !== prior)
@@ -41,7 +41,7 @@ describe('LocalSubprocessService', () => {
   it('keeps the host-exit finalizer active until normal disposal reaches quiescence', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const listener = process.listeners('exit').find(candidate => !before.has(candidate))
     expect(listener).toBeTypeOf('function')
 
@@ -82,7 +82,7 @@ describe('LocalSubprocessService', () => {
   it('contains each host-exit termination failure and continues with the other targets', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const listener = process.listeners('exit').find(candidate => !before.has(candidate))
     expect(listener).toBeTypeOf('function')
     const ordinaryFailure = vi.fn(() => { throw new Error('ordinary failed') })
@@ -111,7 +111,7 @@ describe('LocalSubprocessService', () => {
 
   it('resolves absolute and PATH executables and honors lookup cancellation', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     expect(await ctx.subprocess.resolveExecutable(process.execPath)).toBe(process.execPath)
     expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
       PATH: dirname(process.execPath),
@@ -137,8 +137,8 @@ describe('LocalSubprocessService', () => {
 
   it('builds Windows executable candidates with case-insensitive overrides', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
-    const service = ctx.subprocess as LocalSubprocessService
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const service = ctx.subprocess as LocalSubprocessRuntime
     const candidates = (service as unknown as {
       executableCandidates(command: string, env: NodeJS.ProcessEnv): string[]
     }).executableCandidates.bind(service)
@@ -163,7 +163,7 @@ describe('LocalSubprocessService', () => {
 
   it('validates terminal allocation inputs before allocating a PTY', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const base: SubprocessTerminalSpawnSpec = {
       argv: ['bash'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 10,
     }
@@ -175,7 +175,7 @@ describe('LocalSubprocessService', () => {
 
   it('terminates and joins an owned terminal during disposal', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const terminate = vi.fn(async () => {})
     const terminal: SubprocessTerminalHandle = {
       pid: 1,
@@ -195,7 +195,7 @@ describe('LocalSubprocessService', () => {
 
   it('waits for every terminal cleanup and aggregates teardown failures', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const service = ctx.subprocess
     const firstFailure = new Error('first cleanup failure')
     const secondFailure = new Error('second cleanup failure')
@@ -246,7 +246,7 @@ describe('LocalSubprocessService', () => {
     const failure = new Error('single cleanup failure')
     const disposalErrors: unknown[] = []
     ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const service = ctx.subprocess
     const terminal: SubprocessTerminalHandle = {
       pid: 1,
@@ -268,7 +268,7 @@ describe('LocalSubprocessService', () => {
   it('force-terminates remaining targets before releasing a failed disposal', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const listener = process.listeners('exit').find(candidate => !before.has(candidate))
     expect(listener).toBeTypeOf('function')
     const failure = new Error('cleanup failed')
@@ -317,10 +317,10 @@ describe('LocalSubprocessService', () => {
       createProcessInspector: () => inspector,
     }))
     try {
-      const { default: IsolatedLocalSubprocessService } = await import('../src/index.ts')
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
       const ctx = new Context()
-      const fiber = await ctx.plugin(IsolatedLocalSubprocessService)
-      const service = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessService>
+      const fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
+      const service = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
       const handle = await ctx.subprocess.spawnTerminal({
         argv: ['shell'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1,
       })
@@ -352,13 +352,13 @@ describe('LocalSubprocessService', () => {
     vi.resetModules()
     vi.doMock('node-pty', () => ({ spawn: () => terminal }))
     try {
-      const { default: IsolatedLocalSubprocessService } = await import('../src/index.ts')
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
       const ctx = new Context()
       const disposalErrors: unknown[] = []
       ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
-      const fiber = await ctx.plugin(IsolatedLocalSubprocessService)
+      const fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
       const alive = new Set([124])
-      ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessService>).terminalInspector = {
+      ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>).terminalInspector = {
         foregroundPgid: () => 123,
         isStdinWaiting: () => false,
         processTree: () => [{ pid: 123, started: 'shell' }, { pid: 124, started: 'child' }],
@@ -384,7 +384,7 @@ describe('LocalSubprocessService', () => {
 
   it('registers as ctx.subprocess and spawns managed handles', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const handle = ctx.subprocess.spawn(spec('echo managed'))
     const result = await handle.done
     expect(result.exitCode).toBe(0)
@@ -394,7 +394,7 @@ describe('LocalSubprocessService', () => {
 
   it('disposal kills still-running processes and awaits their exit', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const handle = ctx.subprocess.spawn(spec('sleep 60'))
     await fiber.dispose()
     const outcome = await handle.done
@@ -403,7 +403,7 @@ describe('LocalSubprocessService', () => {
 
   it('a settled process leaves the live set (disposal does not re-kill it)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const handle = ctx.subprocess.spawn(spec('true'))
     const outcome = await handle.done
     expect(outcome.exitCode).toBe(0)
@@ -412,7 +412,7 @@ describe('LocalSubprocessService', () => {
 
   it('disposal tolerates a handle whose spawn already failed', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const handle = ctx.subprocess.spawn(spec('true', { cwd: '/nonexistent-dir-dsh-subprocess-test' }))
     await expect(handle.done).rejects.toThrow()
     await fiber.dispose()
@@ -420,7 +420,7 @@ describe('LocalSubprocessService', () => {
 
   it('disposal contains a spawn-failure rejection that races teardown', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
     // Dispose before the rejection continuation removes the handle from the
     // live set, so teardown itself must swallow the rejected done.
     const handle = ctx.subprocess.spawn(spec('true', { cwd: '/nonexistent-dir-dsh-subprocess-test' }))
@@ -430,8 +430,8 @@ describe('LocalSubprocessService', () => {
 
   it('loading a second implementation throws (one processes service per context — cordis standard)', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSubprocessService)
-    class SecondManager extends LocalSubprocessService {}
+    await ctx.plugin(LocalSubprocessRuntime)
+    class SecondManager extends LocalSubprocessRuntime {}
     await expect(ctx.plugin(SecondManager)).rejects.toThrow(/service "subprocess" has been registered/)
   })
 })

@@ -34,15 +34,15 @@
               mode: danger-full-access
               workspaceRoot: !!js process.cwd()
           - id: pty
-            name: '@deepseek-ai/dsh-pty'
-          - id: pty-local
-            name: '@deepseek-ai/dsh-pty-local'
-          - id: tool-pty
-            name: '@deepseek-ai/dsh-tool-pty'
+            name: '@deepseek-ai/dsh-terminal'
+          - id: terminal-bash
+            name: '@deepseek-ai/dsh-terminal-bash'
+          - id: tool-terminal
+            name: '@deepseek-ai/dsh-tool-terminal'
           - id: lsp
             name: '@deepseek-ai/dsh-lsp'
-          - id: lsp-local
-            name: '@deepseek-ai/dsh-lsp-local'
+          - id: lsp-stdio
+            name: '@deepseek-ai/dsh-lsp-stdio'
             config:
               servers:
                 typescript:

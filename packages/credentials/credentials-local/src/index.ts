@@ -42,11 +42,11 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Document, parseDocument, type YAMLError } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { environmentOf } from '@deepseek-ai/dsh-environment'
-import { Credentials, credentialRef } from '@deepseek-ai/dsh-credentials'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import { CredentialProvider, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
-import type { EnvironmentEntry } from '@deepseek-ai/dsh-environment'
+import type { LaunchEnvironmentEntry } from '@deepseek-ai/dsh-launch-environment'
 
 /** Basename of the credentials document inside the harness home. */
 export const CREDENTIALS_FILENAME = '.credentials.yaml'
@@ -204,9 +204,9 @@ function renderDocument(text: string | undefined, ref: CredentialRef, value: str
 }
 
 /** File-backed credentials provider (`$DSH_HOME/.credentials.yaml`). */
-export class CredentialsLocal extends Credentials {
+export class LocalCredentialProvider extends CredentialProvider {
   /* jscpd:ignore-start -- deliberate config-surface and lifecycle symmetry with
-     settings-local (prefer symmetry for parallel values); extracting the shared
+     settings-file (prefer symmetry for parallel values); extracting the shared
      shape would couple the two providers' teardown semantics across packages. */
   static Config: z<Config> = z.object({
     path: z.string(),
@@ -248,7 +248,7 @@ export class CredentialsLocal extends Credentials {
 
   /** The inherited-environment value for a reference, or `undefined` when empty or unset. */
   private inherited(ref: CredentialRef): string | undefined {
-    const entry = environmentOf(this.ctx).getFrom(ref, ['process'])
+    const entry = launchEnvironmentOf(this.ctx).getFrom(ref, ['process'])
     return entry !== undefined && entry.value.length > 0 ? entry.value : undefined
   }
 
@@ -257,8 +257,8 @@ export class CredentialsLocal extends Credentials {
    * it. The invoking project ranks over the user's home file, matching the
    * environment layering: the more specific location wins.
    */
-  private dotenvFallback(ref: CredentialRef): EnvironmentEntry | undefined {
-    const entry = environmentOf(this.ctx).getFrom(ref, ['project-env', 'user-env'])
+  private dotenvFallback(ref: CredentialRef): LaunchEnvironmentEntry | undefined {
+    const entry = launchEnvironmentOf(this.ctx).getFrom(ref, ['project-env', 'user-env'])
     return entry !== undefined && entry.value.length > 0 ? entry : undefined
   }
 
@@ -271,7 +271,7 @@ export class CredentialsLocal extends Credentials {
     }
     await this.loadInitial()
     if (!this.spec.watch) return
-    /* jscpd:ignore-start -- same watcher discipline as settings-local by design:
+    /* jscpd:ignore-start -- same watcher discipline as settings-file by design:
        the serialized-refresh and quiesce-on-dispose shape is the reviewed
        lifecycle contract, not accidental repetition. */
     const watcher = chokidarWatch(await canonicalizeWatchPath(this.spec.filename), {
@@ -342,7 +342,7 @@ export class CredentialsLocal extends Credentials {
   }
 
   /* jscpd:ignore-start -- the operation-chain and reload lifecycle is the same
-     reviewed contract as settings-local, deliberately mirrored (prefer symmetry
+     reviewed contract as settings-file, deliberately mirrored (prefer symmetry
      for parallel values); the two providers own different documents and
      failure policies, so extracting a shared helper would couple their teardown
      semantics across packages for a handful of lines. */
@@ -434,7 +434,7 @@ export class CredentialsLocal extends Credentials {
     this.text = text
   }
 
-  /* jscpd:ignore-start -- same deliberate mirror of settings-local's reload and
+  /* jscpd:ignore-start -- same deliberate mirror of settings-file's reload and
      reconcile policy: warn-and-keep on a reload, throw on a write, invariant
      failures propagate. */
   /**
@@ -493,4 +493,4 @@ export class CredentialsLocal extends Credentials {
   }
 }
 
-export default CredentialsLocal
+export default LocalCredentialProvider

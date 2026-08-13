@@ -4,7 +4,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import CommandService, { parseCommand, type CommandDefinition } from '@deepseek-ai/dsh-commands'
+import CommandRuntime, { parseCommand, type CommandDefinition } from '@deepseek-ai/dsh-commands'
 
 function command(name: string, text = `ran:${name}`): CommandDefinition {
   return {
@@ -17,7 +17,7 @@ function command(name: string, text = `ran:${name}`): CommandDefinition {
 async function mount(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(CommandService)
+  await ctx.plugin(CommandRuntime)
   return ctx
 }
 
@@ -52,7 +52,7 @@ describe('parseCommand()', () => {
   })
 })
 
-describe('CommandService', () => {
+describe('CommandRuntime', () => {
   it('lists immutable global descriptors with input metadata', async () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')

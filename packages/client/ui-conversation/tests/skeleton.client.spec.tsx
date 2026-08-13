@@ -27,6 +27,7 @@ import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
   ComposerBarOwnerProps,
 } from '../src/client/contract/slots.ts'
+import type { ViewTab } from '../src/client/contract/views.ts'
 
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
@@ -96,6 +97,8 @@ function mount(
     summaryOrigin?: 'subagent'
     /** A composer block another plugin raised for this session. */
     composerBlock?: { reason: string }
+    /** Mutable view ledger used by registration-order regressions. */
+    viewTabs?: ViewTab[]
   } = {},
 ) {
   const root = sid('root')
@@ -110,7 +113,7 @@ function mount(
     ids: listed ? [root, SID] : [root],
     byId: { [root]: rootRow, ...listed && { [SID]: childRow } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
   })
   const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
@@ -123,6 +126,15 @@ function mount(
   const stop = vi.fn()
   const open = vi.fn()
   const slotCalls: string[] = []
+  const viewTabs = options.viewTabs ?? [
+    { id: 'chat', label: 'Chat' },
+    { id: 'trajectory', label: 'Trajectory' },
+  ]
+  const views = {
+    list: () => viewTabs,
+    subscribe: () => () => {},
+    version: () => 1,
+  }
   /** Owner share handed to the two composer tool-row seats, per render. */
   const seatOwners: { key: string; owner: unknown }[] = []
   let pickerOwner: unknown
@@ -146,14 +158,7 @@ function mount(
           useStore={bindSnapshotSelector(chat)}
           actions={chat.actions}
           renderSlot={renderSlot as never}
-          views={{
-            list: () => [
-              { id: 'chat', label: 'Chat' },
-              { id: 'trajectory', label: 'Trajectory' },
-            ],
-            subscribe: () => () => {},
-            version: () => 1,
-          }}
+          views={views}
           open={open}
           t={t}
         />
@@ -173,14 +178,7 @@ function mount(
           useStore={bindSnapshotSelector(chat)}
           actions={chat.actions}
           renderSlot={renderSlot as never}
-          views={{
-            list: () => [
-              { id: 'chat', label: 'Chat' },
-              { id: 'trajectory', label: 'Trajectory' },
-            ],
-            subscribe: () => () => {},
-            version: () => 1,
-          }}
+          views={views}
           releaseSessionImages={vi.fn()}
           bindDraftMirror={write => wiring.bindMirror(write)}
         />
@@ -440,6 +438,26 @@ describe('ConversationRoot resident composer', () => {
     act(() => { b.chat.actions.setView('trajectory') })
     expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
     expect(b.view.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('keeps the Chat fallback selected by id when a view is inserted before it', () => {
+    const viewTabs: ViewTab[] = [
+      { id: 'chat', label: 'Chat' },
+      { id: 'trajectory', label: 'Trajectory' },
+    ]
+    const b = mount(conversationSnapshot(), undefined, undefined, { viewTabs })
+    // A removed dynamic view leaves its persisted id behind. The visible
+    // fallback is Chat and must stay Chat when another lower-order view lands.
+    act(() => { b.chat.actions.setView('removed-view') })
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+
+    viewTabs.unshift({ id: 'new-view', label: 'New view' })
+    b.rerender()
+
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+    expect(b.view.queryByTestId('view-new-view')).toBeNull()
+    expect(b.view.getByRole('tab', { name: 'Chat' }).getAttribute('aria-selected')).toBe('true')
+    expect(b.view.getByRole('tab', { name: 'New view' }).getAttribute('aria-selected')).toBe('false')
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

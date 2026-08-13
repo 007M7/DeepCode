@@ -33,7 +33,7 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../compact/compact"
+      "path": "../../compaction/compaction"
     },
     {
       "path": "../../session/session-projection"
@@ -48,10 +48,10 @@
       "path": "../../llm/llm-retry"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
-      "path": "../../typert/type-meta"
+      "path": "../../typert/protocol"
     },
     {
       "path": "../../typert/registry"

@@ -8,8 +8,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { AgentPresetLabel } from '../src/client/AgentPresetLabel.tsx'
@@ -75,8 +75,8 @@ async function bench() {
   // settings surface does and watch who re-reads it.
   let ROSTER: typeof ROSTER_ONE | typeof ROSTER_MOVED | typeof ROSTER_AUTHORED = ROSTER_ONE
   const moveDefault = (): void => { ROSTER = ROSTER_MOVED }
-  await ctx.plugin(SlotsService).await()
-  const locale = new LocaleService(ctx)
+  await ctx.plugin(SlotRegistry).await()
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   // The plugins inject `remote`; forwarded events reach them through the
   // same `$dispatch` handoff the connection sink makes.
@@ -117,10 +117,10 @@ async function bench() {
       },
     },
   } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, calls, moveDefault }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, calls, moveDefault }
 }
 
-function declareRoot(slots: SlotsService): () => void {
+function declareRoot(slots: SlotRegistry): () => void {
   return slots.register({
     name: 'root',
     children: {
@@ -132,7 +132,7 @@ function declareRoot(slots: SlotsService): () => void {
 }
 
 /** The conversation's own declarations, which the chip and label wait for. */
-function declareConversation(slots: SlotsService): () => void {
+function declareConversation(slots: SlotRegistry): () => void {
   return slots.register({
     name: 'conversation',
     children: {

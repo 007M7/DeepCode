@@ -288,7 +288,7 @@ describe('MessageItem arms', () => {
         seq: 3,
         content: [{ type: 'text', text: '<system-reminder>\nInstructions from: AGENTS.md\n</system-reminder>' }],
         source: {
-          kind: 'workspace-instructions',
+          kind: 'agent-instructions',
           form: 'instructions',
           baseline: true,
           changes: [
@@ -318,7 +318,7 @@ describe('MessageItem arms', () => {
         seq: 3,
         content: [{ type: 'text', text: 'delta' }],
         source: {
-          kind: 'workspace-instructions',
+          kind: 'agent-instructions',
           form: 'instructions',
           changes: [
             { action: 'set', scope: 'a', path: 'new/AGENTS.md' },
@@ -433,13 +433,13 @@ describe('MessageItem arms', () => {
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'instruction prose' }],
-        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'set' }] },
-        provenance: { role: 'inject', label: 'workspace-instructions' },
+        source: { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'set' }] },
+        provenance: { role: 'inject', label: 'agent-instructions' },
         form: 'instructions',
       } as never}
       />,
     )
-    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*agent-instructions$/ }))
     expect(view.container.querySelector('[data-context-files]')).toBeNull()
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
     expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
@@ -558,13 +558,13 @@ describe('MessageItem arms', () => {
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'instruction prose' }],
-        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'merge', path: 'A.md' }] },
-        provenance: { role: 'inject', label: 'workspace-instructions' },
+        source: { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'merge', path: 'A.md' }] },
+        provenance: { role: 'inject', label: 'agent-instructions' },
         form: 'instructions',
       } as never}
       />,
     )
-    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*agent-instructions$/ }))
     expect(view.container.querySelector('[data-context-files]')).toBeNull()
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
   })
@@ -613,9 +613,9 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'background task bash-1 finished.' }],
-        source: { kind: 'plugin', plugin: 'tool-tasks', form: 'notice', summary: 'bash pnpm test [status: completed]' },
-        provenance: { role: 'inject', label: 'tool-tasks' },
+        content: [{ type: 'text', text: 'background job bash-1 finished.' }],
+        source: { kind: 'plugin', plugin: 'tool-jobs', form: 'notice', summary: 'bash pnpm test [status: completed]' },
+        provenance: { role: 'inject', label: 'tool-jobs' },
         form: 'notice',
       } as never}
       />,
@@ -629,14 +629,14 @@ describe('MessageItem arms', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context', seq: 3, content: [{ type: 'text', text: 'notice prose' }],
-        source: { kind: 'plugin', plugin: 'tool-tasks', form: 'notice' },
-        provenance: { role: 'inject', label: 'tool-tasks' },
+        source: { kind: 'plugin', plugin: 'tool-jobs', form: 'notice' },
+        provenance: { role: 'inject', label: 'tool-jobs' },
         form: 'notice',
       } as never}
       />,
     )
     expect(view.container.querySelector('[data-context-summary]')).toBeNull()
-    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*tool-tasks$/ }))
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*tool-jobs$/ }))
     expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
   })
 

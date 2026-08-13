@@ -22,7 +22,7 @@ Status: implemented
 
 `dsh-subagent` 以类型级导入加可选 peer 依赖的方式，通过 `ctx.get('agentPresets')` 触达 roster——这正是它对 `sandboxPolicy` 与 `approval` 已在使用的、有明确文档的机会性消费模式。
 
-把父方的工具交给子 agent 之后，暴露出同一次 agent 平面搬迁引入的第二个缺陷：`ToolRegistry` 把**作用域级**注册排除在限制之外、只过滤全局层，因此当所有面向模型的行都变成祖先贡献之后，子 agent 的 `toolFilter` 就不再约束任何东西——而且全局层为空时，`restrict()` 会把收到的每个名字都判为未知并直接让子 agent 创建失败。豁免集合应当是作用域**自己注册**的工具，而不是恰好位于全局层的工具；后一种读法只在这两个集合重合时才成立。`view()` 现在过滤作用域继承来的一切——全局层与每个祖先层——只豁免它自己那层。这条自身层豁免是承重的而非顺带的：委派运行时把子 agent 的 `report` 与结构化输出工具注册进子 agent 自己那层，而一个只点名子 agent 可用能力的过滤器绝不能把它回报所依赖的机制一并剥掉。
+把父方的工具交给子 agent 之后，暴露出同一次 agent 平面搬迁引入的第二个缺陷：`ToolRuntime` 把**作用域级**注册排除在限制之外、只过滤全局层，因此当所有面向模型的行都变成祖先贡献之后，子 agent 的 `toolFilter` 就不再约束任何东西——而且全局层为空时，`restrict()` 会把收到的每个名字都判为未知并直接让子 agent 创建失败。豁免集合应当是作用域**自己注册**的工具，而不是恰好位于全局层的工具；后一种读法只在这两个集合重合时才成立。`view()` 现在过滤作用域继承来的一切——全局层与每个祖先层——只豁免它自己那层。这条自身层豁免是承重的而非顺带的：委派运行时把子 agent 的 `report` 与结构化输出工具注册进子 agent 自己那层，而一个只点名子 agent 可用能力的过滤器绝不能把它回报所依赖的机制一并剥掉。
 
 ## 考虑过的替代方案
 
@@ -44,7 +44,7 @@ Status: implemented
 
 `packages/core/tools/tests/scoped.spec.ts` 直接覆盖该限制规则：子 agent 的过滤器能移除它从祖先作用域继承来的工具、子 agent 自身的注册在自己的过滤器下存活、祖先的限制仍作用于其内嵌套的每个作用域。
 
-`packages/subagent/subagent-inprocess/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header preset、施加在继承来的 preset 工具之上的 `toolFilter`，以及在空白期切换过 preset 的父方——切换到**另一个** preset，这样断言才能区分"读父方活 scope 链"与"读父方创建 header"。
+`packages/subagent/subagent-in-process-driver/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header preset、施加在继承来的 preset 工具之上的 `toolFilter`，以及在空白期切换过 preset 的父方——切换到**另一个** preset，这样断言才能区分"读父方活 scope 链"与"读父方创建 header"。
 
 组装记录这一层用的是真实 shipped Web 组装的 e2e，而不是无密钥快照。本仓库所有可运行 example 都不组装 preset roster，因此该缺陷在快照 harness 里根本不可观察：要做快照场景，得先有一个既挂载 roster 又发起委派的 example。Web e2e 启动的是真实的 `base` + `web-app` 补丁层与两个 shipped preset，这正是测试政策要求的组装证据；Web 浏览器 lane 的 subagent golden 承载了可见后果——记录了 preset 的子 agent 现在会显示与其父方相同的 preset 徽标。
 
@@ -56,4 +56,4 @@ Status: implemented
 
 冷恢复的可继续子 agent 加入的是父方**当前**的组装，而不是它自己 header 所记录的那份。窗口很窄——父方必须先建子、保持空白、切换 preset，之后才唤醒它；驻留中的子 agent 不会重新加入，一次性子 agent 也不会恢复——而替代方案更糟：按子 agent 自己记录的 id 解析会重读 roster，把这次认父刻意规避掉的"preset 已删除"失败模式又请回来。子 agent 的 header 仍记录它启动时的那份，因此这处分歧是可观察的而非静默的。
 
-`ToolRegistry` 现在把限制的豁免集合读作"该作用域自己注册的东西"而不是"全局层"，这在委派之外改变了一处既有行为：**祖先**作用域贡献的工具现在会受后代过滤器约束，而此前只有全局层的工具会。链上其余部分的豁免不变——作用域自身的注册仍在自己的过滤器之外，这正是委派运行时所依赖的性质。
+`ToolRuntime` 现在把限制的豁免集合读作"该作用域自己注册的东西"而不是"全局层"，这在委派之外改变了一处既有行为：**祖先**作用域贡献的工具现在会受后代过滤器约束，而此前只有全局层的工具会。链上其余部分的豁免不变——作用域自身的注册仍在自己的过滤器之外，这正是委派运行时所依赖的性质。

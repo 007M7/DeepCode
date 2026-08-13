@@ -29,7 +29,7 @@ import {
 import { basename, dirname, join } from 'node:path'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { loadOverlayPatches } from './index.ts'
 
 /** Directory under the Harness home holding every profile. */
@@ -208,7 +208,7 @@ function ensureSymlink(link: string, target: string): void {
  * resolves without pnpm ever managing it — the exact "bundles come from the
  * installation" contract. The closure (not just direct dependencies) is
  * required for out-of-tree plugins: their peer dependencies name Service
- * Definition packages (`dsh-compact`, `dsh-invariants`, ...) that the app
+ * Definition packages (`dsh-compaction`, `dsh-invariants`, ...) that the app
  * reaches only through its Service provider packages. Symlinked packages
  * resolve their own dependencies from their real directories (Node's default
  * symlink-following), so each package needs only its one flat link.
@@ -231,7 +231,7 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   const queue: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
     // Peer dependencies participate: Service Definition packages (dsh-subprocess,
-    // dsh-compact, ...) are peers of their implementations, never plain
+    // dsh-compaction, ...) are peers of their implementations, never plain
     // dependencies, yet out-of-tree plugins import them directly.
     /* v8 ignore next -- a real app manifest always declares dependencies */
     for (const dep of [...Object.keys(next.manifest.dependencies ?? {}), ...Object.keys(next.manifest.peerDependencies ?? {})]) {

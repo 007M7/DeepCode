@@ -12,8 +12,8 @@ import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
-import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
-import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
+import { TOOL_RUNTIME_SCHEDULER } from './index.ts'
+import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
 import type {} from './types.ts'
 
 /** The model-facing name of the Code Mode tool. */
@@ -291,7 +291,7 @@ export interface RunCodeBridgeOptions {
  * @param options - the registry-private capabilities described above.
  * @returns the registry-ready definition.
  */
-export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
+export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeOptions): ToolDefinition {
   const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog } = options
   const definition = defineTool({
     name: RUN_CODE_NAME,
@@ -478,7 +478,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
           signal: runController.signal,
         }
         type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
-        const scheduler = registry[TOOL_REGISTRY_SCHEDULER]
+        const scheduler = registry[TOOL_RUNTIME_SCHEDULER]
         const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
           // Set by the dispatch stage (or start() for a pre-settled result): what commit() finalizes in submission order.
           let parked:

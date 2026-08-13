@@ -263,7 +263,7 @@ Chat `order` 的结构性变化仍可能重排当前可见 key；纯 data 更新
 | Assistant / `assistant-step` | `turn:step` | `step/start` | `assistant/chunk`、final `assistant/message`、同 step Retry | 聚合 blocks、usage、首 token 时间、final 和 retry 隐藏状态，并发布同 key Step data |
 | Tool / `tool-call` | root call ID | root `tool/call` | root result、Code Dispatch start/result | 聚合 root、children 和 parent Map；Dispatch Event 用 `rootCallId` 精确路由 |
 | Command / `command` | command ID | `command/run` | `command/done`、带 source command ID 的 compact lifecycle/checkpoint | 聚合 command outcome 和手动压缩证据 |
-| Automatic Compaction / `compaction` | compaction ID | 无 source command ID 的 `compact/start` | summary、end、replacement checkpoint | 聚合 summary/checkpoint；checkpoint 足够时可在缺 start 下 fallback |
+| Automatic Compaction / `compaction` | compaction ID | 无 source command ID 的 `compaction/start` | summary、end、replacement checkpoint | 聚合 summary/checkpoint；checkpoint 足够时可在缺 start 下 fallback |
 | Retry / `model-retry` | retry ID | attempt 1 的 `llm/retry` | 后续 `llm/retry` 与 `llm/retry-started` | 聚合同一 RetryId 的 attempts 与 scheduled/started 状态 |
 | Turn Error / `turn-error` | turn number | `turn/start` | error `turn/end` 与该 turn Retry Events | 聚合 terminal failure，并用 Retry 证据决定隐藏 |
 | Turn Tail / `turn-tail` | turn number | `turn/start` | Assistant、Retry、`step/end`、`turn/end` | 保存 turn end，读取各 Step 的 Assistant data，发布 Turn data；完整 Matches 用于选择视觉尾部 anchor |

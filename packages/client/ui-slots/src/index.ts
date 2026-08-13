@@ -473,21 +473,40 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
  */
 export type SlotLabel = string | (() => string)
 
-/** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
+/**
+ * Kind shape fields carried in register options (keyed dispatch key; list
+ * id/order/label; chain select/priority; non-chain priority = cell shadowing rank).
+ */
 export type KindOptions<
   K extends keyof SlotMap & string,
   EntryKey extends EntryKeyOf<K>,
   M = never,
 > =
-  SlotMap[K]['kind'] extends 'keyed' ? { key: EntryKey }
-    : SlotMap[K]['kind'] extends 'list' ? { id: string; order?: number; label?: SlotLabel }
+  SlotMap[K]['kind'] extends 'keyed' ? {
+    key: EntryKey
+    /** Cell shadowing rank (ascending, default 0, lowest renders; same key + same priority throws — see {@link SlotCore.register}). */
+    priority?: number
+  }
+    : SlotMap[K]['kind'] extends 'list' ? {
+      id: string
+      order?: number
+      label?: SlotLabel
+      /** Cell shadowing rank (ascending, default 0, lowest renders; same id + same priority throws — see {@link SlotCore.register}). */
+      priority?: number
+    }
       : SlotMap[K]['kind'] extends 'chain' ? {
         /** Routing selector, mandatory on chain entries; `M` (the component's `matched` prop) infers from its return. */
         select: ChainSelect<SlotMap[K] extends { owner: infer O extends object } ? O : object, M>
         /** Explicit chain position (ascending, default 0, lower tries first); ties keep registration = assembly order. */
         priority?: number
       }
-        : object
+        : {
+          /**
+           * Cell shadowing rank (ascending, default 0, lowest renders; a
+           * same-priority second registration throws — see {@link SlotCore.register}).
+           */
+          priority?: number
+        }
 
 /**
  * Compile-time presence check: an entry declaring children MUST consume
@@ -596,6 +615,8 @@ interface SlotRecord {
   spec: SlotSpec<SlotEntryDef> | undefined
   /** Diagnostics: which slot's entry declared this key ('(built-in)' for root). */
   declaredBy: string | undefined
+  /** Live parent declaration, absent for root slots. */
+  parent: string | undefined
   /** Monotonic declaration lifetime, distinct from ordinary entry mutations. */
   declarationEpoch: number
   entries: readonly StoredEntry[]
@@ -605,6 +626,38 @@ interface SlotRecord {
 }
 
 const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
+
+/** JSON-safe live occupant returned by slot inspection. */
+export interface LiveSlotOccupant {
+  /** Plugin or package that registered the entry, when known. */
+  registrant?: string
+  /** Keyed-slot cell. */
+  key?: string
+  /** List-slot cell. */
+  id?: string
+  /** List display order. */
+  order?: number
+  /** Shadowing or chain priority. */
+  priority: number
+  /** Whether the renderer currently selects this entry. */
+  active: boolean
+}
+
+/** JSON-safe live slot declaration tree. */
+export interface LiveSlotNode {
+  /** Exact SlotMap key. */
+  name: string
+  /** Slot cardinality. */
+  kind: SlotKind
+  /** Runtime data scope. */
+  scope: SlotScope
+  /** Diagnostic owner of this declaration. */
+  declaredBy?: string
+  /** Current registrations in ledger order. */
+  occupants: LiveSlotOccupant[]
+  /** Slots declared by entries mounted in this slot. */
+  children: LiveSlotNode[]
+}
 
 /**
  * Pure slot registry (no cordis; event emission and the renderer installation contract
@@ -618,7 +671,9 @@ const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
  * fire); {@link SlotCore.subscribeDeclaration} fires synchronously for each
  * declaration lifetime boundary; {@link SlotCore.subscribe} notifications
  * batch per microtask, so N same-tick mutations produce one notification per
- * touched key.
+ * touched key. Entry crash reports ({@link SlotCore.reportEntryError}) ride
+ * the same mutation channel when they abdicate, then notify
+ * {@link SlotCore.onEntryError} synchronously.
  */
 export class SlotCore {
   private records = new Map<string, SlotRecord>()
@@ -629,6 +684,16 @@ export class SlotCore {
   // reference skips a lookup (and an unreachable missing-record branch) at flush.
   private dirty = new Set<SlotRecord>()
   private flushScheduled = false
+  /**
+   * Entries retired by an abdicating crash report
+   * ({@link SlotCore.reportEntryError}): excluded from
+   * {@link SlotCore.entriesOfSlot} projections for the rest of their
+   * registration's life, while the registration itself stays on the ledger
+   * (disposal authority remains with the registrant).
+   */
+  private abdicated = new WeakSet<StoredEntry>()
+  private entryErrorListeners
+    = new Set<(key: string, entry: StoredEntry, error: unknown, info: { abdicated: boolean }) => void>()
 
   constructor() {
     // The a-priori root hole. No markDirty: nothing can observe construction.
@@ -646,10 +711,17 @@ export class SlotCore {
    * re-checks nothing): registering into an undeclared slot throws; declaring
    * an already-declared child key throws (one declarer per slot — the message
    * names the first declarer); mounting one shared store handle under slots
-   * of different scopes throws. Kind constraints: single — duplicate
-   * registration throws; keyed — missing/duplicate `key` throws; list —
-   * missing/duplicate `id` throws; chain — missing `select` throws (the
+   * of different scopes throws. Kind constraints: keyed — missing `key`
+   * throws; list — missing `id` throws; chain — missing `select` throws (the
    * selector is the entry's routing seat, see {@link ChainSelect}).
+   *
+   * Shadowing (single/keyed/list): entries sharing one cell (single — the
+   * slot itself; keyed — same `key`; list — same `id`) coexist at distinct
+   * priorities, sorted ascending with ties keeping registration order; the
+   * cell's lowest live entry renders ({@link SlotCore.entriesOfSlot}). A
+   * second registration at an occupied cell's exact priority (default 0)
+   * throws naming the occupant, so priority-less composition keeps the
+   * historical one-occupant-per-cell fail-loud.
    *
    * Lifecycle: the disposer removes the contribution AND collapses every
    * declared child slot (child entries clear recursively; their stale
@@ -719,23 +791,33 @@ export class SlotCore {
     }
     const spec = rec.spec
     // Kind constraints stay runtime checks for dynamically-composed callers;
-    // typed callers already satisfied KindOptions statically.
+    // typed callers already satisfied KindOptions statically. Cell occupancy
+    // clashes only at the exact priority: a different priority shadows.
+    const priority = options.priority ?? 0
+    const occupantHint = (occupant: StoredEntry) =>
+      `at priority ${priority}${occupant.registrant !== undefined ? ` (registered by ${occupant.registrant})` : ''} — register at a different priority to shadow it (lowest renders)`
     switch (spec.kind) {
-      case 'single':
-        if (rec.entries.length > 0) throw new Error(`single slot "${options.name}" already has a registration`)
+      case 'single': {
+        const occupant = rec.entries.find(e => (e.options.priority ?? 0) === priority)
+        if (occupant) throw new Error(`single slot "${options.name}" already has a registration ${occupantHint(occupant)}`)
         break
-      case 'keyed':
+      }
+      case 'keyed': {
         if (options.key === undefined) throw new Error(`keyed slot "${options.name}" requires options.key`)
-        if (rec.entries.some(e => e.options.key === options.key)) {
-          throw new Error(`keyed slot "${options.name}" already has an entry for key "${options.key}"`)
+        const occupant = rec.entries.find(e => e.options.key === options.key && (e.options.priority ?? 0) === priority)
+        if (occupant) {
+          throw new Error(`keyed slot "${options.name}" already has an entry for key "${options.key}" ${occupantHint(occupant)}`)
         }
         break
-      case 'list':
+      }
+      case 'list': {
         if (options.id === undefined) throw new Error(`list slot "${options.name}" requires options.id`)
-        if (rec.entries.some(e => e.options.id === options.id)) {
-          throw new Error(`list slot "${options.name}" already has an entry with id "${options.id}"`)
+        const occupant = rec.entries.find(e => e.options.id === options.id && (e.options.priority ?? 0) === priority)
+        if (occupant) {
+          throw new Error(`list slot "${options.name}" already has an entry with id "${options.id}" ${occupantHint(occupant)}`)
         }
         break
+      }
       case 'chain':
         if (options.select === undefined) throw new Error(`chain slot "${options.name}" requires options.select`)
         break
@@ -777,10 +859,13 @@ export class SlotCore {
       ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),
     }
     const next = [...rec.entries, entry]
-    // Stable sorts: ascending, ties keep registration sequence (list rides
-    // `order`, chain rides `priority` — lower priority tries first).
-    if (spec.kind === 'list') next.sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
-    if (spec.kind === 'chain') next.sort((a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
+    // Stable sorts: priority ascending for every kind, ties keep registration
+    // sequence — a cell's winner is its first occurrence, chain tries lower
+    // priority first. List refines equal priorities by explicit `order` so the
+    // raw ledger keeps its display sequence for priority-less compositions.
+    next.sort(spec.kind === 'list'
+      ? (a, b) => ((a.options.priority ?? 0) - (b.options.priority ?? 0)) || ((a.options.order ?? 0) - (b.options.order ?? 0))
+      : (a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))
     rec.entries = next
     this.markDirty(options.name, rec)
     if (options.children) {
@@ -789,6 +874,7 @@ export class SlotCore {
         const childRec = this.record(childKey)
         childRec.spec = childSpec
         childRec.declaredBy = `an entry in "${options.name}"${options.registrant ? ` (${options.registrant})` : ''}`
+        childRec.parent = options.name
         childRec.declarationEpoch += 1
         declarations.push([childKey, childRec])
       }
@@ -836,6 +922,36 @@ export class SlotCore {
   }
 
   /**
+   * Project a key's entries to its shadowing winners: the first live
+   * (non-abdicated) entry of each cell in priority order — single: the slot
+   * is one cell; keyed: one cell per `key`; list: one cell per `id` (winners
+   * keep ledger sequence; list renderers still refine display by `order`).
+   * Chain keys return the raw entries unchanged: election consumes every
+   * entry, shadowing does not apply. The raw {@link SlotCore.entries} view
+   * stays the inspection surface. Builds a fresh array per call — a render
+   * body read, not a uSES getSnapshot source.
+   * @param key - slot key (dynamic: the render machinery holds keys as strings).
+   * @returns the winning entry per occupied cell (empty while undeclared).
+   */
+  entriesOfSlot(key: string): readonly StoredEntry[] {
+    const rec = this.records.get(key)
+    if (!rec?.spec) return NO_ENTRIES
+    const kind = rec.spec.kind
+    if (kind === 'chain') return rec.entries
+    const heads: StoredEntry[] = []
+    const seenCells = new Set<string | undefined>()
+    for (const entry of rec.entries) {
+      if (this.abdicated.has(entry)) continue
+      // Single-kind entries all share the one undefined cell.
+      const cell = kind === 'keyed' ? entry.options.key : kind === 'list' ? entry.options.id : undefined
+      if (seenCells.has(cell)) continue
+      seenCells.add(cell)
+      heads.push(entry)
+    }
+    return heads
+  }
+
+  /**
    * Look up a slot's declared spec, narrowed by the SlotMap key.
    * @param key - SlotMap key.
    * @returns the spec, or undefined while undeclared.
@@ -853,6 +969,53 @@ export class SlotCore {
    */
   specDynamic(key: string): SlotSpec<SlotEntryDef> | undefined {
     return this.records.get(key)?.spec
+  }
+
+  /**
+   * Export the current declaration topology without components or executable hooks.
+   * @param root - exact Slot key to select; omitted returns every live root.
+   * @returns selected live Slot trees, or an empty array when `root` is unavailable.
+   */
+  snapshot(root?: string): LiveSlotNode[] {
+    const build = (name: string, seen: Set<string>): LiveSlotNode | undefined => {
+      const record = this.records.get(name)
+      if (record?.spec === undefined || seen.has(name)) return undefined
+      const branch = new Set(seen)
+      branch.add(name)
+      const active = new Set(this.entriesOfSlot(name))
+      const children = [...this.records.entries()]
+        .filter(([, candidate]) => candidate.spec !== undefined && candidate.parent === name)
+        .flatMap(([child]) => {
+          const node = build(child, branch)
+          return node === undefined ? [] : [node]
+        })
+      return {
+        name,
+        kind: record.spec.kind,
+        scope: record.spec.scope,
+        ...record.declaredBy === undefined ? {} : { declaredBy: record.declaredBy },
+        occupants: record.entries.map(entry => ({
+          ...entry.registrant === undefined ? {} : { registrant: entry.registrant },
+          ...entry.options.key === undefined ? {} : { key: entry.options.key },
+          ...entry.options.id === undefined ? {} : { id: entry.options.id },
+          ...entry.options.order === undefined ? {} : { order: entry.options.order },
+          priority: entry.options.priority ?? 0,
+          active: active.has(entry),
+        })),
+        children,
+      }
+    }
+    if (root !== undefined) {
+      const node = build(root, new Set())
+      return node === undefined ? [] : [node]
+    }
+    return [...this.records.entries()]
+      .filter(([, record]) => record.spec !== undefined
+        && (record.parent === undefined || this.records.get(record.parent)?.spec === undefined))
+      .flatMap(([name]) => {
+        const node = build(name, new Set())
+        return node === undefined ? [] : [node]
+      })
   }
 
   /**
@@ -917,6 +1080,47 @@ export class SlotCore {
   }
 
   /**
+   * Renderer crash report from an entry boundary. Always notifies
+   * {@link SlotCore.onEntryError} listeners; with `info.abdicate` set (the
+   * shadowing kinds — single/keyed/list) it first retires the entry from its
+   * cell, one-shot: the record's version bumps through the ordinary mutation
+   * channel so outlets re-project onto the cell's next survivor, and a
+   * repeat abdicating report no-ops entirely. Chain crashes report with
+   * `abdicate: false` — election alternatives resolve at select time, so the
+   * entry keeps its cell and only the notification fires. The registration
+   * itself stays on the ledger either way — raw {@link SlotCore.entries}
+   * still lists the entry and its disposer keeps working.
+   * @param key - slot key the entry rendered under.
+   * @param entry - the crashed entry.
+   * @param error - the crash cause, forwarded to listeners verbatim.
+   * @param info - `abdicate`: whether the crash retires the entry from its cell.
+   */
+  reportEntryError(key: string, entry: StoredEntry, error: unknown, info: { abdicate: boolean }): void {
+    if (info.abdicate) {
+      if (this.abdicated.has(entry)) return
+      this.abdicated.add(entry)
+      const rec = this.records.get(key)
+      if (rec !== undefined) this.markDirty(key, rec)
+    }
+    for (const fn of [...this.entryErrorListeners]) fn(key, entry, error, { abdicated: info.abdicate })
+  }
+
+  /**
+   * Observe entry boundary crashes (every render-time entry failure the
+   * boundaries contain, abdicating or not) — the supervision seam for hosts
+   * mirroring contribution health. Fires synchronously per report, after the
+   * registry mutated for abdicating crashes (same listener discipline as
+   * {@link SlotCore.onMutate}).
+   * @param fn - called with the slot key, the crashed entry, the crash
+   * cause, and `abdicated`: whether the crash retired the entry from its cell.
+   * @returns unsubscribe.
+   */
+  onEntryError(fn: (key: string, entry: StoredEntry, error: unknown, info: { abdicated: boolean }) => void): () => void {
+    this.entryErrorListeners.add(fn)
+    return () => { this.entryErrorListeners.delete(fn) }
+  }
+
+  /**
    * Cascade for a removed entry: release its store mount and collapse every
    * child slot it declared — specs clear, contributions empty (their stale
    * disposers no-op), recursively down the declaration tree. One lifecycle
@@ -935,6 +1139,7 @@ export class SlotCore {
       const doomed = childRec.entries
       childRec.spec = undefined
       childRec.declaredBy = undefined
+      childRec.parent = undefined
       childRec.declarationEpoch += 1
       childRec.entries = NO_ENTRIES
       this.markDirty(childKey, childRec)
@@ -949,6 +1154,7 @@ export class SlotCore {
       rec = {
         spec: undefined,
         declaredBy: undefined,
+        parent: undefined,
         declarationEpoch: 0,
         entries: NO_ENTRIES,
         version: 0,

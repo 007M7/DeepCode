@@ -12,7 +12,7 @@ Logged, per-agent plan collaboration state with deployment-owned guidance, direc
 
 ## Model and human interactions
 
-While active, `plan:policy` renders the configured `section`. The plugin always registers `exit_plan_mode`, keeping tool schemas stable across the transition; its execute path accepts only active plan mode and leaves it only after an exact user approval through `ctx.userInteraction`.
+While active, `plan:policy` renders the configured `section`. The plugin always registers `exit_plan_mode`, keeping tool schemas stable across the transition; its execute path accepts only active plan mode and leaves it only after an exact user approval through `ctx.userQuestions`.
 
 The review question declares the `plan-review` presentation intent, naming `Approve` as the label that approves it, so a capable UI presents the plan as a decision instead of a generic question; the answer the tool reads is the same either way. A dismissed review — the user closing the request to speak instead — is reported to the model as such, telling it to stay in plan mode and wait for the message; every other review failure keeps the seam's own message.
 
@@ -83,7 +83,7 @@ The [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-plan-
 
 #### Token effect
 
-The stable schema is paid according to ToolRegistry mode, and each plan argument and review result remains in conversation history.
+The stable schema is paid according to ToolRuntime mode, and each plan argument and review result remains in conversation history.
 
 #### KV Cache effect
 

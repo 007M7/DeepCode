@@ -8,7 +8,7 @@ Status: implemented
 
 想要扇出的模型会把多个 `subagent` 调用合并进同一条 assistant 消息：这个批次本身就是并行意图。委派工具此前没有声明 `isConcurrencySafe` 分类器，按安全侧原则设计的调度器（[并行工具调用 Agent Note](2026-07-10-parallel-tool-call-execution.md)）便把每个前台委派都当作独占屏障：GUI 里显示九张卡片，却只有一个子 agent（智能体）在运行，其余八个要在它的整个运行期间排在其后等待。
 
-最初的保守立场（一元分类器无法证明同级委派的工作区效果互不相交）已经不再保护任何东西：`run_in_background: true` 和可继续委派本来就会与其后的每个调用重叠执行，包括写入；`dsh-workflow-workerthread` 也早已通过同样的 `ctx.subagents.start()` 提供方在共享工作区上并发运行子 agent，数量可达其并发上限。只有前台形态被串行化。
+最初的保守立场（一元分类器无法证明同级委派的工作区效果互不相交）已经不再保护任何东西：`run_in_background: true` 和可继续委派本来就会与其后的每个调用重叠执行，包括写入；`dsh-workflow-worker-thread` 也早已通过同样的 `ctx.subagents.start()` 提供方在共享工作区上并发运行子 agent，数量可达其并发上限。只有前台形态被串行化。
 
 ## 决策
 
@@ -40,7 +40,7 @@ Status: implemented
 
 同级子 agent 可能在共享工作区或外部资源上发生竞态；这项协调由模型负责，正如模型对其他所有重叠子 agent 已经承担的那样。并发子 agent 还会争用 LLM 提供方配额；`maxParallelToolCalls` 只限制未结算的调用，不限制后台或可继续调用留下运行的子 agent。
 
-同一条消息中的两个一次性后台委派按分发竞态顺序获得各自模型可见的 task id（`subagent-<n>`）。这些 id 已被记录，因此回放仍然有效；但需要区分后台子 agent 的快照场景会继承与孪生子会话相同的确定性约束。
+同一条消息中的两个一次性后台委派按分发竞态顺序获得各自模型可见的 job id（`subagent-<n>`）。这些 id 已被记录，因此回放仍然有效；但需要区分后台子 agent 的快照场景会继承与孪生子会话相同的确定性约束。
 
 有序提交可能让快速子 agent 的结果排在更早的缓慢同级之后等待，这是[调度器 Agent Note](2026-07-10-parallel-tool-call-execution.md)已经接受的取舍；实时界面仍会展示每个子 agent 各自的进度。
 

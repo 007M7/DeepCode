@@ -52,7 +52,7 @@ const PROMPT_SUFFIX = '\n</referenced-sessions>'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    sessionReferences: SessionReferenceService
+    sessionReferenceResolver: SessionReferenceResolver
   }
 }
 
@@ -67,7 +67,7 @@ interface RenderedSource {
 }
 
 /** Exact-read consumer that prepares immutable cross-session message context. */
-export class SessionReferenceService extends Service {
+export class SessionReferenceResolver extends Service {
   static inject = ['sessionQuery']
   static Config: z<Config> = z.object({
     maxReferences: z.number().step(1).min(1).max(MAX_REFERENCES).default(MAX_REFERENCES),
@@ -78,7 +78,7 @@ export class SessionReferenceService extends Service {
   private readonly config: Required<Config>
 
   constructor(ctx: Context, config: Config = {}) {
-    super(ctx, 'sessionReferences')
+    super(ctx, 'sessionReferenceResolver')
     this.config = {
       maxReferences: config.maxReferences ?? MAX_REFERENCES,
       candidateLimit: config.candidateLimit ?? DEFAULT_CANDIDATE_LIMIT,
@@ -300,4 +300,4 @@ function cancelled(signal: AbortSignal): SessionReferenceError {
   return new SessionReferenceError('session reference preparation was cancelled', 'SESSION_REFERENCE_CANCELLED', { cause: signal.reason })
 }
 
-export default SessionReferenceService
+export default SessionReferenceResolver

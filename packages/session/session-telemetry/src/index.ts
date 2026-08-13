@@ -1,12 +1,12 @@
 /**
- * Telemetry Service Definition for the DeepSeek Harness.
+ * SessionTelemetryBackend Service Definition for the DeepSeek Harness.
  *
  * This package owns the CAPTURE side of session-event reporting — which records
  * exist (the chunk projection), what they carry (the logical record), when
  * they are captured (adoption, the per-append firehose, lifecycle
  * forwarding), live versus on-demand canonical-log capture, and the HMR
  * cursor. Everything downstream of
- * {@link Telemetry.emit} — batching, retry, queueing, and loss policy — is the
+ * {@link SessionTelemetryBackend.emit} — batching, retry, queueing, and loss policy — is the
  * reporting SDK's territory and is deliberately not modelled here. The
  * design and its trade-offs are pinned in
  * .agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md.
@@ -18,7 +18,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    telemetry: Telemetry
+    sessionTelemetry: SessionTelemetryBackend
   }
 
   interface Events {
@@ -40,7 +40,7 @@ declare module '@deepseek-ai/cordis' {
      *   copy; listeners return a (possibly new) record and must not mutate it.
      * @mode waterfall
      */
-    'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
+    'session-telemetry/record'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord
   }
 }
 
@@ -49,10 +49,10 @@ declare module '@deepseek-ai/cordis' {
  * alert with zero configuration: `error` for events whose own outcome flag
  * says so (the tool-result block's `isError`, `turn/end` error reasons) and for
  * `agent-error` operational records. Captured events otherwise default to
- * `info`; `warn` remains available to `telemetry/record` policies and
+ * `info`; `warn` remains available to `session-telemetry/record` policies and
  * backends.
  */
-export type TelemetrySeverity = 'info' | 'warn' | 'error'
+export type SessionTelemetrySeverity = 'info' | 'warn' | 'error'
 
 /**
  * One logical record handed to a backend — the capture contract's whole outbound
@@ -61,13 +61,13 @@ export type TelemetrySeverity = 'info' | 'warn' | 'error'
  * home (`agent-error`, `shutdown`) and deliberately omit `event.seq`-style
  * identity so they can never be mistaken for ledger rows.
  */
-export interface TelemetryRecord {
+export interface SessionTelemetryRecord {
   /** Ledger (session-log mirror) or ops (operational signal) channel; backends keep the two under separate instrumentation scopes. */
   channel: 'ledger' | 'ops'
   /** Unix epoch milliseconds — the source event's append time for ledger records, the emission time for ops records. */
   time: number
-  /** Pre-mapped alerting severity; see {@link TelemetrySeverity}. */
-  severity: TelemetrySeverity
+  /** Pre-mapped alerting severity; see {@link SessionTelemetrySeverity}. */
+  severity: SessionTelemetrySeverity
   /**
    * Identity attributes, deliberately minimal: ledger records carry
    * `session.id`, `event.type`, `event.seq`, plus `session.cwd` /
@@ -87,11 +87,11 @@ export interface TelemetryRecord {
 }
 
 /**
- * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * The minimum backend contract the coordinator requires. {@link SessionTelemetryBackend} is
  * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
-export interface TelemetryBackend {
+export interface SessionTelemetrySink {
   /**
    * Hand one record to the backend's pipeline. MUST be a non-blocking
    * enqueue — the coordinator calls this synchronously from the
@@ -101,7 +101,7 @@ export interface TelemetryBackend {
    * never reach the loop.
    * @param record - the logical record to report; owned by the backend after the call.
    */
-  emit(record: TelemetryRecord): void
+  emit(record: SessionTelemetryRecord): void
   /**
    * Optional hint that a turn ended. A backend may forward it to its SDK's
    * flush so records are exported after each turn. Called
@@ -132,22 +132,22 @@ export interface TelemetryBackend {
 
 /**
  * Deployment-selected session-sharing policy disclosed by a mounted
- * {@link Telemetry} backend to human-facing acknowledgement surfaces (the
+ * {@link SessionTelemetryBackend} backend to human-facing acknowledgement surfaces (the
  * `/feedback` command's confirmation text). The seam owns the vocabulary so
  * any backend can disclose a policy without depending on the OTel package;
- * the values mirror the OTel backend's serialized `TelemetryMode` choices.
+ * the values mirror the OTel backend's serialized `SessionTelemetryMode` choices.
  */
-export type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
+export type SessionTelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
 
 /**
  * Loadable form of the backend contract: one implementation per context —
  * the cordis `Service` registration under the `telemetry` key throws on a
  * duplicate, cordis' standard behavior. A backend composes a
- * {@link TelemetryCoordinator} in its constructor to install the capture side.
+ * {@link SessionTelemetryCoordinator} in its constructor to install the capture side.
  */
-export abstract class Telemetry extends Service implements TelemetryBackend {
+export abstract class SessionTelemetryBackend extends Service implements SessionTelemetrySink {
   constructor(ctx: Context) {
-    super(ctx, 'telemetry')
+    super(ctx, 'sessionTelemetry')
   }
 
   /**
@@ -157,22 +157,22 @@ export abstract class Telemetry extends Service implements TelemetryBackend {
    * when no telemetry service is mounted. The seam owns this vocabulary so the
    * disclosure is backend-independent.
    */
-  abstract readonly sharing: TelemetrySharingStatus
+  abstract readonly sharing: SessionTelemetrySharingStatus
 
   /**
-   * See {@link TelemetryBackend.emit} — that declaration is the contract's one home.
+   * See {@link SessionTelemetrySink.emit} — that declaration is the contract's one home.
    * @param record - the logical record to report; owned by the backend after the call.
    */
-  abstract emit(record: TelemetryRecord): void
+  abstract emit(record: SessionTelemetryRecord): void
 
-  /** See {@link TelemetryBackend.flush}. */
+  /** See {@link SessionTelemetrySink.flush}. */
   flush?(): void
 
   /**
-   * See {@link TelemetryBackend.shutdown}.
+   * See {@link SessionTelemetrySink.shutdown}.
    * @returns resolves when the backend's pipeline has quiesced.
    */
   abstract shutdown(): Promise<void>
 }
 
-export { TelemetryCoordinator, type TelemetryCapture } from './coordinator.ts'
+export { SessionTelemetryCoordinator, type SessionTelemetryCapture } from './coordinator.ts'

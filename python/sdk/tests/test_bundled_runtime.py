@@ -20,8 +20,8 @@ _MINIMAL_CONFIG = _REPO_ROOT / "examples" / "jsonrpc-agent" / "minimal.cordis.ym
 
 # The config must include the JSON-RPC serving plugin.
 _CORDIS_YML = """\
-- id: jsonrpc
-  name: '@deepseek-ai/dsh-jsonrpc'
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:

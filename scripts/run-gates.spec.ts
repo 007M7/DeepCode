@@ -150,7 +150,7 @@ describe('Oxlint gate', () => {
   })
 })
 
-describe('TypeRT contract preparation', () => {
+describe('Typert contract preparation', () => {
   it('prepares primary source consumers once before they run', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
       withPnpmEntrypoint(() => gatesForMode('ci-primary')))

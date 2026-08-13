@@ -15,7 +15,7 @@ import type {
   ClientContext, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ClientSessionContext, SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { ClientSessionContext, InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SubagentCatalogAction, type SubagentCatalogInjected } from './SubagentCatalogAction.tsx'
 import {
   SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
@@ -38,7 +38,7 @@ export type {
 } from './SubagentReadOnlyComposer.tsx'
 
 /** Required services for references, conversation slots, and session navigation. */
-export const inject = ['slash', 'sessions', 'slots', 'locale']
+export const inject = ['inputTriggers', 'sessions', 'slots', 'locale']
 
 /** Claim the composer for one-shot history or an unavailable continuation owner. */
 function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
@@ -67,7 +67,7 @@ export function apply(ctx: ClientContext): void {
       .filter(child => child.parentId === session.sessionId && child.running && child.displayTitle.includes(query))
       .map(child => child.displayTitle)
   }
-  const source: SlashSource = {
+  const source: InputTriggerSource = {
     trigger: '@',
     name: 'subagent',
     candidates(session, { query }) {
@@ -93,8 +93,8 @@ export function apply(ctx: ClientContext): void {
       serialize: ref => Promise.resolve(`@${ref}`),
     },
   }
-  const slash = ctx.get('slash') as SlashServiceContract
-  ctx.effect(() => slash.registerSource(source), 'ui-subagent: @ source')
+  const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
+  ctx.effect(() => inputTriggers.registerSource(source), 'ui-subagent: @ source')
 
   const catalogActions = (_parentSessionId: SessionId): SubagentCatalogInjected => ({
     openChild(address: SubagentAddress) {

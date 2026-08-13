@@ -5,13 +5,13 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as RuntimeInvariant from '../src/invariant.ts'
-import { SlotsService } from '../src/client/slots.ts'
+import { SlotRegistry } from '../src/client/slots.ts'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(InvariantService, { enabled: true })
+  await ctx.plugin(InvariantRegistry, { enabled: true })
   await ctx.plugin(RuntimeInvariant).await()
   return ctx
 }
@@ -24,7 +24,7 @@ describe('runtime slots/changed invariant', () => {
   it('passes foreign events and a legitimate mutation-then-emission sequence', async () => {
     const ctx = await setup()
     expect(() => { emit(ctx, 'unrelated/event', 'x') }).not.toThrow()
-    await ctx.plugin(SlotsService).await() // fiber must reach ACTIVE — the audit reads strict ctx.get
+    await ctx.plugin(SlotRegistry).await() // fiber must reach ACTIVE — the audit reads strict ctx.get
     // A real registration bumps the version first and re-emits through
     // onMutate — the audit sees version > 0 and stays quiet. (Erased call:
     // the typed register face rides the wave-1 ui-slots types.)
@@ -36,7 +36,7 @@ describe('runtime slots/changed invariant', () => {
     const ctx = await setup()
     expect(() => { emit(ctx, 'slots/changed', '') }).toThrow(/without a slot key/)
     expect(() => { emit(ctx, 'slots/changed', 42) }).toThrow(/without a slot key/)
-    await ctx.plugin(SlotsService).await()
+    await ctx.plugin(SlotRegistry).await()
     // Hand-emitted key that never saw a mutation: version 0 → violation.
     expect(() => { emit(ctx, 'slots/changed', 'never-mutated') })
       .toThrow(/before any mutation bumped its version/)

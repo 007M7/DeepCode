@@ -293,7 +293,7 @@ describe('durable step context', () => {
     if (user === undefined || reading === undefined) throw new Error('missing source surface events')
     original.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted history' }],
-      source: { kind: 'plugin', plugin: 'compact-basic' },
+      source: { kind: 'plugin', plugin: 'compaction-basic' },
     }), {
       surfaceOp: { op: 'replace', start: user.seq, end: reading.seq },
       sourceEventSeqs: [user.seq, reading.seq],

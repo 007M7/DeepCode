@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/support/llm-replay) 回放已记录会话，并将规范化后的自动化协议输出 + 重新持久化的会话日志与已提交预期输出进行 diff。大多数场景通过这条真实进程边界测试组装后的后端行为。
+快照层（`pnpm run test:snapshot`）会启动真实 `acp-agent` 子进程，通过 [`dsh-llm-replay`](../../../../packages/test-support/llm-replay) 回放已记录会话，并将规范化后的自动化协议输出 + 重新持久化的会话日志与已提交预期输出进行 diff。大多数场景通过这条真实进程边界测试组装后的后端行为。
 
 该层最初为每个进程只有一个会话而构建，这一假设硬编码在两处：
 
@@ -45,7 +45,7 @@ Status: implemented
 
 新增两个嵌套场景，均对真实 API 录制：
 
-- **`subagent-spawn`**：父 agent 通过 `subagent` 工具将一个子任务委派给一个新 spawn 的子 agent（2 个会话）。
+- **`subagent-spawn-in-process`**：父 agent 通过 `subagent` 工具将一个子任务委派给一个新 spawn 的子 agent（2 个会话）。
 - **`subagent-multi`**：父 agent 委派两个子任务，各自交给自己的 spawn 子 agent（3 个会话），以三份独立的逐会话脚本和同一父 agent 下两个子会话的 `createdAt` 排序来压测逐会话键控。
 
 两者均在默认门禁中以 keyless 方式回放。

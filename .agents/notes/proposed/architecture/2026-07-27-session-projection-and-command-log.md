@@ -58,7 +58,7 @@ declare module 'cordis' {
 
 ### Shipped consumer: the subagent identity unit
 
-The registry's two read faces already serve a shipped consumer beyond this RFC's wire plan: [subagent list identity via the projection unit](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md) registers a `subagent` unit — the durable mode/label identity folded last-wins from `subagent/descriptor` — and `SubagentService.listChildren` reads it through `snapshot()` for a live child (the watermark cache, zero log reads) and `restore({}, events, 0)` over one persistence inspection for a cold one. The registry contract is unchanged: no failure channel and no new read face — a unit never throws, an absent value is the signal, and how absence renders is that consumer's decision.
+The registry's two read faces already serve a shipped consumer beyond this RFC's wire plan: [subagent list identity via the projection unit](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md) registers a `subagent` unit — the durable mode/label identity folded last-wins from `subagent/descriptor` — and `SubagentRuntime.listChildren` reads it through `snapshot()` for a live child (the watermark cache, zero log reads) and `restore({}, events, 0)` over one persistence inspection for a cold one. The registry contract is unchanged: no failure channel and no new read face — a unit never throws, an absent value is the signal, and how absence renders is that consumer's decision.
 
 ### Wire: projections block on the history tail page
 

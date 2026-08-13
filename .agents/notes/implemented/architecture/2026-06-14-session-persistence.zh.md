@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-持久化是一个具有抽象 Service Definition 的**能力 seam**（[能力 seam](2026-06-13-capability-seams.md)，`dsh-bash` 模板），而非循环或核心逻辑：
+持久化是一个具有抽象 Service Definition 的**能力 seam**（[能力 seam](2026-06-13-capability-seams.md)，`dsh-shell` 模板），而非循环或核心逻辑：
 
 1. **接口**（`dsh-session-persistence`，`ctx.sessionPersistence`）：一个抽象的 `SessionPersistence` 服务，提供 `locate`/`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`list`/`listSnapshots`。其持久化单元就是现有的 `SessionEvent`（`{ type, seq, time, data }`），原样复用，无转换类型。
 2. **实现**（`dsh-session-persistence-jsonl`）：每个会话一个仅追加的逻辑 JSONL 日志：先是一行 `SessionHeader`，随后是无损表示连续 `SessionEvent` 流的存储记录。符合条件的 `assistant/chunk` 增量连续段默认使用打包行；[带校验和的 Zstandard 帧](2026-07-19-zstandard-jsonl-session-logs.md)是默认物理编码，也可通过配置使用原始行。

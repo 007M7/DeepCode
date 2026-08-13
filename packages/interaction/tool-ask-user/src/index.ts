@@ -1,5 +1,5 @@
 /**
- * Model-facing Consumer of the `ctx.userInteraction` capability seam.
+ * Model-facing Consumer of the `ctx.userQuestions` capability seam.
  * The tool pauses until a UI provider returns a human answer, then feeds that
  * answer back into the agent loop as an ordinary tool result.
  *
@@ -8,10 +8,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import '@deepseek-ai/dsh-user-interaction'
+import '@deepseek-ai/dsh-user-questions'
 
 export const name = 'tool-ask-user'
-export const inject = ['tools', 'userInteraction']
+export const inject = ['tools', 'userQuestions']
 
 const description = 'Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. '
   + 'Send one or more questions, each with a stable id that will be echoed in the answer.'
@@ -78,7 +78,7 @@ export function apply(ctx: Context): void {
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     async execute(args, exec) {
-      const result = await ctx.userInteraction.ask({
+      const result = await ctx.userQuestions.ask({
         questions: args.questions.map(question => ({
           id: question.id,
           question: question.question,

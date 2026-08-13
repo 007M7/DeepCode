@@ -1,5 +1,5 @@
 /**
- * Workspace entity registry (`ctx.workspace`): durable workspace records,
+ * Workspace entity registry (`ctx.workspaceRegistry`): durable workspace records,
  * stable registry order, and header-validated session membership over the
  * domain data form.
  * @module @deepseek-ai/dsh-workspace
@@ -66,7 +66,7 @@ export class WorkspaceOrderInvalidError extends Error {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    workspace: WorkspaceRegistry
+    workspaceRegistry: WorkspaceRegistry
   }
 }
 
@@ -112,7 +112,7 @@ export class WorkspaceRegistry extends Service {
   }
 
   constructor(ctx: Context) {
-    super(ctx, 'workspace')
+    super(ctx, 'workspaceRegistry')
   }
 
   /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */

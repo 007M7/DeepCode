@@ -14,7 +14,7 @@ import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
-import SessionQueryService, {
+import SessionQueryEngine, {
   SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
@@ -187,7 +187,7 @@ interface CursorPayload {
 }
 
 /** Concrete SQLite owner of the combined `ctx.sessionQuery` service. */
-export class SessionQuerySqlite extends SessionQueryService {
+export class SqliteSessionQueryEngine extends SessionQueryEngine {
   static override inject = ['sessions']
 
   static Config: z<Config> = z.object({
@@ -1079,4 +1079,4 @@ function isRuntimeArray(value: unknown): boolean {
   return Array.isArray(value)
 }
 
-export default SessionQuerySqlite
+export default SqliteSessionQueryEngine

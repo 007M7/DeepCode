@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-零依赖的原子文件替换，供绝不允许在磁盘上留下不完整、被符号链接劫持或权限过宽内容的文件型存储共用：用户设置文档（`dsh-settings-local`）与凭据存储（`dsh-credentials-local`）。
+零依赖的原子文件替换，供绝不允许在磁盘上留下不完整、被符号链接劫持或权限过宽内容的文件型存储共用：用户设置文档（`dsh-settings-file`）与凭据存储（`dsh-credentials-local`）。
 
 ## 接口面
 

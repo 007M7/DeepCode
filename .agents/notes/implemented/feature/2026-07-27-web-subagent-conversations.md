@@ -20,7 +20,7 @@ Every opened child carries a catalog-derived address `{ parentSessionId, childSe
 
 The generic Host domain preserves the same ownership boundary. `session.history` and the source side of `session.fork` read an attached Session or inspect persistence without acquiring an Agent; history folds cold projection values from that exact inspected prefix, while a fork publishes an ordinary independent session. Generic Agent-bound session, command, and goal routes return `agent-busy` for session-backed subagents, as do explicit-id `session.create` adoption and attached-only queue controls. The denial classifier accepts the coarse `origin` marker, a `subagent/descriptor` in the session's own suffix, or exact live runtime ownership by the parent; these signals only prevent generic ownership and never replace catalog mode or direct-parent authorization.
 
-Stopping an addressed child never falls through to `session.cancel`. `SubagentService.followup()` owns admission only until inbox acceptance and grants no cancellation handle; a running continuable child is stopped through the dedicated `subagent.interrupt` route under the [current-turn interrupt contract](2026-08-06-continuable-subagent-interrupt.md), which parks pending work instead of discarding it. One-shot children remain uncancellable from the Web.
+Stopping an addressed child never falls through to `session.cancel`. `SubagentRuntime.followup()` owns admission only until inbox acceptance and grants no cancellation handle; a running continuable child is stopped through the dedicated `subagent.interrupt` route under the [current-turn interrupt contract](2026-08-06-continuable-subagent-interrupt.md), which parks pending work instead of discarding it. One-shot children remain uncancellable from the Web.
 
 This decision covers Web discovery, transcript viewing, and parent-authorized human continuation. It does not make a subagent independently user-owned; that product remains [interactive side sessions](../../proposed/feature/2026-07-08-interactive-side-sessions.md).
 
@@ -77,7 +77,7 @@ The package's existing `@label` source remains separate plain-text model input. 
 
 ## Default Web assembly
 
-The shipped Web composition mounts SQLite session query beside JSONL persistence and configures spawn and fork background delegation as continuable. It also mounts the model-facing `send_message` and `list_agents` adapters for coordinator parity, but the GUI calls the shared `SubagentService` through the host RPC domain rather than invoking model tools. One-shot children remain catalog-visible and read-only.
+The shipped Web composition mounts SQLite session query beside JSONL persistence and configures spawn and fork background delegation as continuable. It also mounts the model-facing `send_message` and `list_agents` adapters for coordinator parity, but the GUI calls the shared `SubagentRuntime` through the host RPC domain rather than invoking model tools. One-shot children remain catalog-visible and read-only.
 
 ## Alternatives considered
 

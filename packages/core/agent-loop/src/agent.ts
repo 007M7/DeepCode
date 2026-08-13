@@ -139,7 +139,7 @@ export class ReactLoopAgent implements Agent {
     if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
   }
 
-  runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  runMaintenance<T>(job: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (this.phase.kind !== 'idle') throw new Error(`agent "${this.id}" already has active work`)
     const done = Promise.withResolvers<void>()
     const maintenance: Phase = {
@@ -152,7 +152,7 @@ export class ReactLoopAgent implements Agent {
     this.activityDone = done.promise
     return (async () => {
       try {
-        return await task(maintenance.abort.signal)
+        return await job(maintenance.abort.signal)
       } finally {
         this.setPhase({ kind: 'idle', lastTurn: maintenance.lastTurn })
         if (maintenance.wakeRequested && this.inbox.hasPending) this.wakeDriver()

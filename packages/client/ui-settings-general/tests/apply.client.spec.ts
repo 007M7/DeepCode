@@ -2,8 +2,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
@@ -30,8 +30,8 @@ const SEATS = [
 
 async function bench(isLoopback = true) {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
-  const locale = new LocaleService(ctx)
+  await ctx.plugin(SlotRegistry).await()
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   // The plugins inject `remote`; forwarded events reach them through the
   // same `$dispatch` handoff the connection sink makes.
@@ -62,11 +62,11 @@ async function bench(isLoopback = true) {
     api: { settings: { describe: settingsDescribe, openDocument: settingsOpenDocument } },
     isLoopback,
   } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, locale, settingsDescribe, settingsOpenDocument }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, settingsDescribe, settingsOpenDocument }
 }
 
 /** Declare the shell's six child slots the way ui-settings' entry does. */
-function declare(slots: SlotsService): () => void {
+function declare(slots: SlotRegistry): () => void {
   return slots.register(
     {
       name: 'root',
@@ -83,7 +83,7 @@ function declare(slots: SlotsService): () => void {
   )
 }
 
-function generalEntry(slots: SlotsService) {
+function generalEntry(slots: SlotRegistry) {
   return slots.entries('settings.section').find(e => e.component === GeneralSection)
 }
 

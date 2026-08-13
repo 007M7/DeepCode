@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * App-shell assembly plugin on the real machinery: bare Context + production
- * SlotsService + the test-runtime session/workspace doubles. Deliberately NOT
+ * SlotRegistry + the test-runtime session/workspace doubles. Deliberately NOT
  * mounted through SlotTestRuntime — its create() installs the capturing
  * renderer and install() is boot-once; app-shell IS the production installer,
  * so this bench hands it the uninstalled service exactly as boot does.
@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { TestSessions, TestWorkspaces } from '@deepseek-ai/dsh-client-test-runtime'
 import type { Stabilizer } from '@deepseek-ai/dsh-client-test-runtime'
 import * as AppShell from '@deepseek-ai/dsh-client-web/src/app-shell.ts'
@@ -20,8 +20,8 @@ const stabilize: Stabilizer = async (fn) => { await act(async () => { await fn()
 
 async function bench() {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
-  const slots = ctx.get('slots') as SlotsService
+  await ctx.plugin(SlotRegistry).await()
+  const slots = ctx.get('slots') as SlotRegistry
   ctx.provide('sessions', new TestSessions(stabilize, ctx))
   ctx.provide('workspaces', new TestWorkspaces(stabilize))
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })

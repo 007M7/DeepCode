@@ -2,8 +2,8 @@
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
-// TypeRT-generated ./typert and ./remote artifacts import Zod at runtime.
+import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
+// Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
 import type {
   PluginEntryId,
@@ -40,7 +40,7 @@ const FIBER_PHASE = {
 } as const satisfies Record<FiberState, PluginFiberPhase>
 
 /** Remote-only service exposing the Loader's current non-group entry state. */
-export class PluginInventoryService extends GatewayService {
+export class PluginInventoryGateway extends TypertRemoteService {
   static inject = ['loader']
 
   constructor(ctx: Context) {
@@ -69,4 +69,4 @@ export class PluginInventoryService extends GatewayService {
   }
 }
 
-export default PluginInventoryService
+export default PluginInventoryGateway

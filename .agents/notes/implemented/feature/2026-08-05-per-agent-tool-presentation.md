@@ -14,7 +14,7 @@ The naive reading of "move tools down to the agent plane" does not work. `ctx.to
 
 Split the registry from its projection. The registry stays host-plane; the **presentation** becomes scope state inside it, alongside the scoped restrictions and guards that already live there.
 
-`ToolRegistry.presentAs(mode)` is scoped-only and mirrors `restrict()`: it writes one cell on the calling scope's `ToolLayer` through `ScopedLayers.effect`, so it unwinds with the scope that declared it. In the shipped Web surface that scope is an agent preset's standing mount — the `code` preset carries the `tool-mode` row — so one declaration covers every agent joined to that preset, and `modeFor(scope)` takes the nearest declaration on the chain. It resolves against the config `mode`, which becomes the default for scopes declaring nothing rather than a process-wide fact. The three reads that decided presentation — the wire schemas, the `run_code` entry in the visibility view, and the generated SDK section — take the scope's mode instead of the service's.
+`ToolRuntime.presentAs(mode)` is scoped-only and mirrors `restrict()`: it writes one cell on the calling scope's `ToolLayer` through `ScopedLayers.effect`, so it unwinds with the scope that declared it. In the shipped Web surface that scope is an agent preset's standing mount — the `code` preset carries the `tool-presentation` row — so one declaration covers every agent joined to that preset, and `modeFor(scope)` takes the nearest declaration on the chain. It resolves against the config `mode`, which becomes the default for scopes declaring nothing rather than a process-wide fact. The three reads that decided presentation — the wire schemas, the `run_code` entry in the visibility view, and the generated SDK section — take the scope's mode instead of the service's.
 
 Two consequences fell out and are load-bearing:
 
@@ -23,11 +23,11 @@ Two consequences fell out and are load-bearing:
 
 The SDK prompt section is registered globally by a code-mode deployment (unchanged) and additionally per scope by `presentAs`, where it shadows by name. Its body renders empty for a native scope, which the prompt renderer drops — that is what keeps an agent opting OUT of a code-mode deployment free of an SDK section.
 
-The preset expresses the choice through one row, `@deepseek-ai/dsh-agent-tool-mode`, whose whole body is a `presentAs` call. A code mode waits for `ctx.codeRuntime` through `ctx.inject` rather than assuming it: the runtime is host-plane, and a pending row is what `dsh-agent-presets` already reports as an unusable mount, naming the row — so a preset selecting Code Mode against a runtime-less deployment fails where an operator can act.
+The preset expresses the choice through one row, `@deepseek-ai/dsh-agent-tool-presentation`, whose whole body is a `presentAs` call. A code mode waits for `ctx.codeRuntime` through `ctx.inject` rather than assuming it: the runtime is host-plane, and a pending row is what `dsh-agent-presets` already reports as an unusable mount, naming the row — so a preset selecting Code Mode against a runtime-less deployment fails where an operator can act.
 
 ## Alternatives considered
 
-**A second `ToolRegistry` inside the preset's isolate realm.** Rejected: `dsh-agent-loop` resolves the registry once from the host context through a private symbol, so a per-agent registry would be invisible to the scheduler. Making the loop registry-per-agent is a far larger change than making one field scope-aware.
+**A second `ToolRuntime` inside the preset's isolate realm.** Rejected: `dsh-agent-loop` resolves the registry once from the host context through a private symbol, so a per-agent registry would be invisible to the scheduler. Making the loop registry-per-agent is a far larger change than making one field scope-aware.
 
 **A top-level key in the preset's own YAML.** Rejected for the reason preset display metadata went to a separate `preset.yml`: the composition is a top-level list of plugin rows and cannot carry sibling keys.
 

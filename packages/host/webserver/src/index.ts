@@ -1,6 +1,6 @@
 /**
  * @deepseek-ai/dsh-host-webserver — Web route-registration plugin: a node:http
- * server plus the `httpServer` service (HTTP and upgrade route registries,
+ * server plus the `webServer` service (HTTP and upgrade route registries,
  * index transform taps, and the single fallback seat for everything no route
  * claims). Knows no harness concepts and serves no files; the composing
  * application's frontend plugin owns dist serving through the fallback hook.
@@ -17,7 +17,7 @@ import z from '@deepseek-ai/schemastery'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    httpServer: HttpServerService
+    webServer: WebServer
   }
 }
 
@@ -56,7 +56,7 @@ export interface Config {
  * during startup with 404 until its owner registers. A listen failure rejects
  * initialization, and the boot process reports the failed fiber.
  */
-export class HttpServerService extends Service {
+export class WebServer extends Service {
   static Config: z<Config> = z.object({
     host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
     port: z.natural().max(65535).required(),
@@ -72,7 +72,7 @@ export class HttpServerService extends Service {
   private listenedPort!: number
 
   constructor(ctx: Context, private config: Config) {
-    super(ctx, 'httpServer')
+    super(ctx, 'webServer')
   }
 
   /** The listening port (the OS-assigned value when config.port is 0). */
@@ -235,7 +235,7 @@ export class HttpServerService extends Service {
         socket.destroy()
       }))
       await Promise.all([serverClosed, ...upgradedClosed])
-    }, 'httpServer.listen')
+    }, 'webServer.listen')
   }
 
   /** Longest-prefix-wins over the prefix table after an exact-table miss. */
@@ -263,4 +263,4 @@ export class HttpServerService extends Service {
   }
 }
 
-export default HttpServerService
+export default WebServer

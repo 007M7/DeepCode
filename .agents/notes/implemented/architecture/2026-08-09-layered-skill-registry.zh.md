@@ -12,13 +12,13 @@ agent-preset stack 曾把整个 skill 能力——注册表、本地提供方和
 
 ## 决定
 
-`SkillService` 采用同一形态。它持有 `ScopedLayers<SkillLayer>`；`registerProvider()` 与 `register()` 落入调用方上下文 scope 对应的层——宿主行与 repository 插件落入全局层，preset 的 `skill-local`（由常驻组合挂载，其上下文携带该 preset 的 scope key）落入该 preset 的层。提供方名称在每层内唯一而非进程级唯一，这正是让每个 preset 都能挂载自己的 `local` 提供方的前提。
+`SkillRegistry` 采用同一形态。它持有 `ScopedLayers<SkillLayer>`；`registerProvider()` 与 `register()` 落入调用方上下文 scope 对应的层——宿主行与 repository 插件落入全局层，preset 的 `skill-filesystem`（由常驻组合挂载，其上下文携带该 preset 的 scope key）落入该 preset 的层。提供方名称在每层内唯一而非进程级唯一，这正是让每个 preset 都能挂载自己的 `local` 提供方的前提。
 
 读取通过 `SkillViewOptions` 携带观察 scope（调用中的 agent，agent 本身就是自己的 scope key）。注册表将全局层与该 scope 的链合并：**最近层直接赢得重名，rank 只在单层内裁决重名**——即工具注册表的遮蔽规则。曾考虑跨层 rank 合池并予以否决：rank 的设计前提是各来源彼此知情；在全局池下，后安装的 repository 插件可能凭注册顺序平手规则静默顶掉 preset 自带的同名 skill，远程改变 preset 的行为。最近层优先让组合的行为由其作者决定。
 
 发现缓存以解析后的 scope 链加一个修订计数为键，因此空会话重组——只重设 agent scope key 的父级、不触碰注册表——对下一次读取立即可见。
 
-组合随之调整：web-app bundle 重新启用 base 的 `skill` 注册表行（只有 `skill-local` 与 `tool-skill` 仍归 preset），preset 组合拆掉 `isolate: skills` realm，改为直接落在宿主注册表上的平铺行。网关的 skills 域以 presenter scope 读取宿主注册表——存活 agent，否则记录在案的 preset 的 standing key——冷会话由此列出其组合真正供给的目录而不再报错；`serviceFor` 分支保留，兼容仍以 realm 自挂注册表的组合。
+组合随之调整：web-app bundle 重新启用 base 的 `skill` 注册表行（只有 `skill-filesystem` 与 `tool-skill` 仍归 preset），preset 组合拆掉 `isolate: skills` realm，改为直接落在宿主注册表上的平铺行。网关的 skills 域以 presenter scope 读取宿主注册表——存活 agent，否则记录在案的 preset 的 standing key——冷会话由此列出其组合真正供给的目录而不再报错；`serviceFor` 分支保留，兼容仍以 realm 自挂注册表的组合。
 
 ## 影响
 

@@ -104,13 +104,13 @@ describe('Session', () => {
     const session = Session.create(SessionId('s2-raw'))
     const message = createUserMessage({
       content: [{ type: 'text', text: '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>' }],
-      source: { kind: 'plugin', plugin: 'workspace-context' },
+      source: { kind: 'plugin', plugin: 'agent-instructions' },
     })
     session.append('user/message', message, { surfaceOp: 'append' })
 
     expect(session.deriveMessages()).toEqual([message])
     const event = session.events[0]
-    expect(event?.type === 'user/message' && event.data.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+    expect(event?.type === 'user/message' && event.data.source).toEqual({ kind: 'plugin', plugin: 'agent-instructions' })
   })
 
   it('replays identically from a seeded event log', () => {

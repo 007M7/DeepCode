@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -14,7 +14,7 @@ usePinnedBrowserLanguages('zh-CN')
 
 async function bench() {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
+  await ctx.plugin(SlotRegistry).await()
   const create = vi.fn(async (input: { name: string } | { path: string }) => ({
     workspaceId: 'ws-new' as never,
     path: 'name' in input ? `/projects/${input.name}` : input.path,
@@ -36,10 +36,10 @@ async function bench() {
     create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
-  const locale = new LocaleService(ctx)
+  const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return {
-    ctx, slots: ctx.get('slots') as SlotsService, locale, create, startSession, rename,
+    ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
     insertSessionBefore, open, clear, search, renameSession, binding, fork,
   }
 }
@@ -47,7 +47,7 @@ async function bench() {
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
-function declare(slots: SlotsService, ...names: HoleName[]): () => void {
+function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
   const children = Object.fromEntries(names.map(name => [name, { kind: 'single', scope: 'root' }]))
   return slots.register({ name: 'root', children } as never, () => null)
 }

@@ -38,7 +38,7 @@ Status: implemented
 
 ### 上下文是贯穿单个服务图的所有权路径
 
-所有 agent 共享一个 Cordis 服务图。派生的上下文不会克隆 `ToolRegistry`、`SystemPrompt`、持久化或模型适配器；它改变的是：通过该上下文进行的注册如何被标记，以及哪些 effect 拥有其清理逻辑。
+所有 agent 共享一个 Cordis 服务图。派生的上下文不会克隆 `ToolRuntime`、`SystemPrompt`、持久化或模型适配器；它改变的是：通过该上下文进行的注册如何被标记，以及哪些 effect 拥有其清理逻辑。
 
 `agent.ctx` 就是这样一个派生上下文。服务调用仍然到达共享实例，而注册操作可以检查其调用上下文并将贡献存储在最近的作用域键下。普通的插件上下文不携带作用域键，因此注册到全局。
 
@@ -226,7 +226,7 @@ Session 头部、种子和追加的事件是无损 JSON 数据。Session 构造�
 
 SystemPrompt 首先将全局加 agent 的段、变量和工具提供方解析为确定性的注册表贡献。作用域过滤的 `system-prompt/assemble` waterfall 随后可以重排、替换、添加或移除任何段、变量或 schema。其返回的组装结果即为权威；没有后续的恢复步骤，普通提示词段、工具定义或提供方结果上也没有终态元数据。
 
-这是一个可信的同进程扩展点，而非权限边界。修改 Code Mode 的 `run_code` schema 或 `tools:sdk` 指令，或结构化子级的捕获 schema 或指令的监听器，有责任在其返回的组装中保持协议的一致性。ToolRegistry 仍然保留 `run_code` 不受普通工具注册和限制影响，因为那些是注册表不变式，但 assembly 中间件仍然可以自由变换最终的模型可见表面。
+这是一个可信的同进程扩展点，而非权限边界。修改 Code Mode 的 `run_code` schema 或 `tools:sdk` 指令，或结构化子级的捕获 schema 或指令的监听器，有责任在其返回的组装中保持协议的一致性。ToolRuntime 仍然保留 `run_code` 不受普通工具注册和限制影响，因为那些是注册表不变式，但 assembly 中间件仍然可以自由变换最终的模型可见表面。
 
 Scope 直接解决了真正的隔离问题。结构化输出贡献注册在子级的精确作用域中，而 Code Mode 从同一个已解析的工具视图派生其传输和 SDK。第二套命名保护系统需要另一套所有权和碰撞规则来覆盖任意 schema 提供方（包括有意贡献重复名称的提供方），却不创建新的信任边界。
 
@@ -266,7 +266,7 @@ subagent 启动有一次所有权转移。提供方拥有未发布资源，直�
 
 ### 服务约定有一个取消通道
 
-`SubagentProvider.start()` 和 `SubagentService.start()` 返回 `Promise<SubagentRun>`。Promise 会在后端跨过发布边界后兑现，因此调用方和 `subagent/start` 观察者从不需要第二个 `run.started` promise。提供方工作如果在发布前失败，`start()` 就会被拒绝；发布后的提示词、轮次、取消与基础设施结果会通过 `SubagentRun.result` 结算，且不会隐藏 child id，这也是[持久化目录决策](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)所要求的约定。
+`SubagentProvider.start()` 和 `SubagentRuntime.start()` 返回 `Promise<SubagentRun>`。Promise 会在后端跨过发布边界后兑现，因此调用方和 `subagent/start` 观察者从不需要第二个 `run.started` promise。提供方工作如果在发布前失败，`start()` 就会被拒绝；发布后的提示词、轮次、取消与基础设施结果会通过 `SubagentRun.result` 结算，且不会隐藏 child id，这也是[持久化目录决策](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)所要求的约定。
 
 `SubagentStartRequest.signal` 是必需的。中止它会在启动期间，以及已发布 run 的剩余就绪或轮次工作中请求取消。`SubagentRun.dispose()` 也请求取消并等待完全停稳。没有单独的公开 `run.cancel()` 通道。
 
@@ -294,7 +294,7 @@ Worker 和子进程桥接比同进程注册表需要更多状态，因为消息�
 
 ### 工作流子级是待定 start 或已发布记录
 
-工作流宿主保持待定的提供方 start promise 和已发布的子级记录。子级仅在异步 `SubagentService.start()` 兑现时才从待定变为已发布；被拒绝的 start 清理其部分提供方工作且不产生子级生命周期对。
+工作流宿主保持待定的提供方 start promise 和已发布的子级记录。子级仅在异步 `SubagentRuntime.start()` 兑现时才从待定变为已发布；被拒绝的 start 清理其部分提供方工作且不产生子级生命周期对。
 
 一个宿主拥有的 AbortController 向待定和活跃子级提供必需的 signal。关闭工作流准入中止该 signal，因此没有重复的 `ChildCancel` worker RPC 或显式的宿主侧 `run.cancel()` 扇出。完全停稳需要等待待定 start 和已发布子级 dispose 两者。
 
@@ -376,7 +376,7 @@ Worker 消息、进程死亡和持久化输入确实跨越所有权和序列化�
 - 创建和恢复不暴露部分配置的句柄；最终写入注册表时的失败者和发布失败清理每个已准备的资源。
 - dispose 在 driver 排空和最终会话工作期间保留作用域监听器和持久化，然后撤销作用域。
 - 持久化、队列、模型、worker、进程和协议格式的值在其真实边界处被拥有；类型化的同进程值遵循 readonly 约定。
-- ToolRegistry 的展示、查找和执行在专家 assembly 变换之前解析相同的活跃视图，已提交的结果有一个不可变的观察点。
+- ToolRuntime 的展示、查找和执行在专家 assembly 变换之前解析相同的活跃视图，已提交的结果有一个不可变的观察点。
 - 注册表贡献是确定性输入，而可信的 assembly waterfall 拥有最终的模型可见组合。
 - subagent start 仅返回已发布的 run，必需的 signal 取消待定或活跃的工作，dispose 到达后端的完全停稳约定。
 - Worker/进程结果优先级和清理在死亡、迟到消息和有界拆除下保持正确。
