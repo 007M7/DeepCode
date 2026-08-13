@@ -18,6 +18,13 @@ import type { WorkspaceId } from './workspace.ts'
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /**
+     * Session-list hints persisted by the projection cache. `blank: false`
+     * is monotonic and may suppress a cold-log probe; `blank: true` is only a
+     * checkpoint-prefix fact and must not hide a cold Session without direct
+     * verification. `lastPromptAt` is the latest human-authored prompt time.
+     */
+    sessionListMetadata: SessionListMetadata
+    /**
      * The deployment's image-intake limits: the attachments service's config
      * as this proxy enforces it at prompt admission, constant per host boot.
      * Clients pre-check count and bytes at intake and show the limits in
@@ -26,6 +33,14 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      */
     imageLimits: ImageAttachmentLimits
   }
+}
+
+/** Persisted hints used to summarize a cold Session without reading a large log. */
+export interface SessionListMetadata {
+  /** Whether the checkpoint prefix contains no turn/start event. */
+  blank: boolean
+  /** Latest source.kind=user message time in the checkpoint prefix. */
+  lastPromptAt: number | null
 }
 
 declare module '@deepseek-ai/dsh-llm' {

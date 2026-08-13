@@ -4,7 +4,7 @@
  * isolation, and prompt failure mapping.
  */
 
-import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -13,7 +13,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
-import { MessageId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -39,55 +39,120 @@ function header(id: string, createdAt: number, extra: Partial<SessionHeader> = {
 }
 
 describe('sessions.list cold merge', () => {
-  it('summarizes unattached sessions: log mtime, locate-less and vanished-log createdAt fallbacks, lineage', async () => {
+  it('verifies only small possibly-blank artifacts and treats every unavailable probe as visible', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(UserQuestionService)
     const root = mkdtempSync(join(tmpdir(), 'dsh-cold-'))
-    const logPath = join(root, 'a.log')
-    writeFileSync(logPath, 'log-bytes')
-    utimesSync(logPath, 5000, 5000) // mtime 5_000_000 ms — newer than every createdAt below
+    const smallPath = join(root, 'small.log')
+    const largePath = join(root, 'large.log')
+    writeFileSync(smallPath, 'x'.repeat(1024))
+    writeFileSync(largePath, 'x'.repeat(1025))
     const metas = [
-      header('session-a', 1000),
-      header('session-b', 2000, { parentSession: sid('session-parent'), origin: 'subagent' }),
-      header('session-c', 1500),
+      header('small-blank', 100),
+      header('small-conversation', 200),
+      header('large-unknown', 300),
+      header('cached-nonblank', 400),
+      header('locationless', 500, { parentSession: sid('session-parent'), origin: 'subagent' }),
+      header('vanished', 600),
+      header('read-failure', 700),
     ]
-    // Structural fake of the persistence face list() consumes: list + locate.
-    // locate: a real per-session file (mtime wins), a backend without one
-    // (SQLite shape → createdAt), and a path whose file vanished (stat ENOENT
-    // → createdAt).
+    const readFrom = vi.fn(async (id: SessionId) => {
+      if (id === sid('small-blank')) {
+        return {
+          meta: metas[0]!,
+          events: [{ type: 'session/end-seed', seq: 0, time: 700, data: {} }] as SessionEvent[],
+        }
+      }
+      if (id === sid('small-conversation')) {
+        return {
+          meta: metas[1]!,
+          events: [{ type: 'turn/start', seq: 0, time: 800, data: { turn: 1 } }] as SessionEvent[],
+        }
+      }
+      if (id === sid('read-failure')) throw new Error('simulated read failure')
+      throw new Error(`unexpected cold read: ${id}`)
+    })
     ctx.provide('sessionPersistence', {
       list: () => Promise.resolve(metas),
       locate: (meta: SessionHeader) => {
-        if (meta.id === sid('session-a')) return { kind: 'jsonl', path: logPath }
-        if (meta.id === sid('session-c')) return { kind: 'jsonl', path: join(root, 'vanished.log') }
+        if (meta.id === sid('large-unknown')) return { kind: 'jsonl', path: largePath }
+        if (meta.id === sid('locationless')) return undefined
+        if (meta.id === sid('vanished')) return { kind: 'jsonl', path: join(root, 'vanished.log') }
+        return { kind: 'jsonl', path: smallPath }
+      },
+      readFrom,
+    } as never)
+    ctx.provide('sessionProjectionCache', {
+      cachedSnapshot: (meta: SessionHeader) => {
+        if (meta.id === sid('small-blank')) {
+          return { asOfSeq: 0, values: { sessionListMetadata: { blank: true, lastPromptAt: null } } }
+        }
+        if (meta.id === sid('small-conversation')) {
+          return { asOfSeq: 0, values: { sessionListMetadata: { blank: true, lastPromptAt: 900 } } }
+        }
+        if (meta.id === sid('cached-nonblank')) {
+          return { asOfSeq: 1, values: { sessionListMetadata: { blank: false, lastPromptAt: 1000 } } }
+        }
         return undefined
       },
-    })
+    } as never)
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
     const response = await api.sessions.list(request({}))
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
-    const items = response.result.value.items
-    expect(items.map(item => item.sessionId)).toEqual(['session-a', 'session-b', 'session-c'])
-    const [a, b, c] = items
-    expect(a?.updatedAt).toBeCloseTo(5_000_000, -3)
-    expect(a?.running).toBe(false)
-    // Cold summaries are never blank: lazy persistence keeps never-appended
-    // sessions out of list(), so a listed session necessarily has events.
-    expect(items.every(item => !item.blank)).toBe(true)
-    expect(a?.cwd).toBe('/proj')
-    expect(a?.parentSessionId).toBeUndefined()
-    expect(b?.updatedAt).toBe(2000)
-    expect(b?.parentSessionId).toBe('session-parent')
-    expect(b?.origin).toBe('subagent')
-    expect(c?.updatedAt).toBe(1500)
+    const byId = Object.fromEntries(response.result.value.items.map(item => [item.sessionId, item]))
+    expect(byId['small-blank']).toMatchObject({ blank: true, updatedAt: 100, running: false })
+    // A stale true hint cannot hide the turn found in the bounded read.
+    expect(byId['small-conversation']).toMatchObject({ blank: false, updatedAt: 900 })
+    expect(byId['large-unknown']).toMatchObject({ blank: false, updatedAt: 300 })
+    // false is monotonic, so this row skips stat/read and keeps cached recency.
+    expect(byId['cached-nonblank']).toMatchObject({ blank: false, updatedAt: 1000 })
+    expect(byId['locationless']).toMatchObject({
+      blank: false,
+      updatedAt: 500,
+      parentSessionId: 'session-parent',
+      origin: 'subagent',
+    })
+    expect(byId['vanished']).toMatchObject({ blank: false, updatedAt: 600 })
+    expect(byId['read-failure']).toMatchObject({ blank: false, updatedAt: 700 })
+    expect(readFrom).toHaveBeenCalledTimes(3)
+    expect(readFrom.mock.calls.map(([id]) => id)).toEqual(expect.arrayContaining([
+      sid('small-blank'),
+      sid('small-conversation'),
+      sid('read-failure'),
+    ]))
+  })
+
+  it('can disable bounded blank probes without hiding cold Sessions', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserQuestionService)
+    const meta = header('probe-disabled', 100)
+    const readFrom = vi.fn()
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      locate: () => ({ kind: 'jsonl', path: '/not-read' }),
+      readFrom,
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      coldBlankProbeMaxBytes: 0,
+    })
+
+    const response = await api.sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.items).toEqual([
+      expect.objectContaining({ sessionId: meta.id, blank: false, updatedAt: meta.createdAt }),
+    ])
+    expect(readFrom).not.toHaveBeenCalled()
   })
 })
 
-describe('attached updatedAt excludes end-seed', () => {
-  it('reports the last real work, not the pickup, so a resumed-untouched session does not float', async () => {
+describe('attached updatedAt tracks human prompts', () => {
+  it('ignores pickup and non-prompt work after the latest human message', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(UserQuestionService)
@@ -99,7 +164,12 @@ describe('attached updatedAt excludes end-seed', () => {
     const resumed = ctx.sessions.create(sid('resumed-untouched'), {
       seed: [
         { type: 'turn/start', seq: 0, time: worked, data: { turn: 1 } },
-        { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, reason: { kind: 'completed' } } },
+        {
+          type: 'user/message', seq: 1, time: worked,
+          data: createUserMessage({ content: [{ type: 'text', text: 'worked' }], source: { kind: 'user' } }),
+          surfaceOp: 'append',
+        },
+        { type: 'turn/end', seq: 2, time: worked + 1, data: { turn: 1, reason: { kind: 'completed' } } },
       ],
       meta: { cwd: '/proj', createdAt: 500 },
     })
@@ -113,12 +183,21 @@ describe('attached updatedAt excludes end-seed', () => {
     const summary = listed.result.value.items.find(item => item.sessionId === 'resumed-untouched')
     expect(summary?.updatedAt).toBe(worked)
 
-    // Real work appended after end-seed does move it.
+    // A lifecycle boundary is not a human update.
     resumed.append('turn/start', { turn: 2 })
+    const afterBoundary = await api.sessions.list(request({}))
+    if (!afterBoundary.result.ok) throw new Error('list failed')
+    expect(afterBoundary.result.value.items.find(item => item.sessionId === 'resumed-untouched')?.updatedAt)
+      .toBe(worked)
+
+    const prompt = resumed.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'new prompt' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const after = await api.sessions.list(request({}))
     if (!after.result.ok) throw new Error('list failed')
     const moved = after.result.value.items.find(item => item.sessionId === 'resumed-untouched')
-    expect(moved?.updatedAt).toBeGreaterThan(worked)
+    expect(moved?.updatedAt).toBe(prompt.time)
   })
 })
 

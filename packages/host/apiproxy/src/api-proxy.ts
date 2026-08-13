@@ -15,7 +15,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { isAppendSurfaceEvent, isJsonValue, lastActivityTime } from '@deepseek-ai/dsh-session'
+import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
@@ -38,7 +38,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
@@ -90,7 +90,7 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
-import { imageLimitsProjectionSchema } from './api/sessions.schema.ts'
+import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -132,6 +132,8 @@ const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 
 /** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
 const COLD_SUMMARY_BATCH_SIZE = 16
+/** Default maximum artifact size eligible for one cold blankness read. */
+export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
@@ -506,6 +508,29 @@ function sessionBlank(session: Session): boolean {
   return !session.events.some(event => event.type === 'turn/start')
 }
 
+/** Advance the Session-list hint projection by one committed event. */
+function applySessionListMetadata(state: SessionListMetadata, event: SessionEvent): SessionListMetadata {
+  const blank = state.blank && event.type !== 'turn/start'
+  const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
+    ? event.time
+    : state.lastPromptAt
+  return blank === state.blank && lastPromptAt === state.lastPromptAt
+    ? state
+    : { blank, lastPromptAt }
+}
+
+/** Fold exact list metadata for an attached Session. */
+function sessionListMetadata(events: readonly SessionEvent[]): SessionListMetadata {
+  let state: SessionListMetadata = { blank: true, lastPromptAt: null }
+  for (const event of events) state = applySessionListMetadata(state, event)
+  return state
+}
+
+/** Sort by creation or latest human prompt, whichever is newer. */
+function sessionListUpdatedAt(header: SessionHeader, metadata: SessionListMetadata | undefined): number {
+  return Math.max(header.createdAt, metadata?.lastPromptAt ?? 0)
+}
+
 /** Shared Session-header projection for list baselines and creation frames. */
 function sessionListFields(header: SessionHeader, events: readonly SessionEvent[] = []): {
   parentSessionId?: SessionId
@@ -527,47 +552,71 @@ function sessionListFields(header: SessionHeader, events: readonly SessionEvent[
 
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
+  const metadata = sessionListMetadata(session.events)
   return {
     sessionId: session.id,
-    // Excludes end-seed: a resumed-but-untouched session
-    // must not sort as freshly worked in.
-    updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
+    updatedAt: sessionListUpdatedAt(session.header, metadata),
     running,
-    blank: sessionBlank(session),
+    blank: metadata.blank,
     ...sessionListFields(session.header, session.events),
   }
 }
 
 /**
- * SessionSummary projection for cold (persisted, unattached) sessions.
- * updatedAt is the log file's mtime; backends without a per-session file
- * (locate() undefined) fall back to the header's createdAt.
+ * Verify a possibly blank cold Session only when its physical artifact is
+ * within the configured per-Session read bound. A stale `blank: true`, an
+ * absent cache row, a large or location-less artifact, and read failures all
+ * resolve to visible (`false`); listing must never hide a conversation on a
+ * cache hint or an unavailable optimization.
  */
-async function summarizeCold(
+async function probeColdSessionBlank(
+  ctx: Context,
   persistence: SessionPersistence,
   meta: SessionHeader,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (maxBytes === 0) return false
+  signal?.throwIfAborted()
+  const location = persistence.locate(meta)
+  if (location === undefined) return false
+  signal?.throwIfAborted()
+  let size: number
+  try {
+    size = (await stat(location.path)).size
+  } catch {
+    signal?.throwIfAborted()
+    return false
+  }
+  if (size > maxBytes) return false
+  try {
+    const { events } = await persistence.readFrom(meta.id, 0, signal)
+    signal?.throwIfAborted()
+    return !events.some(event => event.type === 'turn/start')
+  } catch (error) {
+    signal?.throwIfAborted()
+    ctx.logger.warn(`session.list: blank probe for "${meta.id}" failed (serving it as visible): ${String(error)}`)
+    return false
+  }
+}
+
+/** SessionSummary projection for a cold persisted Session. */
+async function summarizeCold(
+  ctx: Context,
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  metadata: SessionListMetadata | undefined,
+  blankProbeMaxBytes: number,
   signal?: AbortSignal,
 ): Promise<SessionSummary> {
-  signal?.throwIfAborted()
-  let updatedAt = meta.createdAt
-  const location = persistence.locate(meta)
-  signal?.throwIfAborted()
-  if (location !== undefined) {
-    try {
-      updatedAt = (await stat(location.path)).mtimeMs
-    } catch {
-      // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
-    }
-    signal?.throwIfAborted()
-  }
+  const blank = metadata?.blank === false
+    ? false
+    : await probeColdSessionBlank(ctx, persistence, meta, blankProbeMaxBytes, signal)
   return {
     sessionId: meta.id,
-    updatedAt,
+    updatedAt: sessionListUpdatedAt(meta, metadata),
     running: false,
-    // Lazy persistence keeps never-appended sessions out of list(); reading
-    // a cold log to check for turns would defeat the index read, so a listed
-    // cold session is served as not-blank (its log holds its conversation).
-    blank: false,
+    blank,
     // Header-only: reading the log for a blank-window preset switch would
     // defeat the same index read, and attaching the session replaces this row
     // with `summarize()`, which resolves the switch from the events.
@@ -608,6 +657,8 @@ export interface ApiProxyDefaults {
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
   /** Validated DEFLATE level for session-log ZIP entries; defaults to 6. */
   sessionExportCompressionLevel?: SessionLogCompressionLevel
+  /** Maximum artifact size eligible for one cold blankness read. */
+  coldBlankProbeMaxBytes?: number
   /**
    * Whether handing a path to the native opener can work at all — the
    * `hasDocument` capability the preset roster reports, and the switch
@@ -1055,6 +1106,8 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
   const sessionExportCompressionLevel = defaults.sessionExportCompressionLevel
     ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
+  const coldBlankProbeMaxBytes = defaults.coldBlankProbeMaxBytes
+    ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
     const { provider, model } = defaults.defaultModelSelection()
@@ -1230,6 +1283,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
       broadcast({ type: 'session/projection', sessionId: session.id, key, value, seq })
+    })
+  })
+
+  // The cache supplies recency and a monotonic non-blank hint. A cached
+  // `blank: true` remains only a prefix fact and is verified on the cold path.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
+      key: 'sessionListMetadata',
+      schema: sessionListMetadataProjectionSchema,
+      init: () => ({ blank: true, lastPromptAt: null }),
+      apply: applySessionListMetadata,
+      view: state => state,
+      stateVersion: 1,
     })
   })
 
@@ -1678,11 +1744,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
         const settled = await Promise.allSettled(
           batch.map(async (meta) => {
-            // Cold rows read the persisted projection cache only — never a
-            // log load; a session without a cache row simply has no column.
+            // Projection hints remain optional. Blank verification may read
+            // this Session's artifact only when it fits the configured bound.
             const projections = listProjectionsFor(ctx, meta, undefined)
             return {
-              ...await summarizeCold(persistence, meta, signal),
+              ...await summarizeCold(
+                ctx,
+                persistence,
+                meta,
+                projections?.values.sessionListMetadata,
+                coldBlankProbeMaxBytes,
+                signal,
+              ),
               ...projections === undefined ? {} : { projections },
             }
           }),
