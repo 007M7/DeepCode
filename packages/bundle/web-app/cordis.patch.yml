@@ -22,14 +22,15 @@
 - id: hmr
   disabled: true
 
-# Web content search runs on an ephemeral in-memory index. The service
-# activates at boot, while first-search defers the node:sqlite import and
-# in-memory handle so Node 22 startup stays quiet until content search
-# actually uses SQLite. That search then reconciles this boot's sources.
+# Full-text session search is opt-in (the base row's `openAt: never`). This
+# restatement keeps the Web values on one ephemeral in-memory index; a
+# deployment enabling content search overrides `openAt` to `first-search` in a
+# later patch layer, which defers the node:sqlite import and in-memory handle
+# to the first search so Node 22 startup stays quiet.
 - id: session-query-sqlite
   config:
     path: ':memory:'
-    openAt: first-search
+    openAt: never
 
 - id: tools
   config:
