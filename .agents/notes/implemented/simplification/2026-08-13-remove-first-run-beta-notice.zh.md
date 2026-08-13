@@ -10,7 +10,7 @@ GUI 每次首启都会先显示占满视口的内测声明：内部测试的定�
 
 ## 决策
 
-首启声明从组装后的产品中整体移除，而不是改写。`ui-settings-general` 不再注册任何 `settings.onboarding` 步骤；声明组件、其持久化确认 store、文案所有者文件和 locale 键全部删除。`settings.onboarding` 协调器及其接管式展示阶段保留（[有序引导](../feature/2026-07-30-versioned-gui-welcome-onboarding.md)），按条件显示的 DeepSeek 凭据步骤是当前唯一的注册方。宿主端仍注册 `ui-onboarding` 设置 namespace：其中的 `welcomeNoticeVersion` 字段让 `$DSH_HOME/settings.yaml` 中已写入的确认记录保持有效，没有任何代码读取或写入它。遥测的开启仍是显式的部署环境变量选择，记录在仓库 README 中；产品界面不出现任何关于开启遥测的提示。
+首启声明从组装后的产品中整体移除，而不是改写。`ui-settings-general` 不再注册任何 `settings.onboarding` 步骤；声明组件、其持久化确认 store、文案所有者文件和 locale 键全部删除。`settings.onboarding` 协调器及其接管式展示阶段保留（[有序引导](../feature/2026-07-30-versioned-gui-welcome-onboarding.md)），按条件显示的 DeepSeek 凭据步骤是当前唯一的注册方。宿主端仍注册 `ui-onboarding` 设置 namespace：其中的 `welcomeNoticeVersion` 字段让 `$DSH_HOME/settings.yaml` 中已写入的确认记录保持有效，没有任何代码读取或写入它。遥测的开启仍是显式的部署环境变量选择，记录在 [CLI reference README](../../../../apps/cli/reference/README.md) 中；产品界面不出现任何关于开启遥测的提示。
 
 ## 曾考虑的替代方案
 
