@@ -31,6 +31,39 @@ function sidebar(locale: DocsLocale, collection: NonNullable<DocsPage['sidebar']
   })
 }
 
+/**
+ * Guide sidebar with direct links into the first development and reference pages.
+ *
+ * @param locale - Route tree whose guide sidebar is being built.
+ * @param collection - Guide collection for the locale.
+ * @returns Guide groups followed by collapsed top-level links to the other documentation modules.
+ */
+function guideSidebar(
+  locale: DocsLocale,
+  collection: Extract<NonNullable<DocsPage['sidebar']>, 'zh-guide' | 'en-guide'>,
+): DefaultTheme.SidebarItem[] {
+  const labels = locale === 'root'
+    ? { develop: '开发', reference: '参考' }
+    : { develop: 'Development', reference: 'Reference' }
+  const developCollection = locale === 'root' ? 'zh-develop' : 'en-develop'
+  const referenceCollection = locale === 'root' ? 'zh-reference' : 'en-reference'
+  return [
+    ...sidebar(locale, collection),
+    {
+      text: labels.develop,
+      link: landingLink(locale, developCollection),
+      collapsed: true,
+      items: sidebar(locale, developCollection),
+    },
+    {
+      text: labels.reference,
+      link: landingLink(locale, referenceCollection),
+      collapsed: true,
+      items: sidebar(locale, referenceCollection),
+    },
+  ]
+}
+
 function watchCanonicalDocs(server: ViteDevServer): void {
   const sources = docsSourceFiles()
   server.watcher.add(sources)
@@ -201,7 +234,7 @@ export default withMermaid({
           { text: '参考', link: landingLink('root', 'zh-reference'), activeMatch: '^/reference/' },
         ],
         sidebar: {
-          '/guide/': sidebar('root', 'zh-guide'),
+          '/guide/': guideSidebar('root', 'zh-guide'),
           '/develop/': sidebar('root', 'zh-develop'),
           '/reference/': sidebar('root', 'zh-reference'),
         },
@@ -224,11 +257,11 @@ export default withMermaid({
         siteTitle: siteTitle('Preview'),
         nav: [
           { text: 'Guide', link: landingLink('en', 'en-guide'), activeMatch: '^/en/guide/' },
-          { text: 'Develop', link: landingLink('en', 'en-develop'), activeMatch: '^/en/develop/' },
+          { text: 'Development', link: landingLink('en', 'en-develop'), activeMatch: '^/en/develop/' },
           { text: 'Reference', link: landingLink('en', 'en-reference'), activeMatch: '^/en/reference/' },
         ],
         sidebar: {
-          '/en/guide/': sidebar('en', 'en-guide'),
+          '/en/guide/': guideSidebar('en', 'en-guide'),
           '/en/develop/': sidebar('en', 'en-develop'),
           '/en/reference/': sidebar('en', 'en-reference'),
         },
