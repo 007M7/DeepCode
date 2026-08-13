@@ -67,7 +67,14 @@ describe('sessions.list cold merge', () => {
       if (id === sid('small-conversation')) {
         return {
           meta: metas[1]!,
-          events: [{ type: 'turn/start', seq: 0, time: 800, data: { turn: 1 } }] as SessionEvent[],
+          events: [
+            { type: 'turn/start', seq: 0, time: 800, data: { turn: 1 } },
+            {
+              type: 'user/message', seq: 1, time: 1200,
+              data: createUserMessage({ content: [{ type: 'text', text: 'worked' }], source: { kind: 'user' } }),
+              surfaceOp: 'append',
+            },
+          ] as SessionEvent[],
         }
       }
       if (id === sid('read-failure')) throw new Error('simulated read failure')
@@ -105,7 +112,7 @@ describe('sessions.list cold merge', () => {
     const byId = Object.fromEntries(response.result.value.items.map(item => [item.sessionId, item]))
     expect(byId['small-blank']).toMatchObject({ blank: true, updatedAt: 100, running: false })
     // A stale true hint cannot hide the turn found in the bounded read.
-    expect(byId['small-conversation']).toMatchObject({ blank: false, updatedAt: 900 })
+    expect(byId['small-conversation']).toMatchObject({ blank: false, updatedAt: 1200 })
     expect(byId['large-unknown']).toMatchObject({ blank: false, updatedAt: 300 })
     // false is monotonic, so this row skips stat/read and keeps cached recency.
     expect(byId['cached-nonblank']).toMatchObject({ blank: false, updatedAt: 1000 })
@@ -148,6 +155,62 @@ describe('sessions.list cold merge', () => {
       expect.objectContaining({ sessionId: meta.id, blank: false, updatedAt: meta.createdAt }),
     ])
     expect(readFrom).not.toHaveBeenCalled()
+  })
+
+  it('replaces a probed cold row with the live Session that attached during the read', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserQuestionService)
+    await ctx.plugin(AgentRegistry)
+    const meta = header('attached-during-probe', 100)
+    const root = mkdtempSync(join(tmpdir(), 'dsh-cold-race-'))
+    const path = join(root, 'small.log')
+    writeFileSync(path, 'x')
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      locate: () => ({ kind: 'jsonl', path }),
+      readFrom: async () => {
+        started.resolve(undefined)
+        await release.promise
+        return {
+          meta,
+          events: [{ type: 'session/end-seed', seq: 0, time: 110, data: {} }] as SessionEvent[],
+        }
+      },
+    } as never)
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+
+    const listing = api.sessions.list(request({}))
+    await started.promise
+    const session = ctx.sessions.create(meta.id, {
+      seed: [
+        { type: 'turn/start', seq: 0, time: 200, data: { turn: 1 } },
+        {
+          type: 'user/message', seq: 1, time: 300,
+          data: createUserMessage({ content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } }),
+          surfaceOp: 'append',
+        },
+      ],
+      meta: {
+        ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
+        createdAt: meta.createdAt,
+      },
+    })
+    ctx.agents.register({ id: session.id, session, status: 'running', ctx } as Agent)
+    release.resolve(undefined)
+
+    const response = await listing
+    if (!response.result.ok) throw new Error('list failed')
+    expect(response.result.value.items).toEqual([
+      expect.objectContaining({
+        sessionId: meta.id,
+        blank: false,
+        running: true,
+        updatedAt: 300,
+      }),
+    ])
   })
 })
 

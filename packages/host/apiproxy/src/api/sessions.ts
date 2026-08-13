@@ -173,25 +173,25 @@ export type QueueAction =
   | { kind: 'remove' }
   | { kind: 'steer' }
 
-/** Session list entry (v1 builds no index: list does readdir+stat). */
+/** One Session list entry. */
 export interface SessionSummary {
   sessionId: SessionId
   /**
-   * Last activity. Attached: the last non-`session/end-seed` event, since a
-   * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend
-   * with no per-session file (README Known Limitations covers the skew).
+   * The later of creation and the latest human-authored prompt. Attached
+   * Sessions fold their live log; cold Sessions use a projection-cache hint or
+   * an exact small-artifact read, falling back to creation time.
    */
   updatedAt: number
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
   /**
-   * Derived conversation-not-started bit: true while no turn has run (no
-   * prompt was accepted yet). Standalone plugin events — command lifecycle
+   * Derived conversation-not-started bit: true while no turn has run.
+   * Standalone plugin events — command lifecycle
    * records, plan/mode, titles, goals — do not open a turn and therefore do
-   * not clear it. Clients hide blank sessions from lists and reuse them for
-   * New Session on the same workspace. Always false for cold sessions —
-   * lazy persistence keeps a never-appended session out of the store, and a
-   * listed cold session's log holds its turns.
+   * not clear it. Clients hide blank Sessions from lists and reuse them for
+   * New Session on the same workspace. A cold Session is true only when a
+   * small-artifact read verifies that no `turn/start` exists; unavailable
+   * or oversized artifacts conservatively report false.
    */
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */

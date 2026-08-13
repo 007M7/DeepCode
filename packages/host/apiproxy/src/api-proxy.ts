@@ -563,40 +563,40 @@ function summarize(session: Session, running: boolean): SessionSummary {
 }
 
 /**
- * Verify a possibly blank cold Session only when its physical artifact is
- * within the configured per-Session read bound. A stale `blank: true`, an
+ * Verify a possibly blank cold Session only when its physical artifact passes
+ * the configured per-Session size check. A stale `blank: true`, an
  * absent cache row, a large or location-less artifact, and read failures all
  * resolve to visible (`false`); listing must never hide a conversation on a
  * cache hint or an unavailable optimization.
  */
-async function probeColdSessionBlank(
+async function probeColdSessionMetadata(
   ctx: Context,
   persistence: SessionPersistence,
   meta: SessionHeader,
   maxBytes: number,
   signal?: AbortSignal,
-): Promise<boolean> {
-  if (maxBytes === 0) return false
+): Promise<SessionListMetadata | undefined> {
+  if (maxBytes === 0) return undefined
   signal?.throwIfAborted()
   const location = persistence.locate(meta)
-  if (location === undefined) return false
+  if (location === undefined) return undefined
   signal?.throwIfAborted()
   let size: number
   try {
     size = (await stat(location.path)).size
   } catch {
     signal?.throwIfAborted()
-    return false
+    return undefined
   }
-  if (size > maxBytes) return false
+  if (size > maxBytes) return undefined
   try {
     const { events } = await persistence.readFrom(meta.id, 0, signal)
     signal?.throwIfAborted()
-    return !events.some(event => event.type === 'turn/start')
+    return sessionListMetadata(events)
   } catch (error) {
     signal?.throwIfAborted()
     ctx.logger.warn(`session.list: blank probe for "${meta.id}" failed (serving it as visible): ${String(error)}`)
-    return false
+    return undefined
   }
 }
 
@@ -609,14 +609,14 @@ async function summarizeCold(
   blankProbeMaxBytes: number,
   signal?: AbortSignal,
 ): Promise<SessionSummary> {
-  const blank = metadata?.blank === false
-    ? false
-    : await probeColdSessionBlank(ctx, persistence, meta, blankProbeMaxBytes, signal)
+  const probed = metadata?.blank === false
+    ? undefined
+    : await probeColdSessionMetadata(ctx, persistence, meta, blankProbeMaxBytes, signal)
   return {
     sessionId: meta.id,
-    updatedAt: sessionListUpdatedAt(meta, metadata),
+    updatedAt: sessionListUpdatedAt(meta, probed ?? metadata),
     running: false,
-    blank,
+    blank: metadata?.blank === false ? false : probed?.blank ?? false,
     // Header-only: reading the log for a blank-window preset switch would
     // defeat the same index read, and attaching the session replaces this row
     // with `summarize()`, which resolves the switch from the events.
@@ -1724,14 +1724,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    */
   async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
     signal?.throwIfAborted()
-    const items = ctx.sessions.list().map((session) => {
+    const summarizeAttached = (session: Session): SessionSummary => {
       const agent = ctx.agents.get(session.id)
       const projections = listProjectionsFor(ctx, session.header, session)
       return {
         ...summarize(session, agent?.status === 'running'),
         ...projections === undefined ? {} : { projections },
       }
-    })
+    }
+    const items = ctx.sessions.list().map(summarizeAttached)
     signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
@@ -1745,17 +1746,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const settled = await Promise.allSettled(
           batch.map(async (meta) => {
             // Projection hints remain optional. Blank verification may read
-            // this Session's artifact only when it fits the configured bound.
+            // this Session's artifact only when it passes the configured size check.
             const projections = listProjectionsFor(ctx, meta, undefined)
+            const summary = await summarizeCold(
+              ctx,
+              persistence,
+              meta,
+              projections?.values.sessionListMetadata,
+              coldBlankProbeMaxBytes,
+              signal,
+            )
+            const attachedSession = ctx.sessions.get(meta.id)
+            if (attachedSession !== undefined) return summarizeAttached(attachedSession)
             return {
-              ...await summarizeCold(
-                ctx,
-                persistence,
-                meta,
-                projections?.values.sessionListMetadata,
-                coldBlankProbeMaxBytes,
-                signal,
-              ),
+              ...summary,
               ...projections === undefined ? {} : { projections },
             }
           }),

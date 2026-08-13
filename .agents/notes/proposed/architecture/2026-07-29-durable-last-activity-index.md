@@ -10,7 +10,7 @@ A cold (persisted, unattached) session has no authoritative stored answer to "wh
 
 The gateway previously used JSONL artifact mtime when available. mtime answers a different question: when the artifact was last written. Every durable write refreshes it, including a truncate-repair of a torn tail, synthetic closers that balance an interrupted turn, and the [`session/end-seed` boundary](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) appended during pickup. That approximation promoted a Session merely because it was opened. The [bounded cold blank verification](../../implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md) removed mtime ordering and accepted the cache's conservative "too old" failure direction as an interim tradeoff.
 
-An attached summary can fold the live event log and select the latest human-authored `user/message`, but the cold path deliberately does not read large logs. Reading every log to compute `updatedAt` would make `list()` scale with total conversation bytes rather than Session count. The 1 KiB cold read introduced for blank verification does not solve recency: it is conditional, targets only small artifacts, and does not make large-log ordering exact.
+An attached summary can fold the live event log and select the latest human-authored `user/message`, but the cold path deliberately does not read large logs. Reading every log to compute `updatedAt` would make `list()` scale with total conversation bytes rather than Session count. The 1 KiB cold read used for metadata verification makes eligible small-artifact recency exact, but it does not make large-log ordering exact.
 
 Making cold ordering exact remains a durable-format decision, which is why it is scoped here rather than in the gateway workaround.
 
@@ -61,7 +61,7 @@ Three questions must be answered before implementation, and none of them is sett
 
 ## Related
 
-- [Bounded cold blank verification](../../implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md) — removes mtime ordering, defines the interim projection-cache fallback, and limits direct cold reads to blankness checks.
+- [Bounded cold blank verification](../../implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md) — removes mtime ordering, defines the interim projection-cache fallback, and limits direct cold reads to small-artifact metadata verification.
 - [The end-seed log boundary](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) — one of the non-prompt writes that made mtime unsuitable.
 - [Session persistence](../../implemented/architecture/2026-06-14-session-persistence.md) — the append-only and never-rewrite invariants that rule out a mutable JSONL header field.
 - [Shared persistence write coordinator](../../implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) — the append path a stored field would hook into.
