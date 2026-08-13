@@ -2,7 +2,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { apply } from '../src/index.ts'
-import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../src/onboarding-copy.ts'
+
+/** Mirrors the module-local namespace id in src/index.ts. */
+const ONBOARDING_SETTINGS_NAMESPACE = 'ui-onboarding'
 
 class MemorySettings extends SettingsProvider {
   readonly writable = true
@@ -19,11 +21,11 @@ describe('ui-settings-general host', () => {
     const fiber = ctx.plugin({ apply })
     await fiber.await()
     expect(ctx.settings.describe().map(row => row.ns)).toContain(
-      settingsNamespace(WELCOME_NOTICE_SETTINGS_NAMESPACE),
+      settingsNamespace(ONBOARDING_SETTINGS_NAMESPACE),
     )
     await fiber.dispose()
     expect(ctx.settings.describe().map(row => row.ns)).not.toContain(
-      settingsNamespace(WELCOME_NOTICE_SETTINGS_NAMESPACE),
+      settingsNamespace(ONBOARDING_SETTINGS_NAMESPACE),
     )
   })
 })

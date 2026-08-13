@@ -29,9 +29,8 @@ artifact it produces itself.
 
 When a scenario needs a Client-owned constant or pure function, mirror it here
 instead, next to the commented-out import that names the source module. A drift
-then surfaces as a missed selector or an unsuppressed notice — a loud failure,
-never a silent pass. `scaffold.ts` holds the mirrored welcome-notice values and
-exports them for the scenarios that assert on them.
+then surfaces as a missed selector or a stale mirrored value — a loud failure,
+never a silent pass.
 
 Two kinds of Client import stand. `assembled-boot.ts` drives the shell itself, so
 it imports `AppWebEntry` from `@deepseek-ai/dsh-client-web` and the boot-manifest
