@@ -3,7 +3,7 @@
   "description": "Include files in cordis configurations",
   "version": "1.0.6-rc.4",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

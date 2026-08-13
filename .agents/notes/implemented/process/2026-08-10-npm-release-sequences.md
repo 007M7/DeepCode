@@ -26,7 +26,7 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | `release-vendor.yml` |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | `landlock-run-release.yml` |
 
-All three publish privately to the `@deepseek-ai` scope on npmjs.com. `publishConfig.access` in each manifest is `restricted` and no workflow passes `--access`, because a command-line flag overrides the manifest.
+All three publish to the `@deepseek-ai` scope on npmjs.com, and access is per sequence rather than per scope: the vendored framework and the native packages are `public`, the dsh family is `restricted` ([rationale](2026-08-13-public-vendor-and-native-sequences.md)). No publish path passes `--access`, because one flag cannot serve sequences that disagree and would override the manifest that owns the level.
 
 ### Versions land in the repository from a local command; CI only checks and uploads
 
@@ -107,12 +107,12 @@ The verification also packs the Landlock entry, which `dsh-sandbox-local` declar
 
 | Item | Content |
 |---|---|
-| release-set manifests | `private: true` removed; `publishConfig.access: restricted` and `repository` with each package's `directory` added |
+| release-set manifests | `private: true` removed; `publishConfig.access` per sequence and `repository` with each package's `directory` added |
 | release-set boundary | every member of `packages/*/*`, `apps/*`, and `vendor/*` |
 | dependency protocol | workspace-internal references are `workspace:^`, with `check-workspace-constraints.ts` and the invariant-companion rule requiring it |
 | root `AGENTS.md` | the convention that vendored packages are `private: true` no longer holds |
 | `vendor/README.md` | records `src` joining `cordis`'s `files` as a local modification |
-| the three native packages | `publishConfig.access: restricted`, and their workflow no longer passes `--access` |
+| the three native packages | `publishConfig.access: public`, and their workflow passes no `--access` |
 
 ### Relationship to the earlier proposal
 

@@ -3,7 +3,7 @@
   "description": "Meta-Framework for Modern JavaScript Applications",
   "version": "4.0.1-rc.4",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",
