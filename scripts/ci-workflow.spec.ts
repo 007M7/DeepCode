@@ -34,14 +34,20 @@ describe('CI workflow', () => {
       || !isRecord(workflow.jobs['windows-native'])
       || !isRecord(workflow.jobs['wine-apt-cache'])
       || !isRecord(workflow.jobs['serial-windows'])
+      || !isRecord(workflow.jobs['node-24'])
+      || !isRecord(workflow.jobs['node-24-coverage'])
+      || !isRecord(workflow.jobs['node-24-consumers'])
       || !isRecord(workflow.jobs['all-checks-passed'])) {
-      throw new TypeError('CI workflow must define windows, windows-native, wine-apt-cache, serial-windows, and all-checks-passed jobs')
+      throw new TypeError('CI workflow must define windows, windows-native, wine-apt-cache, serial-windows, node-24, node-24-coverage, node-24-consumers, and all-checks-passed jobs')
     }
 
     const windows = workflow.jobs.windows
     const windowsNative = workflow.jobs['windows-native']
     const wineAptCache = workflow.jobs['wine-apt-cache']
     const serialWindows = workflow.jobs['serial-windows']
+    const node24 = workflow.jobs['node-24']
+    const node24Coverage = workflow.jobs['node-24-coverage']
+    const node24Consumers = workflow.jobs['node-24-consumers']
     const aggregate = workflow.jobs['all-checks-passed']
     if (!Array.isArray(windows.steps) || !Array.isArray(aggregate.needs)) {
       throw new TypeError('Windows job must define steps and the aggregate must define needs')
@@ -57,8 +63,10 @@ describe('CI workflow', () => {
     expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
     // windows-native: non-blocking native job with failover, runs windows-complete.
+    // Its pool is resolved by the Windows-specific switch.
     expect(typeof windowsNative['runs-on']).toBe('string')
-    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER')
+    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER_WINDOWS')
+    expect(windowsNative['runs-on']).not.toContain('DSH_CI_FAILOVER_LINUX')
     expect(windowsNative['runs-on']).toContain('self-hosted')
     expect(windowsNative['runs-on']).toContain('dsh-win-ci')
     expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
@@ -82,6 +90,19 @@ describe('CI workflow', () => {
     expect(aggregate.needs).toContain('windows')
     expect(aggregate.needs).not.toContain('windows-native')
     expect(aggregate.needs).not.toContain('serial-windows')
+
+    // Linux failover is a separate switch: the three required Linux workers
+    // and the verdict job resolve their pool through DSH_CI_FAILOVER_LINUX,
+    // never the Windows switch.
+    for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers]] as const) {
+      expect(typeof job['runs-on']).toBe('string')
+      expect(job['runs-on'], `${jobName} runs-on must use the Linux failover switch`).toContain('DSH_CI_FAILOVER_LINUX')
+      expect(job['runs-on'], `${jobName} runs-on must not use the Windows failover switch`).not.toContain('DSH_CI_FAILOVER_WINDOWS')
+      expect(job['runs-on']).toContain('vm-backup')
+    }
+    expect(aggregate['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
+    expect(aggregate['runs-on']).not.toContain('DSH_CI_FAILOVER_WINDOWS')
+    expect(aggregate['runs-on']).toContain('vm-backup')
   })
 
   it('exempts push from cancellation, so one master merge does not cancel the running drill', () => {
