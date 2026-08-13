@@ -36,7 +36,7 @@ function sidebar(locale: DocsLocale, collection: NonNullable<DocsPage['sidebar']
  *
  * @param locale - Route tree whose guide sidebar is being built.
  * @param collection - Guide collection for the locale.
- * @returns Guide groups followed by collapsed top-level links to the other documentation modules.
+ * @returns Guide groups followed by top-level links to the other documentation modules.
  */
 function guideSidebar(
   locale: DocsLocale,
@@ -49,18 +49,8 @@ function guideSidebar(
   const referenceCollection = locale === 'root' ? 'zh-reference' : 'en-reference'
   return [
     ...sidebar(locale, collection),
-    {
-      text: labels.develop,
-      link: landingLink(locale, developCollection),
-      collapsed: true,
-      items: sidebar(locale, developCollection),
-    },
-    {
-      text: labels.reference,
-      link: landingLink(locale, referenceCollection),
-      collapsed: true,
-      items: sidebar(locale, referenceCollection),
-    },
+    { text: labels.develop, link: landingLink(locale, developCollection) },
+    { text: labels.reference, link: landingLink(locale, referenceCollection) },
   ]
 }
 
