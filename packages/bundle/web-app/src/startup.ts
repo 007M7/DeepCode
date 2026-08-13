@@ -45,28 +45,30 @@ function webCommand(): Command {
     .name('dsh --profile web')
     .description('Serve the DeepSeek Harness browser UI.')
     .helpOption('-h, --help', 'show this help')
-    .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
+    .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --port 8080              serve on another port
-  dsh --profile web --host 0.0.0.0           reach it from another machine on the LAN
 `)
 }
 
 /**
  * Parse and provide the Web invocation as an ordinary Cordis service. The
- * command's action publishes the flags this invocation named; a non-numeric
- * `--port` is a usage error, so on rejection (and on `--help`) nothing is
- * provided.
+ * command's action publishes the flags this invocation named; an unsupported
+ * `--host` or non-numeric `--port` is a usage error, so on rejection (and on
+ * `--help`) nothing is provided.
  * @param ctx - plugin context carrying the command line.
  */
 export function apply(ctx: Context): void {
   const program = webCommand()
   program.action(() => {
     const options = program.opts<WebOptions>()
+    if (options.host === '0.0.0.0') {
+      program.error('error: --host 0.0.0.0 is intentionally not supported yet; use 127.0.0.1 instead')
+    }
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
