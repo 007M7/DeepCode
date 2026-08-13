@@ -8,6 +8,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import {
   composeEntries,
   healProfilesModuleFallback,
@@ -144,21 +145,27 @@ describe('loadProfile', () => {
   })
 
   it('auto-initializes only shipped templates and fails loud otherwise', () => {
-    const anchor = stageInstallation({})
+    // Stage the shipped templates' bundles so web and cli both resolve for
+    // real; a resolution or parse failure must fail the test, never be
+    // swallowed by a try/catch.
+    const anchor = stageInstallation({
+      '@deepseek-ai/dsh-base': { patch: '[]\n' },
+      '@deepseek-ai/dsh-web-app': { patch: '[]\n' },
+      '@deepseek-ai/dsh-cli-app': { patch: '[]\n' },
+    })
     const home = tmp()
     expect(() => loadProfile('t', 'custom', anchor, home))
       .toThrow('profile "custom" does not exist')
-    // The web template auto-initializes on first load. Bundle resolution
-    // cannot be asserted to fail here: the source-plane test runner resolves
-    // @deepseek-ai/* through tsconfig paths regardless of the staged anchor.
-    expect(PROFILE_TEMPLATES.web).toContain('@deepseek-ai/dsh-base')
-    try {
-      loadProfile('t', 'web', anchor, home)
-    } catch {
-      // Resolution failure is the plain-Node outcome for this empty anchor.
-    }
+    // The web template auto-initializes on first load.
+    expect(PROFILE_TEMPLATES.web).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    loadProfile('t', 'web', anchor, home)
     expect(readProfileManifest('t', resolveProfileDir('web', home)).dsh?.profile?.bundles)
       .toEqual([...PROFILE_TEMPLATES.web ?? []])
+    // The cli template auto-initializes identically.
+    expect(PROFILE_TEMPLATES.cli).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-cli-app'])
+    loadProfile('t', 'cli', anchor, home)
+    expect(readProfileManifest('t', resolveProfileDir('cli', home)).dsh?.profile?.bundles)
+      .toEqual([...PROFILE_TEMPLATES.cli ?? []])
   })
 
   it('normalizes only the exact installation-owned headless bundle tuple', () => {
@@ -194,6 +201,55 @@ describe('loadProfile', () => {
     const dir = resolveProfileDir('demo', home)
     initProfile(dir, ['not-a-bundle'])
     expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('declares no dsh.bundle')
+  })
+
+  it('composes the cli profile from base and cli-app patches, gating the PTY stack on win32', () => {
+    // Read the real bundle patches so the composition test asserts exactly what
+    // ships, not a hand-maintained copy that can drift from the source.
+    const basePatch = readFileSync(new URL('../../../bundle/base/cordis.patch.yml', import.meta.url), 'utf8')
+    const cliPatch = readFileSync(new URL('../../../bundle/cli-app/cordis.patch.yml', import.meta.url), 'utf8')
+    const anchor = stageInstallation({
+      '@deepseek-ai/dsh-base': { patch: basePatch },
+      '@deepseek-ai/dsh-cli-app': { patch: cliPatch },
+    })
+    const home = tmp()
+    expect(PROFILE_TEMPLATES.cli).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-cli-app'])
+    // A resolution or parse failure must fail the test, never be swallowed.
+    const profile = loadProfile('t', 'cli', anchor, home)
+    expect(profile.layers.map(layer => layer.packageName))
+      .toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-cli-app'])
+    const entries = composeEntries([
+      ...profile.layers.map(layer => layer.patches),
+      profile.patches,
+    ])
+    const byId = new Map(entries.map(entry => [entry.id, entry]))
+
+    // The cli-app bundle inserts its startup provider and interactive runner;
+    // neither row may be disabled.
+    for (const id of ['cli-startup', 'cli-runner']) {
+      const entry = byId.get(id)
+      expect(entry, `${id} must be present in the cli composition`).toBeDefined()
+      expect(entry?.disabled, `${id} must be enabled`).toBeUndefined()
+    }
+
+    // The persistent PTY three-piece set is win32-disabled; the base one-shot
+    // pwsh shell is the Windows shell and stays enabled there. The `disabled`
+    // values are deferred `!!js` expressions, so evaluate each against an
+    // explicit platform scope to pin both outcomes on every host.
+    const disabledOn = (id: string): { win32: boolean; linux: boolean } => {
+      const entry = byId.get(id)
+      if (entry === undefined) throw new Error(`cli composition must mount ${id}`)
+      const expression = (entry.disabled as { __jsExpr?: string } | undefined)?.__jsExpr
+      if (expression === undefined) throw new Error(`${id} must gate on a !!js disabled expression`)
+      return {
+        win32: Boolean(evaluate({ process: { platform: 'win32' } }, expression)),
+        linux: Boolean(evaluate({ process: { platform: 'linux' } }, expression)),
+      }
+    }
+    for (const id of ['pty', 'terminal-bash', 'tool-terminal']) {
+      expect(disabledOn(id), `${id} must be disabled only on win32`).toEqual({ win32: true, linux: false })
+    }
+    expect(disabledOn('tool-pwsh'), 'pwsh must stay enabled on win32').toEqual({ win32: false, linux: true })
   })
 })
 

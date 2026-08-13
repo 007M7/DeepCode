@@ -12,7 +12,8 @@
   },
   "type": "module",
   "bin": {
-    "dsh": "lib/bin.js"
+    "dsh": "lib/bin.js",
+    "deepseek": "lib/deepseek.js"
   },
   "files": [
     "lib/*.js",
@@ -27,6 +28,7 @@
     "@deepseek-ai/dsh-agent-tool-presentation": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-base": "workspace:^",
+    "@deepseek-ai/dsh-cli-app": "workspace:^",
     "@deepseek-ai/dsh-cordis-client-runner": "workspace:^",
     "@deepseek-ai/dsh-client-ui-agent-preset": "workspace:^",
     "@deepseek-ai/dsh-client-ui-cordis": "workspace:^",
@@ -34,6 +36,7 @@
     "@deepseek-ai/dsh-command-goal": "workspace:^",
     "@deepseek-ai/dsh-compaction-basic": "workspace:^",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:^",
+    "@deepseek-ai/dsh-code-runtime-worker-thread": "workspace:^",
     "@deepseek-ai/dsh-goal": "workspace:^",
     "@deepseek-ai/dsh-goal-round-driver": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
@@ -71,6 +74,7 @@
     "@deepseek-ai/dsh-tool-subagent": "workspace:^",
     "@deepseek-ai/dsh-tool-subagent-control": "workspace:^",
     "@deepseek-ai/dsh-tool-jobs": "workspace:^",
+    "@deepseek-ai/dsh-tool-terminal": "workspace:^",
     "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tool-web": "workspace:^",
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",

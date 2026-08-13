@@ -31,7 +31,7 @@ Directories layer as follows:
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dsh.client` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported applications, assembled from Client / Host mixtures.
     - `apps/web` (`dsh-web-frontend`) is the vite application: a thin `main.ts` over the shell API exported by `dsh-client-web`.
-    - `apps/cli` (`@deepseek-ai/dsh`) dispatches commands: `dsh web` = Host + webserver + the built `dsh-web-frontend` dist; `dsh --profile headless` = [a direct core Agent/Session entry point](2026-08-09-headless-direct-core-entry-point.md), with zero Host, HTTP, or browser layer.
+    - `apps/cli` (`@deepseek-ai/dsh`) dispatches profiles: `dsh web` = Host + webserver + the built `dsh-web-frontend` dist; [`dsh cli`](../feature/2026-08-13-local-interactive-cli.md) and [`dsh --profile headless`](2026-08-09-headless-direct-core-entry-point.md) are direct core Agent/Session entry points with zero Host, HTTP, or browser layer.
     - A future Electron application reuses the same web client packages over an IPC fetch carrier.
 
 ```
@@ -67,7 +67,7 @@ On the protocol side: TS interfaces (`packages/host/apiproxy/src/api/`, zero Nod
 | Carrier layer | `dsh-host-webserver` | Web HTTP and upgrade: static serving + `/api/*`→handler forwarding + WebSocket upgrade route + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
 | Client libraries | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | Slot registry core / ctx↔React glue / pure React atoms | Zero cordis runtime dependency in components; seeded into the loader module table by the shell |
 | Client plugins | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | Browser-side cordis plugin tree (wire consumer, core services, theme, i18n, layout, sidebar, conversation, trajectory) — see the web client architecture note | Dual entry (node half = empty apply; implementation in `src/client/`); the consumption face goes exclusively through ApiProxy |
-| Application | `@deepseek-ai/dsh` (apps/cli) + `dsh-web-frontend` (apps/web, the vite application) | Coarse bin dispatch + one assembly module per application (web.ts / headless.ts); the vite app is a thin main over the `dsh-client-web` shell surface | Applications use dynamic imports so they never load each other; workspace knowledge like dist location stays in the app |
+| Application | `@deepseek-ai/dsh` (apps/cli) + `dsh-web-frontend` (apps/web, the vite application) | Profile dispatch and bundle-layer boot; the vite app is a thin main over the `dsh-client-web` shell surface | The selected profile imports only its own bundle tree; workspace knowledge like dist location stays in the app |
 
 #### Naming rule
 
@@ -79,7 +79,7 @@ Packages under `packages/host/*` and `packages/client/*` **must carry the direct
 2. **Write an assembly module under `apps/`**: `startHost()` + a client subclass + the application's private signal/print/exit semantics; a mixture never becomes a package — assembly is written in the app.
 3. **Import `dsh-host-webserver` only if you need HTTP carriage**, otherwise zero ports.
 
-The two existing applications preserve the division: the Web application mounts Host, carrier, and browser composition, while `dsh --profile headless` mounts a direct core runner with zero Host, HTTP, or ports. ACP-class protocol bridges do not follow the client-carrier checklist: they expose core to the external ecosystem and mount directly via `ctx.plugin(entry-point plugin)` without fetch.
+The shipped application paths preserve the division: Web mounts Host, carrier, and browser composition, while `dsh cli` and `dsh --profile headless` mount direct core runners with zero Host, HTTP, or ports. ACP-class protocol bridges do not follow the client-carrier checklist: they expose core to the external ecosystem and mount directly via `ctx.plugin(entry-point plugin)` without fetch.
 
 ## Message protocol
 
@@ -241,8 +241,8 @@ Every client consumes one contract: adding a unary method is a five-step mechani
 | Rejected | One-line reason |
 |---|---|
 | Packaging by product (a web family, an electron family) | Products share host/client capabilities rather than an application implementation; capability-provider layering means a new application needs zero new packages |
-| A package per mixture (e.g. a standalone headless package) | A mixture has exactly one consumer (its own app); packaging it is ownerless abstraction, while assembly in the app is readable and disposable |
-| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | Clients require wire validation, observability, and multi-client consistency. Direct headless is a local entry point with no client boundary and uses the public Agent/Session seams rather than a client command plane |
+| A Host/Client package per product mixture | A mixture has exactly one consumer (its own app); profile bundles may own direct local runners, but a product-specific Host/Client mixture remains app assembly rather than a reusable capability |
+| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | Clients require wire validation, observability, and multi-client consistency. The direct CLI and headless paths have no client boundary and use the public Agent/Session seams rather than a client command plane |
 | webserver depending on runtime (saving the handler injection) | Structural-typing injection keeps webserver reusable by sidecars/tests with zero workspace deps; a package dependency would drag assembly knowledge into the carrier layer |
 | Package names without the group prefix (continuing dsh-<tail>) | `dsh-runtime`/`dsh-web-ui` lose their belonging in the flat npm namespace; the cost is one explicit paths entry per package |
 | Reusing the in-repo JSON-RPC 2.0 (dsh-sdk-jsonrpc-server) | Numeric error codes degrade to a single fallback code, contracts get aligned by hand in two copies, and naming drifts without a convention |

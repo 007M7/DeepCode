@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import { execa } from 'execa'
+import yaml from 'js-yaml'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /** Published-entry acceptance for argument errors, profile lifecycle, and boot-free config dumps. */
@@ -718,6 +721,44 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain("name: '@deepseek-ai/dsh-headless'")
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
       expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
+      expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
+    }, 30_000)
+
+    it('prints the cli profile with the PTY three-piece set and the cli runner', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['cli', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-cli-app'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-cli-app/startup'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-terminal'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-terminal-bash'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-tool-terminal'")
+      const parsed: unknown = yaml.load(stdout, { schema: entryListSchema })
+      if (!Array.isArray(parsed)) throw new TypeError('cli profile dump must parse to an entry array')
+      const rows = new Map((parsed as {
+        id?: string
+        name?: unknown
+        disabled?: unknown
+        config?: unknown
+      }[]).map(row => [row.id, row]))
+      for (const [id, name] of [
+        ['code-runtime', '@deepseek-ai/dsh-code-runtime-worker-thread'],
+        ['tool-ask-user', '@deepseek-ai/dsh-tool-ask-user'],
+      ] as const) {
+        expect(rows.get(id), `row ${id}`).toMatchObject({ id, name })
+        expect(rows.get(id)?.disabled, `row ${id} stays enabled`).toBeUndefined()
+      }
+      const toolsMode = (rows.get('tools')?.config as { mode?: unknown } | undefined)?.mode
+      expect(toolsMode).toEqual({ __jsExpr: 'process.env.DSH_TOOLS_MODE' })
+      const expression = (toolsMode as { __jsExpr: string }).__jsExpr
+      expect(evaluate({ process: { env: {} } }, expression)).toBeUndefined()
+      expect(evaluate({ process: { env: { DSH_TOOLS_MODE: 'code' } } }, expression)).toBe('code')
+      expect(evaluate({ process: { env: { DSH_TOOLS_MODE: 'both' } } }, expression)).toBe('both')
+      // The cli profile has no Host or browser layers, like headless.
+      expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
     }, 30_000)
 

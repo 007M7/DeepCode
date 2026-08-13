@@ -1,0 +1,64 @@
+# The dsh-cli-app bundle patch: a local interactive REPL surface directly over
+# dsh-base. It mounts no Host, HTTP server, Web runtime, or browser plugin. An
+# ordinary provider plugin injects `cmdlineArgs`, parses the app's --help, then
+# the direct runner creates an Agent through the core registry and drives one
+# terminal surface over the shared runtime services.
+#
+# The persistent PTY three-piece set (terminal Service Definition, terminal-bash
+# provider, tool-terminal Consumer) is mounted on POSIX only. Windows lacks a
+# process inspector for foreground-group readiness, so the three rows are
+# load-time disabled there and the base one-shot pwsh tool remains the shell.
+
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+# The shared module-reload HMR row stays off; the launcher's watch-only
+# fallback still keeps the user patch layers live until the REPL exits.
+- id: hmr
+  disabled: true
+
+- id: tools
+  config:
+    # Keep the same temporary process-wide Code Mode opt-in as the Web surface.
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+- insert:
+    # Code Mode uses the same worker-thread transport as the Web and headless
+    # profiles when DSH_TOOLS_MODE selects code or both.
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+    # Expose the shared question protocol to the model; cli-runner below owns
+    # the human-facing answerer on the same userQuestions service.
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+
+    # The command-line provider: parses --help and publishes cliStartup.
+    - id: cli-startup
+      name: '@deepseek-ai/dsh-cli-app/startup'
+
+    # The interactive runner: owns the TTY/plain surface, Agents, and local
+    # command loop. Reads its invocation values from cliStartup.
+    - id: cli-runner
+      name: '@deepseek-ai/dsh-cli-app'
+      inject: [cliStartup]
+      config:
+        cwd: !!js ctx.cliStartup.cwd
+
+    # ── persistent PTY three-piece set (POSIX only) ──────────────────────────
+    # terminal Service Definition: owner-scoped persistent PTY registry.
+    - id: pty
+      name: '@deepseek-ai/dsh-terminal'
+      disabled: !!js process.platform === 'win32'
+
+    # terminal-bash provider: persistent-shell backend over ctx.subprocess.
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      disabled: !!js process.platform === 'win32'
+
+    # tool-terminal Consumer: six model-facing terminal_* tools.
+    - id: tool-terminal
+      name: '@deepseek-ai/dsh-tool-terminal'
+      disabled: !!js process.platform === 'win32'

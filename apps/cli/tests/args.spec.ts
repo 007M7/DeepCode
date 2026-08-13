@@ -21,13 +21,16 @@ function exitCode(argv: string[]): number {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
-  it('routes profile boots and the web alias, handing the rest to the app', () => {
+  it('routes profile boots and the web and cli aliases, handing the rest to the app', () => {
     expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [] })
     expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--patch', 'b.yml']))
       .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'], args: [] })
     expect(parse(['web'])).toEqual({ mode: 'profile', profile: 'web', patches: [], args: [] })
     expect(parse(['web', '--patch', 'web.yml']))
       .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], args: [] })
+    expect(parse(['cli'])).toEqual({ mode: 'profile', profile: 'cli', patches: [], args: [] })
+    expect(parse(['cli', '--patch', 'cli.yml']))
+      .toEqual({ mode: 'profile', profile: 'cli', patches: ['cli.yml'], args: [] })
   })
 
   it('ends the launcher flags at the first token it does not own', () => {
@@ -38,6 +41,8 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['-h'] })
     expect(parse(['web', '--host', '127.0.0.1', '--port', '8080', '--dev']))
       .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['--host', '127.0.0.1', '--port', '8080', '--dev'] })
+    expect(parse(['cli', '--resume', 'abc', '--dev']))
+      .toEqual({ mode: 'profile', profile: 'cli', patches: [], args: ['--resume', 'abc', '--dev'] })
     expect(parse(['--profile', 'headless', 'run', 'the', 'tests']))
       .toEqual({ mode: 'profile', profile: 'headless', patches: [], args: ['run', 'the', 'tests'] })
     // Launcher flags placed after that boundary belong to the app too.
@@ -68,6 +73,10 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
     expect(parse(['web', '--dump-default-config']))
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
+    expect(parse(['cli', '--dump-config']))
+      .toEqual({ mode: 'dump-config', profile: 'cli', defaultOnly: false, patches: [] })
+    expect(parse(['cli', '--dump-default-config']))
+      .toEqual({ mode: 'dump-config', profile: 'cli', defaultOnly: true, patches: [] })
   })
 
   it('rejects missing profile, removed flags, and contradictory inputs', () => {
@@ -87,6 +96,12 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
     expect(exitCode(['web', '--dump-default-config', '--patch', 'w.yml'])).toBe(1)
     expect(exitCode(['web', '--patch='])).toBe(1)
+    // The cli alias rejects parent options and contradictory dumps just like web.
+    expect(exitCode(['--profile', 'x', 'cli'])).toBe(1)
+    expect(exitCode(['cli', '--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['cli', '--dump-default-config', '--patch', 'c.yml'])).toBe(1)
+    expect(exitCode(['cli', '--dump-config', '--port', '8080'])).toBe(1)
+    expect(exitCode(['cli', '--patch='])).toBe(1)
     // A dump never runs app command-line providers, so it cannot show what
     // those flags would decide; printing a tree that differs from the same
     // invocation's boot would mislead.
