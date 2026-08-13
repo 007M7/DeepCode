@@ -17,7 +17,7 @@ Status: implemented
 
 ## 决策
 
-五项重组决策仍然有效；其余每个组都保持先前的边界与内容不变（依赖分析确认各能力家族——`shell/`、`terminal/`、`code-runtime/`、`sandbox/`、`subprocess/`、`fs/`、`lsp/`、`web/`、`skill/` 及其余——本来就划得正确）。原本的第六项决策把 SDK 项目初始化器、启动器工具与运行时 JSON-RPC 包汇集到 `scaffold/`；[移除这套未发布工具链](../simplification/2026-08-11-remove-sdk-project-toolchain.md)的决策删除了项目工具，并将存留的运行时三包移到 `sdk/`。后续的[仓库命名约定](../../proposed/architecture/2026-08-11-repository-naming-contract-and-rename-ledger.md)负责 `shell/`、`terminal/` 与 `extensions/` 组名，以及本决策曾推迟的两个包名。
+五项重组决策仍然有效；其余每个组都保持先前的边界与内容不变（依赖分析确认各能力家族——`shell/`、`terminal/`、`code-runtime/`、`sandbox/`、`subprocess/`、`fs/`、`lsp/`、`web/`、`skill/` 及其余——本来就划得正确）。原本的第六项决策把 SDK 项目初始化器、启动器工具与运行时 JSON-RPC 包汇集到 `scaffold/`；[移除这套未发布工具链](../simplification/2026-08-11-remove-sdk-project-toolchain.md)的决策删除了项目工具，并将存留的运行时三包移到 `sdk/`。后续的[仓库命名约定](2026-08-11-repository-naming-contract-and-rename-ledger.md)负责 `shell/`、`terminal/` 与 `extensions/` 组名，以及本决策曾推迟的两个包名。
 
 | 组 | 成员（目录名） | 来源 |
 |---|---|---|
@@ -37,7 +37,7 @@ Status: implemented
 
 ## 后续命名决策
 
-[仓库命名约定](../../proposed/architecture/2026-08-11-repository-naming-contract-and-rename-ledger.md)解决了本次移动有意推迟的两个名称。`@deepseek-ai/dsh-sdk-jsonrpc-server` 表示运行时 SDK 协议的 JSON-RPC 服务器一侧。`@deepseek-ai/dsh-tool-call-timeout-policy` 准确表示策略所限制的操作，同时保留其 `guard/timeout-policy/` 归属。这些重命名会一并移除阻塞发布的 `FIXME` 标记。
+[仓库命名约定](2026-08-11-repository-naming-contract-and-rename-ledger.md)解决了本次移动有意推迟的两个名称。`@deepseek-ai/dsh-sdk-jsonrpc-server` 表示运行时 SDK 协议的 JSON-RPC 服务器一侧。`@deepseek-ai/dsh-tool-call-timeout-policy` 准确表示策略所限制的操作，同时保留其 `guard/timeout-policy/` 归属。这些重命名会一并移除阻塞发布的 `FIXME` 标记。
 
 ## 移动触及了什么
 
