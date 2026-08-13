@@ -75,7 +75,7 @@ Swap the two lines in `cordis.yml` and rerun: same output. Try removing `./greet
 
 `inject` is not a one-shot boot check. If a required service disappears while the app runs — its provider was unloaded or hot-replaced — every dependent plugin is unloaded too, and loads again when the service returns. Combined with effects ([chapter 2](02-lifecycle-and-effects.md)), this prevents a running consumer from retaining a reference to an unavailable service: its own registrations are unwound when the dependency disappears.
 
-This is also why service replacement works in config: unload the `dsh-bash-local` entry, mount a different `bash` provider, and every plugin injecting `'bash'` cleanly restarts against the new implementation.
+This is also why service replacement works in config: unload the `dsh-bash-local` entry, mount a different `shell` provider, and every plugin injecting `'shell'` cleanly restarts against the new implementation.
 
 ## Optional dependencies
 

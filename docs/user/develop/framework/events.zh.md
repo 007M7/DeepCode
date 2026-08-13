@@ -40,7 +40,7 @@ ctx.on('my-plugin/ready', ({ id }) => {
 
 ### bail — 短路
 
-依次调用监听器，第一个非 `undefined` 的返回值将作为最终结果：
+监听器按顺序运行，第一个不是 `null`、`false` 或 `undefined` 的返回值会成为最终结果：
 
 ```ts ignore-check
 // Dispatch
@@ -49,13 +49,13 @@ const result = ctx.bail('some-check', input)
 // Listen: a returned value stops later listeners.
 ctx.on('some-check', (input) => {
   if (shouldBlock(input)) return 'blocked'
-  // Return undefined to continue to the next listener.
+  // Return null, false, or undefined to continue to the next listener.
 })
 ```
 
 ### serial — 顺序执行
 
-监听器按注册顺序依次执行，并等待异步结果；第一个返回非空值的监听器会终止后续执行：
+监听器按注册顺序依次执行，并等待异步结果；第一个不是 `null`、`false` 或 `undefined` 的返回值会终止后续执行：
 
 ```ts ignore-check
 await ctx.serial('setup-phase', context)

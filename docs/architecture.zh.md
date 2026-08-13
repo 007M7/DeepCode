@@ -50,6 +50,8 @@ dsh --profile web --dump-config
 | [`core/scope`](subsystems/scope.md) | 按 agent 划分作用域的注册原语 | 库，无 ctx 键 |
 | [`llm/llm`](subsystems/llm-streaming.md) | 消息与流式词汇表，以及适配器 seam | `ctx.llm` |
 
+<a id="events"></a>
+
 ## 事件
 
 事件就是扩展点，而选对事件域是大多数改动的第一个决定。
@@ -59,6 +61,8 @@ dsh --profile web --dump-config
 - **能力事件**无需导入循环即可向某个 seam（`fs/*`、`tools/*`、`telemetry/*`）附加策略和适配器。
 
 [事件映射](event-producer-consumer.md)列出每个事件的生产方与消费方。
+
+<a id="turn-flow"></a>
 
 ## 轮次流程
 

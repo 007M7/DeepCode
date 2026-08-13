@@ -40,7 +40,7 @@ ctx.on('my-plugin/ready', ({ id }) => {
 
 ### bail — short circuit
 
-Listeners run in order; the first non-`undefined` result becomes the final result:
+Listeners run in order; the first result other than `null`, `false`, or `undefined` becomes the final result:
 
 ```ts ignore-check
 // Dispatch
@@ -49,13 +49,13 @@ const result = ctx.bail('some-check', input)
 // Listen: a returned value stops later listeners.
 ctx.on('some-check', (input) => {
   if (shouldBlock(input)) return 'blocked'
-  // Return undefined to continue to the next listener.
+  // Return null, false, or undefined to continue to the next listener.
 })
 ```
 
 ### serial — ordered execution
 
-Listeners run in registration order and asynchronous results are awaited. The first listener to return a non-empty value stops further execution:
+Listeners run in registration order and asynchronous results are awaited. The first result other than `null`, `false`, or `undefined` stops further execution:
 
 ```ts ignore-check
 await ctx.serial('setup-phase', context)

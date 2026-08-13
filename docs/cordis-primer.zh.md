@@ -12,6 +12,8 @@ Cordis 是 DeepSeek Harness 底层以 vendor 方式引入的插件框架。本�
 - **类型化事件用于通信。** 服务通过 TypeScript 声明合并注册事件名，然后以 `emit`、`waterfall`（瀑布式事件）、`parallel` 或 `serial` 方式分发，分别对应监听者观察、包装、并行扇出或按序执行。
 - **注册是可逆的副作用。** 提示词片段、工具 schema、适配器、提供方和监听器通过 `ctx.effect()` 或 `ctx.on()` 安装，reload 和 teardown 时会按预期撤销。
 
+<a id="dispatch-modes"></a>
+
 ## 分发模式
 
 每个事件具有以下分发模式之一，且只能通过对应方法分发。

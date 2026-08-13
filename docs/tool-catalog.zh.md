@@ -42,6 +42,8 @@
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 
+<a id="deepseek-aidsh-tool-ask-user"></a>
+
 ## `@deepseek-ai/dsh-tool-ask-user`
 
 ### `ask_user_question`
@@ -114,6 +116,8 @@
 
 ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类答案。
 
+<a id="deepseek-aidsh-tools"></a>
+
 ## `@deepseek-ai/dsh-tools`
 
 ### `run_code`
@@ -144,6 +148,8 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 
 在 `mode: code`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 Code Mode Agent Note）。在 `code` 下，它是注册表对协议格式的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。
 
+<a id="deepseek-aidsh-plan-mode"></a>
+
 ## `@deepseek-ai/dsh-plan-mode`
 
 ### `exit_plan_mode`
@@ -168,6 +174,8 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 来源：[`packages/plan/plan-mode/src/index.ts`](../packages/plan/plan-mode/src/index.ts)
 
 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。
+
+<a id="deepseek-aidsh-tool-bash"></a>
 
 ## `@deepseek-ai/dsh-tool-bash`
 
@@ -211,6 +219,8 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 
 bash 工具是 bash 执行器 seam 面向模型的消费方。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；禁用 `enableRunInBackground` 配置（默认为 true）后，该参数会被完全移除。
 
+<a id="deepseek-aidsh-tool-pwsh"></a>
+
 ## `@deepseek-ai/dsh-tool-pwsh`
 
 ### `pwsh`
@@ -252,6 +262,8 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。使用 `run_in_bac
 来源：[`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
 pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。
+
+<a id="deepseek-aidsh-tool-cordis"></a>
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -489,6 +501,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 不在任何随产品发布的树中，需要显式选择启用；动态 Package 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。该工具集注入 `@deepseek-ai/dsh-cordis-host-runner` 提供的 `ctx.dynamicCordisRunner`，后者拥有定义注册表和 vm 沙箱；组合缺少它时这些工具不会激活。运行中的 Package 在停止、undefine 或 DSH 重启前可以注册**额外的**模型可见工具；发生这类工具集变化时，系统会记录完整且有变动的请求头。
 
+<a id="deepseek-aidsh-tool-bash-persistent"></a>
+
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 
 ### `bash`
@@ -513,6 +527,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 来源：[`packages/shell/tool-bash-persistent/src/index.ts`](../packages/shell/tool-bash-persistent/src/index.ts)
 
 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。
+
+<a id="deepseek-aidsh-tool-str-replace-editor"></a>
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 
@@ -583,6 +599,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 来源：[`packages/fs/tool-str-replace-editor/src/index.ts`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。
+
+<a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -699,6 +717,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。
 
+<a id="deepseek-aidsh-tool-fs-search"></a>
+
 ## `@deepseek-ai/dsh-tool-fs-search`
 
 ### `glob`
@@ -756,6 +776,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 来源：[`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。
+
+<a id="deepseek-aidsh-tool-terminal"></a>
 
 ## `@deepseek-ai/dsh-tool-terminal`
 
@@ -920,6 +942,8 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 
 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。
 
+<a id="deepseek-aidsh-tool-goal"></a>
+
 ## `@deepseek-ai/dsh-tool-goal`
 
 ### `create_goal`
@@ -1011,6 +1035,8 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 来源：[`packages/goal/tool-goal/src/index.ts`](../packages/goal/tool-goal/src/index.ts)
 
 create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。
+
+<a id="deepseek-aidsh-schedule"></a>
 
 ## `@deepseek-ai/dsh-schedule`
 
@@ -1107,6 +1133,8 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 仅在选择启用的 Schedule 插件加载后创建的 live 根 Agent scope 内注册。版本 1 接受 after_seconds、显式绝对 at 和有界固定速率 every_seconds，并披露 session-local 交付；管理读取与变更必须通过共享的 Session 持久化 barrier。
 
+<a id="deepseek-aidsh-tool-lsp"></a>
+
 ## `@deepseek-ai/dsh-tool-lsp`
 
 ### `lsp`
@@ -1153,6 +1181,8 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。
 
+<a id="deepseek-aidsh-tool-ralph"></a>
+
 ## `@deepseek-ai/dsh-tool-ralph`
 
 ### `ralph`
@@ -1182,6 +1212,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。
 
+<a id="deepseek-aidsh-tool-skill"></a>
+
 ## `@deepseek-ai/dsh-tool-skill`
 
 ### `skill`
@@ -1204,6 +1236,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 ```
 
 来源：[`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+<a id="deepseek-aidsh-tool-session-query"></a>
 
 ## `@deepseek-ai/dsh-tool-session-query`
 
@@ -1438,6 +1472,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。
 
+<a id="deepseek-aidsh-tool-subagent"></a>
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 ### `subagent`
@@ -1471,6 +1507,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 来源：[`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。
+
+<a id="deepseek-aidsh-tool-subagent-control"></a>
 
 ## `@deepseek-ai/dsh-tool-subagent-control`
 
@@ -1545,6 +1583,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。
 
+<a id="deepseek-aidsh-tool-subagent-report"></a>
+
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
 ### `report`
@@ -1569,6 +1609,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 来源：[`packages/subagent/tool-subagent-report/src/index.ts`](../packages/subagent/tool-subagent-report/src/index.ts)
 
 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。
+
+<a id="deepseek-aidsh-tool-jobs"></a>
 
 ## `@deepseek-ai/dsh-tool-jobs`
 
@@ -1641,6 +1683,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。
 
+<a id="deepseek-aidsh-tool-todo"></a>
+
 ## `@deepseek-ai/dsh-tool-todo`
 
 ### `todo_write`
@@ -1688,6 +1732,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 来源：[`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
 todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
+
+<a id="deepseek-aidsh-tool-workflow"></a>
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
@@ -1782,6 +1828,8 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 ```
 
 来源：[`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
+
+<a id="deepseek-aidsh-tool-web"></a>
 
 ## `@deepseek-ai/dsh-tool-web`
 

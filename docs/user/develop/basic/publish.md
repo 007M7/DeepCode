@@ -2,7 +2,7 @@
 
 English | [中文](publish.zh.md)
 
-The previous tutorials loaded a local plugin through a `--patch` overlay. This tutorial packages it as an installable **bundle**, installs it into a **profile** with `dsh plugin add`, and explains the layer order that determines the composed configuration. Complete [plugin configuration](./config.md) first.
+The previous tutorials loaded a local plugin through a `--patch` overlay. This tutorial packages it as an installable **bundle**, installs it into a **profile** with `dsh plugin add`, and explains the layer order that determines the composed configuration. It assumes the `dsh` CLI is installed. Complete [plugin configuration](./config.md) first.
 
 ## Two concepts, two manifests
 
@@ -15,12 +15,20 @@ A bundle is what you author and distribute; a profile is what a user boots with 
 
 ### The bundle manifest
 
+Create the package directory:
+
+```sh
+mkdir -p hello-plugin
+```
+
 ```
 hello-plugin/
 ├── package.json       # declares dsh.bundle
 ├── cordis.patch.yml   # the layer applied when a profile lists this bundle
 └── index.js           # plugin modules the patch rows reference
 ```
+
+Create `hello-plugin/package.json`:
 
 ```json
 {
@@ -33,7 +41,17 @@ hello-plugin/
 }
 ```
 
-The patch file is a YAML array of patch entries, like the `--patch` overlays you have been writing, except plugin rows reference the package by name instead of a relative source path so Node resolution finds the installed code:
+Create `hello-plugin/index.js` with the plugin entry point:
+
+```js
+export const name = 'hello-plugin'
+
+export function apply() {
+  console.log('[hello-plugin] plugin loaded!')
+}
+```
+
+Create `hello-plugin/cordis.patch.yml`. The patch is a YAML array like the `--patch` overlays you have been writing, except plugin rows reference the package by name instead of a relative source path so Node resolution finds the installed code:
 
 ```yaml
 - insert:
@@ -54,11 +72,10 @@ You never write a profile manifest by hand: `dsh plugin` creates and maintains i
 
 ## Install into a profile
 
-`dsh plugin --profile <name> <args...>` forwards to pnpm in the profile directory, so every pnpm verb works. Install your package from its checkout:
+`dsh plugin --profile <name> <args...>` forwards to pnpm in the profile directory, so every pnpm verb works. From the directory that contains `hello-plugin`, install the package checkout:
 
 ```sh
-cd hello-plugin
-dsh plugin --profile demo add .
+dsh plugin --profile demo add ./hello-plugin
 ```
 
 The first use initializes the profile (with `@deepseek-ai/dsh-base` as its first bundle), pnpm links the checkout, and `dsh` appends the bundle to `dsh.profile.bundles` because the package declares `dsh.bundle`:
