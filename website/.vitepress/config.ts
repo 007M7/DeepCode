@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import type { DefaultTheme, PageData } from 'vitepress'
 import type { ViteDevServer } from 'vite'
 import { withMermaid } from 'vitepress-plugin-mermaid'
-import { landingLink, orderedPages, routeLink, sectionSpec, type DocsLocale, type DocsPage } from '../docs.ts'
+import { landingLink, orderedPages, routeLink, sectionSpec, type DocsLocale, type DocsPage, type DocsSidebar } from '../docs.ts'
 import { docsSourceFiles, projectDocs } from '../../scripts/project-doc-site.ts'
 
 projectDocs()
@@ -29,6 +29,77 @@ function sidebar(locale: DocsLocale, collection: NonNullable<DocsPage['sidebar']
       items: entries.map(page => ({ text: page.label, link: routeLink(page.route) })),
     }
   })
+}
+
+/** One module link shared between the navigation bar and the guide sidebar. */
+interface GuideModuleLink {
+  /** Label shown in the navigation bar and the guide sidebar. */
+  label: string
+  /** Sidebar collection the link opens. */
+  collection: DocsSidebar
+}
+
+/**
+ * Per-locale guide-module facts: the guide collection and the module links
+ * appended to the guide sidebar.
+ */
+interface GuideModules {
+  /** Guide sidebar collection for the locale. */
+  guide: 'zh-guide' | 'en-guide'
+  /** Development module link. */
+  develop: GuideModuleLink
+  /** Reference module link. */
+  reference: GuideModuleLink
+}
+
+/**
+ * Guide-module facts keyed by locale, giving every module label and collection
+ * one home shared by the navigation bar and the guide sidebar.
+ */
+const guideModules = {
+  root: {
+    guide: 'zh-guide',
+    develop: { label: '开发', collection: 'zh-develop' },
+    reference: { label: '参考', collection: 'zh-reference' },
+  },
+  en: {
+    guide: 'en-guide',
+    develop: { label: 'Development', collection: 'en-develop' },
+    reference: { label: 'Reference', collection: 'en-reference' },
+  },
+} satisfies Record<DocsLocale, GuideModules>
+
+/**
+ * Guide sidebar with direct links into the first development and reference pages.
+ *
+ * @param locale - Route tree whose guide sidebar is being built.
+ * @returns Guide groups followed by top-level links to the other documentation modules.
+ */
+function guideSidebar(locale: DocsLocale): DefaultTheme.SidebarItem[] {
+  const { guide, develop, reference } = guideModules[locale]
+  return [
+    ...sidebar(locale, guide),
+    ...[develop, reference].map(({ label, collection }) => ({
+      text: label,
+      link: landingLink(locale, collection),
+    })),
+  ]
+}
+
+/**
+ * Navigation-bar items for the modules the guide sidebar links into, reading
+ * their labels and collections from the shared per-locale record.
+ *
+ * @param locale - Route tree the navigation items belong to.
+ * @returns The module items for the locale's navigation bar.
+ */
+function moduleNav(locale: DocsLocale): DefaultTheme.NavItem[] {
+  const { develop, reference } = guideModules[locale]
+  const routePrefix = locale === 'root' ? '' : '/en'
+  return [
+    { text: develop.label, link: landingLink(locale, develop.collection), activeMatch: `^${routePrefix}/develop/` },
+    { text: reference.label, link: landingLink(locale, reference.collection), activeMatch: `^${routePrefix}/reference/` },
+  ]
 }
 
 function watchCanonicalDocs(server: ViteDevServer): void {
@@ -196,12 +267,11 @@ export default withMermaid({
       themeConfig: {
         siteTitle: siteTitle('技术预览'),
         nav: [
-          { text: '入门', link: landingLink('root', 'zh-guide'), activeMatch: '^/guide/' },
-          { text: '开发', link: landingLink('root', 'zh-develop'), activeMatch: '^/develop/' },
-          { text: '参考', link: landingLink('root', 'zh-reference'), activeMatch: '^/reference/' },
+          { text: '入门', link: landingLink('root', guideModules.root.guide), activeMatch: '^/guide/' },
+          ...moduleNav('root'),
         ],
         sidebar: {
-          '/guide/': sidebar('root', 'zh-guide'),
+          '/guide/': guideSidebar('root'),
           '/develop/': sidebar('root', 'zh-develop'),
           '/reference/': sidebar('root', 'zh-reference'),
         },
@@ -223,12 +293,11 @@ export default withMermaid({
       themeConfig: {
         siteTitle: siteTitle('Preview'),
         nav: [
-          { text: 'Guide', link: landingLink('en', 'en-guide'), activeMatch: '^/en/guide/' },
-          { text: 'Develop', link: landingLink('en', 'en-develop'), activeMatch: '^/en/develop/' },
-          { text: 'Reference', link: landingLink('en', 'en-reference'), activeMatch: '^/en/reference/' },
+          { text: 'Guide', link: landingLink('en', guideModules.en.guide), activeMatch: '^/en/guide/' },
+          ...moduleNav('en'),
         ],
         sidebar: {
-          '/en/guide/': sidebar('en', 'en-guide'),
+          '/en/guide/': guideSidebar('en'),
           '/en/develop/': sidebar('en', 'en-develop'),
           '/en/reference/': sidebar('en', 'en-reference'),
         },
