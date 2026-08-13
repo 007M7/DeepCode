@@ -2,7 +2,7 @@
 
 [English](publish.md) | 中文
 
-前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**（bundle），用 `dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
+前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**（bundle），用 `pnpm dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
 
 ## 两个概念，两种 manifest
 
@@ -11,9 +11,15 @@
 - **组合包**是附带一个配置层的 npm 包。它的 manifest 声明 `dsh.bundle`，回答的是"这个包贡献什么？"：一个插入或覆盖插件行的 patch 文件。
 - **profile** 是位于 `$DSH_HOME/profiles/<name>` 下、描述一份可启动组合的目录。它的 manifest 声明 `dsh.profile`，回答的是"这套配置由哪些组合包按什么顺序组成？"。
 
-组合包是你编写并分发的东西；profile 是用户用 `dsh --profile <name>` 启动的东西。没有东西同时是两者。
+组合包是你编写并分发的东西；profile 是用户在当前源码 checkout 中用 `pnpm dsh --profile <name>` 启动的东西。没有东西同时是两者。
 
 ### 组合包 manifest
+
+在仓库根目录创建包目录：
+
+```sh
+mkdir -p hello-plugin
+```
 
 ```
 hello-plugin/
@@ -21,6 +27,8 @@ hello-plugin/
 ├── cordis.patch.yml   # the layer applied when a profile lists this bundle
 └── index.js           # plugin modules the patch rows reference
 ```
+
+创建 `hello-plugin/package.json`：
 
 ```json
 {
@@ -33,7 +41,17 @@ hello-plugin/
 }
 ```
 
-patch 文件与一直在写的 `--patch` overlay 一样，是一个 patch 条目的 YAML 数组；区别是插件行按包名而不是相对源码路径引用这个包，这样 Node 的模块解析才能找到已安装的代码：
+创建 `hello-plugin/index.js`，写入插件入口：
+
+```js
+export const name = 'hello-plugin'
+
+export function apply() {
+  console.log('[hello-plugin] plugin loaded!')
+}
+```
+
+创建 `hello-plugin/cordis.patch.yml`。这个 patch 与一直在写的 `--patch` overlay 一样，是一个 patch 条目的 YAML 数组；区别是插件行按包名而不是相对源码路径引用这个包，这样 Node 的模块解析才能找到已安装的代码：
 
 ```yaml
 - insert:
@@ -41,7 +59,7 @@ patch 文件与一直在写的 `--patch` overlay 一样，是一个 patch 条目
       name: dsh-hello-plugin
 ```
 
-没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`dsh plugin` 会打印警告，且不激活任何层。如果一个库供插件包 import，而不是供用户启用，就使用这种包格式。
+没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`pnpm dsh plugin` 会打印警告，且不激活任何层。如果一个库供插件包 import，而不是供用户启用，就使用这种包格式。
 
 ### profile manifest
 
@@ -50,15 +68,14 @@ profile 目录包含两个文件：
 - `package.json` — profile 的树外插件依赖（由 pnpm 管理），加上 `dsh.profile` manifest 及其有序的 `bundles` 列表。
 - `cordis.patch.yml` — 用户自己的 patch 层，在每个组合包层之后应用。
 
-profile manifest 从不需要手写：`dsh plugin` 负责创建和维护它。下一节展示其结果。
+profile manifest 从不需要手写：`pnpm dsh plugin` 负责创建和维护它。下一节展示其结果。
 
 ## 安装进 profile
 
-`dsh plugin --profile <name> <args...>` 在 profile 目录内转发给 pnpm，因此所有 pnpm 子命令都可用。从 checkout 安装你的包：
+`pnpm dsh plugin --profile <name> <args...>` 在 profile 目录内转发给 pnpm，因此所有 pnpm 子命令都可用。在仓库根目录安装该包的 checkout：
 
 ```sh
-cd hello-plugin
-dsh plugin --profile demo add .
+pnpm dsh plugin --profile demo add ./hello-plugin
 ```
 
 首次使用会初始化 profile（`@deepseek-ai/dsh-base` 作为它的第一个组合包），pnpm 链接该 checkout，而 `dsh` 因为这个包声明了 `dsh.bundle`，把它追加进 `dsh.profile.bundles`：
@@ -84,11 +101,11 @@ dsh plugin --profile demo add .
 先不启动、只验证该层，再启动：
 
 ```sh
-dsh --profile demo --dump-config   # shows a "# == dsh-hello-plugin" layer
-dsh --profile demo
+pnpm dsh --profile demo --dump-config   # shows a "# == dsh-hello-plugin" layer
+pnpm dsh --profile demo
 ```
 
-`dsh plugin --profile demo remove dsh-hello-plugin` 会同时移除依赖和对应的层。
+`pnpm dsh plugin --profile demo remove dsh-hello-plugin` 会同时移除依赖和对应的层。
 
 ## 加载顺序
 
@@ -136,7 +153,7 @@ dsh --profile demo
 发布到注册表不是必须的——用户可以直接从 git 托管安装：
 
 ```sh
-dsh plugin --profile demo add github:you/hello-plugin
+pnpm dsh plugin --profile demo add github:you/hello-plugin
 ```
 
 但 git 安装拉取的是**源码，不是构建产物**：没有任何环节运行你的 `build` 脚本，因此 TypeScript 包到手时没有 `lib/` 输出，加载会失败。必须两边各做一件事：
@@ -155,8 +172,8 @@ dsh plugin --profile demo add github:you/hello-plugin
 
 如果不想让用户做这项授权，就改为分发构建产物——以下两种形式都不需要任何构建权限：
 
-- **发布到 npm**，在 `pnpm publish` 时构建好 `lib/`；`dsh plugin add your-package` 安装的就是预构建代码。
-- **交付 tarball**：用 `pnpm pack` 打包；用户执行 `dsh plugin add ./hello-plugin-0.1.0.tgz`。
+- **发布到 npm**，在 `pnpm publish` 时构建好 `lib/`；`pnpm dsh plugin add your-package` 安装的就是预构建代码。
+- **交付 tarball**：用 `pnpm pack` 打包；用户执行 `pnpm dsh plugin add ./hello-plugin-0.1.0.tgz`。
 
 ## 下一步
 

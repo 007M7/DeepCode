@@ -45,13 +45,15 @@ export function apply(ctx: Context) {
 
 ## Register it in cordis.yml
 
-Create `scratch-plugin/cordis.yml` as a Web overlay that inserts the local plugin:
+Run `pwd` from the repository root, then create `scratch-plugin/cordis.yml` as a Web overlay that inserts the local plugin. Replace `/absolute/path/to/deepseek-harness` below with the printed path:
 
 ```yaml
 - insert:
     - id: hello
-      name: './src/my-plugin.ts'
+      name: '/absolute/path/to/deepseek-harness/scratch-plugin/src/my-plugin.ts'
 ```
+
+The plugin path must be absolute. A patch file contributes configuration but does not change the profile directory from which the loader resolves module paths.
 
 Start the Web UI with that overlay:
 

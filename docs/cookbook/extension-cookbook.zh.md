@@ -8,6 +8,8 @@ harness 扩展的参考模式。代码片段省略了 import 和辅助实现，�
 
 工具在 `ctx.tools` 上注册。带注解的 `defineTool` 示例（类型化的 `execute` 参数、结果构造、`run_in_background` 模式）见 [adding-a-tool.md](adding-a-tool.md)——该指南是工具定义的真源。`ctx.tools.register()` 也直接接受原始 JSON Schema `ToolDefinition`（MCP 来源的工具就是这样到达的）；`defineTool` 是第一方工具使用的类型化辅助函数。
 
+<a id="a-hook-plugin-permission-gate-example"></a>
+
 ## 钩子插件（以权限门禁为例）
 
 这个权限门禁是钩子插件的一个示例。它从 `tools/pre-execute` 门禁返回一个类型化的决策，用于允许或拒绝一次调用；沙箱、权限和 plan-mode 插件都可以使用该扩展点。钩子插件也可以拦截其他扩展点，本身并不等同于权限门禁。「原生钩子」是在拦截点上运行的普通 Cordis 插件，不需要外部协议。

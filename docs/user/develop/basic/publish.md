@@ -2,7 +2,7 @@
 
 English | [中文](publish.zh.md)
 
-The previous tutorials loaded a local plugin through a `--patch` overlay. This tutorial packages it as an installable **bundle**, installs it into a **profile** with `dsh plugin add`, and explains the layer order that determines the composed configuration. Complete [plugin configuration](./config.md) first.
+The previous tutorials loaded a local plugin through a `--patch` overlay. This tutorial packages it as an installable **bundle**, installs it into a **profile** with `pnpm dsh plugin add`, and explains the layer order that determines the composed configuration. Complete [plugin configuration](./config.md) first.
 
 ## Two concepts, two manifests
 
@@ -11,9 +11,15 @@ Installation is built on two concepts. Both are described by a `package.json`, b
 - A **bundle** is an npm package that ships a configuration layer. Its manifest declares `dsh.bundle`, answering "what does this package contribute?": a patch file that inserts or overrides plugin rows.
 - A **profile** is a directory under `$DSH_HOME/profiles/<name>` describing one runnable composition. Its manifest declares `dsh.profile`, answering "which bundles compose this setup, in what order?".
 
-A bundle is what you author and distribute; a profile is what a user boots with `dsh --profile <name>`. Nothing is both.
+A bundle is what you author and distribute; a profile is what a user boots from this source checkout with `pnpm dsh --profile <name>`. Nothing is both.
 
 ### The bundle manifest
+
+From the repository root, create the package directory:
+
+```sh
+mkdir -p hello-plugin
+```
 
 ```
 hello-plugin/
@@ -21,6 +27,8 @@ hello-plugin/
 ├── cordis.patch.yml   # the layer applied when a profile lists this bundle
 └── index.js           # plugin modules the patch rows reference
 ```
+
+Create `hello-plugin/package.json`:
 
 ```json
 {
@@ -33,7 +41,17 @@ hello-plugin/
 }
 ```
 
-The patch file is a YAML array of patch entries, like the `--patch` overlays you have been writing, except plugin rows reference the package by name instead of a relative source path so Node resolution finds the installed code:
+Create `hello-plugin/index.js` with the plugin entry point:
+
+```js
+export const name = 'hello-plugin'
+
+export function apply() {
+  console.log('[hello-plugin] plugin loaded!')
+}
+```
+
+Create `hello-plugin/cordis.patch.yml`. The patch is a YAML array like the `--patch` overlays you have been writing, except plugin rows reference the package by name instead of a relative source path so Node resolution finds the installed code:
 
 ```yaml
 - insert:
@@ -41,7 +59,7 @@ The patch file is a YAML array of patch entries, like the `--patch` overlays you
       name: dsh-hello-plugin
 ```
 
-A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `dsh plugin` prints a warning and activates no layer. Use that package format for a library that plugin packages import rather than a plugin users enable.
+A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `pnpm dsh plugin` prints a warning and activates no layer. Use that package format for a library that plugin packages import rather than a plugin users enable.
 
 ### The profile manifest
 
@@ -50,15 +68,14 @@ A profile directory holds two files:
 - `package.json` — the profile's out-of-tree plugin dependencies (managed by pnpm) plus the `dsh.profile` manifest with its ordered `bundles` list.
 - `cordis.patch.yml` — the user's own patch layer, applied after every bundle layer.
 
-You never write a profile manifest by hand: `dsh plugin` creates and maintains it. The next section shows the result.
+You never write a profile manifest by hand: `pnpm dsh plugin` creates and maintains it. The next section shows the result.
 
 ## Install into a profile
 
-`dsh plugin --profile <name> <args...>` forwards to pnpm in the profile directory, so every pnpm verb works. Install your package from its checkout:
+`pnpm dsh plugin --profile <name> <args...>` forwards to pnpm in the profile directory, so every pnpm verb works. From the repository root, install the package checkout:
 
 ```sh
-cd hello-plugin
-dsh plugin --profile demo add .
+pnpm dsh plugin --profile demo add ./hello-plugin
 ```
 
 The first use initializes the profile (with `@deepseek-ai/dsh-base` as its first bundle), pnpm links the checkout, and `dsh` appends the bundle to `dsh.profile.bundles` because the package declares `dsh.bundle`:
@@ -84,11 +101,11 @@ The first use initializes the profile (with `@deepseek-ai/dsh-base` as its first
 Verify the layer without booting, then boot:
 
 ```sh
-dsh --profile demo --dump-config   # shows a "# == dsh-hello-plugin" layer
-dsh --profile demo
+pnpm dsh --profile demo --dump-config   # shows a "# == dsh-hello-plugin" layer
+pnpm dsh --profile demo
 ```
 
-`dsh plugin --profile demo remove dsh-hello-plugin` removes both the dependency and the layer.
+`pnpm dsh plugin --profile demo remove dsh-hello-plugin` removes both the dependency and the layer.
 
 ## The loading order
 
@@ -136,7 +153,7 @@ On `--help`, the provider publishes no service, so those rows never activate. Lo
 Publishing to a registry is not required — users can install straight from a git host:
 
 ```sh
-dsh plugin --profile demo add github:you/hello-plugin
+pnpm dsh plugin --profile demo add github:you/hello-plugin
 ```
 
 But a git install fetches **sources, not built artifacts**: nothing runs your `build` script, so a TypeScript package arrives without its `lib/` output and fails to load. Two things must happen, one on each side:
@@ -155,8 +172,8 @@ Treat that allowance as what it is: **permission to execute the package's code o
 
 If you would rather not ask users for the allowance, distribute built artifacts instead — neither form needs any build permission:
 
-- **Publish to npm** with `lib/` built at `pnpm publish` time; `dsh plugin add your-package` then installs prebuilt code.
-- **Ship a tarball** from `pnpm pack`; users run `dsh plugin add ./hello-plugin-0.1.0.tgz`.
+- **Publish to npm** with `lib/` built at `pnpm publish` time; `pnpm dsh plugin add your-package` then installs prebuilt code.
+- **Ship a tarball** from `pnpm pack`; users run `pnpm dsh plugin add ./hello-plugin-0.1.0.tgz`.
 
 ## Next steps
 
