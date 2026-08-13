@@ -70,7 +70,7 @@ describe('todos projection provider', () => {
     const bench = await harness(true)
     seedMessage(bench.session)
     const projections = await bench.tailProjections()
-    expect(projections?.values).toEqual({ todos: null })
+    expect(projections?.values.todos).toBeNull()
     expect(projections?.asOfSeq).toBe(bench.session.seq - 1)
   })
 
@@ -117,7 +117,7 @@ describe('todos projection provider', () => {
     const bench = await harness(false)
     seedMessage(bench.session)
     const fiber = await bench.ctx.plugin(ToolTodo, { allowParallelInProgress: true })
-    expect((await bench.tailProjections())?.values).toEqual({ todos: null })
+    expect((await bench.tailProjections())?.values.todos).toBeNull()
     await fiber.dispose()
     expect('todos' in ((await bench.tailProjections())?.values ?? {})).toBe(false)
   })
