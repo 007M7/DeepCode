@@ -37,10 +37,13 @@ export function unlinkFixtureLinks(path: string): void {
  * Remove one fixture tree after its junctions are unlinked (see
  * {@link unlinkFixtureLinks}). Retries the removal: Windows releases child
  * process and antivirus file handles asynchronously, and an unretried
- * `rmSync` fails immediately with EPERM under load.
+ * `rmSync` fails immediately with EPERM under load. A 10-second retry window
+ * (50 attempts × 200 ms) covers the failover pool's slow handle release;
+ * release is one-shot (a terminated child's handles drain, not reacquired),
+ * so a bounded window suffices and never pins afterEach cleanup.
  * @param path - the fixture tree to remove.
  */
 export function removeFixtureSafely(path: string): void {
   unlinkFixtureLinks(path)
-  rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  rmSync(path, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
 }
