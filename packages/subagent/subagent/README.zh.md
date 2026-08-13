@@ -64,7 +64,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `provider.start(request): Promise<SubagentRun>` 是所有权转移边界；委派工具也会在其由 Task 支撑的一次性后台路径中使用它。兑现前，提供方拥有设置过程，并且在任何失败路径上都必须取消、回滚并使尚未发布的资源完全停稳。兑现后，run 的所有权转移给调用方；调用方必须在每条路径上调用 `dispose()`。剩余提示词和轮次工作属于 `SubagentRun.result`。
 
-`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的拒绝只通过 `result` 本身报告；只有独立的资源释放失败，才会使 `dispose()` 被拒绝。`output` 与 `subagent/end` 事件的 `lastAssistantMessage` 使用导出的 `AssistantOutputFold`／`finalAssistantOutput` 辅助函数选取子 agent 最后一条非空 assistant 消息；若没有这类消息，则选取其累积的 assistant 文本。子 agent 两种输出均未产生时，`output` 为 `[]`，该事件字段缺省（结果约定归 [`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) 所有）。
+`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。result 的拒绝只通过 `result` 本身报告；只有独立的资源释放失败，才会使 `dispose()` 被拒绝。`output` 与 `subagent/end` 事件的 `lastAssistantMessage` 使用导出的 `AssistantOutputFold`／`finalAssistantOutput` 辅助函数选取子 agent 最后一条非空 assistant 消息；若没有这类消息，则选取其累积的 assistant 文本。子 agent 两种输出均未产生时，`output` 为 `[]`，该事件字段缺省（结果约定归 [`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) 所有）。
 
 本地运行会在 `start()` 兑现前发布普通的子 agent／会话，把该共享会话 id 作为 `SubagentRun.id` 返回，以 `SubagentRun.localAgent` 公开准确的子 agent，把 `request.parent.session.id` 记录到子 agent 的 `parentSession` header，并在其初始轮次内追加已解析的描述符。远程提供方则生成 parent 作用域的生命周期 id，并返回 `localAgent: undefined`；由于没有本地 child 会话，其一次性运行不会进入基于追踪的枚举结果。
 
