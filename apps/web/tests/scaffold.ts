@@ -23,7 +23,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -41,20 +41,6 @@ import {
   loadOverlayPatches,
 } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-// Client packages must not be imported here: these e2e type-check in the Host
-// aggregate, so a Client import pulls that package's whole project — and every
-// project it references — into the Host build graph. Mirrored from
-// packages/client/ui-settings-general/src/onboarding-copy.ts; a drift makes the
-// pre-acknowledgement stop suppressing the notice, which fails loudly.
-// import {
-//   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
-// } from '@deepseek-ai/dsh-client-ui-settings-general'
-export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
-export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
-export const WELCOME_NOTICE_VERSION = '2026-08-11.1'
-export const WELCOME_NOTICE_COPY = { zh: { title: '内测声明', continueLabel: '继续' } } as const
-
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
@@ -252,8 +238,6 @@ export interface LaunchOptions {
     /** The preset a session that names none is composed from. */
     default: string
   }
-  /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
-  welcomeNoticePending?: boolean
   /**
    * Mount the shipped telemetry row in FULL mode against this exporter URL
    * instead of disabling it. Used to pin a real backend disclosure in
@@ -526,11 +510,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     })
     await ctx.loader.await()
     assertEntriesLoaded(ctx, 'web e2e scaffold')
-    if (options.welcomeNoticePending !== true) {
-      await ctx.settings.mutate(settingsNamespace(WELCOME_NOTICE_SETTINGS_NAMESPACE), [{
-        op: 'set', path: [WELCOME_NOTICE_ACK_FIELD], value: WELCOME_NOTICE_VERSION,
-      }])
-    }
     const boundPort = ctx.get('webServer')?.port
     if (boundPort === undefined) {
       throw new Error('web e2e scaffold: webServer service missing after settled boot')
@@ -724,6 +703,38 @@ export async function seedSession(
     delegationDepth: 0,
     ...agentPreset === undefined ? {} : { agentPreset },
   }
+  await persistSeedSession(scaffold, meta, events)
+  return meta.id
+}
+
+/** Seed one materialized cold Session whose log has no turn/start event. */
+export async function seedBlankSession(
+  scaffold: WebScaffold,
+  id: string,
+  cwd: string,
+): Promise<SessionId> {
+  const meta: SessionHeader = {
+    version: SESSION_FORMAT_VERSION,
+    id: SessionId(id),
+    createdAt: Date.now() - 60_000,
+    cwd,
+    delegationDepth: 0,
+  }
+  await persistSeedSession(scaffold, meta, [{
+    type: 'session/end-seed',
+    seq: 0,
+    time: meta.createdAt,
+    data: {},
+  }])
+  return meta.id
+}
+
+/** Materialize one detached Session fixture through the shipped JSONL provider. */
+async function persistSeedSession(
+  scaffold: WebScaffold,
+  meta: SessionHeader,
+  events: readonly SessionEvent[],
+): Promise<void> {
   const seeder = new Context()
   try {
     await seeder.plugin(SessionStore)
@@ -732,16 +743,9 @@ export async function seedSession(
     await seeder.plugin(JsonlSessionPersistence, { root: scaffold.persistenceRoot })
     await seeder.sessionPersistence.create(meta)
     await seeder.sessionPersistence.append(meta.id, events)
-    // Deterministic sidebar order: cold summaries take updatedAt from mtime.
-    const located = seeder.sessionPersistence.locate(meta)
-    if (located !== undefined) {
-      const backdated = new Date(meta.createdAt)
-      await utimes(located.path, backdated, backdated)
-    }
   } finally {
     await seeder.fiber.dispose()
   }
-  return meta.id
 }
 
 /**

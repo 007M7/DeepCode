@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
+import { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
 import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
@@ -271,46 +271,5 @@ describe('interruptedTurnClosers', () => {
     const closers = interruptedTurnClosers(events)
     // No pending calls → no synthetic tool/result, just step/end + turn/end.
     expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
-  })
-})
-
-describe('lastActivityTime', () => {
-  const endSeedAt = (seq: number, time: number): SessionEvent =>
-    ({ type: 'session/end-seed', seq, time, data: {} })
-
-  it('has no answer for an empty log', () => {
-    expect(lastActivityTime([])).toBeUndefined()
-  })
-
-  it('reports the log tail when no boundary is present', () => {
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, reason: { kind: 'completed' } } },
-    ]
-    expect(lastActivityTime(events)).toBe(500)
-  })
-
-  it('skips a trailing boundary in favour of the last real work', () => {
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, reason: { kind: 'completed' } } },
-      endSeedAt(2, 9_000),
-    ]
-    // Resumed long after the work, but never worked in again.
-    expect(lastActivityTime(events)).toBe(500)
-  })
-
-  it('reports work appended after end-seed', () => {
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      endSeedAt(1, 9_000),
-      { type: 'turn/end', seq: 2, time: 9_500, data: { turn: 1, reason: { kind: 'completed' } } },
-    ]
-    expect(lastActivityTime(events)).toBe(9_500)
-  })
-
-  it('has no answer for a log of nothing but boundaries', () => {
-    // Unreachable via the constructor, but the projection is a pure function.
-    expect(lastActivityTime([endSeedAt(0, 1), endSeedAt(1, 2)])).toBeUndefined()
   })
 })

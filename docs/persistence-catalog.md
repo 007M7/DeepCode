@@ -96,6 +96,8 @@ Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src
 
 ### `agent/*`
 
+<a id="agentinboxspliced--log-only"></a>
+
 #### `agent/inbox/spliced` — log-only
 
 ```ts persistence-catalog
@@ -117,6 +119,8 @@ Source: [`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types
 
 ### `agent-preset/*`
 
+<a id="agent-presetselected--log-only"></a>
+
 #### `agent-preset/selected` — log-only
 
 ```ts persistence-catalog
@@ -132,6 +136,8 @@ Source: [`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types
 Source: [`packages/preset/agent-presets/src/session.ts:26`](../packages/preset/agent-presets/src/session.ts)
 
 ### `approval/*`
+
+<a id="approvalasked--log-only"></a>
 
 #### `approval/asked` — log-only
 
@@ -156,6 +162,8 @@ Types: [CallId](subsystems/core.md)
 
 Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
+<a id="approvaldecided--log-only"></a>
+
 #### `approval/decided` — log-only
 
 ```ts persistence-catalog
@@ -171,6 +179,8 @@ Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/inter
 ```
 
 Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
+
+<a id="approvalpolicy--log-only"></a>
 
 #### `approval/policy` — log-only
 
@@ -194,6 +204,8 @@ Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/inter
 
 ### `assistant/*`
 
+<a id="assistantchunk--log-only"></a>
+
 #### `assistant/chunk` — log-only
 
 ```ts persistence-catalog
@@ -204,6 +216,8 @@ Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/inter
 Types: [StreamChunk](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+
+<a id="assistantmessage--surface"></a>
 
 #### `assistant/message` — surface
 
@@ -223,6 +237,8 @@ Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/
 
 ### `command/*`
 
+<a id="commanddone--log-only"></a>
+
 #### `command/done` — log-only
 
 ```ts persistence-catalog
@@ -241,6 +257,8 @@ Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/
 ```
 
 Source: [`packages/interaction/commands/src/types.ts:95`](../packages/interaction/commands/src/types.ts)
+
+<a id="commandrun--log-only"></a>
 
 #### `command/run` — log-only
 
@@ -262,6 +280,8 @@ Source: [`packages/interaction/commands/src/types.ts:88`](../packages/interactio
 
 ### `compaction/*`
 
+<a id="compactionend--log-only"></a>
+
 #### `compaction/end` — log-only
 
 ```ts persistence-catalog
@@ -273,6 +293,8 @@ Source: [`packages/interaction/commands/src/types.ts:88`](../packages/interactio
 ```
 
 Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compaction/compaction/src/types.ts)
+
+<a id="compactionprune--log-only"></a>
 
 #### `compaction/prune` — log-only
 
@@ -298,6 +320,8 @@ Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compactio
 
 Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compaction/compaction/src/types.ts)
 
+<a id="compactionstart--log-only"></a>
+
 #### `compaction/start` — log-only
 
 ```ts persistence-catalog
@@ -310,6 +334,8 @@ Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compactio
 ```
 
 Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compaction/compaction/src/types.ts)
+
+<a id="compactionsummary--log-only"></a>
 
 #### `compaction/summary` — log-only
 
@@ -365,6 +391,8 @@ Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compactio
 
 ### `feedback/*`
 
+<a id="feedbackrecord--log-only"></a>
+
 #### `feedback/record` — log-only
 
 ```ts persistence-catalog
@@ -379,6 +407,8 @@ Source: [`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedb
 
 ### `goal/*`
 
+<a id="goalchange--log-only"></a>
+
 #### `goal/change` — log-only
 
 ```ts persistence-catalog
@@ -391,6 +421,8 @@ Source: [`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedb
 Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
+
+<a id="hookinvoked--log-only"></a>
 
 #### `hook/invoked` — log-only
 
@@ -415,6 +447,8 @@ Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain
 
 Source: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-protocol/src/types.ts)
 
+<a id="hookresult--log-only"></a>
+
 #### `hook/result` — log-only
 
 ```ts persistence-catalog
@@ -438,6 +472,8 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ### `llm/*`
 
+<a id="llmretry--log-only"></a>
+
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
@@ -446,6 +482,8 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 ```
 
 Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/types.ts)
+
+<a id="llmretry-started--log-only"></a>
 
 #### `llm/retry-started` — log-only
 
@@ -457,6 +495,8 @@ Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/
 Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
+
+<a id="permissionpreset--log-only"></a>
 
 #### `permission/preset` — log-only
 
@@ -474,6 +514,8 @@ Source: [`packages/interaction/permission-presets/src/index.ts:50`](../packages/
 
 ### `plan/*`
 
+<a id="planmode--log-only"></a>
+
 #### `plan/mode` — log-only
 
 ```ts persistence-catalog
@@ -489,6 +531,8 @@ Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/s
 
 ### `request/*`
 
+<a id="requestcontext--log-only"></a>
+
 #### `request/context` — log-only
 
 ```ts persistence-catalog
@@ -500,6 +544,8 @@ Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/s
 ```
 
 Source: [`packages/core/session/src/types.ts:309`](../packages/core/session/src/types.ts)
+
+<a id="requestheader--log-only"></a>
 
 #### `request/header` — log-only
 
@@ -514,6 +560,8 @@ Source: [`packages/core/session/src/types.ts:309`](../packages/core/session/src/
 Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
+
+<a id="sandboxmode--log-only"></a>
 
 #### `sandbox/mode` — log-only
 
@@ -536,6 +584,8 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 
 ### `schedule/*`
 
+<a id="schedulechange--log-only"></a>
+
 #### `schedule/change` — log-only
 
 ```ts persistence-catalog
@@ -551,6 +601,8 @@ Types: [ScheduleChange](subsystems/schedule.md)
 Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
 
 ### `session/*`
+
+<a id="sessionend-seed--log-only"></a>
 
 #### `session/end-seed` — log-only
 
@@ -582,6 +634,8 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
 
 Source: [`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
 
+<a id="sessiontitle--log-only"></a>
+
 #### `session/title` — log-only
 
 ```ts persistence-catalog
@@ -596,6 +650,8 @@ Types: [SessionTitleEventData](subsystems/session-title.md)
 
 Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
+<a id="sessiontitle-llm-request--log-only"></a>
+
 #### `session/title-llm-request` — log-only
 
 ```ts persistence-catalog
@@ -609,6 +665,8 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 
 ### `step/*`
 
+<a id="stepend--log-only"></a>
+
 #### `step/end` — log-only
 
 ```ts persistence-catalog
@@ -617,6 +675,8 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 ```
 
 Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+
+<a id="stepstart--log-only"></a>
 
 #### `step/start` — log-only
 
@@ -628,6 +688,8 @@ Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/
 Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
+
+<a id="subagentdescriptor--log-only"></a>
 
 #### `subagent/descriptor` — log-only
 
@@ -646,6 +708,8 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 
 ### `todo/*`
 
+<a id="todowrite--log-only"></a>
+
 #### `todo/write` — log-only
 
 ```ts persistence-catalog
@@ -658,6 +722,8 @@ Types: [TodoItem](subsystems/session.md)
 Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
+
+<a id="toolcall--log-only"></a>
 
 #### `tool/call` — log-only
 
@@ -673,6 +739,8 @@ Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/
 Types: [CallId](subsystems/core.md)
 
 Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
+
+<a id="toolcode-dispatch--log-only"></a>
 
 #### `tool/code-dispatch` — log-only
 
@@ -697,6 +765,8 @@ Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/
 
 Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
 
+<a id="toolcode-dispatch-start--log-only"></a>
+
 #### `tool/code-dispatch-start` — log-only
 
 ```ts persistence-catalog
@@ -717,6 +787,8 @@ Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types
 ```
 
 Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
+
+<a id="toolresult--surface"></a>
 
 #### `tool/result` — surface
 
@@ -745,6 +817,8 @@ Source: [`packages/core/session/src/types.ts:291`](../packages/core/session/src/
 
 ### `tool-workflow/*`
 
+<a id="tool-workflowagent-end--log-only"></a>
+
 #### `tool-workflow/agent-end` — log-only
 
 ```ts persistence-catalog
@@ -756,6 +830,8 @@ Source: [`packages/core/session/src/types.ts:291`](../packages/core/session/src/
 ```
 
 Source: [`packages/workflow/tool-workflow/src/types.ts:57`](../packages/workflow/tool-workflow/src/types.ts)
+
+<a id="tool-workflowagent-start--log-only"></a>
 
 #### `tool-workflow/agent-start` — log-only
 
@@ -769,6 +845,8 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:57`](../packages/workflow
 
 Source: [`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow/tool-workflow/src/types.ts)
 
+<a id="tool-workflowrun-end--log-only"></a>
+
 #### `tool-workflow/run-end` — log-only
 
 ```ts persistence-catalog
@@ -780,6 +858,8 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow
 ```
 
 Source: [`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
+
+<a id="tool-workflowrun-start--log-only"></a>
 
 #### `tool-workflow/run-start` — log-only
 
@@ -794,6 +874,8 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow
 Source: [`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
 
 ### `turn/*`
+
+<a id="turnend--log-only"></a>
 
 #### `turn/end` — log-only
 
@@ -813,6 +895,8 @@ Types: [TurnEndReason](subsystems/session.md)
 
 Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
+<a id="turnstart--log-only"></a>
+
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
@@ -828,6 +912,8 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
 
 ### `user/*`
+
+<a id="usermessage--surface"></a>
 
 #### `user/message` — surface
 
@@ -845,6 +931,8 @@ Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/
 Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `web/*`
+
+<a id="webdeepseek-search-llm-request--log-only"></a>
 
 #### `web/deepseek-search-llm-request` — log-only
 

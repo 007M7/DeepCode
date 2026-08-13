@@ -10,15 +10,11 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
-  WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_ACK_FIELD,
-  WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/onboarding-deepseek-config', import.meta.url))
-const WELCOME_EXPECTED = join(SNAPSHOT_DIR, 'welcome.expected.md')
 const MISSING_EXPECTED = join(SNAPSHOT_DIR, 'missing.expected.md')
 const MODELS_EXPECTED = join(SNAPSHOT_DIR, 'models.expected.md')
 const MODE = webSnapshotMode()
@@ -31,7 +27,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   const browserConsole: string[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true })
+    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
     browser = await chromium.launch()
     // The scenario asserts the shipped Chinese copy, so the browser asks for it.
     page = await browser.newPage({ viewport: { width: 1440, height: 960 }, locale: ZH_BROWSER_LOCALE })
@@ -48,13 +44,9 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('stores a key write-only and observes configured state without restarting', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-config'))
-    const welcome = page.getByRole('region', { name: WELCOME_NOTICE_COPY.zh.title })
-    await welcome.waitFor({ timeout: 15_000 })
+    const credentialStep = page.getByRole('region', { name: '添加一个 API Key 开始使用' })
+    await credentialStep.waitFor({ timeout: 15_000 })
     expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
-    const welcomeAria = await captureStableAria(page, '[role="region"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(WELCOME_EXPECTED, welcomeAria, MODE)
-    expect(await welcome.getByRole('button').allTextContents()).toEqual([WELCOME_NOTICE_COPY.zh.continueLabel])
-    expect(await welcome.locator('button').count()).toBe(1)
 
     const mask = page.locator('[class*="onboardingMask"]')
     expect(await mask.count()).toBe(1)
@@ -83,17 +75,6 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       rect: { left: 0, top: 80, right: 1440, bottom: 960 },
     })
 
-    // Closing the process/page before acknowledgement writes nothing, so the
-    // same durable profile presents the notice again after reload.
-    const firstReloadWarnings = tripwire.warnings.length
-    await page.reload({ waitUntil: 'load' })
-    acknowledgeReloadConnectionLoss(tripwire, firstReloadWarnings)
-    await welcome.waitFor({ timeout: 15_000 })
-
-    await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
-    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
-    const credentialStep = page.getByRole('region', { name: '添加一个 API Key 开始使用' })
-    await credentialStep.waitFor({ timeout: 15_000 })
     expect(await credentialStep.getByRole('textbox').count()).toBe(0)
     const initial = await captureStableAria(page, '[role="region"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MISSING_EXPECTED, initial, MODE)
@@ -129,27 +110,10 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       { timeout: 10_000 },
     ).toBe('已配置——输入新值可替换')
 
-    const acknowledgedSettings = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
-    expect(acknowledgedSettings).toContain(`${WELCOME_NOTICE_ACK_FIELD}: ${WELCOME_NOTICE_VERSION}`)
-
     const secondReloadWarnings = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     acknowledgeReloadConnectionLoss(tripwire, secondReloadWarnings)
     await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
-    expect(await page.getByRole('region', { name: WELCOME_NOTICE_COPY.zh.title }).count()).toBe(0)
-    expect(await page.getByRole('region', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
-
-    // A different stored copy version represents an intentional version bump:
-    // the welcome step returns even though the credential is already ready.
-    await scaffold.ctx.settings.mutate(settingsNamespace(WELCOME_NOTICE_SETTINGS_NAMESPACE), [{
-      op: 'set', path: [WELCOME_NOTICE_ACK_FIELD], value: 'previous-copy-version',
-    }])
-    const thirdReloadWarnings = tripwire.warnings.length
-    await page.reload({ waitUntil: 'load' })
-    acknowledgeReloadConnectionLoss(tripwire, thirdReloadWarnings)
-    await welcome.waitFor({ timeout: 15_000 })
-    await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
-    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
     expect(await page.getByRole('region', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
 
     expect((await page.content()).includes(secret)).toBe(false)
@@ -161,8 +125,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('never paints the takeover chrome on a configured reload, even with the settings join held open', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-configured-reload'))
-    // Regression pin for the reload white flash: both steps are satisfied
-    // (welcome acknowledged, credential configured), yet each must LOAD its
+    // Regression pin for the reload white flash: the credential step is
+    // satisfied (credential configured), yet it must LOAD its
     // private join before it can decide not to show. The chrome lives inside
     // the step (OnboardingSurface), so the deciding window paints and blocks
     // nothing. Holding settings.describe widens that window from loopback
@@ -214,7 +178,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   it('configures arbitrary DeepSeek models and prompts after the selected model is removed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-models'))
     // Opened here rather than inherited: the credential test reloads the page
-    // to exercise the welcome step, so nothing carries an open dialog across.
+    // after configuring the key, so nothing carries an open dialog across.
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     await settings.waitFor({ timeout: 10_000 })
@@ -264,7 +228,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(
       SNAPSHOT_DIR,
-      ['missing.expected.md', 'models.expected.md', 'welcome.expected.md'],
+      ['missing.expected.md', 'models.expected.md'],
     )
   })
 })

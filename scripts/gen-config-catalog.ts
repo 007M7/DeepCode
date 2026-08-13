@@ -12,6 +12,7 @@ import { dirname, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { LINK_MAP } from './gen-cordis-catalog.ts'
 import { parseJsDoc, pointer, rawJsDoc } from './jsdoc.ts'
+import { githubSlug } from './verify-md-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/config-catalog.md'
@@ -766,11 +767,6 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   return entries.sort((a, b) => a.pkg.localeCompare(b.pkg))
 }
 
-/** GitHub-style anchor slug for a `## \`pkg\`` heading. */
-function slug(heading: string): string {
-  return heading.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-')
-}
-
 /** Render the `Requires:` service-key line, or '' when the plugin injects nothing. */
 function requiresLine(inject: string[]): string {
   return inject.length ? `Requires: ${inject.map(k => `\`${k}\``).join(' · ')}` : ''
@@ -782,7 +778,7 @@ function requiresLine(inject: string[]): string {
 function refLink(ref: TypeRef, byName: Map<string, CatalogEntry>): string {
   const target = byName.get(ref.specifier)
   if (target?.kind === 'config' && ref.imported === target.configTypeName) {
-    return `[\`${ref.alias}\`](#${slug(target.pkg)})`
+    return `[\`${ref.alias}\`](#${githubSlug(target.pkg)})`
   }
   const page = LINK_MAP[ref.imported]
   if (page) return `[\`${ref.alias}\`](subsystems/${page})`
@@ -792,7 +788,7 @@ function refLink(ref: TypeRef, byName: Map<string, CatalogEntry>): string {
 
 /** Render one configurable plugin's section. */
 function renderConfigEntry(entry: CatalogEntry, byName: Map<string, CatalogEntry>): string[] {
-  const out = [`## \`${entry.pkg}\``, '']
+  const out = [`<a id="${githubSlug(entry.pkg)}"></a>`, '', `## \`${entry.pkg}\``, '']
   const requires = requiresLine(entry.inject)
   if (requires) out.push(requires, '')
   out.push('```' + FENCE, ...(entry.pastes ?? []).map(p => p.text).join('\n\n').split('\n'), '```', '')

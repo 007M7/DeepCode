@@ -1,18 +1,15 @@
-/** Ownerless-copy registrations: the six seats, dictionaries, thunked labels, and HMR recovery. */
+/** Ownerless-copy registrations: the five seats, dictionaries, thunked labels, and HMR recovery. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from '../src/client/SettingsDocumentAction.tsx'
-import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
-import type { WelcomeNoticeInjected } from '../src/client/WelcomeNotice.tsx'
-import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../src/onboarding-copy.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -25,7 +22,6 @@ const SEATS = [
   ['settings.action', SettingsDocumentAction],
   ['settings.close', CloseLabel],
   ['settings.section', GeneralSection],
-  ['settings.onboarding', WelcomeNotice],
 ] as const
 
 async function bench(isLoopback = true) {
@@ -33,9 +29,6 @@ async function bench(isLoopback = true) {
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
-  // The plugins inject `remote`; forwarded events reach them through the
-  // same `$dispatch` handoff the connection sink makes.
-  new TestRemote(ctx)
   const settingsDescribe = vi.fn(() => Promise.resolve({
     rpcId: 'settings-general' as never,
     result: {
@@ -43,14 +36,7 @@ async function bench(isLoopback = true) {
       value: {
         writable: true,
         hasDocument: true,
-        namespaces: [{
-          ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
-          schema: {},
-          value: {},
-          applies: 'live' as const,
-          secrets: [],
-          revision: 0,
-        }],
+        namespaces: [],
       },
     },
   }))
@@ -89,10 +75,10 @@ function generalEntry(slots: SlotRegistry) {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
   })
 
-  it('fills all six seats for declarations before or after apply', async () => {
+  it('fills all five seats for declarations before or after apply', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -105,8 +91,9 @@ describe('ui-settings-general apply', () => {
     expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     expect(before.slots.entries('settings.general.item')).toEqual([])
-    const welcome = before.slots.entries('settings.onboarding')[0]!
-    expect(welcome.options).toMatchObject({ id: 'welcome-notice', order: -100 })
+    // The onboarding hole stays declared for feature-owned steps; this plugin
+    // no longer seats one.
+    expect(before.slots.entries('settings.onboarding')).toEqual([])
     const action = before.slots.entries('settings.action')[0]!
     const actionInjected = (action.inject as unknown as () => SettingsDocumentActionInjected)()
     expect(actionInjected.controller.store.getSnapshot().status).toBe('idle')
@@ -162,22 +149,6 @@ describe('ui-settings-general apply', () => {
     expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('通用设置')
   })
 
-  it('refreshes loaded welcome state only for its settings namespace or a reconnect', async () => {
-    const b = await bench()
-    declare(b.slots)
-    await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const entry = b.slots.entries('settings.onboarding')[0]!
-    const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
-    await controller.load()
-    expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 1])
-    expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.remote.$dispatch('settings/document-updated', [WELCOME_NOTICE_SETTINGS_NAMESPACE, 1])
-    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
-    b.ctx.emit('connection/reset')
-    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })
-  })
-
   it('refreshes loaded document availability on reconnect without reading it eagerly', async () => {
     const b = await bench()
     declare(b.slots)
@@ -192,19 +163,13 @@ describe('ui-settings-general apply', () => {
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
   })
 
-  it('keeps remote welcome acknowledgement process-local', async () => {
+  it('withholds the loopback-only document action off-loopback', async () => {
     const b = await bench(false)
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const entry = b.slots.entries('settings.onboarding')[0]!
-    const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
-
-    await controller.load()
-    await expect(controller.acknowledge()).resolves.toBe(true)
-    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: true })
-    expect(b.settingsDescribe).not.toHaveBeenCalled()
     expect(b.slots.entries('settings.action')).toEqual([])
+    expect(b.settingsDescribe).not.toHaveBeenCalled()
     await fiber.dispose()
     for (const [name] of SEATS) expect(b.slots.entries(name)).toEqual([])
   })

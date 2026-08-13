@@ -578,10 +578,12 @@ describe('workspace context instruction discovery', () => {
     const root = await tempRepo()
     const emptyHome = await tempRepo()
     // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
-    // HOME points at an empty dir so the default ~/.dsh holds no global scope.
-    // Symlinks are followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    // the home dirs point at an empty dir so the default ~/.dsh holds no global
+    // scope. Windows homedir() reads USERPROFILE (not HOME), so both must be
+    // stubbed or a real ~/.dsh/AGENTS.md would otherwise leak in.
     vi.stubEnv('DSH_HOME', '')
     vi.stubEnv('HOME', emptyHome)
+    if (process.platform === 'win32') vi.stubEnv('USERPROFILE', emptyHome)
     try {
       const cwd = join(root, 'child')
       await mkdir(cwd, { recursive: true })
@@ -622,6 +624,8 @@ describe('workspace context instruction discovery', () => {
     try {
       await write(join(home, '.dsh/AGENTS.md'), 'global default rule')
 
+      // A set DSH_HOME would override the homedir default and relabel the home.
+      vi.stubEnv('DSH_HOME', '')
       vi.resetModules()
       vi.doMock('node:os', () => ({ homedir: () => home }))
       const isolated = await import('@deepseek-ai/dsh-agent-instructions')
@@ -629,6 +633,7 @@ describe('workspace context instruction discovery', () => {
 
       expect(files.map(file => file.displayPath)).toEqual(['~/.dsh/AGENTS.md'])
     } finally {
+      vi.unstubAllEnvs()
       vi.doUnmock('node:os')
       vi.resetModules()
       await rm(root, { recursive: true, force: true })

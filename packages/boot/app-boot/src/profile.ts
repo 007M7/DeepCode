@@ -24,7 +24,7 @@
 
 import { createRequire } from 'node:module'
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
@@ -182,7 +182,9 @@ function ensureSymlink(link: string, target: string): void {
       throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`)
     }
     if (readlinkSync(link) === target) return
-    rmSync(link)
+    // unlink deletes the reparse point itself on Windows too; rmSync treats a
+    // junction as a directory and throws EISDIR unless recursive.
+    unlinkSync(link)
   }
   try {
     symlinkSync(target, link, 'junction')

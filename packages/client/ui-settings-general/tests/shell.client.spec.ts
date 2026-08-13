@@ -49,7 +49,7 @@ const CHILD_SPECS = {
 
 describe('ui-settings apply', () => {
   it('declares only the slot registry (a pure composition face, no locale)', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
   })
 
   it('registers the shell and declares every child slot, before or after the declaration', async () => {
@@ -110,8 +110,6 @@ describe('ui-settings apply', () => {
     b.slots.register({ name: 'settings.onboarding', id: 'default-order' } as never, () => null)
     const steps = onboardingSteps.getSnapshot()
     expect(steps).toEqual([
-      // This package's own onboarding page, registered by the same apply.
-      { id: 'welcome-notice', order: -100 },
       { id: 'welcome', order: -100 },
       { id: 'credential', order: 0 },
       { id: 'default-order', order: 0 },

@@ -10,6 +10,7 @@ import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { parseJsDoc, pointer, rawJsDoc, reportViolations } from './jsdoc.ts'
+import { githubSlug } from './verify-md-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/persistence-catalog.md'
@@ -341,7 +342,8 @@ function typeLinks(payload: string): string {
 
 /** Render one log event entry. */
 function renderEvent(e: AnnotatedLogEventEntry): string[] {
-  const out = [`#### \`${e.name}\` — ${e.surface ? 'surface' : 'log-only'}`, '']
+  const heading = `${e.name} — ${e.surface ? 'surface' : 'log-only'}`
+  const out = [`<a id="${githubSlug(heading)}"></a>`, '', `#### \`${e.name}\` — ${e.surface ? 'surface' : 'log-only'}`, '']
   out.push('```' + FENCE, e.declaration, '```', '')
   const links = typeLinks(e.payload)
   if (links) out.push(links, '')
