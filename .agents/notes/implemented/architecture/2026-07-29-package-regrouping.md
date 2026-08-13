@@ -17,7 +17,7 @@ The north star for the regrouping: **closely clustered packages share a group.**
 
 ## Decision
 
-Five regrouping decisions remain current; every other group keeps its prior boundary and contents (the dependency analysis confirmed the capability families — `shell/`, `terminal/`, `code-runtime/`, `sandbox/`, `subprocess/`, `fs/`, `lsp/`, `web/`, `skill/`, and the rest — were already drawn correctly). The original sixth decision collected the SDK project initializer, launcher tooling, and runtime JSON-RPC packages under `scaffold/`; [removing that unreleased toolchain](../simplification/2026-08-11-remove-sdk-project-toolchain.md) deleted the project tooling and moved the surviving runtime trio to `sdk/`. The later [repository naming contract](../../proposed/architecture/2026-08-11-repository-naming-contract-and-rename-ledger.md) owns the `shell/`, `terminal/`, and `extensions/` group names and the two package names that this decision deferred.
+Five regrouping decisions remain current; every other group keeps its prior boundary and contents (the dependency analysis confirmed the capability families — `shell/`, `terminal/`, `code-runtime/`, `sandbox/`, `subprocess/`, `fs/`, `lsp/`, `web/`, `skill/`, and the rest — were already drawn correctly). The original sixth decision collected the SDK project initializer, launcher tooling, and runtime JSON-RPC packages under `scaffold/`; [removing that unreleased toolchain](../simplification/2026-08-11-remove-sdk-project-toolchain.md) deleted the project tooling and moved the surviving runtime trio to `sdk/`. The later [repository naming contract](2026-08-11-repository-naming-contract-and-rename-ledger.md) owns the `shell/`, `terminal/`, and `extensions/` group names and the two package names that this decision deferred.
 
 | Group | Members (folder names) | From |
 |---|---|---|
@@ -37,7 +37,7 @@ Five regrouping decisions remain current; every other group keeps its prior boun
 
 ## Later naming decisions
 
-The [repository naming contract](../../proposed/architecture/2026-08-11-repository-naming-contract-and-rename-ledger.md) resolves the two names that this move deliberately deferred. `@deepseek-ai/dsh-sdk-jsonrpc-server` names the JSON-RPC server half of the runtime SDK protocol. `@deepseek-ai/dsh-tool-call-timeout-policy` names the exact operation limited by the policy while keeping its `guard/timeout-policy/` home. Their release-blocking `FIXME` markers are removed with those renames.
+The [repository naming contract](2026-08-11-repository-naming-contract-and-rename-ledger.md) resolves the two names that this move deliberately deferred. `@deepseek-ai/dsh-sdk-jsonrpc-server` names the JSON-RPC server half of the runtime SDK protocol. `@deepseek-ai/dsh-tool-call-timeout-policy` names the exact operation limited by the policy while keeping its `guard/timeout-policy/` home. Their release-blocking `FIXME` markers are removed with those renames.
 
 ## What the move touched
 
