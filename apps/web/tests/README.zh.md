@@ -24,7 +24,7 @@ Client face，而该 face 必须等 Host tsdown 生成 `@deepseek-ai/dsh-goal/re
 
 当某个场景需要 Client 持有的常量或纯函数时，改为在此处镜像一份，并紧挨着一条注释掉的
 import 点明源模块。这样漂移会表现为选择器未命中或镜像值过期——是响亮的失败，绝不会是静默
-通过。
+通过。`scaffold.ts` 按此规则镜像欢迎声明的 namespace、确认字段、版本和被断言的中文文案。
 
 有两类 Client import 是长期成立的。`assembled-boot.ts` 驱动 shell 本身，因此它从
 `@deepseek-ai/dsh-client-web` import `AppWebEntry`、从

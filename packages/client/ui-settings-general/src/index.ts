@@ -8,7 +8,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 const ONBOARDING_SETTINGS_NAMESPACE = 'ui-onboarding'
 
 interface OnboardingSettings {
-  /** Last welcome-notice version acknowledged by a since-removed first-run notice; kept so stored documents stay valid. */
+  /** Last version acknowledged by the current product welcome step. */
   welcomeNoticeVersion?: string
 }
 

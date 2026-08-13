@@ -10,13 +10,13 @@ GUI 的凭据引导从 DeepSeek 专用的就绪状态检查开始，但内部测
 
 ## 决策
 
-**设置外壳协调有序步骤。** `settings.onboarding` 仍是根作用域 list，但 `ui-settings` 会把其中各条目的 id 和顺序投影到一个协调器中，并且只挂载第一个未完成的步骤。当前注册方会收到 `complete()` 和 `openSection(id)`；所有权转移前，不会挂载后续步骤。`ui-settings-models` 注册顺序为 `0` 的 DeepSeek 条件式就绪状态与凭据跳转步骤，自[移除首次启动内测声明](../simplification/2026-08-13-remove-first-run-beta-notice.md)起，它是当前唯一的注册方。
+**设置外壳协调有序步骤。** `settings.onboarding` 仍是根作用域 list，但 `ui-settings` 会把其中各条目的 id 和顺序投影到一个协调器中，并且只挂载第一个未完成的步骤。当前注册方会收到 `complete()` 和 `openSection(id)`；所有权转移前，不会挂载后续步骤。`ui-settings-models` 现在以顺序 `-100` 注册恢复后的欢迎声明，以顺序 `0` 注册 DeepSeek 条件式凭据步骤；两者当前的共用展示由[共用弹窗引导决策](2026-08-13-shared-modal-product-onboarding.md)持有。
 
-**产品欢迎步骤已移除。** 版本化通知、其文案所有者文件和确认 store 自本决策起随产品发布，直至[移除首次启动内测声明](../simplification/2026-08-13-remove-first-run-beta-notice.md)；移除理由由该 note 持有。`ui-settings-general` 不再注册任何引导步骤。
+**产品欢迎步骤按版本管理并归功能插件所有。** 该声明曾由[移除首次启动内测声明](../simplification/2026-08-13-remove-first-run-beta-notice.md)历史决策移除，现在以新的测试阶段文案恢复在 `ui-settings-models` 中。`ui-settings-general` 仍不注册任何引导步骤；持有当前两个步骤的插件也持有文案、store 和共用弹窗。
 
-**持久化的 `ui-onboarding` 分节在通知移除后继续存在。** 宿主端在 user-settings seam 中注册它，存入当前 `$DSH_HOME/settings.yaml`；其中的 `welcomeNoticeVersion` 字段让已存储的确认记录保持有效，没有读取方。connection 插件通过 `ctx.connection.isLoopback` 统一发布当前页面是否使用 loopback authority；hostname 判定留在 connection 包内，其他客户端插件只消费服务状态，而不导入其实现。API Proxy 在可配置提供方 namespace 之外，通过封闭的允许列表暴露这一个产品 namespace，同时不会把它的变更视为模型目录失效事件。
+**持久化的 `ui-onboarding` 分节持有确认状态。** 宿主端在 user-settings seam 中注册它，存入当前 `$DSH_HOME/settings.yaml`；当前欢迎 store 通过既有公开 settings API 读写其中的 `welcomeNoticeVersion`。connection 插件通过 `ctx.connection.isLoopback` 统一发布当前页面是否使用 loopback authority；hostname 判定留在 connection 包内，其他客户端插件只消费服务状态，而不导入其实现。API Proxy 在可配置提供方 namespace 之外，通过封闭的允许列表暴露这一个产品 namespace，同时不会把它的变更视为模型目录失效事件。
 
-**引导流程会暂时接管视口，形成一个连续阶段。** 纯色产品界面通过挂载到 `body` 的 portal 取代完整的应用视图，并将底层应用根节点标记为 inert；严格符合要求的遮罩仍挂载在该界面后方，并保留 `position:absolute`、left/right/bottom 偏移量为零、`top:80px`、`rgba(0, 0, 0, 0.24)` 和 `backdrop-filter: blur(2px)`。引导步骤在这一阶段中依次呈现，而不是各自作为独立的模态窗口，并复用 Web UI 的黑色 `BrandWordmark`；按条件显示的凭据设置页是当前唯一的页面。
+**可见引导使用同一个弹窗契约。** 当前两个步骤都通过 body portal 的同一个 `OnboardingModal` 渲染，且只在弹窗可见期间把下层应用根节点设为 inert。步骤加载私有事实时，外壳不渲染任何包装。明确操作会移交协调器所有权；Escape 和点击遮罩都不会确认或跳过步骤。
 
 ## 曾考虑的替代方案
 
@@ -30,4 +30,4 @@ GUI 的凭据引导从 DeepSeek 专用的就绪状态检查开始，但内部测
 
 ## 后果
 
-全新 profile 直接进入提供方专用引导：DeepSeek 步骤仅在其凭据缺失时挂载，凭据已配置时不会出现任何引导页面。针对性的 store 与 React 测试固化了协调器顺序、按条件移交 DeepSeek 步骤和 HMR（热模块替换）清理行为。真实 Chromium 场景会使用隔离的 harness 家目录启动随产品提供的 Web 组合，在凭据步骤占据视口时验证遮罩的精确几何尺寸和计算样式，继续进入凭据缺失设置流程，并检查浏览器控制台。
+全新 profile 会先看到当前测试阶段声明；当没有任何可用提供方时，再看到条件式 DeepSeek 密钥弹窗。定向 store 与 React 测试固定精确版本确认、协调器顺序、条件式移交、共用弹窗行为与 HMR 清理。真实 Chromium 场景会在隔离的 harness 家目录下启动已发布 Web 组合，验证两个弹窗，通过既有凭据边界写入密钥，并检查 secret 未进入 DOM、ARIA 或浏览器控制台。
