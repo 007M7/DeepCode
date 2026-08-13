@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/cordis-plugin-group",
   "description": "Nested plugin group for cordis",
-  "version": "1.0.1-rc.4",
+  "version": "1.0.1",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

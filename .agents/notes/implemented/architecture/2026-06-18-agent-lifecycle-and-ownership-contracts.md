@@ -37,7 +37,7 @@ These invariants hold and are pinned by tests:
 
 ## Session owner tokens are unique among live agents
 
-The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` being unique among live agents. Concurrent same-ID operations may both prepare privately, but publication enters the session and agent in order; `SessionStore.enter()` rejects a duplicate live session id, and every losing transaction rolls its private state back. A programmatic caller therefore cannot publish two live agents with one session token. The access *policy* (token comparison) stays in `tool-bash` (the Consumer); the bash capability keeps `owner` opaque and never interprets it — the correct Service Definition / Service provider / Consumer split.
+The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` being unique among live agents. Concurrent same-ID operations may both prepare privately, but publication enters the session and agent in order; `SessionStore.enter()` rejects a duplicate live session id, and every losing transaction rolls its private state back. A programmatic caller therefore cannot publish two live agents with one session token. The access *policy* (token comparison) stays in `tool-bash` (the Consumer); the bash capability keeps `owner` opaque and never interprets it — the correct Service Definition / Service Provider / Consumer split.
 
 ## Alternatives considered
 

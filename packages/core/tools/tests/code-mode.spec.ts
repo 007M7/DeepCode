@@ -19,7 +19,7 @@ const testToolSignal = new AbortController().signal
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
- * Service Definition / Service provider / Consumer roles the seam promises.
+ * Service Definition / Service Provider / Consumer roles the seam promises.
  */
 
 /** A scriptable in-repo CodeRuntime: each test sets `behavior` to drive the bindings however it needs. */

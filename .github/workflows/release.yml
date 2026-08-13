@@ -81,8 +81,10 @@ jobs:
         run: pnpm run release:pack --family dsh --out dist/npm
 
       # The harness packages declare the vendored framework as a peer, and this
-      # job has no credentials for the private registry, so the verification
-      # installs that family's pack output too. Only dist/npm is published.
+      # verification must not depend on the registry already carrying matching
+      # versions — one pull request may bump both families before either
+      # publishes — so it installs that family's pack output too. Only dist/npm
+      # is published.
       - name: Pack the vendored framework for verification
         run: pnpm run release:pack --family vendor --out dist/npm-vendor
 

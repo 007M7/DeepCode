@@ -49,4 +49,4 @@ Open `http://127.0.0.1:3080` and ask: `Use the greet tool to greet Ada.` The mod
 
 - [Plugin configuration](./config.md) — make the greeting configurable.
 - [Tool authoring reference](../../../cookbook/adding-a-tool.md) — look up nested schemas, canonical values, background work, policy hooks, Code Mode, and UI cards.
-- [Capability layering](../practice/) — split a replaceable capability into Service Definition, Service provider, and Consumer packages.
+- [Capability layering](../practice/) — split a replaceable capability into Service Definition, Service Provider, and Consumer packages.

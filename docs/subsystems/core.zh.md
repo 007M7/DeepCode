@@ -263,6 +263,8 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 两个模式在每个子系统中反复出现，只在此处记录一次。
 
+<a id="the-map--derived-union-pattern"></a>
+
 ### `…Map → derived-union` 模式
 
 harness 中几乎所有可扩展的和类型都遵循同一模式：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包。

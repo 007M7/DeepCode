@@ -6,7 +6,7 @@
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| [`shell/`](shell/README.md) | 定义 Service provider 与 Consumer 共享的执行器约定。 | `ctx.shell` |
+| [`shell/`](shell/README.md) | 定义 Service Provider 与 Consumer 共享的执行器约定。 | `ctx.shell` |
 | [`bash-local/`](bash-local/README.md) | 通过本地 [`subprocess`](../subprocess/README.md) 服务执行命令。 | （注册 `ctx.shell`） |
 | [`bash-sandbox/`](bash-sandbox/README.md) | 在本地执行前应用已配置的 [`sandbox`](../sandbox/README.md) 后端。 | （注册 `ctx.shell`） |
 | [`pwsh-local/`](pwsh-local/README.md) | 采用 Windows 特有的进程行为执行 PowerShell 命令。 | （注册 `ctx.shell`） |

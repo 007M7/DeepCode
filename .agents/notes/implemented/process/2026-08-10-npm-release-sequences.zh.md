@@ -26,7 +26,7 @@ Status: implemented
 | vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | `release-vendor.yml` |
 | native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | `landlock-run-release.yml` |
 
-三组一律发到 npmjs.com 的 `@deepseek-ai` scope 下的私有包。每个 manifest 的 `publishConfig.access` 都是 `restricted`，且没有任何 workflow 传 `--access`——命令行选项会覆盖 manifest。
+三组一律发到 npmjs.com 的 `@deepseek-ai` scope，且 access 按序列而非按 scope 区分：vendored 框架与 native 包是 `public`，dsh 族是 `restricted`（[理由](2026-08-13-public-vendor-and-native-sequences.md)）。没有任何发布路径传 `--access`——一个选项无法服务级别互不相同的序列，且会覆盖真正拥有该级别的 manifest。
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
@@ -107,12 +107,12 @@ dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 ven
 
 | 项 | 内容 |
 |---|---|
-| 发布集 manifest | 去掉 `private: true`；补 `publishConfig.access: restricted` 与带各自 `directory` 的 `repository` |
+| 发布集 manifest | 去掉 `private: true`；按序列补 `publishConfig.access` 与带各自 `directory` 的 `repository` |
 | 发布集边界 | `packages/*/*`、`apps/*`、`vendor/*` 的全部成员 |
 | 依赖协议 | workspace 内部引用为 `workspace:^`，由 `check-workspace-constraints.ts` 与 invariant companion 规则强制 |
 | 根 `AGENTS.md` | 「vendored 包是 `private: true`」这条约定不再成立 |
 | `vendor/README.md` | 记录「`src` 加入 `cordis` 的 `files`」这条本地修改 |
-| native 三包 | `publishConfig.access: restricted`，且其 workflow 不再传 `--access` |
+| native 三包 | `publishConfig.access: public`，且其 workflow 不传 `--access` |
 
 ### 与先前提案的关系
 

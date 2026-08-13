@@ -354,7 +354,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
   })
 })
 
-describe('SessionTitleService provider validation and stale scheduling', () => {
+describe('SessionTitleService Provider validation and stale scheduling', () => {
   it('rejects malformed provider registrations before publishing them', async () => {
     const ctx = await setup()
     const generate = async (): Promise<SessionTitleProviderResult> => ({ title: 'title', messageSeqs: [0] })

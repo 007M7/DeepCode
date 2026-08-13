@@ -151,6 +151,8 @@ type ContextFormed =
   | { readonly form: 'recall' }
 ```
 
+<a id="streamchunk--the-raw-protocol"></a>
+
 ## `StreamChunk` — the raw protocol
 
 A streaming response interleaves several typed blocks (text, reasoning, multiple tool calls). `index` ties each delta to its block; `block-end` carries the fully-assembled `ContentBlock` so consumers don't have to re-assemble deltas themselves. It is a **closed** discriminated union — a `switch` over `type` ends with `assertNever`, so adding a variant breaks compilation at every consumer that must handle it.

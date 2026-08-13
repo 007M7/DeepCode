@@ -6,7 +6,7 @@
 
 ## 服务约定
 
-- `start(spec): JobId` 验证已附加的任务控制器、spec、确切且仍存活的 owner、可选的正数 `outputLimitBytes`，以及 Service provider 所拥有的准入策略，然后只调用生产方的 `run()` 一次。预检拒绝或启动方抛出异常时都不会生成 job id 或注册工作；成功返回会直接提交，不再执行其他可能失败的步骤。
+- `start(spec): JobId` 验证已附加的任务控制器、spec、确切且仍存活的 owner、可选的正数 `outputLimitBytes`，以及 Service Provider 所拥有的准入策略，然后只调用生产方的 `run()` 一次。预检拒绝或启动方抛出异常时都不会生成 job id 或注册工作；成功返回会直接提交，不再执行其他可能失败的步骤。
 - `get(id, caller?)` 和 `list(caller?)` 返回非消费式快照。列表只包含调用方拥有及无 owner 的任务。
 - `read(id, caller?)` 消费流任务的唯一游标；对于最终输出任务，则以幂等方式读取终止输出。
 - `kill(id, caller?, reason?)` 在更改状态前调用生产方取消。取消抛出异常时任务保持运行；成功则把状态改为 `stopping`，并将终止交付标记为已报告。

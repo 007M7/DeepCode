@@ -10,6 +10,8 @@ Cordis 是 DeepSeek Harness 底层的插件框架：它是一个小型运行时�
 
 如果你要为 harness 本身编写插件——由 `cordis.yml` 加载、在 Web UI 中驱动，而不是下面这个启动器——请从[第一个 Harness 插件](../user/develop/basic/index.md)开始。
 
+<a id="setup"></a>
+
 ## 准备工作
 
 你需要克隆本仓库并安装依赖；[开发指南](../development.md#setup-tutorial)列出了前置条件。本教程不需要 API 密钥；所有示例均可在无密钥环境中运行。

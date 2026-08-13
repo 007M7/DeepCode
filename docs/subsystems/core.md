@@ -257,6 +257,8 @@ Its full fields, the `defineTool`/`ValueSchemaSpec`/`ParameterSchemaSpec` typed 
 
 Two patterns recur across every subsystem and are documented once, here.
 
+<a id="the-map--derived-union-pattern"></a>
+
 ### The `…Map → derived-union` pattern
 
 Almost every extensible sum type in the harness follows one pattern: an interface keyed by a discriminant tag (the `…Map`), from which the union is derived with `keyof`. Plugins add variants by **declaration merging** — no edit to the owning package.

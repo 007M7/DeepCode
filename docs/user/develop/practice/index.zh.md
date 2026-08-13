@@ -6,14 +6,14 @@
 
 ## 概念参考
 
-当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），harness 会区分三种角色：**Service Definition**、**Service provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
+当一项能力足够通用，需要支持可替换的提供方时（例如 Bash 执行），harness 会区分三种角色：**Service Definition**、**Service Provider** 和 **Consumer**。角色需要独立演进或替换时，将它们放入不同包；否则一个包可以承担多个角色。完整能力构成其 seam。任何单一角色都不是 seam。
 
 ## 以 Bash 为例
 
 以 Bash 执行能力为例：
 
 - **Service Definition** (`dsh-shell`)：定义 Cordis 服务以及 Bash 请求和结果类型
-- **Service provider** (`dsh-bash-local`)：在本地计算机上执行命令
+- **Service Provider** (`dsh-bash-local`)：在本地计算机上执行命令
 - **Consumer** (`dsh-tool-bash`)：将该能力公开为模型可调用的工具
 
 ```
@@ -23,7 +23,7 @@
 └─────────────┘     └──────────────────┘     └──────────────┘
        ▲                                            │
        └────────────────────────────────────────────┘
-                    inject: ['bash']
+                    inject: ['shell']
 ```
 
 ## 拆分的好处
@@ -44,14 +44,14 @@
 ### 独立演进
 
 - 调用方开始依赖 Service Definition 的约定后，Service Definition 很少改动。
-- Service provider 可以独立优化性能和安全性。
+- Service Provider 可以独立优化性能和安全性。
 - Consumer 可以调整能力向模型呈现的方式。
 
 ### 依赖解耦
 
-- Service provider 依赖 Service Definition。
+- Service Provider 依赖 Service Definition。
 - Consumer 依赖 Service Definition。
-- Service provider 和 Consumer **互不依赖**。
+- Service Provider 和 Consumer **互不依赖**。
 
 当前内置系列及其包链接由[能力 seam 参考](../../../capability-seams.md)负责。
 
@@ -87,7 +87,7 @@ export interface MyCapResult {
 }
 ```
 
-### 第二步：编写 Service provider
+### 第二步：编写 Service Provider
 
 ```ts ignore-check
 // packages/my-cap/my-cap-local/src/index.ts
@@ -147,7 +147,7 @@ export function apply(ctx: Context) {
 ## 设计要点
 
 - **不要预防性拆分**：只有角色需要独立演进时，才使用不同包。简单的工具插件无需拆分。
-- **Service Definition 拥有 Request/Result 类型**：Service provider 和 Consumer 只依赖 Service Definition 包。
+- **Service Definition 拥有 Request/Result 类型**：Service Provider 和 Consumer 只依赖 Service Definition 包。
 - **显式优于隐式**：实现应通过显式的 `resolve(request): Spec` 步骤处理默认值，而不是在 `run()` 中隐藏 `?? default`。
 
 ## 下一步
