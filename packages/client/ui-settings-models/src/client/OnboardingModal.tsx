@@ -26,7 +26,7 @@ export function OnboardingModal({
   useEffect(() => {
     const appRoot = document.getElementById('root')
     if (appRoot === null) return
-    const previous = appRoot.inert === true
+    const previous = appRoot.inert
     appRoot.inert = true
     return () => { appRoot.inert = previous }
   }, [])
