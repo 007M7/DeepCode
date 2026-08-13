@@ -106,13 +106,19 @@
     - id: attachment-local
       name: '@deepseek-ai/dsh-attachment-local'
 
-    # Raw configs can supply a process-local path or disable this shared session
-    # capability. The neutral default is process-local and opens only when used.
+    # Full-text session search is opt-in. `openAt: never` keeps
+    # ctx.sessionQuery mounted — exact reads, titles, and lineage traces
+    # (session export, subagent-fork Workspace inheritance) stay available —
+    # while search calls fail with SESSION_QUERY_SEARCH_DISABLED and SQLite is
+    # never opened; the Web sidebar search matches titles and workspace names
+    # only. Deployments enabling content search override `openAt` to
+    # `first-search` or `startup` in a later patch layer (profile
+    # cordis.patch.yml or a --patch overlay), typically with a durable `path`.
     - id: session-query-sqlite
       name: '@deepseek-ai/dsh-session-query-sqlite'
       config:
         path: ':memory:'
-        openAt: first-search
+        openAt: never
 
     # Shared projection registry: subagent catalog identity (mode/label) folds
     # through its registered units, so the `list_agents` surface below fails

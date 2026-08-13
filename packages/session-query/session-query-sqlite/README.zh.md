@@ -16,7 +16,7 @@
 
 该服务需要 `ctx.sessions`，并动态观察可选的 `ctx.sessionPersistence`。一个串行化状态机比较来源限定的轻量持久化快照修订，仅以不修改日志的方式检查新日志或已更改日志，提取共享语义文档，以事务方式对账变更，然后运行查询。会话查询绝不会调用持久化后端会修复崩溃的 `load()`；检查期间接入的活动所有者无法修改其日志，稳定观察重试使结果优先使用实时来源。TEMP 实时行仍会记录持久化可用性，而持久基库会在该活动所有者脱离后刷新。重复查询以及同一存储未发生变化的重新打开操作不会执行完整持久化日志检查；切换存储，或观察到新增、已更改、已删除或经外部 load 修复的来源时，会在下次稳定观察时对账。来源或事务失败不会提交任何内容，下一次搜索会重试。
 
-`openAt: startup` 是默认值：服务激活会导入 `node:sqlite` 并打开句柄；如果索引无效，则会在服务发布前失败。`openAt: first-search` 会将服务以 ACTIVE 状态发布，同时不导入 SQLite 模块也不打开句柄；首批并发搜索共享同一个就绪 promise，在任何搜索前 dispose（资源释放）服务时也不会导入模块或打开句柄。此模式通过把 SQLite 的实验性警告推迟到首次实际搜索，支持需要干净 Node 22 启动输出的组合；它不会抑制届时的警告。无效数据库同样会使首次搜索失败，而不是服务激活失败。
+`openAt: startup` 是默认值：服务激活会导入 `node:sqlite` 并打开句柄；如果索引无效，则会在服务发布前失败。`openAt: first-search` 会将服务以 ACTIVE 状态发布，同时不导入 SQLite 模块也不打开句柄；首批并发搜索共享同一个就绪 promise，在任何搜索前 dispose（资源释放）服务时也不会导入模块或打开句柄。此模式通过把 SQLite 的实验性警告推迟到首次实际搜索，支持需要干净 Node 22 启动输出的组合；它不会抑制届时的警告。无效数据库同样会使首次搜索失败，而不是服务激活失败。`openAt: never` 为该部署关闭全文搜索：`searchSessions` 和 `searchEvents` 在任何请求规范化之前就以 `SESSION_QUERY_SEARCH_DISABLED` 失败，node:sqlite 绝不会被导入或打开，也不运行任何来源观察或对账，而 `ctx.sessionQuery` 上继承的全部精确读取、过滤和跟踪保持可用。
 
 持久化 FTS 行位于专用派生数据库中。连接本地 TEMP 表保存实时行，这些行会遮蔽同一会话的持久化基库，并在实时所有者消失后使其重新可见。卸载持久化会隐藏持久行，但不会丢弃缓存；重新挂载会对账缓存。关闭或重新打开数据库会删除全部实时覆盖层，但保留持久行。
 
@@ -27,7 +27,7 @@
 | 键 | 默认值 | 约定 |
 |---|---:|---|
 | `path` | 必填 | 专用派生索引 SQLite 路径；支持 `:memory:`。在 POSIX 文件系统上，缺失的文件系统路径会以仅所有者可访问的方式创建。 |
-| `openAt` | `startup` | `startup` 会在服务激活完成前打开；`first-search` 把 SQLite 模块与句柄推迟到搜索时再加载和打开。 |
+| `openAt` | `startup` | `startup` 会在服务激活完成前打开；`first-search` 把 SQLite 模块与句柄推迟到搜索时再加载和打开；`never` 关闭全文搜索（以类型化的 `SESSION_QUERY_SEARCH_DISABLED` 失败），继承的读取保持可用。 |
 | `journalMode` | `wal` | `wal`、`delete`、`truncate` 或 `persist`。 |
 | `defaultLimit` | `20` | 请求省略 `limit` 时的分页大小；最多为 `Number.MAX_SAFE_INTEGER - 1`。 |
 | `maxLimit` | `100` | 接受的最大请求分页大小；最多为 `Number.MAX_SAFE_INTEGER - 1`。 |

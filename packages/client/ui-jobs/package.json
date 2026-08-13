@@ -36,7 +36,7 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch"
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",

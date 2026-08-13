@@ -34,7 +34,7 @@
     "lib/worker.cjs",
     "lib/types/**/*.d.ts"
   ],
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-code-runtime": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

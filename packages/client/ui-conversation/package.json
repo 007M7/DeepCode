@@ -46,7 +46,7 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch"
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-settings": "workspace:^",
     "clsx": "^2.0.0",

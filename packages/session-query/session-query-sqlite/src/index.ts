@@ -82,8 +82,8 @@ export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
 
-/** SQLite module/handle opening phase. */
-export type OpenAt = 'startup' | 'first-search'
+/** SQLite module/handle opening phase; `never` disables full-text search entirely. */
+export type OpenAt = 'startup' | 'first-search' | 'never'
 
 /** Combined session-query configuration backed by SQLite full-text search. */
 export interface Config extends SessionQueryConfig {
@@ -93,7 +93,13 @@ export interface Config extends SessionQueryConfig {
    * POSIX filesystems; existing modes are preserved.
    */
   path: string
-  /** Open the SQLite module and handle at service activation or the first search. Defaults to `startup`. */
+  /**
+   * Open the SQLite module and handle at service activation or the first
+   * search, or `never` to disable full-text search: the inherited exact
+   * reads, filters, and traces stay available, while `searchSessions` and
+   * `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
+   * never imported or opened. Defaults to `startup`.
+   */
   openAt?: OpenAt
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
@@ -192,7 +198,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
 
   static Config: z<Config> = z.object({
     path: z.string().required(),
-    openAt: z.union(['startup', 'first-search'] as const).default('startup'),
+    openAt: z.union(['startup', 'first-search', 'never'] as const).default('startup'),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
     defaultLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
@@ -251,6 +257,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionSearchHit>> {
+    this._assertSearchEnabled()
     const normalized = normalizeSessionRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
@@ -278,6 +285,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionEventSearchPage> {
+    this._assertSearchEnabled()
     const normalized = normalizeEventRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
@@ -308,6 +316,19 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   close(): Promise<void> {
     this._closePromise ??= this._close()
     return this._closePromise
+  }
+
+  /**
+   * Refuse full-text calls under `openAt: 'never'` before any request
+   * normalization or SQLite work, so a disabled deployment never imports
+   * node:sqlite, opens the index, or observes sources.
+   */
+  private _assertSearchEnabled(): void {
+    if (this.config.openAt !== 'never') return
+    throw new SessionQueryError(
+      'session search is disabled: this deployment configures the session-query index with openAt "never"',
+      'SESSION_QUERY_SEARCH_DISABLED',
+    )
   }
 
   private async _close(): Promise<void> {
@@ -991,7 +1012,7 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
   }
-  const openPhases: readonly string[] = ['startup', 'first-search']
+  const openPhases: readonly string[] = ['startup', 'first-search', 'never']
   if (!openPhases.includes(resolved.openAt)) throw invalidConfig('openAt is not supported')
   assertPageLimit('defaultLimit', resolved.defaultLimit)
   assertPageLimit('maxLimit', resolved.maxLimit)

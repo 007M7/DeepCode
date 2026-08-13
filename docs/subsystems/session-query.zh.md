@@ -332,7 +332,7 @@ interface SessionEventTraceObservation extends SessionEventTrace {
 
 ## 错误
 
-封闭的 code 联合类型区分请求校验、目标缺失、surface 日志格式错误、可选后端故障与矛盾的源元数据。
+封闭的 code 联合类型区分请求校验、目标缺失、surface 日志格式错误、可选后端故障、部署关闭搜索与矛盾的源元数据。
 
 ```ts type-equiv
 /** Stable machine-routable failure taxonomy for session reads, traces, and search. */
@@ -350,6 +350,7 @@ type SessionQueryErrorCode =
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
+  | 'SESSION_QUERY_SEARCH_DISABLED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
   | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'

@@ -83,6 +83,15 @@ describe('gate graph validation', () => {
     expect(ids).toContain('public-repository-links')
   })
 
+  it.each(['ci-primary', 'ci-static', 'check-all'] as const)(
+    'keeps the DSH package license policy in %s',
+    (mode) => {
+      const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(subject => subject.id))
+
+      expect(ids).toContain('dsh-package-licenses')
+    },
+  )
+
   it('keeps native Windows coverage blocking while portability inventory remains observational', () => {
     const gates = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const byId = new Map(gates.map(subject => [subject.id, subject]))
