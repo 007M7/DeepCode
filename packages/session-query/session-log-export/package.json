@@ -20,7 +20,7 @@
   },
   "files": ["lib/index.js", "lib/invariant.js", "lib/client.js", "lib/types/**/*.d.ts"],
   "scripts": { "bundle": "tsdown", "watch": "tsdown --watch" },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",

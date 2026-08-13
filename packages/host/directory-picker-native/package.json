@@ -35,7 +35,7 @@
     "lib/worker.cjs",
     "lib/types/**/*.d.ts"
   ],
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
     "@deepseek-ai/dsh-native-command": "workspace:^",

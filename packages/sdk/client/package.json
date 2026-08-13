@@ -29,7 +29,7 @@
     "lib/invariant.js",
     "lib/types/**/*.d.ts"
   ],
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

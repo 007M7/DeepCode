@@ -40,7 +40,7 @@
       "immediately": true
     }
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",

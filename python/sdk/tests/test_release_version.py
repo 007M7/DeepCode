@@ -77,6 +77,7 @@ def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: 
     pyproject = (destination / "pyproject.toml").read_text()
     assert 'name = "deepseek-harness-sdk"' in pyproject
     assert 'version = "1.2.3"' in pyproject
+    assert 'license = "MIT"' in pyproject
     assert '"deepseek-harness-runtime-bin==1.2.3"' in pyproject
     assert 'license-files = ["LICENSE"]' in pyproject
     assert (destination / "LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes()
@@ -103,6 +104,7 @@ def test_stage_runtime_copies_platform_payload(
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     assert {path.name: path.read_bytes() for path in runtime_dir.glob("dsh-jsonrpc-agent-pkg-*")} == expected
     pyproject = (destination / "pyproject.toml").read_text()
+    assert 'license = "MIT"' in pyproject
     assert 'license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]' in pyproject
     assert (destination / "platforms.json").read_bytes() == (
         ROOT / "python" / "sdk-runtime" / "platforms.json"

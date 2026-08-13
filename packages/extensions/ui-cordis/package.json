@@ -48,7 +48,7 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch"
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",

@@ -34,7 +34,7 @@
   "scripts": {
     "postinstall": "node scripts/ensure-spawn-helper.mjs"
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-subprocess": "workspace:^",
