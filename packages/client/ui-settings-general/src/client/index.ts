@@ -17,9 +17,6 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ctx.remote merge and the forwarded-event key face
-// (the settings invalidation rides the allowlist) into this program.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
 } from './shell-contract.ts'
@@ -29,10 +26,6 @@ import { GeneralSection } from './GeneralSection.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { refreshDocumentIfLoaded, SettingsDocumentStore } from './settings-document-store.ts'
-import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
-import { WelcomeNotice } from './WelcomeNotice.tsx'
-import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
-import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
 import { en, zh, type SettingsKey } from './locales.ts'
 
 export type {
@@ -44,8 +37,6 @@ export type {
 export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
 export type { SettingsDocumentState } from './settings-document-store.ts'
 export { SettingsDocumentStore } from './settings-document-store.ts'
-export type { WelcomeNoticeInjected, WelcomeNoticeProps } from './WelcomeNotice.tsx'
-export type { WelcomeNoticeState } from './welcome-store.ts'
 export type { SettingsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -63,7 +54,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote']
+export const inject = ['slots', 'locale', 'connection']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -87,27 +78,9 @@ export function apply(ctx: ClientContext): void {
       const useSnapshot = bindSnapshotSelector(documentController.store)
       return (): SettingsDocumentActionInjected => ({ controller: documentController, useSnapshot })
     })()
-  const welcomeController = new WelcomeNoticeStore(connection.api, connection.isLoopback ? 'host' : 'memory')
-  const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
-  const welcomeInjected = (): WelcomeNoticeInjected => ({
-    controller: welcomeController,
-    useSnapshot: useWelcomeSnapshot,
-  })
-
-  ctx.effect(() => {
-    const refresh = (): void => { refreshWelcomeIfLoaded(welcomeController) }
-    const disposers = [
-      ctx.remote.$on('settings/document-updated', (ns) => {
-        if (ns !== WELCOME_NOTICE_SETTINGS_NAMESPACE) return
-        refresh()
-      }),
-      ctx.on('connection/reset', () => {
-        refresh()
-        refreshDocumentIfLoaded(documentController)
-      }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-settings-general: metadata invalidations')
+  ctx.effect(() => ctx.on('connection/reset', () => {
+    refreshDocumentIfLoaded(documentController)
+  }), 'ui-settings-general: metadata invalidations')
   // The settings shell: this package occupies the sidebar-owned hole and
   // declares the settings slots. Ledger → nav-row projection as an observable
   // source (uSES contract: getSnapshot returns the cached rows until the
@@ -202,11 +175,4 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
   }, GeneralSection))
-  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
-    name: 'settings.onboarding',
-    id: 'welcome-notice',
-    order: -100,
-    locale: NS,
-    inject: welcomeInjected,
-  }, WelcomeNotice))
 }

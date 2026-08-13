@@ -14,7 +14,7 @@ DeepSeek Harness 有两路出站遥测数据流。在内测阶段，共享基础
 
 dsh-sdk 启动器读取同一变量，不解析 `cordis.yml`，也不启动 Cordis。`FULL` 允许上报；`FEEDBACK_ONLY`、`DISABLED`、未设置和空值都会拒绝。授权在命令执行前从启动环境冻结：`dsh-sdk start` 会加载项目 `.env`，项目代码也能修改 `process.env`，若在执行后解析，项目便能自行授权上报其自身配置，而[配置来源所有权决策](../architecture/2026-08-04-configuration-source-ownership.md)对整个 `DSH_*` 命名空间禁止这种行为。在该边界上，不受支持的模式按拒绝处理而非抛出，因为遥测不得改变命令结果。此规则在启动器及其提案被[SDK 项目工具链移除决策](../simplification/2026-08-11-remove-sdk-project-toolchain.md)删除之前，仅取代了启动器默认允许上报的规则。
 
-带版本的 Web 欢迎通知说明会话日志上传默认关闭，将 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 和 `DSH_TELEMETRY_MODE=FULL` 列为两种显式启用选项，并披露 `FULL` 同时会启用 dsh-sdk 命令遥测。其版本随这项重要的隐私声明一同变更，使每个 profile 都确认当前文案。
+仓库 README 说明会话日志上传默认关闭，将 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 和 `DSH_TELEMETRY_MODE=FULL` 列为两种显式启用选项，并披露 `FULL` 同时会启用 dsh-sdk 命令遥测。自[移除首次启动内测声明](../simplification/2026-08-13-remove-first-run-beta-notice.md)起，产品本身不提供任何关于开启遥测的提示。
 
 ## 考虑过的替代方案
 
