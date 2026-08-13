@@ -26,7 +26,7 @@ export function OnboardingModal({
   useEffect(() => {
     const appRoot = document.getElementById('root')
     if (appRoot === null) return
-    const previous = appRoot.inert === true
+    const previous = appRoot.inert
     appRoot.inert = true
     return () => { appRoot.inert = previous }
   }, [])
@@ -41,7 +41,7 @@ export function OnboardingModal({
       title={title}
       onClose={ignoreImplicitDismiss}
       headless
-      className={css['dialog'] ?? ''}
+      className={css.dialog as string}
     >
       <div className={css.content}>
         <h2 ref={titleRef} className={css.title} tabIndex={focusTitle ? -1 : undefined}>{title}</h2>

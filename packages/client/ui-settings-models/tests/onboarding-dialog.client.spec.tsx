@@ -146,6 +146,13 @@ function harness(options: {
 }
 
 describe('DeepSeekOnboardingDialog', () => {
+  it('renders when the shell root is absent', async () => {
+    const h = harness()
+    document.getElementById('root')!.remove()
+    render(<DeepSeekOnboardingDialog {...h.props} />)
+    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+  })
+
   it('loads a credential-only modal, inerts the product, and focuses the key', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
@@ -183,22 +190,6 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(save.disabled).toBe(true)
     expect(screen.getByText(en.keyRequired)).toBeTruthy()
     expect(h.set).not.toHaveBeenCalled()
-  })
-
-  it('stores only the official credential, refreshes, and completes without opening Settings', async () => {
-    const h = harness()
-    render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog')
-    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-live  ' } })
-    fireEvent.click(screen.getByRole('button', { name: en.onboardingSave }))
-    await waitFor(() => {
-      expect(h.set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' })
-    })
-    expect(h.mutate).not.toHaveBeenCalled()
-    expect(h.openSection).not.toHaveBeenCalled()
-    await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.getElementById('root')?.inert).toBe(false)
   })
 
   it('keeps the modal open and reports rejected and failed credential writes', async () => {

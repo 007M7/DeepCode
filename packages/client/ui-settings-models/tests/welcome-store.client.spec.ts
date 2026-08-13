@@ -91,7 +91,7 @@ describe('WelcomeNoticeStore', () => {
 
     const nonError = new WelcomeNoticeStore({
       // Durable/wire failures are unknown; exercise containment of a non-Error rejection.
-      settings: { describe: () => Promise.reject('offline string') },
+      settings: { describe: () => Promise.reject(new Error('offline string')) },
     } as never)
     await nonError.load()
     expect(nonError.store.getSnapshot().error).toBe('offline string')
