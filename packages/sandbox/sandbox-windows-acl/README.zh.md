@@ -86,7 +86,7 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 
 ## 模型体验
 
-间接地通过 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
+间接地通过 [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../shell/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
 
 #### KV Cache 影响
 

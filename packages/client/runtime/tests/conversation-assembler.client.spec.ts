@@ -730,7 +730,7 @@ describe('ConversationNodeAssembler', () => {
             role: 'start',
           }
         }
-        if ((event.type as string) === 'compact/start') {
+        if ((event.type as string) === 'compaction/start') {
           return {
             id: (event.data as unknown as { compactionId: string }).compactionId,
             role: 'start',
@@ -758,7 +758,7 @@ describe('ConversationNodeAssembler', () => {
       input(at(2, 'step/start', { turn: 1, step: 1 })),
       input(at(3, 'turn/start', { turn: 2 })),
       input(at(4, 'command/run', { commandId: 'command', name: 'x' })),
-      input(at(5, 'compact/start', { compactionId: 'compact', turn: null })),
+      input(at(5, 'compaction/start', { compactionId: 'compact', turn: null })),
     ], false)
     assembler.flush()
 

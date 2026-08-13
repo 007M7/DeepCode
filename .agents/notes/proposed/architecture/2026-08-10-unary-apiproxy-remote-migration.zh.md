@@ -6,17 +6,17 @@ Status: proposed
 
 ## 问题
 
-Host API Proxy 仍承载许多一元方法。这些方法的实现仅执行服务查找、参数投影、一次业务调用和响应投影。尽管 [TypeRT Remote 调用](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md)已经允许业务包承载此类调用，这种做法仍会在业务服务、API Proxy 接口、Zod schema、路由表、客户端 stub 和 Client 调用方之间重复定义同一约定。
+Host API Proxy 仍承载许多一元方法。这些方法的实现仅执行服务查找、参数投影、一次业务调用和响应投影。尽管 [Typert Remote 调用](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md)已经允许业务包承载此类调用，这种做法仍会在业务服务、API Proxy 接口、Zod schema、路由表、客户端 stub 和 Client 调用方之间重复定义同一约定。
 
 仅机械迁移方法并不足够。与 Agent 绑定的 API Proxy 方法会调用 `agentFor()`：它复用 live Agent，使用普通冷 Session 中记录的 preset 恢复该 Session，对并发恢复去重，并拒绝由 subagent 拥有的 identity。如果 Remote 方法以不同方式解析 `Agent` 或 `Session`，即使最终业务调用看起来相同，也会改变生命周期行为。
 
 API Proxy 还包含一些不以业务方法为约定的 BFF 操作：Session 生命周期与 transcript（文本记录）组装、模型选择状态、仅限 live 的输入控制、配置过滤、skill（技能）呈现、Host 组合信息和原生桌面操作。有状态交互与流又具有不同的生命周期。若把一元调用的语法一概视为方法简单的依据，就会把产品策略移入任意服务包，或者迫使系统新增没有独立业务所有者的包。
 
-最后，Connection 目前在 API Proxy 回退路径内执行仅限环回地址的特权方法清单。TypeRT interceptor 会先于该回退路径认领自己的端点，因此，如果迁移凭据或 preset 创作调用时不一并迁移权限检查，受信任的局域网调用方就会获得目前仅向环回调用方开放的操作权限。
+最后，Connection 目前在 API Proxy 回退路径内执行仅限环回地址的特权方法清单。Typert interceptor 会先于该回退路径认领自己的端点，因此，如果迁移凭据或 preset 创作调用时不一并迁移权限检查，受信任的局域网调用方就会获得目前仅向环回调用方开放的操作权限。
 
 ## 提案
 
-只迁移符合以下条件的一元调用：其业务操作已经有自然归属的服务，且其余适配只是少量参数或结果投影。当现有方法的签名就是预期的消费方约定时，服务应绑定 TypeRT namespace，并直接使用 `@Remote` 装饰现有方法。只有执行实质性适配时才有理由新增方法；不得添加只做恒等转发的 `remote*` 包装层。
+只迁移符合以下条件的一元调用：其业务操作已经有自然归属的服务，且其余适配只是少量参数或结果投影。当现有方法的签名就是预期的消费方约定时，服务应绑定 Typert namespace，并直接使用 `@Remote` 装饰现有方法。只有执行实质性适配时才有理由新增方法；不得添加只做恒等转发的 `remote*` 包装层。
 
 `@deepseek-ai/dsh-api-remotes/client` 将挂载所选各业务包生成的 `/remote` 贡献。Client 业务包将调用 `ctx.remote.<service>`，并在包内执行归 Client 所有的关联或呈现投影。对应的 API Proxy 接口成员、schema、路由、处理程序、生成的客户端方法、fixture（测试前置数据）实现和生产调用点，将在该服务的纵向提交中一并移除。
 
@@ -27,9 +27,9 @@ API Proxy 还包含一些不以业务方法为约定的 BFF 操作：Session 生
 | 旧 RPC | Remote 目标 | Host 方法 | 适配 |
 |---|---|---|---|
 | `session.rename` | `ctx.remote.sessionTitle`，位于 `@deepseek-ai/dsh-session-title` | `SessionTitleService.rename(Session, title)` | 直接使用 `@Remote`；Client 将 `eventSeq` 映射到自身的标题投影序列。 |
-| `command.list`、`command.execute` | `ctx.remote.commands`，位于 `@deepseek-ai/dsh-commands` | `CommandService.list(Agent)`、`execute(Agent, line, signal)` | 直接使用 `@Remote`；Client 将 `undefined` 映射为未匹配结果，并保留调用方的取消行为。 |
-| `llm.providers` | `ctx.remote.llm`，位于 `@deepseek-ai/dsh-llm` | `LlmService.listProviders()`、`listConfigurableProviders()` | 两项读取都直接使用 `@Remote`；Client 关联注册行与配置目录行。 |
-| `credentials.describe`、`credentials.set`、`credentials.unset` | `ctx.remote.credentials`，位于 `@deepseek-ai/dsh-credentials-local` | `CredentialsLocal.describe(ref)`、`set(ref, value)`、`unset(ref)` | 直接使用 `@Remote`；当 UI 请求多个 ref 时，Client 批量发起 `describe` 调用。 |
+| `command.list`、`command.execute` | `ctx.remote.commands`，位于 `@deepseek-ai/dsh-commands` | `CommandRuntime.list(Agent)`、`execute(Agent, line, signal)` | 直接使用 `@Remote`；Client 将 `undefined` 映射为未匹配结果，并保留调用方的取消行为。 |
+| `llm.providers` | `ctx.remote.llm`，位于 `@deepseek-ai/dsh-llm` | `LlmRuntime.listProviders()`、`listConfigurableProviders()` | 两项读取都直接使用 `@Remote`；Client 关联注册行与配置目录行。 |
+| `credentials.describe`、`credentials.set`、`credentials.unset` | `ctx.remote.credentials`，位于 `@deepseek-ai/dsh-credentials-local` | `LocalCredentialProvider.describe(ref)`、`set(ref, value)`、`unset(ref)` | 直接使用 `@Remote`；当 UI 请求多个 ref 时，Client 批量发起 `describe` 调用。 |
 | `agentPreset.read`、`agentPreset.copy`、`agentPreset.remove` | `ctx.remote.agentPresets`，位于 `@deepseek-ai/dsh-agent-presets` | `readDocument(id)`、`copy(from, id, name?)`、`remove(id)` | `copy` 和 `remove` 直接暴露现有方法；`readDocument` 将存储的内容与一次实时发现取得的元数据组合。 |
 | `subagent.interrupt` | `ctx.remote.subagents`，位于 `@deepseek-ai/dsh-subagent` | `interruptByParent(targetSessionId, parentSessionId)` | 适配器构造内部的用户权限变体，不解析也不恢复任一 Agent。 |
 | `workspace.list`、`workspace.insertSessionBefore`、`workspace.archiveSession` | `ctx.remote.workspace`，位于 `@deepseek-ai/dsh-workspace` | `snapshot()`、`insertSessionBefore(workspaceId, sessionId, before?)`、`archiveSession(sessionId)` | 注册表适配器分离可变实体，并返回已完成更新的 workspace 或归档快照。 |
@@ -64,21 +64,21 @@ Remote API 有意采用服务名称，而不保留旧 RPC 的点分名称。例�
 - 对同一个 id 并发执行 Agent 与 Session lookup 时，共享同一次恢复；
 - 无论 live 还是 cold，由 subagent 拥有的 identity 都会在业务调用前以 `agent-busy` 失败；
 - 持久化存储中不存在的 id 以 `session-not-found` 失败；
-- resolver 失败会保留现有的 `RpcError`，并通过 `TypeRTLookupFailure` 传递。
+- resolver 失败会保留现有的 `RpcError`，并通过 `TypertLookupFailure` 传递。
 
-Lookup 策略作用于整个 key，而非特定端点。提示词输入、队列编辑、取消、模型选择和 skill 列表等方法如果使用共享 `agent` 或 `session` lookup，就无法保留仅限 live 或禁止恢复的行为，因此在 TypeRT 支持显式的逐端点策略之前，这些方法仍留在 API Proxy 中。
+Lookup 策略作用于整个 key，而非特定端点。提示词输入、队列编辑、取消、模型选择和 skill 列表等方法如果使用共享 `agent` 或 `session` lookup，就无法保留仅限 live 或禁止恢复的行为，因此在 Typert 支持显式的逐端点策略之前，这些方法仍留在 API Proxy 中。
 
-签名只包含 branded id 的方法不会调用 TypeRT 对象 lookup。`subagents.interruptByParent()` 必须保留现有的进程内 Activation lookup 和父级离线行为：它不会调用 `agentFor`、读取目录、检查持久化，也不会冷恢复父 Agent 或子 Agent。
+签名只包含 branded id 的方法不会调用 Typert 对象 lookup。`subagents.interruptByParent()` 必须保留现有的进程内 Activation lookup 和父级离线行为：它不会调用 `agentFor`、读取目录、检查持久化，也不会冷恢复父 Agent 或子 Agent。
 
 ## Client 与错误行为
 
 生成的 Remote 方法返回业务值，并抛出一个 Error，其 `cause` 包含现有的 RPC 失败。Client 业务服务负责适配到当前的结果／store 接口。它们必须像当前一样让成功结果立即生效，使事件帧仍是幂等回放，而非唯一的更新路径。
 
-Resolver 拥有的 `session-not-found` 和 `agent-busy` 错误保持稳定，因为共享 resolver 会抛出 `TypeRTLookupFailure`。普通业务异常会变成 Gateway 现有的 `internal` RPC 失败。只有在选定的 Client 消费方不根据更具体的旧版业务错误码进行分支时，才能迁移该调用；如果实现过程中发现这种分支，除非业务包新增与传输无关的类型化失败，否则该 RPC 将退出此集合。
+Resolver 拥有的 `session-not-found` 和 `agent-busy` 错误保持稳定，因为共享 resolver 会抛出 `TypertLookupFailure`。普通业务异常会变成 Gateway 现有的 `internal` RPC 失败。只有在选定的 Client 消费方不根据更具体的旧版业务错误码进行分支时，才能迁移该调用；如果实现过程中发现这种分支，除非业务包新增与传输无关的类型化失败，否则该 RPC 将退出此集合。
 
 ## 特权调用权限
 
-Connection 必须在选择 TypeRT interceptor 或 API Proxy 回退路径之前检查调用方是否有权访问特权端点。该检查必须同时识别旧式点分名称和 Remote 斜杠端点，并保持以下已迁移操作仅限环回地址：
+Connection 必须在选择 Typert interceptor 或 API Proxy 回退路径之前检查调用方是否有权访问特权端点。该检查必须同时识别旧式点分名称和 Remote 斜杠端点，并保持以下已迁移操作仅限环回地址：
 
 - `agentPresets/readDocument`、`agentPresets/copy` 和 `agentPresets/remove`；
 - `credentials/describe`、`credentials/set` 和 `credentials/unset`。
@@ -93,7 +93,7 @@ Connection 必须在选择 TypeRT interceptor 或 API Proxy 回退路径之前�
 
 ## 考虑过的替代方案
 
-**将简单方法保留在中央 API Proxy 中。** 这会保留统一的传输外观，但仍会延续 TypeRT 原本要消除的重复接口、schema、路由行、stub 和业务投影。
+**将简单方法保留在中央 API Proxy 中。** 这会保留统一的传输外观，但仍会延续 Typert 原本要消除的重复接口、schema、路由行、stub 和业务投影。
 
 **迁移每一个一元 API Proxy 方法。** 一元调用形式并不表示行为只有一个所有者。Session 编排、仅限 live 的控制、配置暴露和原生 Host 操作要么会把 BFF 策略泄漏到通用服务中，要么会产生没有所有者的包。
 
@@ -121,4 +121,4 @@ Connection 必须在选择 TypeRT interceptor 或 API Proxy 回退路径之前�
 
 将权限强制执行移至复合分发会改变安全敏感的载体代码。测试必须覆盖一个由 Remote 拥有的端点和一个旧版回退端点，确保两条路径都无法绕过环回判定。
 
-本文应用现有 TypeRT Remote 架构，而非取代它。本文部分取代 [GUI RPC 协议笔记](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的中央一元调用所有权和五步扩展检查清单，以及 [Web 配置平面笔记](../../implemented/architecture/2026-07-30-web-config-plane.md)中的中央接线清单；对于已迁移方法之外的 Connection envelope 和配置行为，这些笔记仍具权威性。标题、命令、配置边界、subagent 中断和归档笔记继续负责各自的业务行为，只需如实更新传输相关事实，无需归档。[浏览器信任边界](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md)和[生成约定构建顺序](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md)仍具权威性，无需执行归档操作。
+本文应用现有 Typert Remote 架构，而非取代它。本文部分取代 [GUI RPC 协议笔记](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的中央一元调用所有权和五步扩展检查清单，以及 [Web 配置平面笔记](../../implemented/architecture/2026-07-30-web-config-plane.md)中的中央接线清单；对于已迁移方法之外的 Connection envelope 和配置行为，这些笔记仍具权威性。标题、命令、配置边界、subagent 中断和归档笔记继续负责各自的业务行为，只需如实更新传输相关事实，无需归档。[浏览器信任边界](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md)和[生成约定构建顺序](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md)仍具权威性，无需执行归档操作。

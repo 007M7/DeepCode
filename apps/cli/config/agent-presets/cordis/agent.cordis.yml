@@ -28,14 +28,14 @@
 
       Load the `editing-cordis-compositions` skill before writing or changing a composition.
 
-- id: workspace-context
-  name: '@deepseek-ai/dsh-workspace-context'
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
-# `bash-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
 # publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
 # the criterion for host-plane ownership — injection resolves before any session
 # exists, so there is no agent to key by. Behind a preset realm those variables
@@ -62,17 +62,17 @@
   config:
     sampleOverCapGlobResults: false
 
-# ── background tasks ────────────────────────────────────────────────────────
+# ── background jobs ────────────────────────────────────────────────────────
 
 # Only the model-facing controls. The task REGISTRY stays on the host plane:
 # its producers sit outside any realm this file could put it in — `tool-bash`
 # above resolves it with `ctx.get`, and an entry-local realm here is invisible
-# to every sibling row, so `run_in_background` would answer "background tasks
+# to every sibling row, so `run_in_background` would answer "background jobs
 # unavailable" while these controls sat in the catalog. The registry is keyed by
 # owning agent anyway, so one host instance serves every session. What a preset
 # chooses is whether its agent can collect and stop background work at all.
-- id: tool-tasks
-  name: '@deepseek-ai/dsh-tool-tasks'
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@
 
 # ── compaction ──────────────────────────────────────────────────────────────
 
-# `compact-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
+# `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
 # share this realm rather than sit outside it.
 #
 # `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
@@ -121,22 +121,22 @@
 # keys every fold by Session, and owns the context-meter projection units the
 # browser reads for every session — behind a realm those units would come and go
 # with whichever presets happen to be mounted. What a preset chooses is whether
-# its agent compacts at all, which is `compact-basic` below.
+# its agent compacts at all, which is `compaction-basic` below.
 - id: compaction
   name: cordis:group
   group: true
   isolate:
-    compact: true
-    toolResultPrune: true
+    compaction: true
+    toolResultPruner: true
   config:
-    - id: compact-basic
-      name: '@deepseek-ai/dsh-compact-basic'
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
 
-    - id: tool-result-prune
-      name: '@deepseek-ai/dsh-compact-tool-result-prune'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
       config:
         thresholdChars: 8192
         headChars: 4096
@@ -163,7 +163,7 @@
   name: cordis:group
   group: true
   isolate:
-    workflows: true
+    workflowEngine: true
   config:
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
@@ -206,8 +206,8 @@
         enableRunInBackground: false
         maxDepth: provider-managed
 
-    - id: workflow-workerthread
-      name: '@deepseek-ai/dsh-workflow-workerthread'
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
       config:
         provider: spawn
 
@@ -252,8 +252,8 @@
 # Both rows register into THIS preset's layer of the host skill registry, so
 # they need no realm; the agent's merged catalog also carries whatever the
 # deployment registered globally (repository plugins).
-- id: skill-local
-  name: '@deepseek-ai/dsh-skill-local'
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     customSkillDirs:
       - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"

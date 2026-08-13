@@ -6,15 +6,15 @@ English | [中文](2026-08-10-slash-catalog-follows-preset-switch.zh.md)
 
 ## Problem
 
-Presets moved the rows that decide what a session's `/` menu contains. The Web composition disables host-plane `skill-local`, `tool-skill`, `plan-mode`, and `command-compact`; a preset supplies them, so which commands and skills exist is a property of the session's composition rather than of the deployment.
+Presets moved the rows that decide what a session's `/` menu contains. The Web composition disables host-plane `skill-filesystem`, `tool-skill`, `plan-mode`, and `command-compact`; a preset supplies them, so which commands and skills exist is a property of the session's composition rather than of the deployment.
 
-Both browser catalogs cache per session — `CommandDirectory` in `dsh-client-ui-command`, the single-flight fetch map in `dsh-client-ui-skill` — and the composer warms both at scope birth, under whatever preset the session was created with. The hero chip then lets the user recompose the still-blank session, and neither cache had an invalidation edge for that: `commands/change` is registry-wide and `connection/reset` needs a reconnect. `agentPresets.recompose` re-parents the agent's scope onto a standing mount that may already exist, so it registers nothing and the registry-wide signal never fires for it.
+Both browser catalogs cache per session — `CommandDirectory` in `dsh-client-ui-commands`, the single-flight fetch map in `dsh-client-ui-skill` — and the composer warms both at scope birth, under whatever preset the session was created with. The hero chip then lets the user recompose the still-blank session, and neither cache had an invalidation edge for that: `commands/change` is registry-wide and `connection/reset` needs a reconnect. `agentPresets.recompose` re-parents the agent's scope onto a standing mount that may already exist, so it registers nothing and the registry-wide signal never fires for it.
 
 The menu therefore kept serving the composition the session no longer ran. Switching down left `compact`, `plan`, and every project skill listed; switching up left the narrower catalog — the four host-plane rows and the client's own `model` contribution — with no skills at all, which is what the bug report described. The catalog only healed when an unrelated registry change or a reconnect happened to invalidate it.
 
 ## Decision
 
-The switch's commit point is the logged `agent-preset/selected` event. The preset owner re-emits that commit as the client-safe cordis owner event `agent-preset/selected(sessionId, agentPreset)`, the host stream forwards it verbatim, and each catalog subscribes directly through `ctx.remote.$on`: `ui-command` soft-refreshes the key (the old snapshot keeps serving the open menu until the new one lands), while `ui-skill` invalidates it (aborting an in-flight prewarm, so a warm racing the switch cannot publish the stale catalog).
+The switch's commit point is the logged `agent-preset/selected` event. The preset owner re-emits that commit as the client-safe cordis owner event `agent-preset/selected(sessionId, agentPreset)`, the host stream forwards it verbatim, and each catalog subscribes directly through `ctx.remote.$on`: `ui-commands` soft-refreshes the key (the old snapshot keeps serving the open menu until the new one lands), while `ui-skill` invalidates it (aborting an in-flight prewarm, so a warm racing the switch cannot publish the stale catalog).
 
 The owner event is per session and carries no catalog, only the preset id. `ui-agent-preset` folds it into the session row because the `agentPresets.select` echo reaches only the client that issued the switch and the row is what the session header labels itself from (and what the hero chip compares the next pick against).
 
@@ -30,11 +30,11 @@ Deriving the owner event from the logged event rather than from the RPC handler'
 
 ## Consequences
 
-The forwarding allowlist gains the preset owner's typed event, and every catalog a preset decides has one place to subscribe: a future per-session surface derived from the composition invalidates on the same signal instead of inventing another. The owner event remains a second publication of a logged fact, so a future switch path that recomposes without logging would go unannounced. `ui-command` stays soft (the open menu never blanks) while `ui-skill` drops its entry outright, because a skill catalog has no partial-serve mode; a menu opened inside the refetch window shows no skills for that instant rather than the wrong ones.
+The forwarding allowlist gains the preset owner's typed event, and every catalog a preset decides has one place to subscribe: a future per-session surface derived from the composition invalidates on the same signal instead of inventing another. The owner event remains a second publication of a logged fact, so a future switch path that recomposes without logging would go unannounced. `ui-commands` stays soft (the open menu never blanks) while `ui-skill` drops its entry outright, because a skill catalog has no partial-serve mode; a menu opened inside the refetch window shows no skills for that instant rather than the wrong ones.
 
 ## Testing
 
-`api-proxy-agent-preset.spec.ts` asserts the committed switch is forwarded once with the session and its new preset; the `ui-agent-preset`, `ui-command`, and `ui-skill` specs assert that direct Remote subscriptions merge the row or repull only the recomposed session. The `agent-preset-selection` web e2e seeds a project skill and, after the hero chip applies `minimal`, asserts the `/` menu drops `compact`, `plan`, and the skill while keeping the host-plane rows — the assembled-application evidence that the panel follows the composition.
+`api-proxy-agent-preset.spec.ts` asserts the committed switch is forwarded once with the session and its new preset; the `ui-agent-preset`, `ui-commands`, and `ui-skill` specs assert that direct Remote subscriptions merge the row or repull only the recomposed session. The `agent-preset-selection` web e2e seeds a project skill and, after the hero chip applies `minimal`, asserts the `/` menu drops `compact`, `plan`, and the skill while keeping the host-plane rows — the assembled-application evidence that the panel follows the composition.
 
 That e2e also stopped reading its staged-pick assertion off the serialized session list: the seeded session records `minimal` too, so the substring answered before the switch had landed. It now addresses the live session by id.
 

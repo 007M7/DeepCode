@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  hasTypeRTRemoteNavigation,
+  hasTypertRemoteNavigation,
   isForbiddenPublicationFile,
   validateTarballPayload,
 } from './publication-payload.ts'
@@ -68,7 +68,7 @@ describe('publication payload policy', () => {
   })
 
   it('recognizes only the canonical Host-for-Client export pair', () => {
-    expect(hasTypeRTRemoteNavigation({
+    expect(hasTypertRemoteNavigation({
       exports: {
         './remote': {
           types: './lib/typert.remote-client.d.ts',
@@ -76,6 +76,6 @@ describe('publication payload policy', () => {
         },
       },
     })).toBe(true)
-    expect(hasTypeRTRemoteNavigation({ exports: { './remote': './lib/remote.js' } })).toBe(false)
+    expect(hasTypertRemoteNavigation({ exports: { './remote': './lib/remote.js' } })).toBe(false)
   })
 })

@@ -9,14 +9,14 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
-import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
+import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import type { GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import SubagentService, {
+import SubagentRuntime, {
   SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
 } from '../src/index.ts'
@@ -69,7 +69,7 @@ async function setupWith(adapter: LlmAdapter, options: { persistence?: boolean }
     disposePersistence = () => persistenceFiber.dispose()
   }
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -167,7 +167,7 @@ function observeCancel(agent: Agent, callback: () => void): void {
   })
 }
 
-describe('SubagentService.startContinuable', () => {
+describe('SubagentRuntime.startContinuable', () => {
   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
     const { ctx, parent, adapter } = await setup([textResponse('first answer')])
     const enqueued: { id: MessageId; loggedYet: boolean }[] = []
@@ -374,7 +374,7 @@ describe('SubagentService.startContinuable', () => {
     await mountAgentLoopTestDependencies(fresh)
     await fresh.plugin(JsonlSessionPersistence, { root: root! })
     await fresh.plugin(AgentLoop, { agents: [] })
-    await fresh.plugin(SubagentService)
+    await fresh.plugin(SubagentRuntime)
     await fresh.plugin(SubagentSpawn, { providerName: 'spawn' })
     const freshParent = fresh.agentLoop.create(SessionId('routeless-resume'), {})
     await followup(fresh, freshParent, started.childId, message('resume routeless'))
@@ -436,7 +436,7 @@ describe('SubagentService.startContinuable', () => {
   })
 })
 
-describe('SubagentService.followup residency routing', () => {
+describe('SubagentRuntime.followup residency routing', () => {
   it('enqueues in the same Activation while it is running, preserving one inbox FIFO', async () => {
     const releaseFirst = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
@@ -480,7 +480,7 @@ describe('SubagentService.followup residency routing', () => {
 
   it('cold-resumes after the initial provider unregisters', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('after resume')])
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await ctx.plugin(SubagentInvariant)
     const disposeProvider = ctx.subagents.registerProvider({
       name: 'retired',
@@ -2287,7 +2287,7 @@ describe('continuable errors', () => {
     roots.push(root)
     await ctx.plugin(JsonlSessionPersistence, { root })
     await ctx.plugin(AgentLoop, { agents: [] })
-    const serviceFiber = await ctx.plugin(SubagentService)
+    const serviceFiber = await ctx.plugin(SubagentRuntime)
     await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
     ctx.llm.registerAdapter(['mock'], adapter)
     const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
@@ -2302,7 +2302,7 @@ describe('continuable errors', () => {
   })
 })
 
-describe('SubagentService.interrupt', () => {
+describe('SubagentRuntime.interrupt', () => {
   it('aborts the current turn durably, parks accepted follow-ups, and resumes them only on a waking send', async () => {
     const releaseFirst = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([

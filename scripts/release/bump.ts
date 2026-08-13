@@ -5,9 +5,10 @@
  *
  * The dsh family shares one version across its members and the workspace root:
  * `major`, `minor`, `patch`, or an explicit `x.y.z` (including a prerelease such
- * as `0.0.1-rc.1`). The vendored family has one version line per package and
- * publishes only what changed since that package's own `vendor-<package>-v*`
- * tag, which is the record of the commit it last published from.
+ * as `0.0.1-rc.1`). The vendored family has one version line per package, but
+ * every release advances and publishes the complete family so the next release
+ * never reuses an unchanged member's existing version from a different
+ * repository state.
  *
  * The version lands in the manifests, the lockfile follows, and a human creates
  * the tag after the commit merges. CI never writes to the repository.
@@ -17,7 +18,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join, matchesGlob } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily, type ReleaseFamily, type ReleaseMember } from './families.ts'
-import { attempt, capture, isEntry } from './process.ts'
+import { capture, isEntry } from './process.ts'
 
 /** Files npm publishes whether or not `files` lists them. */
 const ALWAYS_PUBLISHED = ['package.json', 'README*', 'LICENSE*', 'LICENCE*'] as const
@@ -144,30 +145,33 @@ function nextSharedVersion(current: string, request: string): string {
 /**
  * The version a vendored package publishes next.
  *
- * The baseline is the higher of the manifest version and the last published
+ * The baseline is the higher of the manifest version and the last tagged
  * version: a vendor re-sync restores upstream's version, which is lower than
- * what this repository already published, and incrementing that would name a
- * version the registry already carries.
+ * the release version this repository already reserved, and incrementing that
+ * would reuse an existing version.
  *
  * A prerelease does not consume its own release numbers. Publishing
  * `4.0.1-rc.1` leaves `4.0.1` free, so the next stable version is `4.0.1`
  * rather than `4.0.2`, and a second prerelease keeps those numbers too.
  * @param current - the package's manifest version.
- * @param published - the version its newest tag names, when it has one.
+ * @param tagged - the version its newest tag names, when it has one.
  * @param prerelease - prerelease identifier to append, for a rehearsal publication.
  * @returns The target version.
  */
 export function nextVendorVersion(
   current: string,
-  published: string | undefined,
+  tagged: string | undefined,
   prerelease?: string,
 ): string {
-  const ahead = published !== undefined && compareReleaseNumbers(published, current) > 0
-  const baseline = ahead ? published : current
+  const taggedOrder = tagged === undefined ? undefined : compareReleaseNumbers(tagged, current)
+  const ahead = taggedOrder !== undefined && taggedOrder > 0
+  const baseline = ahead && tagged !== undefined ? tagged : current
   const [major, minor, patch] = releaseNumbers(baseline)
-  // Reuse the numbers when the published version that set them is a prerelease
+  // Reuse the numbers when the tagged version that set them is a prerelease
   // of them; increment when a stable release already holds them.
-  const reuse = ahead && published.includes('-')
+  const taggedPrerelease = tagged !== undefined && prereleaseOf(tagged) !== undefined
+  const sameReleasePrereleases = taggedOrder === 0 && prereleaseOf(current) !== undefined
+  const reuse = taggedPrerelease && (ahead || sameReleasePrereleases)
   const numbers = reuse
     ? `${String(major)}.${String(minor)}.${String(patch)}`
     : `${String(major)}.${String(minor)}.${String(patch + 1)}`
@@ -191,44 +195,17 @@ export function reachesPayload(member: ReleaseMember, path: string): boolean {
 }
 
 /**
- * The newest version a member published, read from its tags.
+ * The newest version a member tagged.
  * @param family - the member's family.
  * @param member - the member.
- * @returns The version, or undefined when the member never published.
+ * @returns The version, or undefined when the member has no release tag.
  */
-function lastPublishedVersion(family: ReleaseFamily, member: ReleaseMember): string | undefined {
+function lastTaggedVersion(family: ReleaseFamily, member: ReleaseMember): string | undefined {
   const prefix = family.tagPrefixFor(member)
   const versions = capture('git', ['tag', '--list', `${prefix}*`])
     .split('\n').filter(line => line !== '').map(tag => tag.slice(prefix.length))
   if (versions.length === 0) return undefined
   return versions.reduce((newest, candidate) => compareVersions(candidate, newest) > 0 ? candidate : newest)
-}
-
-/**
- * Confirm the registry carries the version a tag names.
- *
- * A tag is a commit pointer, not proof of publication: a tag pushed for a
- * publication that then failed would otherwise read as "already published" and
- * skip the package indefinitely. Querying a private package needs credentials,
- * so an unauthenticated machine reports the gap instead of failing.
- * @param name - package name.
- * @param version - the version the tag names.
- */
-function confirmPublished(name: string, version: string): void {
-  const result = attempt('npm', ['view', `${name}@${version}`, 'version'])
-  if (result.status === 0) return
-  const output = `${result.stdout}${result.stderr}`
-  if (output.includes('ENEEDAUTH') || output.includes('E401') || output.includes('E403')) {
-    console.log(`release bump: cannot reach the registry for ${name}@${version}; skipping the tag check`)
-    return
-  }
-  if (output.includes('E404') || output.includes('404 Not Found')) {
-    throw new Error(
-      `${name}@${version} is tagged but absent from the registry.`
-      + '\nThe tag was pushed for a publication that did not complete: re-run that publish, or delete the tag.',
-    )
-  }
-  throw new Error(`npm view ${name}@${version} failed:\n${output}`)
 }
 
 /**
@@ -293,8 +270,8 @@ function planShared(
 }
 
 /**
- * Plan the vendored family's rewrite: every package whose payload changed since
- * it last published.
+ * Plan the vendored family's rewrite: every package advances together while
+ * retaining its own version line and tag.
  * @param family - the vendored family.
  * @param members - the family's members.
  * @param prerelease - prerelease identifier to append, for a rehearsal publication.
@@ -307,15 +284,8 @@ function planPerPackage(
 ): PlannedVersion[] {
   const planned: PlannedVersion[] = []
   for (const member of members) {
-    const published = lastPublishedVersion(family, member)
-    if (published !== undefined) {
-      confirmPublished(member.name, published)
-      const since = `${family.tagPrefixFor(member)}${published}`
-      const changed = capture('git', ['diff', '--name-only', `${since}..HEAD`, '--', member.directory])
-        .split('\n').filter(line => line !== '')
-      if (!changed.some(path => reachesPayload(member, path))) continue
-    }
-    const to = nextVendorVersion(member.version, published, prerelease)
+    const tagged = lastTaggedVersion(family, member)
+    const to = nextVendorVersion(member.version, tagged, prerelease)
     planned.push({
       manifestPath: join(member.directory, 'package.json'),
       label: member.directory,

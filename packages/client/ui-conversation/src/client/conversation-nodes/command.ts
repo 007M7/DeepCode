@@ -4,8 +4,8 @@ import type {
   ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-client-runtime/client'
-import type { CompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
-import type {} from '@deepseek-ai/dsh-compact/types'
+import type { CompactionCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
+import type {} from '@deepseek-ai/dsh-compaction/types'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type { ManualCompactionChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
@@ -21,7 +21,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 
 type CommandId = CommandNode['commandId']
 
-const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
+const COMPACT_PLUGIN: CompactionCheckpointSource['plugin'] = 'compact'
 
 interface CommandState {
   readonly command: CommandNode
@@ -96,7 +96,7 @@ function compactSource(event: Parameters<ConversationNodeDefinition['match']>[0]
 
 /**
  * Build the visible summary marker from optional lifecycle evidence.
- * @param match - compact/summary Match, when loaded.
+ * @param match - compaction/summary Match, when loaded.
  * @param checkpoint - replacement checkpoint Match.
  * @returns final compaction summary Node data.
  */
@@ -104,7 +104,7 @@ function compactSummary(match: ConversationMatch | undefined, checkpoint: Conver
   let summary: string | null = null
   let shadowedItemCount: number | null = null
   let shadowedTokenCount: number | null = null
-  if (match?.event.type === 'compact/summary') {
+  if (match?.event.type === 'compaction/summary') {
     const data = match.event.data
     if (Array.isArray(data.summary)) {
       const text = data.summary
@@ -135,7 +135,7 @@ function compactSummary(match: ConversationMatch | undefined, checkpoint: Conver
 function fallbackState(context: ConversationNodeContext<CommandState>): CommandState | undefined {
   const done = context.matches.find(match => match.event.type === 'command/done')
   const checkpoint = context.matches.find(match => compactSource(match.event) !== undefined)
-  const summary = context.matches.find(match => match.event.type === 'compact/summary')
+  const summary = context.matches.find(match => match.event.type === 'compaction/summary')
   if (checkpoint === undefined) return done === undefined ? undefined : { command: commandFromDone(done) }
   const source = compactSource(checkpoint.event)
   if (source?.sourceCommandId === undefined) return done === undefined ? undefined : { command: commandFromDone(done) }
@@ -167,7 +167,7 @@ export function updateCompactionState<State extends CompactionEvidence>(
   state: State,
   match: ConversationMatch,
 ): State {
-  if (match.event.type === 'compact/summary') return { ...state, summary: match }
+  if (match.event.type === 'compaction/summary') return { ...state, summary: match }
   if (compactSource(match.event) !== undefined) return { ...state, checkpoint: match }
   return state
 }
@@ -187,9 +187,9 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     if (checkpoint?.sourceCommandId !== undefined) {
       return { id: String(checkpoint.sourceCommandId), role: 'update' }
     }
-    if (event.type === 'compact/start'
-      || event.type === 'compact/summary'
-      || event.type === 'compact/end') {
+    if (event.type === 'compaction/start'
+      || event.type === 'compaction/summary'
+      || event.type === 'compaction/end') {
       if (event.data.sourceCommandId !== undefined) {
         return { id: String(event.data.sourceCommandId), role: 'update' }
       }

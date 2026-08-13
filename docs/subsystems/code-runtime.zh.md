@@ -36,7 +36,7 @@ interface CodeRunRequest {
 }
 ```
 
-结果将错误报告为一个**字段**，而不是让 `run()` 返回被拒绝的 Promise。报告程序失败是调用方的职责，不走异常路径（与 `BashExecutor.run` 失败时仍正常完成的约定一致）：
+结果将错误报告为一个**字段**，而不是让 `run()` 返回被拒绝的 Promise。报告程序失败是调用方的职责，不走异常路径（与 `ShellExecutor.run` 失败时仍正常完成的约定一致）：
 
 ```ts type-equiv
 /**

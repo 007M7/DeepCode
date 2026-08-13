@@ -88,7 +88,7 @@ export function deriveEventMessage(event: SessionEvent): Message | null {
     // Ordinary prompts and injected context project in user role: the event's
     // model-facing content stays verbatim. Do NOT re-add per-type framing
     // (e.g. `<context>`) here: framing is caller-owned — a producer bakes it
-    // into `content`, as workspace-context does with `<system-reminder>` — or,
+    // into `content`, as agent-instructions does with `<system-reminder>` — or,
     // if reintroduced, must be driven by the event `meta` map and a dedicated
     // renderer, keeping this projection a verbatim pass-through. See the
     // deferred design note in

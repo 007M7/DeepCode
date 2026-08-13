@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { createUserMessage, ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as RetryInvariant from '@deepseek-ai/dsh-llm-retry/invariant'
 import { RetryId } from '@deepseek-ai/dsh-llm-retry'
 import { providerForOpenStep } from '../src/history.ts'
@@ -11,7 +11,7 @@ import { providerForOpenStep } from '../src/history.ts'
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(InvariantRegistry)
   await ctx.plugin(RetryInvariant)
   return ctx
 }
@@ -299,7 +299,7 @@ describe('llm-retry invariants', () => {
     })
     appendRetryTurn(missingStart, 2)
 
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(RetryInvariant)).resolves.toBeDefined()
   })
 
@@ -317,7 +317,7 @@ describe('llm-retry invariants', () => {
     const session = ctx.sessions.create(SessionId('retry-invariant-late'))
     session.append('step/start', { turn: 1, step: 1 })
     session.append('llm/retry', { turn: 1, step: 1, ...normal })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(RetryInvariant)).rejects.toThrow(/inside an open turn/)
   })
 
@@ -329,7 +329,7 @@ describe('llm-retry invariants', () => {
     session.append('llm/retry-started', {
       retryId: normal.retryId, turn: 1, step: 1, retry: 1,
     })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(RetryInvariant)).resolves.toBeDefined()
   })
 })

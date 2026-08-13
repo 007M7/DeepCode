@@ -90,7 +90,7 @@ type ResolvedConfig = Required<Omit<Config, 'cwd' | 'maxTokens'>> & Pick<Config,
  * child cannot honor `outputSchema`/`maxDepth`/`toolFilter`/`persona` (the
  * service rejects a request needing any of them before `start` runs).
  */
-class SdkProvider implements SubagentProvider {
+class SdkSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
   // Context contract: an out-of-process SDK child starts fresh — no parent conversation crosses the process boundary.
   readonly inheritsParentContext = false
@@ -134,5 +134,5 @@ export function apply(ctx: Context, config: Config): void {
   const validated: ResolvedConfig = configuredCwd === undefined
     ? resolved
     : { ...resolved, cwd: configuredCwd }
-  ctx.subagents.registerProvider(new SdkProvider(validated.providerName, ctx, validated))
+  ctx.subagents.registerProvider(new SdkSubagentProvider(validated.providerName, ctx, validated))
 }

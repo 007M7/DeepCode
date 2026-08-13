@@ -10,9 +10,9 @@ import {
   type CommandResult,
   type Sandbox,
 } from '@deepseek-ai/dsh-e2b'
-import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import type E2BRuntime from '@deepseek-ai/dsh-e2b'
 import type { SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
+import E2BSubprocessRuntime from '@deepseek-ai/dsh-subprocess-e2b'
 import { spawnE2BTerminal } from '../src/terminal.ts'
 
 function commandError(exitCode: number): CommandExitError {
@@ -226,12 +226,12 @@ class FakeTerminalSandbox {
   } as unknown as Sandbox
 }
 
-function runtime(fake: FakeTerminalSandbox): E2BSandboxService {
+function runtime(fake: FakeTerminalSandbox): E2BRuntime {
   return {
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
     getSandbox: async () => fake.sandbox,
-  } as unknown as E2BSandboxService
+  } as unknown as E2BRuntime
 }
 
 function spec(overrides: Partial<SubprocessTerminalSpawnSpec> = {}): SubprocessTerminalSpawnSpec {
@@ -781,7 +781,7 @@ describe('E2B subprocess terminal service', () => {
   }> {
     const ctx = new Context()
     ctx.provide('e2b', runtime(fake))
-    const fiber = await ctx.plugin(E2BSubprocessService)
+    const fiber = await ctx.plugin(E2BSubprocessRuntime)
     return { ctx, fiber, fake }
   }
 
@@ -816,9 +816,9 @@ describe('E2B subprocess terminal service', () => {
   it('rejects a non-positive poll cadence at load', async () => {
     const ctx = new Context()
     ctx.provide('e2b', runtime(new FakeTerminalSandbox()))
-    await expect(ctx.plugin(E2BSubprocessService, { pollMs: 0 }))
+    await expect(ctx.plugin(E2BSubprocessRuntime, { pollMs: 0 }))
       .rejects.toThrow('pollMs must be a positive safe integer')
-    const explicit = await ctx.plugin(E2BSubprocessService, { pollMs: 5 })
+    const explicit = await ctx.plugin(E2BSubprocessRuntime, { pollMs: 5 })
     await explicit.dispose()
   })
 

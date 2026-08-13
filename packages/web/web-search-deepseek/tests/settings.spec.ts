@@ -3,14 +3,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
-import { Settings } from '@deepseek-ai/dsh-settings'
+import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
-import WebService from '@deepseek-ai/dsh-web'
+import WebRuntime from '@deepseek-ai/dsh-web'
 import * as deepseekPlugin from '@deepseek-ai/dsh-web-search-deepseek'
 import { WEB_SEARCH_DEEPSEEK_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-search-deepseek'
 
 /** The smallest real provider: one in-memory document, always writable. */
-class MemorySettings extends Settings {
+class MemorySettings extends SettingsProvider {
   doc: Record<string, unknown> = {}
 
   get writable(): boolean {
@@ -47,7 +47,7 @@ const ONE_RESULT = {
 
 async function boot(): Promise<{ ctx: Context; settingsFiber: Fiber; pluginFiber: Fiber }> {
   const ctx = new Context()
-  await ctx.plugin(WebService, {})
+  await ctx.plugin(WebRuntime, {})
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
   const pluginFiber = ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', baseURL: 'https://search.entry.test/v1' })

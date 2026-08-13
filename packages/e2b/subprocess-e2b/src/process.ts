@@ -18,7 +18,7 @@ import type {
   SubprocessOutputMode,
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import type E2BRuntime from '@deepseek-ai/dsh-e2b'
 import { bootstrapEnvironment, readRemoteEnvironment, serializeRemoteEnvironment } from './environment.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
 import { asError, commandOpts, signalRemoteGroups, waitTick } from './remote.ts'
@@ -191,7 +191,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
    * @param pollMs - Remote status/liveness poll cadence.
    */
   constructor(
-    private readonly runtime: E2BSandboxService,
+    private readonly runtime: E2BRuntime,
     private readonly spec: SubprocessSpawnSpec,
     readonly stateDir: string,
     private readonly pollMs: number,

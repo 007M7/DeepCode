@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import { SettingsScopeController, SettingsScopeService } from '../src/client/settings-scope.ts'
+import { SettingsScopeController, SettingsScopeBinder } from '../src/client/settings-scope.ts'
 
 interface UiTestSettings {
   preference: 'light' | 'dark' | 'system'
@@ -365,7 +365,7 @@ describe('SettingsScopeController', () => {
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 5 })
   })
 })
-describe('SettingsScopeService.bind', () => {
+describe('SettingsScopeBinder.bind', () => {
   it('subscribes before the initial read and converges to the latest queued invalidation', async () => {
     const initial = deferred<ReturnType<typeof described>>()
     const describeCall = vi.fn()
@@ -379,7 +379,7 @@ describe('SettingsScopeService.bind', () => {
     } as never)
     let scope!: SettingsScope<UiTestSettings>
     new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeService).await()
+    await ctx.plugin(SettingsScopeBinder).await()
     const fiber = ctx.plugin({
       inject: ['connection', 'remote', 'settingsScope'],
       apply: (plugin: Context) => {
@@ -411,7 +411,7 @@ describe('SettingsScopeService.bind', () => {
     } as never)
     let scope!: SettingsScope<UiTestSettings>
     new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeService).await()
+    await ctx.plugin(SettingsScopeBinder).await()
     const fiber = ctx.plugin({
       inject: ['connection', 'remote', 'settingsScope'],
       apply: (plugin: Context) => {

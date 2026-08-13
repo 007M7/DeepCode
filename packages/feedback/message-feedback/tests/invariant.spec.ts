@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as MessageFeedbackInvariant from '../src/invariant.ts'
 import { setupHarness } from './helpers.ts'
 
@@ -7,7 +7,7 @@ describe('message-feedback invariant companion', () => {
   it('removes its registry contribution when its fiber is disposed (HMR safety)', async () => {
     const harness = await setupHarness()
     try {
-      await harness.ctx.plugin(InvariantService)
+      await harness.ctx.plugin(InvariantRegistry)
       const fiber = await harness.ctx.plugin(MessageFeedbackInvariant)
 
       expect(() => {

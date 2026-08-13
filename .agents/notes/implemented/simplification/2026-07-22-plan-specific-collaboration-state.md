@@ -30,9 +30,9 @@ The active state contributes the deployment's section at prompt order 50. Inacti
 
 ### Reviewed exit
 
-`exit_plan_mode` requires a calling agent in active plan mode and a non-empty markdown plan beginning with a heading. The user-interaction question carries that exact plan as detail and offers `Approve` or `Keep planning` plus free-text feedback. Only one `Approve` selection with no custom text consents; every other answer stays in plan mode and returns corrective feedback to the model. An approved exit becomes a silent pending selection, leaving plan guidance active for the rest of the current tool batch and removing it before the next request.
+`exit_plan_mode` requires a calling agent in active plan mode and a non-empty markdown plan beginning with a heading. The user-questions question carries that exact plan as detail and offers `Approve` or `Keep planning` plus free-text feedback. Only one `Approve` selection with no custom text consents; every other answer stays in plan mode and returns corrective feedback to the model. An approved exit becomes a silent pending selection, leaving plan guidance active for the rest of the current tool batch and removing it before the next request.
 
-The tool renders the submitted plan as a generic card titled by its first heading. An absent or failed user-interaction provider, a failed review, or plugin disposal while review is pending fails closed and leaves manual `/plan off` as the human escape path.
+The tool renders the submitted plan as a generic card titled by its first heading. An absent or failed user-questions provider, a failed review, or plugin disposal while review is pending fails closed and leaves manual `/plan off` as the human escape path.
 
 ## Deleted API
 
@@ -55,7 +55,7 @@ The tool renders the submitted plan as a generic card titled by its first headin
 
 **Filter tools by a per-plan name allowlist or a global policy stack.** Rejected because mutability is a property of each tool, including future and MCP tools, rather than a list that every plan deployment must maintain. Effects metadata can establish a shared policy only when a concrete consumer exists; until then plan mode is guidance, not a security boundary.
 
-**Review through the approval seam or prose.** Rejected because a plan review is not a permission decision, needs the exact artifact and corrective free text, and must have a logged tool call as its structured transition. The user-interaction seam supplies that contract.
+**Review through the approval seam or prose.** Rejected because a plan review is not a permission decision, needs the exact artifact and corrective free text, and must have a logged tool call as its structured transition. The user-questions seam supplies that contract.
 
 ## Verification
 

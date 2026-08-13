@@ -10,7 +10,7 @@ GUI 的凭据引导从 DeepSeek 专用的就绪状态检查开始，但内部测
 
 ## 决策
 
-**设置外壳协调有序步骤。** `settings.onboarding` 仍是根作用域 list，但 `ui-settings` 会把其中各条目的 id 和顺序投影到一个协调器中，并且只挂载第一个未完成的步骤。当前注册方会收到 `complete()` 和 `openSection(id)`；所有权转移前，不会挂载后续步骤。产品欢迎步骤的顺序为 `-100`，`ui-models` 则只保留顺序为 `0` 的 DeepSeek 条件式就绪状态与凭据跳转步骤。
+**设置外壳协调有序步骤。** `settings.onboarding` 仍是根作用域 list，但 `ui-settings` 会把其中各条目的 id 和顺序投影到一个协调器中，并且只挂载第一个未完成的步骤。当前注册方会收到 `complete()` 和 `openSection(id)`；所有权转移前，不会挂载后续步骤。产品欢迎步骤的顺序为 `-100`，`ui-settings-models` 则只保留顺序为 `0` 的 DeepSeek 条件式就绪状态与凭据跳转步骤。
 
 **不属于单一功能的产品引导由 `ui-settings-general` 持有。** `src/onboarding-copy.ts` 是完整通知、「继续」按钮文案和 `WELCOME_NOTICE_VERSION` 的唯一可编辑来源；GUI 支持的两种 locale 都有意渲染同一份中文所有者文案。运行时 locale 字典从该文件派生欢迎文案，测试也导入同一个所有者，而不重复段落文本。该通知只存在于浏览器 UI：它不会创建会话事件，也不会贡献任何模型可见内容。通知说明会话遥测[默认禁用](2026-08-10-telemetry-default-off.md)，并列出 `FEEDBACK_ONLY` 和 `FULL` 两种显式启用模式。
 

@@ -31,6 +31,8 @@ function hostOver(core: SlotCore): SlotRendererHost {
     subscribe: (key, fn) => core.subscribe(key, fn),
     getVersion: key => core.getVersion(key),
     entriesOf: key => core.entries(key),
+    entriesOfSlot: key => core.entriesOfSlot(key),
+    reportEntryError: (key, entry, error, info) => { core.reportEntryError(key, entry, error, info) },
     specOf: key => core.specDynamic(key),
     isLive: entry => core.isLive(entry),
     storeOf: () => undefined,

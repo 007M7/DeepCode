@@ -227,11 +227,34 @@
   padding-left: 0;
 }
 
-/* Foot seat: a pure layout socket pinned under the region; the ui-settings
-   trigger row inside owns its own geometry (38px wide row / 36px rail
-   circle) and hover chrome. */
+/* Footer seats: additive actions stack above Settings. Each occupant owns its
+   button geometry and hover chrome. */
 .footArea {
   flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.settingsArea,
+.footerActions {
+  flex: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.footerActions {
+  display: flex;
+}
+
+.collapsed .footArea {
+  align-items: center;
+}
+
+.collapsed .settingsArea,
+.collapsed .footerActions {
+  display: flex;
+  justify-content: center;
+  width: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

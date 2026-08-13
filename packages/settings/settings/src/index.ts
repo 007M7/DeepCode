@@ -89,7 +89,7 @@ export interface SettingsDescriptor {
   secrets?: RedactedSecret[]
 }
 
-/** Options for {@link Settings.describe}. */
+/** Options for {@link SettingsProvider.describe}. */
 export interface SettingsDescribeOptions {
   /**
    * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
@@ -130,7 +130,7 @@ export interface SettingsScope<T> {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    settings: Settings
+    settings: SettingsProvider
   }
 }
 
@@ -347,7 +347,7 @@ interface SettingsRegistration {
  * the base class owns namespace registration, resolution, validation, change
  * detection, and the `settings/updated` commit event.
  */
-export abstract class Settings extends Service {
+export abstract class SettingsProvider extends Service {
   private readonly registrations = new Map<SettingsNamespace, SettingsRegistration>()
   /** Latest published raw document; empty until the provider's first publish. */
   private document: Record<string, unknown> = {}
@@ -896,4 +896,4 @@ export function installSettingsSection<T>(
   })
 }
 
-export default Settings
+export default SettingsProvider

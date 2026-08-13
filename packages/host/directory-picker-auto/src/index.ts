@@ -12,7 +12,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-// Empty type imports carry the `loader` and `httpServer` Context merges for the reads below.
+// Empty type imports carry the `loader` and `webServer` Context merges for the reads below.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { canExecute, hasLinuxChooserBinary } from './probe.ts'
@@ -25,8 +25,8 @@ export { resolveDirectoryPickerBackend } from './resolve.ts'
 
 /** Cordis plugin name. */
 export const name = 'directory-picker-auto'
-/** Required services: the effective bind host (`httpServer`) and the entry tree the backend mounts into (`loader`). */
-export const inject = ['httpServer', 'loader']
+/** Required services: the effective bind host (`webServer`) and the entry tree the backend mounts into (`loader`). */
+export const inject = ['webServer', 'loader']
 
 /**
  * Host backend package per resolved kind — fixed composition vocabulary, not a
@@ -49,7 +49,7 @@ export const BACKEND_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
  */
 export const SURFACE_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
   native: '@deepseek-ai/dsh-client-ui-directory-picker-native',
-  browse: '@deepseek-ai/dsh-client-ui-directory-picker',
+  browse: '@deepseek-ai/dsh-client-ui-directory-picker-browse',
 }
 
 /**
@@ -57,11 +57,11 @@ export const SURFACE_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
  * surface as Loader entries; the effect's disposer removes both entries and
  * joins their fibers' teardown, so unloading this plugin returns only after
  * both faces of the mounted interaction (and their dependents) quiesced.
- * @param ctx - cordis context carrying the injected `httpServer` and `loader`.
+ * @param ctx - cordis context carrying the injected `webServer` and `loader`.
  */
 export async function apply(ctx: Context): Promise<void> {
   const backend = resolveDirectoryPickerBackend({
-    bindHost: ctx.httpServer.host,
+    bindHost: ctx.webServer.host,
     platform: process.platform,
     env: process.env,
     linuxChooser: hasLinuxChooserBinary(process.env.PATH, canExecute),

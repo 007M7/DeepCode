@@ -2,9 +2,9 @@
 
 English | [中文](invariants.zh.md)
 
-[dsh-invariants](../../packages/support/invariants) is the configurable registry service (`ctx.invariants`) for package-owned runtime invariant checks. It is one support-group package, not a three-package capability seam, and not part of the agent-loop spine: the registry owns selection, name reservation, child-fiber lifecycle, and package-attributed failure, while every workspace package publishes a `./invariant` companion plugin that registers checks under its exact npm package name. What a check may assert — authoritative event streams or mutable data, never service or method presence — is the runtime-invariants convention in [AGENTS.md](../../AGENTS.md#conventions); the registry design is owned by the [invariant-service Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-package-owned-invariant-service.md).
+[dsh-invariants](../../packages/runtime-diagnostics/invariants) is the configurable registry service (`ctx.invariants`) for package-owned runtime invariant checks. It is one support-group package, not a three-package capability seam, and not part of the agent-loop spine: the registry owns selection, name reservation, child-fiber lifecycle, and package-attributed failure, while every workspace package publishes a `./invariant` companion plugin that registers checks under its exact npm package name. What a check may assert — authoritative event streams or mutable data, never service or method presence — is the runtime-invariants convention in [AGENTS.md](../../AGENTS.md#conventions); the registry design is owned by the [invariant-service Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-package-owned-invariant-service.md).
 
-Source: [`packages/support/invariants/src/index.ts`](../../packages/support/invariants/src/index.ts)
+Source: [`packages/runtime-diagnostics/invariants/src/index.ts`](../../packages/runtime-diagnostics/invariants/src/index.ts)
 
 ## Selection
 
@@ -20,7 +20,7 @@ interface Config {
 }
 ```
 
-A package is selected when the service is enabled, the allowlist is empty or at least one pattern matches its full npm name, and no blocklist pattern matches — a blocklist match overrides an allowlist match. Entries compile with `new RegExp(source)`: matching is unanchored unless the source supplies `^` and `$`, and `/pattern/flags` syntax is not parsed. Validation fails loud at service startup: a blank, whitespace-padded, duplicate, or invalid entry throws instead of being skipped. A valid pattern may match no currently loaded package, so later loading and HMR stay deterministic; filters are fixed for the service lifetime ([README](../../packages/support/invariants/README.md)).
+A package is selected when the service is enabled, the allowlist is empty or at least one pattern matches its full npm name, and no blocklist pattern matches — a blocklist match overrides an allowlist match. Entries compile with `new RegExp(source)`: matching is unanchored unless the source supplies `^` and `$`, and `/pattern/flags` syntax is not parsed. Validation fails loud at service startup: a blank, whitespace-padded, duplicate, or invalid entry throws instead of being skipped. A valid pattern may match no currently loaded package, so later loading and HMR stay deterministic; filters are fixed for the service lifetime ([README](../../packages/runtime-diagnostics/invariants/README.md)).
 
 ## The installer
 
@@ -56,7 +56,7 @@ An enabled installer runs in a dedicated child Cordis fiber; `installer.inject` 
 
 ## The companion contract
 
-Every workspace package owns a `./invariant` companion ([package contract](../../packages/AGENTS.md)); publication and registration are exhaustive, but assertions are deliberately not synthetic. A companion installs a check only when its package owns an observable event or mutable-data relationship; otherwise it exports an empty installer whose leading comment starts `No runtime invariant:` and explains, package-specifically, why nothing is checkable. `pnpm run verify-package-invariants` mechanically rejects generated markers, unexplained empty installers, non-empty installers that omit or ignore the reporter, incorrect registration names, and incomplete export, publication, dependency, or bundle wiring ([mechanical-rule Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-package-invariant-runtime-contracts.md)). The catalog of executable companions and the standard composition live in the [package README](../../packages/support/invariants/README.md).
+Every workspace package owns a `./invariant` companion ([package contract](../../packages/AGENTS.md)); publication and registration are exhaustive, but assertions are deliberately not synthetic. A companion installs a check only when its package owns an observable event or mutable-data relationship; otherwise it exports an empty installer whose leading comment starts `No runtime invariant:` and explains, package-specifically, why nothing is checkable. `pnpm run verify-package-invariants` mechanically rejects generated markers, unexplained empty installers, non-empty installers that omit or ignore the reporter, incorrect registration names, and incomplete export, publication, dependency, or bundle wiring ([mechanical-rule Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-package-invariant-runtime-contracts.md)). The catalog of executable companions and the standard composition live in the [package README](../../packages/runtime-diagnostics/invariants/README.md).
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -66,9 +66,9 @@ Every workspace package owns a `./invariant` companion ([package contract](../..
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxinvariants--invariantservice"></a>
+<a id="ctxinvariants--invariantregistry"></a>
 
-### `ctx.invariants` — `InvariantService`
+### `ctx.invariants` — `InvariantRegistry`
 
 Package-owned invariant registry with global and regex-based selection.
 
@@ -84,5 +84,5 @@ Package-owned invariant registry with global and regex-based selection.
 register(packageName: string, installer: InvariantInstaller): () => void
 ```
 
-Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
+Source: [`packages/runtime-diagnostics/invariants/src/index.ts:94`](../../packages/runtime-diagnostics/invariants/src/index.ts)
 <!-- END GENERATED cordis-surface -->

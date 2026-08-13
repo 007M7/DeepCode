@@ -12,7 +12,7 @@ A user then reproduced the headless command hanging immediately after the observ
 
 The latch then turned that telemetry defect into an unkillable CLI: normal completion was already awaiting the single-shot root disposal; the first SIGINT joined the same pending disposal and set the signal latch; later SIGINTs returned at the latch, so the process had no remaining escape. A signal received before normal completion had the same unbounded wait. Web used the same latch shape.
 
-Telemetry's own timeouts cannot prove that the whole plugin tree settles. Any current or future disposer can wedge, and the process boundary must preserve both a graceful first attempt and a user-controlled way out.
+SessionTelemetryBackend's own timeouts cannot prove that the whole plugin tree settles. Any current or future disposer can wedge, and the process boundary must preserve both a graceful first attempt and a user-controlled way out.
 
 ## Decision
 

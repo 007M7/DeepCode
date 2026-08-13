@@ -430,7 +430,7 @@ describe('validateTypertManifest', () => {
       package: 'pkg',
       face: 'host',
       schemas: [],
-      model: { services: [{ key: 'tools', exportName: 'ToolRegistry', tags: [], members: 'x', types: [] }], events: [], objects: [] },
+      model: { services: [{ key: 'tools', exportName: 'ToolRuntime', tags: [], members: 'x', types: [] }], events: [], objects: [] },
     })).toThrow('service "tools".members must be an array')
   })
 

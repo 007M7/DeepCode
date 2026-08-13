@@ -12,7 +12,7 @@ import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { TypeRTContext, TypeRTLookup } from '@deepseek-ai/dsh-type-meta'
+import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { Agent, AgentOptions } from './runtime-types.ts'
 
 export * from './runtime-types.ts'
@@ -23,13 +23,13 @@ export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
-declare module '@deepseek-ai/dsh-type-meta' {
-  interface TypeRTLookupMap {
-    agent: TypeRTLookup<Agent, SessionId>
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertLookupMap {
+    agent: TypertLookup<Agent, SessionId>
   }
 
-  interface TypeRTContextMap {
-    agent: TypeRTContext<SessionId>
+  interface TypertContextMap {
+    agent: TypertContext<SessionId>
   }
 }
 

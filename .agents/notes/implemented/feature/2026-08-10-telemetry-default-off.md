@@ -1,4 +1,4 @@
-# Agent Note: Telemetry requires explicit opt-in
+# Agent Note: SessionTelemetryBackend requires explicit opt-in
 
 Status: implemented
 

@@ -859,17 +859,39 @@ class FaceAnalyzer {
     const result: ServiceModel[] = []
     for (const member of context.members) {
       if (!ts.isPropertySignature(member) || member.type === undefined) continue
-      const symbol = this.symbolAtType(member.type)
-      if (symbol === undefined) continue
-      const symbolId = this.symbolId(symbol)
-      const exported = bySymbol.get(symbolId)?.find(record => record.model.name === symbol.name)
-        ?? bySymbol.get(symbolId)?.find(record => record.model.name !== 'default')
-        ?? bySymbol.get(symbolId)?.[0]
+      // An OPTIONAL key is not a service: `X | undefined` and `key?: X` both mark
+      // a value the launcher or boot code installs before the tree mounts (a root
+      // accessor, an environment snapshot), which no plugin provides and no
+      // consumer can reach with `inject`. Describing one as a service would answer
+      // "add the plugin that provides it" for a key where no such plugin exists.
+      if (member.questionToken !== undefined
+        || (ts.isUnionTypeNode(member.type)
+          && member.type.types.some(node => node.kind === ts.SyntaxKind.UndefinedKeyword))) continue
+      const authoredSymbol = this.symbolAtType(member.type)
+      if (authoredSymbol === undefined) continue
+      const authoredSymbolId = this.symbolId(authoredSymbol)
+      const exported = bySymbol.get(authoredSymbolId)?.find(record => record.model.name === authoredSymbol.name)
+        ?? bySymbol.get(authoredSymbolId)?.find(record => record.model.name !== 'default')
+        ?? bySymbol.get(authoredSymbolId)?.[0]
       if (exported === undefined) continue
-      const declaration = preferredDeclaration(symbol)
+      let symbol = authoredSymbol
+      let declaration = preferredDeclaration(symbol)
+      const aliases = new Set<ts.Symbol>()
+      while (declaration !== undefined && ts.isTypeAliasDeclaration(declaration)) {
+        if (aliases.has(symbol)) break
+        aliases.add(symbol)
+        const target = this.symbolAtType(declaration.type)
+        if (target === undefined) break
+        symbol = target
+        declaration = preferredDeclaration(symbol)
+      }
       if (declaration === undefined || (!ts.isClassDeclaration(declaration) && !ts.isInterfaceDeclaration(declaration))) {
         this.fail(member, `service ${memberName(member.name)} does not resolve to an exported class or interface`)
       }
+      const memberOwner = this.registrationForFile(member.getSourceFile().fileName)
+      const declarationOwner = this.registrationForFile(declaration.getSourceFile().fileName)
+      if (memberOwner?.name !== declarationOwner?.name) continue
+      const symbolId = this.symbolId(symbol)
       const model = this.ensureDeclaration(symbol, declaration)
       const exposed = model.members
         .filter(exposableMember)
@@ -938,7 +960,7 @@ class FaceAnalyzer {
         if (binding === undefined) {
           this.fail(
             first.method,
-            'Remote methods require GatewayService or readonly typertGateway = bindTypeRTGateway(this, serviceKey)',
+            'Remote methods require TypertRemoteService or readonly typertGateway = bindTypertRemote(this, serviceKey)',
           )
         }
         for (const { method, invocation } of marked) {
@@ -1020,7 +1042,7 @@ class FaceAnalyzer {
         }
       } else {
         if (hostSymbol !== undefined && this.isWorkspaceClass(hostSymbol)) {
-          this.fail(parameter, `non-JSON class parameter ${hostSymbol.name} requires a TypeRTLookupMap entry`)
+          this.fail(parameter, `non-JSON class parameter ${hostSymbol.name} requires a TypertLookupMap entry`)
         }
         modeled = {
           name: parameter.name.text,
@@ -1045,7 +1067,7 @@ class FaceAnalyzer {
     if (invocation.kind === 'context') {
       const context = this.contextDeclarations().get(invocation.context)
       if (context === undefined) {
-        this.fail(method, `Remote Scope ${invocation.context} has no TypeRTContextMap entry`)
+        this.fail(method, `Remote Scope ${invocation.context} has no TypertContextMap entry`)
       }
       const wire = `${invocation.context}Id`
       if (wires.has(wire)) this.fail(method, `Remote Scope wire field ${wire} conflicts with a method parameter`)
@@ -1109,14 +1131,14 @@ class FaceAnalyzer {
     const field = this.gatewayFieldBinding(declaration)
     const base = this.gatewayServiceBinding(declaration)
     if (field !== undefined && base !== undefined) {
-      this.fail(field.site, 'GatewayService subclasses must not declare a second typertGateway binding')
+      this.fail(field.site, 'TypertRemoteService subclasses must not declare a second typertRemote binding')
     }
     return field ?? base
   }
 
   private gatewayFieldBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
     const candidates = declaration.members.filter((member): member is ts.PropertyDeclaration =>
-      ts.isPropertyDeclaration(member) && memberName(member.name) === 'typertGateway')
+      ts.isPropertyDeclaration(member) && memberName(member.name) === 'typertRemote')
     const [property, duplicate] = candidates
     if (property === undefined) return undefined
     if (duplicate !== undefined) this.fail(duplicate, 'Service has more than one typertGateway field')
@@ -1127,15 +1149,15 @@ class FaceAnalyzer {
     }
     if (property.initializer === undefined
       || !ts.isCallExpression(property.initializer)
-      || !this.isTypeMetaSymbol(property.initializer.expression, 'bindTypeRTGateway')) {
-      this.fail(property, 'typertGateway must call bindTypeRTGateway()')
+      || !this.isTypeMetaSymbol(property.initializer.expression, 'bindTypertRemote')) {
+      this.fail(property, 'typertGateway must call bindTypertRemote()')
     }
     const call = property.initializer
     if (call.arguments.length < 2 || call.arguments.length > 3) {
-      this.fail(call, 'bindTypeRTGateway() requires this, service key, and an optional options object')
+      this.fail(call, 'bindTypertRemote() requires this, service key, and an optional options object')
     }
     if (call.arguments[0]?.kind !== ts.SyntaxKind.ThisKeyword) {
-      this.fail(call.arguments[0] ?? call, 'bindTypeRTGateway() first argument must be this')
+      this.fail(call.arguments[0] ?? call, 'bindTypertRemote() first argument must be this')
     }
     return this.gatewayBindingArguments(call, property)
   }
@@ -1144,22 +1166,22 @@ class FaceAnalyzer {
     const heritage = (declaration.heritageClauses ?? [])
       .filter(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
       .flatMap(clause => [...clause.types])
-      .find(type => this.isTypeMetaSymbol(type.expression, 'GatewayService'))
+      .find(type => this.isTypeMetaSymbol(type.expression, 'TypertRemoteService'))
     if (heritage === undefined) return undefined
 
     const constructor = declaration.members.find(ts.isConstructorDeclaration)
     if (constructor?.body === undefined) {
-      this.fail(heritage, 'GatewayService subclasses must declare a constructor with super(ctx, serviceKey)')
+      this.fail(heritage, 'TypertRemoteService subclasses must declare a constructor with super(ctx, serviceKey)')
     }
     const call = constructor.body.statements.flatMap((statement) => {
       if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return []
       return statement.expression.expression.kind === ts.SyntaxKind.SuperKeyword ? [statement.expression] : []
     })[0]
     if (call === undefined) {
-      this.fail(constructor, 'GatewayService constructor must call super(ctx, serviceKey) directly')
+      this.fail(constructor, 'TypertRemoteService constructor must call super(ctx, serviceKey) directly')
     }
     if (call.arguments.length < 2 || call.arguments.length > 3) {
-      this.fail(call, 'GatewayService super() requires context, service key, and an optional options object')
+      this.fail(call, 'TypertRemoteService super() requires context, service key, and an optional options object')
     }
     return this.gatewayBindingArguments(call, heritage)
   }
@@ -1173,12 +1195,12 @@ class FaceAnalyzer {
     const options = call.arguments[2]
     if (options !== undefined) {
       if (!ts.isObjectLiteralExpression(options)) {
-        this.fail(options, 'bindTypeRTGateway() options must be an object literal')
+        this.fail(options, 'bindTypertRemote() options must be an object literal')
       }
       for (const propertyOption of options.properties) {
         if (!ts.isPropertyAssignment(propertyOption)
           || memberName(propertyOption.name) !== 'namespace') {
-          this.fail(propertyOption, 'bindTypeRTGateway() only supports a namespace option')
+          this.fail(propertyOption, 'bindTypertRemote() only supports a namespace option')
         }
         const value = stringLiteralValue(propertyOption.initializer)
         if (value === undefined) this.fail(propertyOption.initializer, 'Gateway namespace must be a string literal')
@@ -1260,32 +1282,32 @@ class FaceAnalyzer {
     if (this.staticLookups !== undefined) return this.staticLookups
     const byKey = new Map<string, StaticLookupDeclaration>()
     const byHost = new Map<SymbolId, StaticLookupDeclaration>()
-    for (const declaration of this.typeMetaMapMembers('TypeRTLookupMap')) {
+    for (const declaration of this.typeMetaMapMembers('TypertLookupMap')) {
       if (!ts.isPropertySignature(declaration) || declaration.type === undefined) {
-        this.fail(declaration, 'TypeRTLookupMap entries must be required properties')
+        this.fail(declaration, 'TypertLookupMap entries must be required properties')
       }
       const key = memberName(declaration.name)
-      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTLookupMap key must contain only RPC endpoint segment characters')
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypertLookupMap key must contain only RPC endpoint segment characters')
       if (!ts.isTypeReferenceNode(declaration.type)
-        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTLookup')
+        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypertLookup')
         || declaration.type.typeArguments?.length !== 2) {
-        this.fail(declaration.type, 'TypeRTLookupMap values must be TypeRTLookup<Host, Wire>')
+        this.fail(declaration.type, 'TypertLookupMap values must be TypertLookup<Host, Wire>')
       }
       const hostType = declaration.type.typeArguments[0]
       const wireType = declaration.type.typeArguments[1]
       if (hostType === undefined || wireType === undefined) {
-        this.fail(declaration.type, 'TypeRTLookupMap values must be TypeRTLookup<Host, Wire>')
+        this.fail(declaration.type, 'TypertLookupMap values must be TypertLookup<Host, Wire>')
       }
       const host = this.symbolAtType(hostType)
-      if (host === undefined) this.fail(hostType, 'TypeRTLookup Host must be a named type')
+      if (host === undefined) this.fail(hostType, 'TypertLookup Host must be a named type')
       const entry: StaticLookupDeclaration = {
         key,
         hostSymbol: this.symbolId(host),
         wireType,
         site: declaration,
       }
-      if (byKey.has(key)) this.fail(declaration, `duplicate TypeRTLookupMap key ${key}`)
-      if (byHost.has(entry.hostSymbol)) this.fail(declaration, `Host type ${host.name} has more than one TypeRT lookup`)
+      if (byKey.has(key)) this.fail(declaration, `duplicate TypertLookupMap key ${key}`)
+      if (byHost.has(entry.hostSymbol)) this.fail(declaration, `Host type ${host.name} has more than one Typert lookup`)
       byKey.set(key, entry)
       byHost.set(entry.hostSymbol, entry)
     }
@@ -1296,20 +1318,20 @@ class FaceAnalyzer {
   private contextDeclarations(): ReadonlyMap<string, StaticContextDeclaration> {
     if (this.staticContexts !== undefined) return this.staticContexts
     const result = new Map<string, StaticContextDeclaration>()
-    for (const declaration of this.typeMetaMapMembers('TypeRTContextMap')) {
+    for (const declaration of this.typeMetaMapMembers('TypertContextMap')) {
       if (!ts.isPropertySignature(declaration) || declaration.type === undefined) {
-        this.fail(declaration, 'TypeRTContextMap entries must be required properties')
+        this.fail(declaration, 'TypertContextMap entries must be required properties')
       }
       const key = memberName(declaration.name)
-      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTContextMap key must contain only RPC endpoint segment characters')
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypertContextMap key must contain only RPC endpoint segment characters')
       if (!ts.isTypeReferenceNode(declaration.type)
-        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTContext')
+        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypertContext')
         || declaration.type.typeArguments?.length !== 1) {
-        this.fail(declaration.type, 'TypeRTContextMap values must be TypeRTContext<Wire>')
+        this.fail(declaration.type, 'TypertContextMap values must be TypertContext<Wire>')
       }
-      if (result.has(key)) this.fail(declaration, `duplicate TypeRTContextMap key ${key}`)
+      if (result.has(key)) this.fail(declaration, `duplicate TypertContextMap key ${key}`)
       const wireType = declaration.type.typeArguments[0]
-      if (wireType === undefined) this.fail(declaration.type, 'TypeRTContextMap values must be TypeRTContext<Wire>')
+      if (wireType === undefined) this.fail(declaration.type, 'TypertContextMap values must be TypertContext<Wire>')
       result.set(key, {
         key,
         wireType,
@@ -1320,13 +1342,13 @@ class FaceAnalyzer {
     return result
   }
 
-  private typeMetaMapMembers(name: 'TypeRTLookupMap' | 'TypeRTContextMap'): ts.TypeElement[] {
+  private typeMetaMapMembers(name: 'TypertLookupMap' | 'TypertContextMap'): ts.TypeElement[] {
     const result: ts.TypeElement[] = []
     for (const sourceFile of this.program.getSourceFiles()) {
       for (const statement of sourceFile.statements) {
         if (!ts.isModuleDeclaration(statement)
           || !ts.isStringLiteral(statement.name)
-          || statement.name.text !== '@deepseek-ai/dsh-type-meta'
+          || statement.name.text !== '@deepseek-ai/dsh-typert-protocol'
           || statement.body === undefined
           || !ts.isModuleBlock(statement.body)) continue
         for (const nested of statement.body.statements) {
@@ -1788,11 +1810,11 @@ class FaceAnalyzer {
     const declaration = preferredDeclaration(resolved)
     if (declaration === undefined) return false
     const registration = this.registrationForFile(declaration.getSourceFile().fileName)
-    if (registration?.name === '@deepseek-ai/dsh-type-meta') return true
+    if (registration?.name === '@deepseek-ai/dsh-typert-protocol') return true
     for (let current: ts.Node | undefined = declaration; current !== undefined; current = optionalParent(current)) {
       if (ts.isModuleDeclaration(current)
         && ts.isStringLiteral(current.name)
-        && current.name.text === '@deepseek-ai/dsh-type-meta') return true
+        && current.name.text === '@deepseek-ai/dsh-typert-protocol') return true
     }
     return false
   }
@@ -1986,10 +2008,15 @@ class FaceAnalyzer {
     const result: MemberModel[] = []
     for (const member of members) {
       if (ts.isPropertyDeclaration(member)
-        && memberName(member.name) === 'typertGateway'
+        && memberName(member.name) === 'typertRemote'
         && member.initializer !== undefined
         && ts.isCallExpression(member.initializer)
-        && this.isTypeMetaSymbol(member.initializer.expression, 'bindTypeRTGateway')) continue
+        && this.isTypeMetaSymbol(member.initializer.expression, 'bindTypertRemote')) continue
+      if (ts.isMethodDeclaration(member) && member.body !== undefined
+        && members.some(candidate => candidate !== member
+          && (ts.isMethodDeclaration(candidate) || ts.isMethodSignature(candidate))
+          && memberName(candidate.name) === memberName(member.name)
+          && (!ts.isMethodDeclaration(candidate) || candidate.body === undefined))) continue
       const visibility = visibilityOf(member)
       const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword)
       if (visibility !== 'public' || isStatic || ts.isConstructorDeclaration(member)) continue
@@ -2566,10 +2593,10 @@ function sourceFileHasSurface(sourceFile: ts.SourceFile): boolean {
     if (ts.isClassDeclaration(statement)) {
       for (const member of statement.members) {
         if (ts.isPropertyDeclaration(member)
-          && memberName(member.name) === 'typertGateway'
+          && memberName(member.name) === 'typertRemote'
           && member.initializer !== undefined
           && ts.isCallExpression(member.initializer)
-          && expressionName(member.initializer.expression) === 'bindTypeRTGateway') return true
+          && expressionName(member.initializer.expression) === 'bindTypertRemote') return true
         for (const decorator of ts.canHaveDecorators(member) ? ts.getDecorators(member) ?? [] : []) {
           const expression = ts.isCallExpression(decorator.expression)
             ? decorator.expression.expression
@@ -2860,8 +2887,8 @@ function stringLiteralValue(node: ts.Node | undefined): string | undefined {
 }
 
 function isRemoteSegment(value: string): boolean {
-  // Generation bootstraps workspace artifacts before dsh-type-meta is built,
-  // so this extraction-only copy must mirror isTypeRTRemoteSegment().
+  // Generation bootstraps workspace artifacts before dsh-typert-protocol is built,
+  // so this extraction-only copy must mirror isTypertRemoteSegment().
   return value !== '.' && value !== '..' && /^[A-Za-z0-9_$.-]+$/.test(value)
 }
 

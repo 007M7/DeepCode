@@ -3,12 +3,12 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 import * as ApprovalInvariant from '@deepseek-ai/dsh-user-approval/invariant'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(InvariantRegistry)
   await ctx.plugin(ApprovalInvariant)
   return ctx
 }
@@ -35,7 +35,7 @@ describe('approval invariants', () => {
     session.append('turn/start', { turn: 1 })
     const id = ApprovalRequestId('ask-resume')
     session.append('approval/asked', { id, toolName: 'bash' })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await ctx.plugin(ApprovalInvariant)
     expect(() => session.append('approval/decided', { id, outcome: 'cancelled' })).not.toThrow()
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -81,7 +81,7 @@ describe('approval invariants', () => {
     session.append('approval/asked', {
       id: ApprovalRequestId('ask-replay'), toolName: 'bash',
     })
-    await ctx.plugin(InvariantService)
+    await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(ApprovalInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 

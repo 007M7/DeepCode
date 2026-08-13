@@ -1,12 +1,12 @@
 /**
- * Execute command hooks through `ctx.bash`, using its credential scrub,
+ * Execute command hooks through `ctx.shell`, using its credential scrub,
  * process-group cancellation, and timeout machinery. The bridge supplies the
  * trusted stdin payload and dialect environment, then this module decodes the
  * captured outcome.
  * @module @deepseek-ai/dsh-hook-protocol/runner
  */
 
-import type { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import { parseHookOutput } from './codec.ts'
 import type { CommandHook, HookOutput } from './types.ts'
 
@@ -65,7 +65,7 @@ export interface RunHookResult {
  * @returns the decoded output plus the run's wall-clock duration.
  */
 export async function runHook(
-  bash: BashExecutor,
+  bash: ShellExecutor,
   hook: CommandHook,
   options: RunHookOptions,
   now: () => number,
@@ -85,7 +85,7 @@ export async function runHook(
 
   try {
     const result = await bash.run(bash.resolve(request))
-    // BashRunResult.exitCode is `number | null` (null = died by signal); the
+    // ShellRunResult.exitCode is `number | null` (null = died by signal); the
     // protocol's exit-code contract is numeric, so a signal death maps to
     // `undefined` (a non-blocking error — no clean exit code to act on).
     const exitCode = result.exitCode ?? undefined

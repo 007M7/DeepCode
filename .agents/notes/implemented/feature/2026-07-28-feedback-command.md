@@ -12,7 +12,7 @@ The capture surface has to be usable at the moment of annoyance, which rules out
 
 ## Decision
 
-`@deepseek-ai/dsh-command-feedback` in `packages/feedback/command-feedback/` registers one global `feedback` command over `ctx.commands`. `/feedback <text>` acknowledges with the receiving session id and the shared harness-home anonymous user id; bare or whitespace-only input returns a direct usage error. The handler is synchronous, injects only `commands`, and has no configuration. [The shared-id decision](../architecture/2026-08-07-shared-feedback-telemetry-user-id.md) records why feedback and OpenTelemetry use the same `$DSH_HOME/.userid` value.
+`@deepseek-ai/dsh-command-feedback` in `packages/feedback/command-feedback/` registers one global `feedback` command over `ctx.commands`. `/feedback <text>` acknowledges with the receiving session id and the shared harness-home anonymous user id; bare or whitespace-only input returns a direct usage error. The handler is synchronous, injects only `commands`, and has no configuration. [The shared-id decision](../architecture/2026-08-07-shared-feedback-telemetry-user-id.md) records why feedback and OpenTelemetry use the same `$DSH_HOME/.anonymous-user-id` value.
 
 The package declares the log-only `feedback/record { text }` session event and exports `recordFeedback(session, text)` as its command-independent producer. The producer discards surrounding whitespace, rejects an empty result, and appends exactly one event. `/feedback` delegates to it, so another UI, hook, or host integration can record the same domain fact without constructing a slash command.
 
@@ -54,7 +54,7 @@ Surrounding whitespace is discarded, but nothing else is parsed. `/feedback /pla
 
 ## Consequences
 
-The shipped `dsh` base mounts the command unconditionally — no configuration, no dependency on the goal stack. The Web client exposes it through its command adapter. Headless mode, ACP, and JSON-RPC do not provide a command adapter, so `/feedback` is unavailable there. The first accepted feedback for a harness home can create `$DSH_HOME/.userid`; rejected empty input does not resolve or create an id.
+The shipped `dsh` base mounts the command unconditionally — no configuration, no dependency on the goal stack. The Web client exposes it through its command adapter. Headless mode, ACP, and JSON-RPC do not provide a command adapter, so `/feedback` is unavailable there. The first accepted feedback for a harness home can create `$DSH_HOME/.anonymous-user-id`; rejected empty input does not resolve or create an id.
 
 The package owns one independent append-only event with no cross-event or mutable-data relation for an invariant companion to check. The event follows the session log's existing replay, fork, persistence, and crash-tail behavior.
 

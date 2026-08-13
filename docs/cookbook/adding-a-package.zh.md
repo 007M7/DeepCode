@@ -40,7 +40,35 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 
 ## 3. 确定包拓扑
 
-对于可替换的能力，当 Service Definition／Service provider／Consumer 角色需要独立演进时，将它们拆分到不同包中（见 docs/architecture.md § "Capability seams"——bash 三组件是模板）。单一用途的插件保持为一个包。
+对于可替换的能力，当 Service Definition／Service provider／Consumer 角色需要独立演进时，将它们拆分到不同包中（见 docs/architecture.md § "Capability seams"——shell 三组件是模板）。单一用途的插件保持为一个包。
+
+### 使用符合实际的角色名称
+
+名称必须描述当前稳定职责。不要用首个实现、可能的未来扩展或 Cordis 基类命名。接口包使用能力名称。实现包加上能够区分实现的机制、协议、环境或厂商限定词。只有同主机执行属于约定时，才使用 `local`。
+
+一个 engine、runtime、policy、controller、resolver、store 或当前配置使用单数 `ctx` key。registry 或拥有多个具名成员的服务使用复数 key。类的角色与 key 的单复数必须一致。不得让不兼容的 host 与 client 声明复用同一个 Cordis `Context` key。即使二者使用独立的运行时 context，TypeScript 声明合并仍会同时看到两种类型。如果自然复数已经属于另一个端面，就增加职责后缀。
+
+| 词 | 适用条件 | 不适用条件 |
+|---|---|---|
+| `Controller` | 接受命令或用户意图，并改变一项既有领域状态或展示状态。 | 执行任意工作、拥有一组 provider，或只把值转换为展示形式。 |
+| `Store` | 拥有一组数据，主要提供该数据的 CRUD、snapshot 或 subscription 操作。 | 校验状态机、裁决权限、分派工作或拥有 provider 优先级。类中有 map 不等于 store。 |
+| `Directory` | 暴露供发现或选择的条目及其元数据。 | producer 向其中注册任意实现，或调用方通过它执行工作。 |
+| `Presenter` | 将领域值或工具参数纯转换为渲染意图。 | 执行 I/O、订阅、修改状态或拥有生命周期。 |
+| `Registry` | 拥有一组动态具名注册，以及查询、重复项或优先级规则、生命周期和释放。 | 主要约定是分派、执行、取消、策略或编排。 |
+| `Runtime` | 运行实时工作，并跨调用拥有分派、取消、provider 协调或操作生命周期。 | 只存储记录、返回目录、解析一个值或保存配置。 |
+| `Resolver` | 根据输入计算或定位一个答案，但不拥有该答案的生命周期。 | 拥有可变集合或长时间运行的执行过程。 |
+| `Binder` | 把一个已声明接口绑定到调用方的 context 或生命周期，并返回绑定值。 | 把该值作为集合持有、控制其领域状态，或只转换数据。 |
+| `Engine` | 实现领域算法或有状态执行模型。 | 只选择 provider 或跨协议边界转发请求。 |
+| `Policy` | 决定允许、选择、限制或观察什么。 | 执行该决定所允许的机制。 |
+| `Executor` | 在一项能力中运行一个明确请求或已解析 spec。 | 拥有广泛应用生命周期或 provider 目录。 |
+| `Gateway` | 适配进程、网络、RPC 或 API 边界。 | 只注册同进程服务或存储元数据。 |
+| `Provider` | 提供一项能力定义的一个实现。存在多个实现时，加上机制或厂商限定词。 | 表示能力定义、provider registry 或消费方 runtime。 |
+| `Backend` | 在已定义接口之后实现可替换的底层持久化、传输或执行。 | 表示面向用户的服务或一个已返回的实时资源引用。 |
+| `Handle` | 引用一个实时资源，并控制或观察该资源。 | 创建并管理完整资源池。 |
+| `Config` | 拥有一个已解析配置值，或一项边界严格的配置记录及其更新约定。 | 存储通用集合、执行工作或暴露无关设置。 |
+| `Service` | 拥有一项无法用以上更精确角色诚实描述的内聚领域服务。 | 只因为类继承 Cordis `Service` 而使用该名称。 |
+
+只对受支持的 Python 与 TypeScript SDK 所使用的 JSON-RPC 客户端／服务器协议使用 `SDK`。DeepSeek Harness 本身是 agent harness，不是 SDK 项目。产品拼写统一使用 `Typert`，不得使用 `TypeRT` 或 `typeRT`。
 
 ## 4. 编写包 README
 

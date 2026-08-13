@@ -3,7 +3,7 @@
  * the session firehose plus the one live-bus relay (`agent/error`). Both
  * capture paths apply the fixed chunk projection, build logical records, and
  * run each through the
- * `telemetry/record` waterfall (deployment-mounted redaction rules;
+ * `session-telemetry/record` waterfall (deployment-mounted redaction rules;
  * pass-through when none), then hands the result to the backend. Live capture
  * follows the session firehose; on-demand capture replays the canonical log
  * only when requested. Every synchronous handler is self-contained so a
@@ -17,14 +17,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TelemetryBackend, TelemetryRecord, TelemetrySeverity } from './index.ts'
+import type { SessionTelemetrySink, SessionTelemetryRecord, SessionTelemetrySeverity } from './index.ts'
 
 /** Whether capture follows live events or reads the canonical log only when requested. */
-export type TelemetryCapture = 'live' | 'on-demand'
+export type SessionTelemetryCapture = 'live' | 'on-demand'
 
 /** One projected record ready for backend handoff. */
 interface ProjectedRecord {
-  readonly record: TelemetryRecord
+  readonly record: SessionTelemetryRecord
   /** Ledger cursor advanced only after the backend accepts this record. */
   readonly seq?: number
 }
@@ -57,7 +57,7 @@ const handoffCursor = new WeakMap<Session, number>()
  * instead of throwing — best-effort reporting must not fail application
  * teardown.
  */
-export class TelemetryCoordinator {
+export class SessionTelemetryCoordinator {
   /**
    * Sessions adopted by THIS fiber and still live, for double-adoption
    * protection and the teardown sweep of unmarked sessions;
@@ -73,8 +73,8 @@ export class TelemetryCoordinator {
    */
   constructor(
     private readonly ctx: Context,
-    private readonly backend: TelemetryBackend,
-    capture: TelemetryCapture = 'live',
+    private readonly backend: SessionTelemetrySink,
+    capture: SessionTelemetryCapture = 'live',
   ) {
     if (capture === 'live') {
       ctx.on('session/created', (session) => {
@@ -203,15 +203,15 @@ export class TelemetryCoordinator {
   }
 
   /**
-   * Run the `telemetry/record` waterfall at capture time. The innermost `next`
+   * Run the `session-telemetry/record` waterfall at capture time. The innermost `next`
    * passes the record through unchanged — this package ships no rules; exported
    * data is as clean as the listeners a deployment mounts. Callers run inside
    * {@link contain}, so a throwing rule withholds the record instead of
    * reaching the loop (fail-closed). On-demand capture invokes this waterfall
    * while reading the canonical session log, not when the event was appended.
    */
-  private redact(record: TelemetryRecord): TelemetryRecord {
-    return this.ctx.waterfall('telemetry/record', record, () => record)
+  private redact(record: SessionTelemetryRecord): SessionTelemetryRecord {
+    return this.ctx.waterfall('session-telemetry/record', record, () => record)
   }
 
   /** Hand one redacted record to the backend, then advance its ledger cursor. */
@@ -271,7 +271,7 @@ export class TelemetryCoordinator {
  * Build the per-session clean-exit marker: emitted at the session's own
  * disposal edge, or at coordinator dispose for sessions still alive then.
  */
-function shutdownRecord(session: Session): TelemetryRecord {
+function shutdownRecord(session: Session): SessionTelemetryRecord {
   return {
     channel: 'ops',
     time: Date.now(),
@@ -282,7 +282,7 @@ function shutdownRecord(session: Session): TelemetryRecord {
 }
 
 /** Map an event's own outcome flag to the pre-baked alerting severity. */
-function severityOf(event: SessionEvent): TelemetrySeverity {
+function severityOf(event: SessionEvent): SessionTelemetrySeverity {
   switch (event.type) {
     case 'tool/result':
       return event.data.message.content[0].isError === true ? 'error' : 'info'

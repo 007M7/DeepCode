@@ -42,8 +42,8 @@
                   models:
                     - id: deepseek-v4-flash
                     - id: deepseek-v4-pro
-          - id: user-interaction
-            name: '@deepseek-ai/dsh-user-interaction'
+          - id: user-questions
+            name: '@deepseek-ai/dsh-user-questions'
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
           - id: child-question-tripwire

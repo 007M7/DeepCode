@@ -10,7 +10,7 @@ The telemetry seam and OTel backend ([revival Note](2026-07-23-session-telemetry
 
 ## Decision
 
-The shared dsh base bundle (`packages/bundle/base/cordis.patch.yml`) mounts the `telemetry-otel` row with a baked-in production endpoint, so every profile has one consistent telemetry capability. The [default-off decision](2026-08-10-telemetry-default-off.md) keeps that row in `DISABLED` mode unless a deployment explicitly selects `FULL` or `FEEDBACK_ONLY`; the endpoint alone does not authorize reporting. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving an enabled backend's three-second shutdown deadline time to drain before the five-second launcher bound.
+The shared dsh base bundle (`packages/bundle/base/cordis.patch.yml`) mounts the `session-telemetry-otel` row with a baked-in production endpoint, so every profile has one consistent telemetry capability. The [default-off decision](2026-08-10-telemetry-default-off.md) keeps that row in `DISABLED` mode unless a deployment explicitly selects `FULL` or `FEEDBACK_ONLY`; the endpoint alone does not authorize reporting. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving an enabled backend's three-second shutdown deadline time to drain before the five-second launcher bound.
 
 | Ruling | Value | Rationale |
 |---|---|---|
@@ -36,5 +36,5 @@ The base bundle test pins the shipped `DISABLED` mode expression, the backend su
 ## Consequences
 
 - A developer running `dsh web` without telemetry configuration makes no telemetry network request. An internal deployment sets `DSH_TELEMETRY_MODE` and may point `DSH_TELEMETRY_OTLP_URL` at another collector.
-- **No redaction rule is mounted**: explicitly enabled exports are the raw captured copy (full user/assistant message text, tool arguments and results, the system prompt, the local `session.cwd` path). Crossing a trust boundary requires `telemetry/record` rules first — the redaction rule, remaining identity Resource attributes, and usage metrics remain separate deployment work. The anonymous user id ships through the [anonymous-user-id Note](2026-07-31-telemetry-anonymous-user-id.md).
+- **No redaction rule is mounted**: explicitly enabled exports are the raw captured copy (full user/assistant message text, tool arguments and results, the system prompt, the local `session.cwd` path). Crossing a trust boundary requires `session-telemetry/record` rules first — the redaction rule, remaining identity Resource attributes, and usage metrics remain separate deployment work. The anonymous user id ships through the [anonymous-user-id Note](2026-07-31-telemetry-anonymous-user-id.md).
 - Test rigs remain local by default; explicit uploading-mode tests provide their own collector and mode.

@@ -62,7 +62,7 @@ interface SchemaResolvedConfig extends Config {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    e2b: E2BSandboxService
+    e2b: E2BRuntime
   }
 }
 
@@ -71,7 +71,7 @@ declare module '@deepseek-ai/cordis' {
  * timeout or disposal. Creation begins at plugin construction; adapters await
  * {@link getSandbox} before their first operation.
  */
-export class E2BSandboxService extends Service {
+export class E2BRuntime extends Service {
   static Config: z<Config> = z.object({
     apiKey: z.string(),
     cwd: z.string().default('/home/user/workspace'),
@@ -179,4 +179,4 @@ export class E2BSandboxService extends Service {
   }
 }
 
-export default E2BSandboxService
+export default E2BRuntime

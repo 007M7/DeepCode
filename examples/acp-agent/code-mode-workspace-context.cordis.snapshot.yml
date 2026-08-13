@@ -25,6 +25,6 @@
             Verify your work by running the code or tests. Keep answers brief and factual.
       - insert:
           - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-worker'
+            name: '@deepseek-ai/dsh-code-runtime-worker-thread'
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'

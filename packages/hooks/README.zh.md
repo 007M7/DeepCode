@@ -7,7 +7,7 @@ hooks 子系统让用户像使用 Claude Code 和 Codex 一样，在生命周期
 | 包 | 职责 | 形态 |
 |---|---|---|
 | [`hook-protocol/`](hook-protocol/README.md) | 共享 shell 钩子协议库 | 库 |
-| [`hooks-claude/`](hooks-claude/README.md) | Claude Code 钩子桥接 | 插件 |
+| [`hooks-claude-code/`](hooks-claude-code/README.md) | Claude Code 钩子桥接 | 插件 |
 | [`hooks-codex/`](hooks-codex/README.md) | Codex 钩子桥接 | 插件 |
 
 共享库负责通用协议行为；各桥接负责自身方言的事件映射。子 README 记录这些约定。

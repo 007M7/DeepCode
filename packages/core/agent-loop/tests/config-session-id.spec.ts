@@ -4,13 +4,13 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop, { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -27,10 +27,10 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 
 async function makeCoreContext(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
+  await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   return ctx
 }
@@ -89,7 +89,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-duplicate-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
 
     const outcome = await ctx.plugin(AgentLoop, {
       agents: [
@@ -108,7 +108,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-reload-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first'), textResponse('second')]))
     const config = { agents: [{ id: 'main', sessionId: SessionId('config-exact-reload'), provider: 'mock', model: 'mock' }] }
 
@@ -137,7 +137,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-overlap-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('saved')]))
     const sessionId = SessionId('config-exact-overlap')
     const config = { agents: [{ id: 'main', sessionId, provider: 'mock', model: 'mock' }] }
@@ -184,7 +184,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-cancel-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     const sessionId = SessionId('config-exact-cancel')
     const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
@@ -219,7 +219,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-failure-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     const failure = new Error('persistence index failed')
     const listenerFailure = new Error('failure observer failed')
     const asyncListenerFailure = new Error('async failure observer failed')
@@ -255,7 +255,7 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-unrenderable-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     const unrenderable = {
       [Symbol.toPrimitive](): never {
         throw new Error('coercion escaped')
@@ -293,7 +293,7 @@ describe('config-driven session id', () => {
       const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
       dirs.push(root)
       const ctx = await makeCoreContext()
-      await ctx.plugin(SessionPersistenceJsonl, { root })
+      await ctx.plugin(JsonlSessionPersistence, { root })
       const preparing = Promise.withResolvers<SessionPreparation>()
       vi.spyOn(ctx.sessionPersistence, 'prepare').mockReturnValue(preparing.promise)
       const released = vi.fn()
@@ -325,10 +325,10 @@ describe('config-driven session id', () => {
 
   it('identity-nests the deferred resume fiber under its labeled owner effect', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     const loopFiber = await ctx.plugin(AgentLoop, {
       agents: [{ id: SessionId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('deferred') }],
@@ -350,13 +350,13 @@ describe('config-driven session id', () => {
     const idPattern = /^cfg-session-[0-9a-f-]{36}$/
     // Run 1: a config agent persists a turn under a generated session id.
     const ctx1 = new Context()
-    await ctx1.plugin(LlmService)
+    await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
     await ctx1.plugin(SystemPrompt)
-    await ctx1.plugin(ToolRegistry)
+    await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
     await ctx1.plugin(AgentLoop, { agents: [{ id: SessionId('cfg'), provider: 'mock', model: 'mock' }] })
-    await ctx1.plugin(SessionPersistenceJsonl, { root })
+    await ctx1.plugin(JsonlSessionPersistence, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg')]))
     const a1 = ctx1.agents.list()[0] as Agent
     expect(a1.id).toBe(a1.session.id)
@@ -369,13 +369,13 @@ describe('config-driven session id', () => {
     // Run 2 over the SAME root: a fresh id means no on-disk collision (a fixed
     // ${id}-session would crash here with "already has a persisted log").
     const ctx2 = new Context()
-    await ctx2.plugin(LlmService)
+    await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SystemPrompt)
-    await ctx2.plugin(ToolRegistry)
+    await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
     await ctx2.plugin(AgentLoop, { agents: [{ id: SessionId('cfg'), provider: 'mock', model: 'mock' }] })
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    await ctx2.plugin(JsonlSessionPersistence, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg2')]))
     const a2 = ctx2.agents.list()[0] as Agent
     expect(a2.id).toBe(a2.session.id)
@@ -393,13 +393,13 @@ describe('config-driven session id', () => {
     // Run 1: a programmatically-created agent on a KNOWN session id persists a
     // completed turn, so run 2 has a concrete id to resume.
     const ctx1 = new Context()
-    await ctx1.plugin(LlmService)
+    await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
     await ctx1.plugin(SystemPrompt)
-    await ctx1.plugin(ToolRegistry)
+    await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
     await ctx1.plugin(AgentLoop, { agents: [] })
-    await ctx1.plugin(SessionPersistenceJsonl, { root })
+    await ctx1.plugin(JsonlSessionPersistence, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent
     a1.followup(createUserMessage({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } }))
@@ -409,13 +409,13 @@ describe('config-driven session id', () => {
     // Resume waits for the injected persistence service, so poll until the
     // config-created agent appears with its stored history.
     const ctx2 = new Context()
-    await ctx2.plugin(LlmService)
+    await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SystemPrompt)
-    await ctx2.plugin(ToolRegistry)
+    await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
     await ctx2.plugin(AgentLoop, { agents: [{ id: SessionId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('sticky-1') }] })
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    await ctx2.plugin(JsonlSessionPersistence, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
     // The deferred resume runs after the backend is available.
@@ -434,15 +434,15 @@ describe('config-driven session id', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-resume-miss-'))
     dirs.push(root)
     const ctx = new Context()
-    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [{ id: SessionId('main'), provider: 'mock', model: 'mock', resumeSessionId: SessionId('does-not-exist') }] })
     const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
       .mockImplementation(() => undefined)
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('x')]))
 
     // The deferred resume fails (no such session on disk). It must be contained:
@@ -460,7 +460,7 @@ describe('startup reporting after factory teardown', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-disposed-report-'))
     dirs.push(root)
     const ctx = await makeCoreContext()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
+    await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('x')]))
 
     // A restore lookup that hangs until after the loop is gone: the eventual

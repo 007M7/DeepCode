@@ -49,7 +49,7 @@ const AUTO = '@deepseek-ai/dsh-host-directory-picker-auto'
 const NATIVE = '@deepseek-ai/dsh-host-directory-picker-native'
 const BROWSE = '@deepseek-ai/dsh-host-directory-picker-browse'
 const NATIVE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-native'
-const BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker'
+const BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
 /**
  * Loader-visible stand-in for a client surface package: the surfaces belong to

@@ -2,8 +2,8 @@
 # sees one deployment-selected system prompt and only the owner-scoped
 # persistent Bash and string-replace editor tools. Context compaction is absent.
 
-- id: jsonrpc
-  name: '@deepseek-ai/dsh-jsonrpc'
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
   config:
     maxTokensAsSuccess: false
 
@@ -29,10 +29,10 @@
   name: '@deepseek-ai/dsh-subprocess-local'
 
 - id: pty
-  name: '@deepseek-ai/dsh-pty'
+  name: '@deepseek-ai/dsh-terminal'
 
-- id: pty-local
-  name: '@deepseek-ai/dsh-pty-local'
+- id: terminal-bash
+  name: '@deepseek-ai/dsh-terminal-bash'
   config:
     timeoutMs: 300000
 
@@ -52,7 +52,7 @@
     skills:
       enabled: false
     toolBash: false
-    toolTasks: false
+    toolJobs: false
 
 - id: persistent-bash
   name: '@deepseek-ai/dsh-tool-bash-persistent'

@@ -7,9 +7,9 @@ This family lets an agent delegate work to child agents. Multiple named provider
 | Package | Role | ctx key |
 |---|---|---|
 | [`subagent/`](subagent/README.md) | Defines provider registration, delegation, and continuation | `ctx.subagents` |
-| [`subagent-inprocess/`](subagent-inprocess/README.md) | Provides the shared in-process run driver | — |
-| [`subagent-spawn/`](subagent-spawn/README.md) | Starts a fresh in-process child | registers on `ctx.subagents` |
-| [`subagent-fork/`](subagent-fork/README.md) | Starts an in-process child from the parent's completed history | registers on `ctx.subagents` |
+| [`subagent-inprocess/`](subagent-in-process-driver/README.md) | Provides the shared in-process run driver | — |
+| [`subagent-spawn-in-process/`](subagent-spawn-in-process/README.md) | Starts a fresh in-process child | registers on `ctx.subagents` |
+| [`subagent-fork-in-process/`](subagent-fork-in-process/README.md) | Starts an in-process child from the parent's completed history | registers on `ctx.subagents` |
 | [`subagent-acp/`](subagent-acp/README.md) | Starts an out-of-process child over ACP | registers on `ctx.subagents` |
 | [`subagent-codex/`](subagent-codex/README.md) | Starts a real Codex app-server child | registers on `ctx.subagents` |
 | [`subagent-claude-code/`](subagent-claude-code/README.md) | Starts a real Claude Code child through the official Claude Agent SDK | registers on `ctx.subagents` |

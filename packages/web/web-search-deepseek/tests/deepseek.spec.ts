@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
-import WebService from '@deepseek-ai/dsh-web'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import WebRuntime from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
   DEEPSEEK_PROVIDER_ID,
@@ -403,7 +403,7 @@ describe('web-search-deepseek plugin registration', () => {
   it('registers the provider into ctx.web (HMR-safe)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
-    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
     const fiber = await ctx.plugin(deepseekPlugin, { apiKey: 'ds-key' })
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ truncated: false })
     await fiber.dispose()
@@ -413,21 +413,21 @@ describe('web-search-deepseek plugin registration', () => {
 
   it('rejects maxTokens: 0 at plugin construction', async () => {
     const ctx = new Context()
-    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
     await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxTokens: 0 }))
       .rejects.toThrow(/maxTokens expected number >= 1/)
   })
 
   it('rejects maxUses: 0 at plugin construction', async () => {
     const ctx = new Context()
-    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
     await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 0 }))
       .rejects.toThrow(/maxUses expected number >= 1/)
   })
 
   it('rejects a fractional maxUses at plugin construction', async () => {
     const ctx = new Context()
-    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
     await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 1.5 }))
       .rejects.toThrow(/maxUses expected number multiple of 1/)
   })
@@ -450,7 +450,7 @@ describe('web-search-deepseek plugin registration', () => {
   it('boots over ctx.web through the unwrapped module without an inject error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
-    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(deepseekPlugin) as Parameters<Context['plugin']>[0]
     // A collapsed export shape (dropped inject) would throw "without inject" here.
@@ -466,7 +466,7 @@ describe('web-search-deepseek plugin registration', () => {
       const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
       vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
-      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
       deepseekPlugin.apply(ctx, {})
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
@@ -488,8 +488,8 @@ describe('web-search-deepseek plugin registration', () => {
     vi.stubGlobal('fetch', fetchMock)
     const ctx = new Context()
     try {
-      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
-      await ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
+      await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
       await ctx.plugin(deepseekPlugin, { baseURL: 'https://api.deepseek.test/anthropic/v1' })
 
       await expect(ctx.web.search({ query: 'missing' }))
@@ -516,7 +516,7 @@ describe('web-search-deepseek plugin registration', () => {
     delete process.env.DEEPSEEK_API_KEY
     try {
       const ctx = new Context()
-      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      await ctx.plugin(WebRuntime, { searchProvider: DEEPSEEK_PROVIDER_ID })
       await ctx.plugin(deepseekPlugin, {})
       let caught: unknown
       try {

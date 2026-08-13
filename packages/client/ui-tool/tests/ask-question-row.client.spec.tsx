@@ -86,7 +86,7 @@ describe('AskQuestionRow', () => {
   it('user cancellation names the verdict instead of the generic failed shape', () => {
     // ASK_CANCELLED: the apiproxy ask_user_question handler's cancel error.
     const view = render(<AskQuestionRow {...rowProps(resultNode(ARGS, null,
-      { isError: true, error: { name: 'UserInteractionError', code: 'ASK_CANCELLED' } }))} />)
+      { isError: true, error: { name: 'UserQuestionError', code: 'ASK_CANCELLED' } }))} />)
     expect(screen.getByText('已取消')).toBeTruthy()
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
@@ -94,7 +94,7 @@ describe('AskQuestionRow', () => {
   it('a turn abort while pending reads interrupted with stopped semantics', () => {
     // ASK_ABORTED: the apiproxy ask handler's turn-abort settlement.
     const view = render(<AskQuestionRow {...rowProps(resultNode(ARGS, null,
-      { isError: true, error: { name: 'UserInteractionError', code: 'ASK_ABORTED' } }))} />)
+      { isError: true, error: { name: 'UserQuestionError', code: 'ASK_ABORTED' } }))} />)
     expect(screen.getByText('已中断')).toBeTruthy()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
   })

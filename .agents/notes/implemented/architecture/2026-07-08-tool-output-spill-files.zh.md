@@ -113,8 +113,8 @@ ctx.tools.register(defineTool({
 配置 `dsh-spill-policy` 后，格式化后的大型 fetch 结果会自动保留并 spill。部署通过把提供方资源上限设得高于策略上限来展示此行为：
 
 ```yaml
-- id: web-fetch-local
-  name: '@deepseek-ai/dsh-web-fetch-local'
+- id: web-fetch-http
+  name: '@deepseek-ai/dsh-web-fetch-http'
   config:
     maxBodyChars: 500000
 
@@ -127,13 +127,13 @@ ctx.tools.register(defineTool({
     maxInlineBytes: 50000
 ```
 
-这项分离很重要。`web-fetch-local` 仍负责资源上限（`maxResponseBytes`、`maxBodyChars`），用来保护网络、内存和解码工作。`spill-policy` 只负责结果已经存在后针对模型上下文的上限。如果提供方已经返回 `truncated: true`，spill 文件包含的是工具返回的完整格式化结果，而不是原始网页全文；策略不会做出其他承诺。
+这项分离很重要。`web-fetch-http` 仍负责资源上限（`maxResponseBytes`、`maxBodyChars`），用来保护网络、内存和解码工作。`spill-policy` 只负责结果已经存在后针对模型上下文的上限。如果提供方已经返回 `truncated: true`，spill 文件包含的是工具返回的完整格式化结果，而不是原始网页全文；策略不会做出其他承诺。
 
 ## 与保留和提前 spill 的关系
 
 保留与 spill 存储相互独立：
 
-- `@deepseek-ai/dsh-retention` 负责预览机制（`TextRetainer`、`ItemRetainer` 和省略元数据）。
+- `@deepseek-ai/dsh-output-retention` 负责预览机制（`TextRetainer`、`ItemRetainer` 和省略元数据）。
 - `@deepseek-ai/dsh-spill` 负责保存最终文本，并返回定位符与检索提示。
 - `@deepseek-ai/dsh-spill-policy` 在工具流水线中应用默认的最终结果策略，将前两者组合起来。
 
@@ -151,7 +151,7 @@ ctx.tools.register(defineTool({
 - v1 不增加逐工具的保留配置。
 - 不增加面向模型的超时／截断参数。
 - 不把 `read` 输出迁移到 spill 文件。
-- 不取代 `web-fetch-local.maxBodyChars` 等提供方／资源上限。
+- 不取代 `web-fetch-http.maxBodyChars` 等提供方／资源上限。
 - 第一版不统一 bash 临时文件，也不采集 subagent 执行轨迹。
 
 ## 延后事项
@@ -190,6 +190,6 @@ ctx.tools.register(defineTool({
 
 **使用 `ctx.fs.writeText` 或面向模型的 `write` 工具。** 不予采纳：工作区文件系统写入带有项目文件语义、写入／编辑策略、观察状态和面向用户的副作用。spill 文件是运行时产物，不是由模型编写的工作区改动。现有 `read` 工具之后可以检查它们，但创建操作属于运行时 spill seam。
 
-**让 `web-fetch-local` 不受限地抓取，只依靠 spill-policy。** 不予采纳：spill-policy 在最终工具结果已经存在之后才运行，无法保护网络、内存或解码资源。提供方资源上限仍然必须存在。
+**让 `web-fetch-http` 不受限地抓取，只依靠 spill-policy。** 不予采纳：spill-policy 在最终工具结果已经存在之后才运行，无法保护网络、内存或解码资源。提供方资源上限仍然必须存在。
 
 **把保留合并进 spill 机制。** 不予采纳：保留与 spill 职责不同。`TextRetainer`／`ItemRetainer` 决定保留哪部分预览、又省略了什么；spill 存储只负责保存策略要求的最终文本。

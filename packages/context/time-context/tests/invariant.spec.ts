@@ -4,14 +4,14 @@ import { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as TimeInvariant from '@deepseek-ai/dsh-time-context/invariant'
-import InvariantService from '@deepseek-ai/dsh-invariants'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 const SECOND = Date.parse('2026-07-14T00:00:00Z')
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(InvariantService, { enabled: true })
+  await ctx.plugin(InvariantRegistry, { enabled: true })
   await ctx.plugin(TimeInvariant)
   return ctx
 }
@@ -200,7 +200,7 @@ describe('time-context invariants', () => {
     }), { surfaceOp: 'append' })
     appendReading(session, reading())
 
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     await expect(ctx.plugin(TimeInvariant)).resolves.toBeDefined()
   })
 
@@ -216,7 +216,7 @@ describe('time-context invariants', () => {
     }), { surfaceOp: 'append' })
     appendReading(session, reading('1', '2', 'step context'))
 
-    await ctx.plugin(InvariantService, { enabled: true })
+    await ctx.plugin(InvariantRegistry, { enabled: true })
     await expect(ctx.plugin(TimeInvariant).then(() => undefined)).rejects.toThrow(/expected turn 1\/step 1/)
   })
 

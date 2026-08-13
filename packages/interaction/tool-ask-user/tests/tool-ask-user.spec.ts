@@ -3,8 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import UserQuestionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
 const testToolSignal = new AbortController().signal
@@ -29,8 +29,8 @@ async function setup() {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(UserInteractionService)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(UserQuestionService)
   await ctx.plugin(toolAskUser)
   return ctx
 }
@@ -75,10 +75,10 @@ describe('ask_user_question tool', () => {
     expect(parameters.properties.questions.items.properties.options.items.properties).not.toHaveProperty('preview')
   })
 
-  it('asks the registered user-interaction provider and projects structured answers to text', async () => {
+  it('asks the registered user-questions provider and projects structured answers to text', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'pkg', selected: ['pnpm'] }] }
@@ -114,7 +114,7 @@ describe('ask_user_question tool', () => {
   it('passes recommended option labels through without adding schema fields', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'pkg', selected: ['pnpm (Recommended)'] }] }
@@ -145,7 +145,7 @@ describe('ask_user_question tool', () => {
 
   it('projects custom answers and multi-select choices', async () => {
     const ctx = await setup()
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask() {
         return {
           answers: [
@@ -195,10 +195,10 @@ describe('ask_user_question tool', () => {
     }])
   })
 
-  it('passes the tool abort signal to the user-interaction request', async () => {
+  it('passes the tool abort signal to the user-questions request', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
@@ -216,10 +216,10 @@ describe('ask_user_question tool', () => {
     expect(seen[0]?.signal).toBe(controller.signal)
   })
 
-  it('passes optional header and a resumed runtime root through to the user-interaction request', async () => {
+  it('passes optional header and a resumed runtime root through to the user-questions request', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
@@ -240,7 +240,7 @@ describe('ask_user_question tool', () => {
     expect(seen[0]).toMatchObject({ questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }], agent })
   })
 
-  it('returns structured user-interaction errors through tool execution', async () => {
+  it('returns structured user-questions errors through tool execution', async () => {
     const ctx = await setup()
 
     const result = await ctx.tools.execute({
@@ -252,14 +252,14 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { info: { name: 'UserInteractionError', code: 'NO_PROVIDER' } },
+      error: { info: { name: 'UserQuestionError', code: 'NO_PROVIDER' } },
     })
   })
 
   it('rejects a live runtime-owned agent with a structured DELEGATED_CALLER error', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userInteraction.registerProvider({
+    ctx.userQuestions.registerProvider({
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
@@ -280,7 +280,7 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { info: { name: 'UserInteractionError', code: 'DELEGATED_CALLER' } },
+      error: { info: { name: 'UserQuestionError', code: 'DELEGATED_CALLER' } },
       content: [{
         type: 'text',
         text: "Error: human interaction is unavailable while the calling agent is owned by another live agent; include the unresolved question or decision in the child agent's final result",
@@ -301,15 +301,15 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { info: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' } },
+      error: { info: { name: 'UserQuestionError', code: 'EMPTY_QUESTIONS' } },
     })
   })
 
   it('unregisters the tool when its plugin fiber is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(UserQuestionService)
     const fiber = await ctx.plugin(toolAskUser)
     expect(ctx.tools.get('ask_user_question')).toBeDefined()
 

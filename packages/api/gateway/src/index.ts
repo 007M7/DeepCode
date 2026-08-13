@@ -1,5 +1,5 @@
 /**
- * Live TypeRT Remote dispatch over Cordis Services and registered providers.
+ * Live Typert Remote dispatch over Cordis Services and registered providers.
  * Transport, request correlation, and response envelopes belong to Connection.
  * @module @deepseek-ai/dsh-api-gateway
  */
@@ -8,12 +8,12 @@ import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import {
   remoteMethods,
-  TypeRTLookupFailure,
+  TypertLookupFailure,
   type InvocationDescriptor,
   type InvocationParameterDescriptor,
-  type TypeRTCodec,
-  type TypeRTGatewayBinding,
-} from '@deepseek-ai/dsh-type-meta'
+  type TypertCodec,
+  type TypertGatewayBinding,
+} from '@deepseek-ai/dsh-typert-protocol'
 import type {
   InvokeRemoteRequest,
   TypertGateway,
@@ -32,7 +32,7 @@ interface GatewayErrorOptions {
 }
 
 interface ResolvedBinding {
-  readonly binding: TypeRTGatewayBinding
+  readonly binding: TypertGatewayBinding
   readonly original: object
 }
 
@@ -84,7 +84,7 @@ class RemoteInvocationCancelled extends Error {
 
 /**
  * Resolve strict generated definitions or conservative SRC markers against
- * current Cordis Services and TypeRT providers.
+ * current Cordis Services and Typert providers.
  * @typert service typertGateway
  */
 export class TypertGatewayService extends Service implements TypertGateway {
@@ -93,8 +93,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private srcClaims: ReadonlySet<string> | undefined
 
   /**
-   * Register the Gateway against the active TypeRT registry.
-   * @param ctx - owning Host Context with TypeRT registry access.
+   * Register the Gateway against the active Typert registry.
+   * @param ctx - owning Host Context with Typert registry access.
    */
   constructor(ctx: Context) {
     super(ctx, 'typertGateway')
@@ -126,7 +126,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const receiver = this.ctx.get(serviceKey) as unknown
       if (!isObject(receiver)) continue
       const original = originalOf(receiver)
-      const binding = Reflect.get(original, 'typertGateway') as unknown
+      const binding = Reflect.get(original, 'typertRemote') as unknown
       if (!isObject(binding) || typeof Reflect.get(binding, 'namespace') !== 'string') continue
       const namespace = Reflect.get(binding, 'namespace') as string
       for (const candidate of remoteMethods(original)) {
@@ -241,7 +241,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const receiver = this.ctx.get(serviceKey) as unknown
       if (!isObject(receiver)) continue
       const original = originalOf(receiver)
-      const value = Reflect.get(original, 'typertGateway') as unknown
+      const value = Reflect.get(original, 'typertRemote') as unknown
       if (value === undefined) continue
       const binding = readBinding(value, original, serviceKey, endpoint)
       if (binding.namespace !== namespace) continue
@@ -263,7 +263,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private srcDescriptor(
-    binding: TypeRTGatewayBinding,
+    binding: TypertGatewayBinding,
     marker: ReturnType<typeof remoteMethods>[number],
     method: string,
     endpoint: string,
@@ -385,7 +385,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     try {
       context = await provider.resolve(identity)
     } catch (cause) {
-      if (cause instanceof TypeRTLookupFailure) throw cause
+      if (cause instanceof TypertLookupFailure) throw cause
       throw new TypertGatewayError(
         'context-failed',
         endpoint,
@@ -448,7 +448,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     try {
       resolved = await provider.resolve(value)
     } catch (cause) {
-      if (cause instanceof TypeRTLookupFailure) throw cause
+      if (cause instanceof TypertLookupFailure) throw cause
       throw new TypertGatewayError(
         'lookup-failed',
         endpoint,
@@ -475,7 +475,7 @@ function rpcFailure(error: unknown): ConnectionRpcResult {
       error: { code: 'cancelled', message: error.message, details: {} },
     }
   }
-  if (error instanceof TypeRTLookupFailure) {
+  if (error instanceof TypertLookupFailure) {
     return { ok: false, error: error.failure as ConnectionRpcError }
   }
   return {
@@ -499,12 +499,12 @@ function validateBinding(
   endpoint: string,
 ): ResolvedBinding {
   const original = originalOf(receiver)
-  const value = Reflect.get(original, 'typertGateway') as unknown
+  const value = Reflect.get(original, 'typertRemote') as unknown
   if (value === undefined) {
     throw new TypertGatewayError(
       'binding-invalid',
       endpoint,
-      `Service ${JSON.stringify(serviceKey)} has no visible typertGateway binding`,
+      `Service ${JSON.stringify(serviceKey)} has no visible typertRemote binding`,
     )
   }
   return {
@@ -519,7 +519,7 @@ function readBinding(
   serviceKey: string,
   endpoint: string,
   namespace?: string,
-): TypeRTGatewayBinding {
+): TypertGatewayBinding {
   if (!isObject(value)
     || Reflect.get(value, 'service') !== original
     || Reflect.get(value, 'serviceKey') !== serviceKey
@@ -528,10 +528,10 @@ function readBinding(
     throw new TypertGatewayError(
       'binding-invalid',
       endpoint,
-      `Service ${JSON.stringify(serviceKey)} has an inconsistent typertGateway binding`,
+      `Service ${JSON.stringify(serviceKey)} has an inconsistent typertRemote binding`,
     )
   }
-  return value as unknown as TypeRTGatewayBinding
+  return value as unknown as TypertGatewayBinding
 }
 
 function originalOf(receiver: object): object {
@@ -612,7 +612,7 @@ function assertExactArguments(
 }
 
 function decode(
-  codec: TypeRTCodec,
+  codec: TypertCodec,
   value: unknown,
   code: 'input-invalid' | 'result-invalid',
   endpoint: string,

@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-jsonrpc-demo
+# @deepseek-ai/dsh-sdk-jsonrpc-demo
 
 English | [中文](README.zh.md)
 
@@ -8,7 +8,7 @@ Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../sdk/serv
 
 The first non-empty channel wins: `$DSH_CORDIS_CONFIG`, then positional `argv[2]`. If neither names an existing file, the bin prints one-line usage to stderr and exits 1; there is no working-directory or built-in fallback. [`dsh-app-boot`](../../boot/app-boot/README.md) makes plugin load failures fatal. This protocol does not use `DSH_SNAPSHOT`.
 
-A config without `dsh-jsonrpc` is valid and serves nothing; the bin does not designate a server plugin.
+A config without `dsh-sdk-jsonrpc-server` is valid and serves nothing; the bin does not designate a server plugin.
 
 ## Exit lifecycle
 
@@ -28,6 +28,6 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **The bin cannot prove that the config serves JSON-RPC** — a valid config with no `dsh-jsonrpc` entry boots successfully and serves nothing.
+- **The bin cannot prove that the config serves JSON-RPC** — a valid config with no `dsh-sdk-jsonrpc-server` entry boots successfully and serves nothing.
 - **No built-in or default config exists** — every launch must provide `DSH_CORDIS_CONFIG` or a positional path, and deployment owns the complete plugin tree and stdout discipline.
 - **stdin EOF cuts off in-flight work** — client disappearance disposes the root immediately; callers that need orderly completion use the protocol-level `shutdown` request.

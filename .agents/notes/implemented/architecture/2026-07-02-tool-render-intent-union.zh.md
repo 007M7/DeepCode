@@ -47,7 +47,7 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ### 生产者映射
 
 - `dsh-tool-fs` read → `generic`（`kind:'read'`，附带一个 follow-along `location`）；write → `diff`（`oldText:null`）；edit → `diff`（`oldText:old_string || null`，`newText:new_string ?? ''`）。这与 `claude-agent-acp` 的 `toolInfoFromToolUse` 中 Read/Write/Edit 各分支逐字段对应。
-- `dsh-tool-bash` 前台运行 → `terminal` 调用 + `terminal` 结果；`run_in_background` → `generic`。通用 `task_*` 控制工具拥有各自的 generic 卡片。
+- `dsh-tool-bash` 前台运行 → `terminal` 调用 + `terminal` 结果；`run_in_background` → `generic`。通用 `job_*` 控制工具拥有各自的 generic 卡片。
 - `dsh-tool-todo` → `generic`。
 
 ### 终端回退的归属

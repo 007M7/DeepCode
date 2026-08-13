@@ -116,8 +116,8 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     expect(artifact?.remote?.dts).toContain(
       "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
-    expect(artifact?.remote?.dts).toContain('interface TypeRTRemoteNamespace$676f616c73 {\n    create:')
-    expect(artifact?.remote?.dts).toContain("'goals': TypeRTRemoteNamespace$676f616c73")
+    expect(artifact?.remote?.dts).toContain('interface TypertRemoteNamespace$676f616c73 {\n    create:')
+    expect(artifact?.remote?.dts).toContain("'goals': TypertRemoteNamespace$676f616c73")
     expect(artifact?.remote?.dts).toContain(
       "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateGoalResult>>",
     )
@@ -394,13 +394,13 @@ export interface ClientMarker {
     {
       name: 'missing binding',
       edit: (source: string) => source.replace(
-        "export class GoalService extends GatewayService {\n  constructor() {\n    super(undefined, 'goals')\n  }",
+        "export class GoalService extends TypertRemoteService {\n  constructor() {\n    super(undefined, 'goals')\n  }",
         'export class GoalService {',
       ),
-      message: 'Remote methods require GatewayService',
+      message: 'Remote methods require TypertRemoteService',
     },
     {
-      name: 'dynamic GatewayService key',
+      name: 'dynamic TypertRemoteService key',
       edit: (source: string) => source.replace(
         "  constructor() {\n    super(undefined, 'goals')\n  }",
         '  constructor(serviceKey: string) {\n    super(undefined, serviceKey)\n  }',
@@ -408,41 +408,41 @@ export interface ClientMarker {
       message: 'Gateway service key must be a string literal',
     },
     {
-      name: 'GatewayService without a constructor',
+      name: 'TypertRemoteService without a constructor',
       edit: (source: string) => source.replace(
         "  constructor() {\n    super(undefined, 'goals')\n  }\n\n",
         '',
       ),
-      message: 'GatewayService subclasses must declare a constructor',
+      message: 'TypertRemoteService subclasses must declare a constructor',
     },
     {
-      name: 'GatewayService without a direct super call',
+      name: 'TypertRemoteService without a direct super call',
       edit: (source: string) => source.replace(
         "    super(undefined, 'goals')",
         '    void undefined',
       ),
-      message: 'GatewayService constructor must call super',
+      message: 'TypertRemoteService constructor must call super',
     },
     {
-      name: 'GatewayService super call without a service key',
+      name: 'TypertRemoteService super call without a service key',
       edit: (source: string) => source.replace(
         "    super(undefined, 'goals')",
         '    super(undefined)',
       ),
-      message: 'GatewayService super\\(\\) requires context, service key',
+      message: 'TypertRemoteService super\\(\\) requires context, service key',
     },
     {
-      name: 'duplicate GatewayService field binding',
+      name: 'duplicate TypertRemoteService field binding',
       edit: (source: string) => source
         .replace(
-          'import { GatewayService, Remote, RemoteScope }',
-          'import { GatewayService, Remote, RemoteScope, bindTypeRTGateway }',
+          'import { TypertRemoteService, Remote, RemoteScope }',
+          'import { TypertRemoteService, Remote, RemoteScope, bindTypertRemote }',
         )
         .replace(
-          'export class GoalService extends GatewayService {',
-          "export class GoalService extends GatewayService {\n  readonly typertGateway = bindTypeRTGateway(this, 'goals')",
+          'export class GoalService extends TypertRemoteService {',
+          "export class GoalService extends TypertRemoteService {\n  readonly typertRemote = bindTypertRemote(this, 'goals')",
         ),
-      message: 'GatewayService subclasses must not declare a second typertGateway binding',
+      message: 'TypertRemoteService subclasses must not declare a second typertRemote binding',
     },
     {
       name: 'private method',
@@ -520,11 +520,11 @@ export interface ClientMarker {
   it('rejects a workspace class parameter without a lookup declaration', () => {
     const root = copyFixture()
     editFile(root, 'packages/domain/src/index.ts', source => source.replace(
-      '  interface TypeRTLookupMap {\n    agent: TypeRTLookup<Agent, AgentId>\n  }\n\n',
+      '  interface TypertLookupMap {\n    agent: TypertLookup<Agent, AgentId>\n  }\n\n',
       '',
     ))
 
-    expect(() => analyzeRemote(root, false)).toThrow(/non-JSON class parameter Agent requires a TypeRTLookupMap entry/)
+    expect(() => analyzeRemote(root, false)).toThrow(/non-JSON class parameter Agent requires a TypertLookupMap entry/)
   })
 
   it.each([
@@ -557,7 +557,7 @@ export interface ClientMarker {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source.replace("@RemoteScope('agent')", "@RemoteScope('missing')"))
 
-    expect(() => analyzeRemote(root, false)).toThrow(/Remote Scope missing has no TypeRTContextMap entry/)
+    expect(() => analyzeRemote(root, false)).toThrow(/Remote Scope missing has no TypertContextMap entry/)
   })
 
   it('rejects a direct scoped projection whose Context and lookup wire symbols differ', () => {
@@ -565,7 +565,7 @@ export interface ClientMarker {
     editFile(root, 'packages/domain/src/types.ts', source => `${source}\n/** Deliberately distinct Context identity for the failure fixture. */\nexport type OtherAgentId = string\n`)
     editFile(root, 'packages/domain/src/index.ts', source => source
       .replace("import type { AgentId } from './types.ts'", "import type { AgentId, OtherAgentId } from './types.ts'")
-      .replace('agent: TypeRTContext<AgentId>', 'agent: TypeRTContext<OtherAgentId>'))
+      .replace('agent: TypertContext<AgentId>', 'agent: TypertContext<OtherAgentId>'))
 
     expect(() => analyzeRemote(root, false)).toThrow(/Remote scope agent wire type .* does not match lookup wire type/)
   })
@@ -573,7 +573,7 @@ export interface ClientMarker {
   it('rejects duplicate endpoints across Remote services', () => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => `${source}
-export class DuplicateGoalService extends GatewayService {
+export class DuplicateGoalService extends TypertRemoteService {
   constructor() {
     super(undefined, 'duplicate', { namespace: 'goals' })
   }
@@ -637,22 +637,22 @@ function assertRemoteConsumerTypechecks(
 import remote from '@fixture/remote/remote'
 import type {
   RemoteResult,
-  TypeRTRemoteContribution,
-  TypeRTRemoteScopeMap,
-  TypeRTRemoteMap,
-  TypeRTRemoteNamespaceMap,
-} from '@deepseek-ai/dsh-type-meta'
+  TypertRemoteContribution,
+  TypertRemoteScopeMap,
+  TypertRemoteMap,
+  TypertRemoteNamespaceMap,
+} from '@deepseek-ai/dsh-typert-protocol'
 import type { CreateGoalResult, RenameGoalResult } from '@fixture/remote/types'
 
-const contribution: TypeRTRemoteContribution = remote
-declare const create: TypeRTRemoteMap['goals/create']
-declare const createScoped: TypeRTRemoteScopeMap['agent:goals/create']
-declare const rename: TypeRTRemoteScopeMap['agent:goals/rename']
+const contribution: TypertRemoteContribution = remote
+declare const create: TypertRemoteMap['goals/create']
+declare const createScoped: TypertRemoteScopeMap['agent:goals/create']
+declare const rename: TypertRemoteScopeMap['agent:goals/rename']
 const created: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' })
 const cancellable: Promise<RemoteResult<CreateGoalResult>> = create('agent-1', { title: 'ship' }, new AbortController().signal)
 const createdScoped: Promise<RemoteResult<CreateGoalResult>> = createScoped({ title: 'ship' })
 const renamed: Promise<RemoteResult<RenameGoalResult>> = rename({ ref: 'goal-1', title: 'land' })
-declare const ctx: { remote: TypeRTRemoteNamespaceMap }
+declare const ctx: { remote: TypertRemoteNamespaceMap }
 const navigated: Promise<RemoteResult<CreateGoalResult>> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
 void contribution
 void created
@@ -669,7 +669,7 @@ void navigated
       composite: false,
       skipLibCheck: false,
       paths: {
-        '@deepseek-ai/dsh-type-meta': ['./type-meta.d.ts'],
+        '@deepseek-ai/dsh-typert-protocol': ['./typert-protocol.d.ts'],
         '@fixture/domain/types': ['./packages/domain/src/types.ts'],
         '@fixture/remote/types': ['./packages/remote/src/types.ts'],
         '@fixture/remote/remote': ['./packages/remote/lib/typert.remote-client.d.ts'],
@@ -731,8 +731,8 @@ void navigated
 function assertRemoteConsumerWithoutImportHasNoNamespace(consumerRoot: string): void {
   const consumerPath = join(consumerRoot, 'consumer-without-remote.ts')
   writeFileSync(consumerPath, `
-import type { TypeRTRemoteNamespaceMap } from '@deepseek-ai/dsh-type-meta'
-declare const ctx: { remote: TypeRTRemoteNamespaceMap }
+import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
+declare const ctx: { remote: TypertRemoteNamespaceMap }
 ctx.remote.goals.create('agent-1', { title: 'must not compile' })
 `)
   const configPath = join(consumerRoot, 'tsconfig.consumer-without-remote.json')
@@ -742,7 +742,7 @@ ctx.remote.goals.create('agent-1', { title: 'must not compile' })
       composite: false,
       skipLibCheck: false,
       paths: {
-        '@deepseek-ai/dsh-type-meta': ['./type-meta.d.ts'],
+        '@deepseek-ai/dsh-typert-protocol': ['./typert-protocol.d.ts'],
       },
     },
     files: ['./consumer-without-remote.ts'],

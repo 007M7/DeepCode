@@ -2,24 +2,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
+import { WorkflowRunId, WorkflowEngine } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowResult, WorkflowRun,
   WorkflowRunId as WorkflowRunIdType, WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SubagentService from '@deepseek-ai/dsh-subagent'
-import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import WorkerThreadWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as toolWorkflow from '../src/index.ts'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
 
-/** A controllable engine standing in behind ctx.workflows (the tool's only seam). */
-class StubEngine extends WorkflowService {
+/** A controllable engine standing in behind ctx.workflowEngine (the tool's only seam). */
+class StubEngine extends WorkflowEngine {
   requests: WorkflowStartRequest[] = []
   cancels: string[] = []
   disposed = 0
@@ -77,10 +77,10 @@ class StubEngine extends WorkflowService {
 async function setup(config?: { toolName?: string; maxResultChars?: number }) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(ToolRuntime)
   await ctx.plugin(StubEngine)
   await ctx.plugin(toolWorkflow, config ?? {})
-  const engine = ctx.workflows as StubEngine
+  const engine = ctx.workflowEngine as StubEngine
   const session = Session.create(SessionId('caller'))
   const parent = { id: session.id, options: {}, session } as unknown as Agent
   return { ctx, engine, parent, session }
@@ -368,7 +368,7 @@ describe('dsh-tool-workflow', () => {
   it('registers under a configured toolName and unregisters on fiber dispose (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolRuntime)
     await ctx.plugin(StubEngine)
     const fiber = await ctx.plugin(toolWorkflow, { toolName: 'orchestrate' })
     expect(ctx.tools.get('orchestrate')).toBeDefined()
@@ -406,7 +406,7 @@ describe('dsh-tool-workflow', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in toolWorkflow).toBe(false)
     expect(toolWorkflow.name).toBe('tool-workflow')
-    expect(toolWorkflow.inject).toEqual(['tools', 'workflows', 'systemPrompt'])
+    expect(toolWorkflow.inject).toEqual(['tools', 'workflowEngine', 'systemPrompt'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolWorkflow) as Record<string, unknown>
     expect(unwrapped).toBe(toolWorkflow)
@@ -419,15 +419,15 @@ describe('dsh-tool-workflow', () => {
       // parked on an unowned promise. Exercise that guarantee through the real registry and worker.
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      await ctx.plugin(SubagentService)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(SubagentRuntime)
       ctx.subagents.registerProvider({
         name: 'spawn',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
         inheritsParentContext: false,
         start: () => Promise.reject(new Error('the parked-script fixture must not start a child')),
       })
-      await ctx.plugin(WorkerWorkflowEngine, { disposeGraceMs: 30 })
+      await ctx.plugin(WorkerThreadWorkflowEngine, { disposeGraceMs: 30 })
       await ctx.plugin(toolWorkflow, {})
       const session = Session.create(SessionId('caller'))
       const parent = { id: session.id, options: {}, session } as unknown as Agent

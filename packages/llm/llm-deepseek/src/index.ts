@@ -16,10 +16,10 @@ import z from '@deepseek-ai/schemastery'
 import { assertUsableApiKey, LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { environmentOf, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
+import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-user-id'
+import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TOKENS,
@@ -158,7 +158,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
  * gateway that checkout is meant to use.
  * @returns validated connection facts plus the credential reference.
  */
-export function resolveAdapterOptions(config: Config, environment?: EnvironmentSnapshot): ResolvedDeepSeekOptions {
+export function resolveAdapterOptions(config: Config, environment?: LaunchEnvironmentSnapshot): ResolvedDeepSeekOptions {
   if (config.thinking === 'disabled'
     && config.reasoningEffort !== undefined
     && config.reasoningEffort !== 'off') {
@@ -205,7 +205,7 @@ export function apply(ctx: Context, config: Config): void {
     const raw = current()
     if (raw === lastRaw && lastGood !== undefined) return lastGood
     try {
-      const next = resolveAdapterOptions(raw, environmentOf(ctx))
+      const next = resolveAdapterOptions(raw, launchEnvironmentOf(ctx))
       lastRaw = raw
       lastGood = next
       return next
@@ -233,7 +233,7 @@ export function apply(ctx: Context, config: Config): void {
     } else {
       // Without the seam there is no managed store to rank against, so the
       // environment is the whole credential plane.
-      const ambient = environmentOf(ctx).get(ref)
+      const ambient = launchEnvironmentOf(ctx).get(ref)
       if (ambient !== undefined && ambient.value.length > 0) {
         return assertUsableApiKey(ambient.value, 'llm-deepseek', ref)
       }

@@ -3,7 +3,7 @@
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.__ModuleLoader__.load, resolves externals through the injected
  * require, returns the exports (apply + inject), and a mounted apply
- * registers the view tab into a real SlotsService ring. Skips when dist/ is
+ * registers the view tab into a real SlotRegistry ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
 import { readFileSync } from 'node:fs'
@@ -12,7 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationViewRegistry, SlotsService,
+  ConversationEventRegistry, ConversationViewRegistry, SlotRegistry,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
@@ -72,7 +72,7 @@ describe('tsdown client artifact', () => {
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
     const { exports } = await loadArtifact()
     const ctx = new Context()
-    const slots = new SlotsService(ctx)
+    const slots = new SlotRegistry(ctx)
     await ctx.plugin(ConversationEventRegistry).await()
     await ctx.plugin(ConversationViewRegistry).await()
     // The conversation entry's role: the ring must be declared before riders land.

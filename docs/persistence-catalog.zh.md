@@ -262,33 +262,33 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/interaction/commands/src/types.ts:88`](../packages/interaction/commands/src/types.ts)
 
-### `compact/*`
+### `compaction/*`
 
-#### `compact/end` — log-only
+#### `compaction/end` — log-only
 
 ```ts persistence-catalog
 /**
  * Marks the end of a compaction — log-only, releases the lock. Its owner
- * matches `compact/start`; `error` records an unsuccessful attempt.
+ * matches `compaction/start`; `error` records an unsuccessful attempt.
  */
-'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
+'compaction/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:71`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compaction/compaction/src/types.ts:71`](../packages/compaction/compaction/src/types.ts)
 
-#### `compact/prune` — log-only
+#### `compaction/prune` — log-only
 
 ```ts persistence-catalog
 /**
  * Shadow price of one model-free prune replacement — log-only, no
  * surfaceOp. The shared shadow-price protocol: a surface `replace` event
- * is priced by the metering event immediately before it (`compact/summary`
+ * is priced by the metering event immediately before it (`compaction/summary`
  * for a summarizing compaction, this event for a prune), which states the
  * heuristic token price of the exact replaced range so a pure consumer
  * can subtract it without retaining per-node prices. The replacement MUST
  * be appended synchronously right after this event.
  */
-'compact/prune': {
+'compaction/prune': {
   /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
   shadowedRange: { start: number; end: number }
   /** The seqs of all shadowed surface nodes, in surface order. */
@@ -298,22 +298,22 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:81`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compaction/compaction/src/types.ts:81`](../packages/compaction/compaction/src/types.ts)
 
-#### `compact/start` — log-only
+#### `compaction/start` — log-only
 
 ```ts persistence-catalog
 /**
  * Marks the start of a compaction — log-only, holds the lock until
- * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+ * `compaction/end`. A numbered owner is strictly enclosed by that open turn;
  * `null` identifies a standalone manual transaction between turns.
  */
-'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
+'compaction/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compaction/compaction/src/types.ts:23`](../packages/compaction/compaction/src/types.ts)
 
-#### `compact/summary` — log-only
+#### `compaction/summary` — log-only
 
 ```ts persistence-catalog
 /**
@@ -323,9 +323,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * shadows the compacted range. That adjacency is contractual — the
  * shadowed pricing fields are the replacement's shadow price, so a
  * consumer may pair a replacement with the metering event directly
- * before it (`compact/prune` documents the shared protocol).
+ * before it (`compaction/prune` documents the shared protocol).
  */
-'compact/summary': {
+'compaction/summary': {
   compactionId: CompactionId
   sourceCommandId?: CommandId
   summary: ContentBlock[]
@@ -363,7 +363,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-来源：[`packages/compact/compact/src/types.ts:33`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
 
 ### `feedback/*`
 
@@ -399,7 +399,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```ts persistence-catalog
 /**
  * A hook command was invoked at a hook point — a log-only record (like
- * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
+ * `compaction/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
  * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
  * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group
  * pattern that selected it (absent for match-all), `handlerId` a stable id
@@ -472,7 +472,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'permission/preset': { preset: string }
 ```
 
-来源：[`packages/interaction/permission/src/index.ts:50`](../packages/interaction/permission/src/index.ts)
+来源：[`packages/interaction/permission-presets/src/index.ts:50`](../packages/interaction/permission-presets/src/index.ts)
 
 ### `plan/*`
 
@@ -550,7 +550,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[ScheduleChange](subsystems/schedule.md)
 
-来源：[`packages/schedule/tool-schedule/src/types.ts:219`](../packages/schedule/tool-schedule/src/types.ts)
+来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
 
 ### `session/*`
 
@@ -572,8 +572,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * companion deliberately constrains nothing here, so a plugin appending one
  * would silently classify every live bracket before it as seed history.
  *
- * An owner of a standalone open/close bracket (`compact/start` …
- * `compact/end`) reads it because seed history and live work are otherwise
+ * An owner of a standalone open/close bracket (`compaction/start` …
+ * `compaction/end`) reads it because seed history and live work are otherwise
  * byte-identical: an unmatched opening marker before this event belongs to
  * an ended lifecycle, whatever ended it. NOT a liveness signal about other
  * writers — a concurrently live session holds its own boundary elsewhere,

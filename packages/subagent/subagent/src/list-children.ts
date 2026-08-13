@@ -122,7 +122,7 @@ interface PositionedCandidate {
  * projection-cache row when it serves an own-suffix identity (the seq gate),
  * else one bounded-concurrency persistence inspection folded through the
  * registry.
- * @see SubagentService.listChildren for the public cancellation and failure contract.
+ * @see SubagentRuntime.listChildren for the public cancellation and failure contract.
  * @param ctx - context carrying the session store, the projection registry,
  *   optional persistence, and the optional projection cache.
  * @param parentSessionId - parent session whose direct children are listed.
@@ -151,7 +151,7 @@ export async function listChildren(
  * continuable child below either is still discovered. Classification uses the
  * same projection-backed runtime as {@link listChildren}; no Agent is loaded or
  * resumed.
- * @see SubagentService.listDescendants for the public cancellation and failure contract.
+ * @see SubagentRuntime.listDescendants for the public cancellation and failure contract.
  * @param ctx - context carrying the session store, projection registry, and optional persistence/cache.
  * @param rootSessionId - session whose complete descendant tree is listed.
  * @param signal - caller-owned cancellation observed around every persistence read.

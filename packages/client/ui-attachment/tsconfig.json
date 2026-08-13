@@ -12,7 +12,7 @@
       "path": "../../attachment/attachment"
     },
     {
-      "path": "../../support/invariants"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../ui-primitives"

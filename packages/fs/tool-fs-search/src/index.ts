@@ -8,7 +8,7 @@
  *
  * Local workspace discovery is a process-backed `rg` workflow, so these tools
  * execute through `ctx.subprocess.spawn()` with fixed ripgrep argv templates —
- * never `ctx.bash`, never `ctx.bash.start()`, never a model-visible background
+ * never `ctx.shell`, never `ctx.shell.start()`, never a model-visible background
  * task. The tool layer owns schemas, argument validation, argv construction
  * ({@link module:@deepseek-ai/dsh-tool-fs-search/glob} /
  * {@link module:@deepseek-ai/dsh-tool-fs-search/grep}), result parsing,
@@ -87,7 +87,10 @@ export interface Config {
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number
-  /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
+  /**
+   * Cooperative tool-call timeout budget (ms) on both tools, enforced by
+   * `@deepseek-ai/dsh-tool-call-timeout-policy` through `exec.signal`.
+   */
   timeoutMs?: number
 }
 

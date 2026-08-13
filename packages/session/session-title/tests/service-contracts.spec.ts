@@ -74,7 +74,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     }))
     withProvider.sessionTitle.register({
       id: SessionTitleProviderId('empty-provider'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate,
     })
     const providerEmpty = withProvider.sessions.create(SessionId('empty-provider'))
@@ -94,7 +94,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     let observed: SessionTitleProviderRequest | undefined
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('explicit-no-route'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       async generate(request) {
         observed = request
         return { title: 'Explicit title', messageSeqs: [request.messages[0]!.seq] }
@@ -117,7 +117,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     let callerSignal: AbortSignal | undefined
     callerCtx.sessionTitle.register({
       id: SessionTitleProviderId('caller-cancel'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate(request) {
         callerSignal = request.signal
         return callerPending.promise
@@ -139,7 +139,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     let disposeSignal: AbortSignal | undefined
     disposeCtx.sessionTitle.register({
       id: SessionTitleProviderId('session-dispose'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate(request) {
         disposeSignal = request.signal
         return disposePending.promise
@@ -215,7 +215,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     const results: Array<ReturnType<typeof deferred<SessionTitleProviderResult>>> = []
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('refresh-order'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate(request) {
         requests.push(request)
         const result = deferred<SessionTitleProviderResult>()
@@ -293,7 +293,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     const requests: SessionTitleProviderRequest[] = []
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('service-unload'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate(request) {
         requests.push(request)
         return result.promise
@@ -362,12 +362,12 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
     expect(() => ctx.sessionTitle.register('provider' as never)).toThrow(/must be an object/)
     expect(() => ctx.sessionTitle.register({
       id: 1,
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate,
     } as unknown as SessionTitleProvider)).toThrow(/id must be a non-empty string/)
     expect(() => ctx.sessionTitle.register({
       id: SessionTitleProviderId(''),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate,
     })).toThrow(/id must be a non-empty string/)
     expect(() => ctx.sessionTitle.register({
@@ -377,7 +377,7 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
     })).toThrow(/automatic mode is invalid/)
     expect(() => ctx.sessionTitle.register({
       id: SessionTitleProviderId('missing-generate'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate: undefined,
     } as unknown as SessionTitleProvider)).toThrow(/requires generate/)
   })
@@ -390,7 +390,7 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
     }))
     const dispose = ctx.sessionTitle.register({
       id: SessionTitleProviderId('queued-dispose'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate,
     })
     const session = startSession(ctx, 'queued-dispose')
@@ -414,7 +414,7 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
     let result: unknown
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('invalid-results'),
-      automatic: 'first-message',
+      automatic: 'first-prompt',
       generate: async () => result as SessionTitleProviderResult,
     })
     const session = startSession(ctx, 'invalid-results')

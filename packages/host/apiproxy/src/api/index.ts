@@ -33,7 +33,11 @@ export interface ApiProxy {
   llm: LlmApi
   /** Host-only download surfaces (GET, no wire envelope); absent from IApiClient. */
   downloads: DownloadsApi
-  /** Response entry for server-requests (client-response, echoing their rpcId); not a domain method (four-quadrant model). */
+  /**
+   * Response entry for server requests; not a domain method.
+   * @param message - Client response carrying the server request's rpcId.
+   * @returns Transport receipt for the response delivery.
+   */
   respond(message: ClientResponse): Promise<RpcReceipt>
 }
 
@@ -48,7 +52,7 @@ export type {
   SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
   SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
-export type { TaskView } from './tasks.ts'
+export type { JobView } from './jobs.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'

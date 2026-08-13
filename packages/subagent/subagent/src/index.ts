@@ -7,10 +7,10 @@
  * Unlike the bash seam (one executor per context, second load throws), MULTIPLE
  * providers coexist here: each registers under a unique name and a caller picks
  * one by name. The shape mirrors the LLM adapter registry
- * (`LlmService.registerAdapter`), not the single-service bash executor.
+ * (`LlmRuntime.registerAdapter`), not the single-service bash executor.
  *
  * This package owns the Service Definition role of the capability seam. Service providers
- * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
+ * (`@deepseek-ai/dsh-subagent-spawn-in-process`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
  * Public operations express caller intent: `start` returns one published owned
@@ -128,7 +128,7 @@ export type { SubagentIdentityProjection, SubagentTimingProjection } from './pro
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    subagents: SubagentService
+    subagents: SubagentRuntime
   }
 
   interface Events {
@@ -154,7 +154,7 @@ declare module '@deepseek-ai/cordis' {
      * @dshScopeScan unsupported
      * @mode emit
      */
-    'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
+    'subagent/start'(this: Scoped<SubagentRuntime>, info: SubagentRunInfo): void
     /**
      * A published child settled. Scope-filtered dispatch uses the same delegating
      * parent carrier as `subagent/start`, so the lifecycle pair reaches the
@@ -163,12 +163,12 @@ declare module '@deepseek-ai/cordis' {
      * @dshScopeScan unsupported
      * @mode emit
      */
-    'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
+    'subagent/end'(this: Scoped<SubagentRuntime>, info: SubagentRunEndInfo): void
   }
 }
 
 /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
-export class SubagentService extends Service {
+export class SubagentRuntime extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
@@ -369,7 +369,7 @@ export class SubagentService extends Service {
   registerProvider(provider: SubagentProvider): () => void {
     const name = provider.name
     // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return this.ctx.effect(function* (this: SubagentService) {
+    return this.ctx.effect(function* (this: SubagentRuntime) {
       if (this.providers.has(name)) {
         throw new SubagentError(`a subagent provider named "${name}" is already registered`, 'DUPLICATE_PROVIDER')
       }
@@ -496,4 +496,4 @@ export class SubagentService extends Service {
   }
 }
 
-export default SubagentService
+export default SubagentRuntime

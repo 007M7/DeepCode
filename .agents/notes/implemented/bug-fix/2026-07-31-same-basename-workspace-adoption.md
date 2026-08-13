@@ -10,7 +10,7 @@ A Workspace is identified by its stable id and canonical directory path, while i
 
 ## Decision
 
-`ctx.workspace.create(path, title?)` treats canonical path as the only uniqueness key. Repeating the same path remains idempotent and preserves the registered title. Different canonical paths create different Workspace records and may share a title; when no title is supplied, each record still derives its title from `basename(path)` without suffixing or rewriting it.
+`ctx.workspaceRegistry.create(path, title?)` treats canonical path as the only uniqueness key. Repeating the same path remains idempotent and preserves the registered title. Different canonical paths create different Workspace records and may share a title; when no title is supplied, each record still derives its title from `basename(path)` without suffixing or rewriting it.
 
 The Host's `workspace.create({ path })` adoption route inherits that rule. The Workspace manager, picker, grouping tree, selection, rename, deletion, and Session creation continue to use `WorkspaceId`, so equal labels neither merge records nor redirect an operation. The sidebar hover card exposes each canonical path when the labels need disambiguation.
 

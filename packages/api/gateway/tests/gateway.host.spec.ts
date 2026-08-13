@@ -4,17 +4,17 @@ import { describe, expect, it } from 'vitest'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
-import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
-  bindTypeRTGateway,
+  bindTypertRemote,
   Remote,
   RemoteScope,
-  TypeRTLookupFailure,
+  TypertLookupFailure,
   type InvocationDescriptor,
-  type TypeRTContext,
-  type TypeRTLookup,
-  type TypeRTLookupProvider,
-} from '@deepseek-ai/dsh-type-meta'
+  type TypertContext,
+  type TypertLookup,
+  type TypertLookupProvider,
+} from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry, { type TypertContribution } from '@deepseek-ai/dsh-typert-registry'
 import TypertGatewayService, { TypertGatewayError } from '@deepseek-ai/dsh-api-gateway'
 
@@ -26,14 +26,14 @@ interface MarkedContext extends Context {
   readonly fixtureScope?: string
 }
 
-declare module '@deepseek-ai/dsh-type-meta' {
-  interface TypeRTLookupMap {
-    gatewayFixture: TypeRTLookup<FixtureAgent, string>
-    gatewayFixtureAlias: TypeRTLookup<FixtureAgent, string>
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertLookupMap {
+    gatewayFixture: TypertLookup<FixtureAgent, string>
+    gatewayFixtureAlias: TypertLookup<FixtureAgent, string>
   }
 
-  interface TypeRTContextMap {
-    gatewayFixture: TypeRTContext<string>
+  interface TypertContextMap {
+    gatewayFixture: TypertContext<string>
   }
 }
 
@@ -44,7 +44,7 @@ const emptyModel: TypertContribution['model'] = {
 }
 
 class GoalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+  readonly typertRemote = bindTypertRemote(this, 'goals')
   readonly calls: string[] = []
   lastSignal: AbortSignal | undefined
   nextResult: unknown = undefined
@@ -137,7 +137,7 @@ class FakeConnectionService extends Service {
   }
 }
 
-function fakeHttpServer(routes: WebRoute[]): Pick<HttpServerService, 'register' | 'tapIndex' | 'port'> {
+function fakeHttpServer(routes: WebRoute[]): Pick<WebServer, 'register' | 'tapIndex' | 'port'> {
   return {
     register(route) {
       if (routes.some(candidate => candidate.kind === route.kind && candidate.path === route.path)) {
@@ -169,7 +169,7 @@ async function serveRoute(route: WebRoute): Promise<{ readonly origin: string; c
 }
 
 class FirstSharedService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'firstShared', { namespace: 'shared' })
+  readonly typertRemote = bindTypertRemote(this, 'firstShared', { namespace: 'shared' })
 
   constructor(ctx: Context) {
     super(ctx, 'firstShared')
@@ -182,7 +182,7 @@ class FirstSharedService extends Service {
 }
 
 class SecondSharedService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'secondShared', { namespace: 'shared' })
+  readonly typertRemote = bindTypertRemote(this, 'secondShared', { namespace: 'shared' })
 
   constructor(ctx: Context) {
     super(ctx, 'secondShared')
@@ -195,7 +195,7 @@ class SecondSharedService extends Service {
 }
 
 class DefaultParameterService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'defaultParameter', { namespace: 'invalid-default' })
+  readonly typertRemote = bindTypertRemote(this, 'defaultParameter', { namespace: 'invalid-default' })
 
   constructor(ctx: Context) {
     super(ctx, 'defaultParameter')
@@ -208,7 +208,7 @@ class DefaultParameterService extends Service {
 }
 
 class DestructuredParameterService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'destructuredParameter', { namespace: 'invalid-destructure' })
+  readonly typertRemote = bindTypertRemote(this, 'destructuredParameter', { namespace: 'invalid-destructure' })
 
   constructor(ctx: Context) {
     super(ctx, 'destructuredParameter')
@@ -221,7 +221,7 @@ class DestructuredParameterService extends Service {
 }
 
 class RestParameterService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'restParameter', { namespace: 'invalid-rest' })
+  readonly typertRemote = bindTypertRemote(this, 'restParameter', { namespace: 'invalid-rest' })
 
   constructor(ctx: Context) {
     super(ctx, 'restParameter')
@@ -234,7 +234,7 @@ class RestParameterService extends Service {
 }
 
 class NonFinalSignalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'nonFinalSignal', { namespace: 'invalid-signal' })
+  readonly typertRemote = bindTypertRemote(this, 'nonFinalSignal', { namespace: 'invalid-signal' })
 
   constructor(ctx: Context) {
     super(ctx, 'nonFinalSignal')
@@ -247,7 +247,7 @@ class NonFinalSignalService extends Service {
 }
 
 class WrongBindingService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'notWrongBinding', { namespace: 'wrong-binding' })
+  readonly typertRemote = bindTypertRemote(this, 'notWrongBinding', { namespace: 'wrong-binding' })
 
   constructor(ctx: Context) {
     super(ctx, 'wrongBinding')
@@ -260,7 +260,7 @@ class WrongBindingService extends Service {
 }
 
 class ExportedMethodService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'exportedMethod', { namespace: 'exported' })
+  readonly typertRemote = bindTypertRemote(this, 'exportedMethod', { namespace: 'exported' })
 
   constructor(ctx: Context) {
     super(ctx, 'exportedMethod')
@@ -273,7 +273,7 @@ class ExportedMethodService extends Service {
 }
 
 class EmptyMethodService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'emptyMethod', { namespace: 'empty' })
+  readonly typertRemote = bindTypertRemote(this, 'emptyMethod', { namespace: 'empty' })
 
   constructor(ctx: Context) {
     super(ctx, 'emptyMethod')
@@ -286,7 +286,7 @@ class EmptyMethodService extends Service {
 }
 
 class CollidingWireService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'collidingWire', { namespace: 'colliding-wire' })
+  readonly typertRemote = bindTypertRemote(this, 'collidingWire', { namespace: 'colliding-wire' })
 
   constructor(ctx: Context) {
     super(ctx, 'collidingWire')
@@ -299,7 +299,7 @@ class CollidingWireService extends Service {
 }
 
 class ContextWireService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'contextWire', { namespace: 'context-wire' })
+  readonly typertRemote = bindTypertRemote(this, 'contextWire', { namespace: 'context-wire' })
 
   constructor(ctx: Context) {
     super(ctx, 'contextWire')
@@ -322,14 +322,14 @@ class NoBindingService extends Service {
 }
 
 class ObservedClaimService extends Service {
-  private readonly binding = bindTypeRTGateway(this, 'observedClaim', { namespace: 'observed-claim' })
+  private readonly binding = bindTypertRemote(this, 'observedClaim', { namespace: 'observed-claim' })
   bindingReads = 0
 
   constructor(ctx: Context) {
     super(ctx, 'observedClaim')
   }
 
-  get typertGateway() {
+  get typertRemote() {
     this.bindingReads += 1
     return this.binding
   }
@@ -341,7 +341,7 @@ class ObservedClaimService extends Service {
 }
 
 class MissingMethodService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'missingMethod', { namespace: 'missing-method' })
+  readonly typertRemote = bindTypertRemote(this, 'missingMethod', { namespace: 'missing-method' })
 
   constructor(ctx: Context) {
     super(ctx, 'missingMethod')
@@ -354,7 +354,7 @@ class MissingMethodService extends Service {
 }
 
 class InheritedMethodBase extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'inheritedMethod', { namespace: 'inherited' })
+  readonly typertRemote = bindTypertRemote(this, 'inheritedMethod', { namespace: 'inherited' })
 
   constructor(ctx: Context) {
     super(ctx, 'inheritedMethod')
@@ -546,7 +546,7 @@ describe('TypertGatewayService', () => {
 
   it('preserves a Host Context policy rejection for the active RPC adapter', async () => {
     const { ctx } = await setup()
-    const rejection = new TypeRTLookupFailure({ code: 'agent-busy', message: 'owned', details: { reason: 'subagent' } })
+    const rejection = new TypertLookupFailure({ code: 'agent-busy', message: 'owned', details: { reason: 'subagent' } })
     ctx.typert.contexts.registerHost('gatewayFixture', {
       ...contextProvider(ctx.extend()),
       resolve: async () => { throw rejection },
@@ -892,10 +892,10 @@ describe('TypertGatewayService', () => {
     }), 'binding-invalid')
 
     const plain: {
-      typertGateway?: ReturnType<typeof bindTypeRTGateway>
+      typertRemote?: ReturnType<typeof bindTypertRemote>
       run(value: string): string
     } = { run: value => value }
-    plain.typertGateway = bindTypeRTGateway(plain, 'plainRemote', { namespace: 'plain' })
+    plain.typertRemote = bindTypertRemote(plain, 'plainRemote', { namespace: 'plain' })
     ctx.provide('plainRemote', plain)
     ctx.typert.register({
       package: '@fixture/plain',
@@ -1060,7 +1060,7 @@ describe('TypertGatewayService', () => {
     }
     ctx.typert.lookups.register('gatewayFixture', {
       ...agentLookup({ id: 'agent-1' }),
-      resolve: () => { throw new TypeRTLookupFailure(failure) },
+      resolve: () => { throw new TypertLookupFailure(failure) },
     })
     const handler = rawConnection(ctx).handler
     if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
@@ -1103,7 +1103,7 @@ describe('TypertGatewayService', () => {
   it('dispatches claimed invocations through /api and leaves unclaimed endpoints to its fallback', async () => {
     const ctx = new Context().extend({ fixtureScope: 'http-caller' })
     const routes: WebRoute[] = []
-    ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
+    ctx.provide('webServer', fakeHttpServer(routes) as WebServer)
     const connectionFiber = ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
     await connectionFiber
     await ctx.plugin(TypertRegistry)
@@ -1242,7 +1242,7 @@ function registerAgentLookup(ctx: Context, agent: FixtureAgent): () => Promise<v
   return ctx.typert.lookups.register('gatewayFixture', agentLookup(agent))
 }
 
-function agentLookup(agent: FixtureAgent): TypeRTLookupProvider<FixtureAgent, string> {
+function agentLookup(agent: FixtureAgent): TypertLookupProvider<FixtureAgent, string> {
   return {
     parameter: 'agent',
     wire: 'agentId',

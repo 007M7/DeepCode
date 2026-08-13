@@ -75,7 +75,7 @@ describe('SessionTitleService.rename', () => {
     }))
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('pin-provider'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate,
     })
     const session = ctx.sessions.create(SessionId('rename-pin'))
@@ -139,7 +139,7 @@ describe('SessionTitleService.rename', () => {
     })
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('deferred-provider'),
-      automatic: 'all-user-messages',
+      automatic: 'all-prompts',
       generate,
     })
     const session = ctx.sessions.create(SessionId('rename-supersede'))

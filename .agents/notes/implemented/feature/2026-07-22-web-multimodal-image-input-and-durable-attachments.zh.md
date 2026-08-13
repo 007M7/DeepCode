@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-在此变更之前，Web 输入区仅接受文本：`InputBar` 接收字符串草稿，`ConversationService.send()` 创建文本内容，宿主再把该内容转发给 agent（智能体）。用户无法粘贴图片、在发送前查看图片、提交仅含图片的提示词，也无法从历史记录中恢复已发送图片。
+在此变更之前，Web 输入区仅接受文本：`InputBar` 接收字符串草稿，`ConversationController.send()` 创建文本内容，宿主再把该内容转发给 agent（智能体）。用户无法粘贴图片、在发送前查看图片、提交仅含图片的提示词，也无法从历史记录中恢复已发送图片。
 
 这不只是输入区功能缺失。核心层需要持久图片内容块，提供方需要明确处理模态，会话日志则必须重建模型可见的全部内容。[此前移除图片块的决策](../../implemented/simplification/2026-07-04-drop-image-content-block.md)否决了可能静默丢失图片或将其展平的不完整设计。浏览器对象 URL、本地路径、提供方 URL 或 base64 数据都不能成为规范会话内容。
 
@@ -41,7 +41,7 @@ Status: implemented
 | 已接受的用户图片 | `DSH_HOME` 下的不可变对象加 `ImageAttachmentRef` | 在 `agent.send()` 或 `agent.steer()` 能够追加所属用户事件前，宿主提交每张图片。 |
 | 结构化模型图片输出 | `DSH_HOME` 下的不可变对象加 `ImageAttachmentRef` | 提供方适配器在发出已完成的图片块或助手消息事件前提交字节。事件中禁止出现临时 URL、路径和 base64。 |
 
-每个会话的 `InputMachine` 状态在实时草稿旁保存仅限运行时的有序附件标识符。框架持有的 chat store 只接收草稿的纯文本持久化镜像，`ConversationService` 则持有相应的浏览器专用 `File` 与对象 URL 注册表：
+每个会话的 `InputMachine` 状态在实时草稿旁保存仅限运行时的有序附件标识符。框架持有的 chat store 只接收草稿的纯文本持久化镜像，`ConversationController` 则持有相应的浏览器专用 `File` 与对象 URL 注册表：
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -130,7 +130,7 @@ Pi-AI 适配器是首条视觉输入路径：它在请求时解析 `ctx.attachme
 
 提供方无关的 token 估算不会根据图片尺寸猜测视觉定价；提供方返回的用量仍是权威值。在 ACP（Agent Client Protocol）接口原生支持图片前，ACP 会渲染明确的图片标记，而不是静默省略该块。
 
-压缩会把选定的会话前缀（包含图片引用）回放到已配置的摘要生成路径中。支持视觉的路径会通过适配器解析这些引用；仅文本路径会明确失败，而不是静默丢弃视觉上下文。合成的检查点仍仅包含文本，`compact-basic` 会以 `UNSUPPORTED_CONTENT` 拒绝包含图片的摘要输出。
+压缩会把选定的会话前缀（包含图片引用）回放到已配置的摘要生成路径中。支持视觉的路径会通过适配器解析这些引用；仅文本路径会明确失败，而不是静默丢弃视觉上下文。合成的检查点仍仅包含文本，`compaction-basic` 会以 `UNSUPPORTED_CONTENT` 拒绝包含图片的摘要输出。
 
 ### 历史渲染与原图预览
 
@@ -153,7 +153,7 @@ Pi-AI 适配器是首条视觉输入路径：它在请求时解析 `ctx.attachme
 | `packages/llm/llm` | 角色无关的 `ImageBlock` 和输入模态元数据。 |
 | `packages/llm/llm-pi-ai` | 将持久且受支持的图片输入解析为提供方原生内容。 |
 | `packages/llm/llm-deepseek` | 明确拒绝图片内容。 |
-| `packages/compact/compact-basic` | 在摘要输入中保留图片，并明确拒绝非文本检查点输出。 |
+| `packages/compaction/compaction-basic` | 在摘要输入中保留图片，并明确拒绝非文本检查点输出。 |
 | `packages/host/apiproxy` 和 `packages/bundle/base` | 范围狭窄的上传协议、先持久化再追加事件的顺序、会话授权读取、限制和模型前置检查，以及默认 profile 组合。 |
 | `packages/client/connection` 和 `packages/client/runtime` | 有界请求缓冲、协议类型、fixture（测试前置数据）图片、提示词上传、附件读取和持久引用折叠。 |
 | `packages/client/ui-conversation` | 每个会话的草稿图片、附件栏、用户与助手图片控件和原图预览。 |

@@ -8,7 +8,7 @@ English | [中文](2026-08-09-parallel-subagent-delegations.zh.md)
 
 A model that wants fan-out batches several `subagent` calls into one assistant message — that batch is the parallel intent. The delegation tool declared no `isConcurrencySafe` classifier, so the fail-closed scheduler ([parallel tool-call Agent Note](2026-07-10-parallel-tool-call-execution.md)) treated every foreground delegation as an exclusive barrier: nine cards in the GUI, one child running, eight queued behind it for its full runtime.
 
-The original conservative stance — a unary classifier cannot prove that sibling delegations have disjoint workspace effects — had stopped protecting anything. `run_in_background: true` and continuable delegations already overlap with every later call, including writes; `dsh-workflow-workerthread` already runs up to its concurrency ceiling of children through the same `ctx.subagents.start()` providers against the shared workspace. Only the foreground variant was serialized.
+The original conservative stance — a unary classifier cannot prove that sibling delegations have disjoint workspace effects — had stopped protecting anything. `run_in_background: true` and continuable delegations already overlap with every later call, including writes; `dsh-workflow-worker-thread` already runs up to its concurrency ceiling of children through the same `ctx.subagents.start()` providers against the shared workspace. Only the foreground variant was serialized.
 
 ## Decision
 
@@ -40,7 +40,7 @@ The authored `subagent-parallel` snapshot pins the assembled-app transcript: one
 
 Sibling children can race on shared workspace or external resources; the model owns that coordination, as it already does for every other overlapping child. Concurrent children also compete for LLM provider quota; `maxParallelToolCalls` caps only unsettled calls, not children a background or continuable call left running.
 
-Two one-shot background delegations in one message acquire their model-visible task ids (`subagent-<n>`) in dispatch-race order. The ids are logged, so replay stays valid, but a snapshot scenario that distinguishes its background children would inherit the same determinism constraint as twin child sessions.
+Two one-shot background delegations in one message acquire their model-visible job ids (`subagent-<n>`) in dispatch-race order. The ids are logged, so replay stays valid, but a snapshot scenario that distinguishes its background children would inherit the same determinism constraint as twin child sessions.
 
 Ordered commits may hold a fast child's result behind a slow earlier sibling — the trade the [scheduler note](2026-07-10-parallel-tool-call-execution.md) already accepted; live surfaces still show each child's own progress.
 

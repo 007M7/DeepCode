@@ -9,7 +9,7 @@ describe('resolveTelemetryPatch', () => {
 
   it('disables on ANY non-empty value, including falsy-looking ones', () => {
     for (const value of ['1', '0', 'false', 'no']) {
-      expect(resolveTelemetryPatch(value, true)).toEqual({ id: 'telemetry-otel', disabled: true })
+      expect(resolveTelemetryPatch(value, true)).toEqual({ id: 'session-telemetry-otel', disabled: true })
     }
   })
 

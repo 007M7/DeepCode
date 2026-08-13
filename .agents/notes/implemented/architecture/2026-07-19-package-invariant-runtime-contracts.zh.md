@@ -39,17 +39,17 @@ Status: implemented
 | `dsh-llm-retry` | 持久化重试记录指向当前打开轮次中最近关闭的步骤；每个步骤的记录保持唯一，重试次数单调递增，并且重试次数和非负的定时器延迟均保持在边界内。 |
 | `dsh-tools` | pre/execute/post 阶段单调推进，以及最终 execution/result 快照不可变。 |
 | `dsh-system-prompt` | 权威 assembly 中 section、工具和 variable 的数据约束。 |
-| `dsh-compact` | 压缩（compaction）start/summary/end 配对、范围端点、token 数量和成功时必须存在 summary。 |
+| `dsh-compaction` | 压缩（compaction）start/summary/end 配对、范围端点、token 数量和成功时必须存在 summary。 |
 | `dsh-hook-protocol` | 钩子 invocation/result 的关联、dialect、身份和 duration 约束。 |
 | `dsh-sandbox-policy` | 持久化 `sandbox/mode` 事件必须使用封闭的 sandbox-mode 词表。 |
 | `dsh-fs` | 文件系统决策/观测事件必须携带可用的 target 和 version 身份。 |
 | `dsh-goal` | 持久化目标快照保持来源归属、渲染内容、修订号、生命周期和时间戳关系，并保证已准入的 Round 连续编号。 |
-| `dsh-goal-session` | 目标来源的继续执行消息必须匹配根据此前持久化目标状态重建的提示词。 |
+| `dsh-goal-round-driver` | 目标来源的继续执行消息必须匹配根据此前持久化目标状态重建的提示词。 |
 | `dsh-subagent` | 提供方 add/remove 和 child start/end 事件必须保持身份与配对。 |
-| `dsh-permission` | 持久化 permission 决策必须引用当前 permission 表中的 preset。 |
+| `dsh-permission-presets` | 持久化 permission 决策必须引用当前 permission 表中的 preset。 |
 | `dsh-user-approval` | approval asked/decided 记录按 call 配对，并使用有效 outcome 和 policy。 |
 | `dsh-workflow` | 工作流和 child-agent start/end 事件保持 run metadata、身份、outcome、数量和 error 关系。 |
-| `dsh-tasks` | 当前与终态 task 快照保持 id/kind、owner、status 和 timestamp 关系。 |
+| `dsh-jobs` | 当前与终态 task 快照保持 id/kind、owner、status 和 timestamp 关系。 |
 | `dsh-tool-todo` | 持久化全量快照使用唯一且已 trim 的条目和封闭 status。 |
 | `dsh-time-context` | 标注插件来源的时钟 reading 必须匹配会话当前打开的轮次、下一个步骤开始前的位置和 elapsed baseline；渲染时间必须可解析，且不得晚于对应事件。 |
 
@@ -59,7 +59,7 @@ Status: implemented
 
 `verify-package-invariants` 发现每个 workspace 包，并强制 companion 源文件、完整名称注册、仅含具名 export 的 Loader 形状、`./invariant` export、发布文件、依赖、TypeScript reference 和 bundle entry 完整。其 AST 规则拒绝生成标记、默认导出和没有解释的空安装器。非空安装器必须接收并使用失败报告器，注册时还必须传入该经检查的本地 `install` 函数。门禁不会通过方法名或 helper 调用推断语义质量。
 
-Vitest 为每个包测试拓扑使用 `{ enabled: true }` 挂载 `InvariantService`，并加载所有者 companion。不变量 subpath 的 path mapping 会解析源 companion，而不是陈旧的构建输出。聚焦 suite 覆盖每个可执行 companion 的有效和无效观测；穷举拓扑通过真实 Loader 命名空间归一化运行每个源 companion。结构门禁验证每个包的发布映射后，产物门禁会暂存其 manifest（元数据清单）声明的 `lib/` 文件，在 plain Node 下导入已编译的 `./invariant` 自引用，并重复执行该 Loader 形状检查；这样，若 companion 导入未声明的运行时分片，门禁就会在发布前失败。合成事件流的测试必须构造有效的外围生命周期，除非测试本身就是在断言违规。
+Vitest 为每个包测试拓扑使用 `{ enabled: true }` 挂载 `InvariantRegistry`，并加载所有者 companion。不变量 subpath 的 path mapping 会解析源 companion，而不是陈旧的构建输出。聚焦 suite 覆盖每个可执行 companion 的有效和无效观测；穷举拓扑通过真实 Loader 命名空间归一化运行每个源 companion。结构门禁验证每个包的发布映射后，产物门禁会暂存其 manifest（元数据清单）声明的 `lib/` 文件，在 plain Node 下导入已编译的 `./invariant` 自引用，并重复执行该 Loader 形状检查；这样，若 companion 导入未声明的运行时分片，门禁就会在发布前失败。合成事件流的测试必须构造有效的外围生命周期，除非测试本身就是在断言违规。
 
 ## 考虑过的替代方案
 

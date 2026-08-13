@@ -354,17 +354,17 @@ describe('headless stream-json snapshots', () => {
         if (actual === undefined) throw new Error('compaction snapshot did not persist its session')
         const records = parseJsonl(actual.content)
         const types = records.map(record => record.type)
-        expect(types.filter(type => type === 'compact/start')).toHaveLength(1)
-        expect(types.filter(type => type === 'compact/summary')).toHaveLength(1)
-        expect(types.filter(type => type === 'compact/end')).toHaveLength(1)
-        const start = types.indexOf('compact/start')
-        const summary = types.indexOf('compact/summary')
+        expect(types.filter(type => type === 'compaction/start')).toHaveLength(1)
+        expect(types.filter(type => type === 'compaction/summary')).toHaveLength(1)
+        expect(types.filter(type => type === 'compaction/end')).toHaveLength(1)
+        const start = types.indexOf('compaction/start')
+        const summary = types.indexOf('compaction/summary')
         const replacement = records.findIndex((record) => {
           if (record.type !== 'user/message') return false
           const surfaceOp = record.surfaceOp as JsonObject | undefined
           return surfaceOp?.op === 'replace'
         })
-        const end = types.indexOf('compact/end')
+        const end = types.indexOf('compaction/end')
         expect(start).toBeLessThan(summary)
         expect(summary).toBeLessThan(replacement)
         expect(replacement).toBeLessThan(end)
@@ -785,7 +785,7 @@ describe('headless stream-json snapshots', () => {
     const childReplay = join(settlementScenarioDir, 'child.replay.jsonl')
     const childExpected = join(settlementScenarioDir, 'child.expected.jsonl')
     const streamExpected = join(settlementScenarioDir, 'stream-json.expected.jsonl')
-    const task = 'Start one continuable background subagent and answer from its completion notice. Do not call list_agents, send_message, task_output, or task_list.'
+    const task = 'Start one continuable background subagent and answer from its completion notice. Do not call list_agents, send_message, job_output, or job_list.'
     let runCwd = ''
     const result = await runLoaderSmoke({
       label: 'continuable settlement headless stream-json snapshot',

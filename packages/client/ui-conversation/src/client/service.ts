@@ -17,7 +17,7 @@ import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attach
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
-import type { DraftAttachmentId, InputService } from './input/contract.ts'
+import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
@@ -26,8 +26,8 @@ import type { InputSubmitMode } from './contract/composer-submission.ts'
  * test fake must supply.
  */
 export interface IConversation {
-  /** The per-session input machine registry (InputService face). */
-  readonly input: InputService
+  /** The per-session input machine registry (SessionInputResolver face). */
+  readonly input: SessionInputResolver
   /**
    * The per-session composer-block registry: how a plugin the composer
    * cannot import makes a session's input inert with its own reason.
@@ -88,9 +88,9 @@ export class UnsupportedImageMediaTypeError extends Error {
 }
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
-export class ConversationService extends Service implements IConversation {
-  /** The per-session input machine registry (InputService face). */
-  readonly input: InputService
+export class ConversationController extends Service implements IConversation {
+  /** The per-session input machine registry (SessionInputResolver face). */
+  readonly input: SessionInputResolver
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
@@ -102,11 +102,11 @@ export class ConversationService extends Service implements IConversation {
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
-   * @param config - carries the InputService and composer-block registry
+   * @param config - carries the SessionInputResolver and composer-block registry
    * constructed by the plugin apply (the same instances the slot inject
    * factories close over).
    */
-  constructor(ctx: Context, config: { input: InputService; blocks: ComposerBlocks }) {
+  constructor(ctx: Context, config: { input: SessionInputResolver; blocks: ComposerBlocks }) {
     super(ctx, 'conversation')
     this.input = config.input
     this.blocks = config.blocks

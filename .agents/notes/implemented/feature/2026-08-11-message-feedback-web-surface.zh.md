@@ -8,7 +8,7 @@ Status: implemented
 
 [PR #2217](https://github.com/deepseek-harness/deepseek-harness/pull/2217) 交付了持久化的消息反馈 sidecar 及其三个 Host Remote 方法，但它明确只做后端：没有任何客户端包消费 `messageFeedback.list`、`put` 或 `delete`，因此 Web GUI 无法记录评价。它的 Agent Note 把「客户端 Remote aggregate 挂载与 UI」留给了另一个负责人。Issue #1326 要求的正是 Web 界面，却在该后端合并时被关闭，而用户可见的那一半并不存在。
 
-更早的全栈尝试 [PR #1010](https://github.com/deepseek-harness/deepseek-harness/pull/1010) 带有 UI 层，但它基于自己的后端、形状不同：整个 Session 一个 `revision` 做 compare-and-swap，RPC 名为 `feedback.upsert`。#2217 最终交付的是逐条 `ifVersion` 与 `messageFeedback.put`，因此 #1010 的 controller 逻辑不再匹配契约；它的分支在结构上也已漂移（改动了 `packages/cordis/`，该目录已重命名为 `packages/self-modification/`；新增的顶层 `packages/session-feedback/` 与整合后的 `packages/feedback/` 冲突）。它作为 superseded 关闭，而不是 rebase。
+更早的全栈尝试 [PR #1010](https://github.com/deepseek-harness/deepseek-harness/pull/1010) 带有 UI 层，但它基于自己的后端、形状不同：整个 Session 一个 `revision` 做 compare-and-swap，RPC 名为 `feedback.upsert`。#2217 最终交付的是逐条 `ifVersion` 与 `messageFeedback.put`，因此 #1010 的 controller 逻辑不再匹配契约；它的分支在结构上也已漂移（改动了 `packages/cordis/`，该目录已重命名为 `packages/extensions/`；新增的顶层 `packages/session-feedback/` 与整合后的 `packages/feedback/` 冲突）。它作为 superseded 关闭，而不是 rebase。
 
 任何 UI 的阻塞缺口在于浏览器无法指名一个反馈目标。Host 只接受以 `MessageId` 寻址的 append 来源 `assistant/message`，但 `AssistantMessageNode`——客户端表示已完成 assistant 输出的节点——只携带 `seq`、`turn`、`step`，没有消息身份。只有 `SteeringMessageNode` 有 `messageId`。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 `extraActions` 是一个 `ReactNode` prop 而不是第二个 render-slot 洞，因为 `MessageIconActions` 是用户消息与 assistant 消息共享的外壳：由 assistant 一侧解析槽位并把结果向下传递，用户路径则对这个它永远不该渲染的槽位保持无感。
 
-**per-session controller 中的逐条 CAS。** `@deepseek-ai/dsh-client-ui-feedback` 为每个 Session 持有一个 `FeedbackController`，以 `MessageId` 为键存入 map。一次 `list` 为该 Session 转录中的所有控件播种。每次 mutation 发送该 controller 最后观察到的版本作为 `ifVersion`——当它不知道任何条目时为 `null`，这正是 Host 的「必须不存在」前置条件。
+**per-session controller 中的逐条 CAS。** `@deepseek-ai/dsh-client-ui-message-feedback` 为每个 Session 持有一个 `MessageFeedbackController`，以 `MessageId` 为键存入 map。一次 `list` 为该 Session 转录中的所有控件播种。每次 mutation 发送该 controller 最后观察到的版本作为 `ifVersion`——当它不知道任何条目时为 `null`，这正是 Host 的「必须不存在」前置条件。
 
 冲突路径是与 #1010 分歧最大的地方。`MessageFeedbackVersionConflict` 携带权威的 `current` 条目（或 `null`），因此竞争失败方直接从回复本身收敛；#1010 对每次冲突都以一次盲目的全量刷新作答。报告 `current: null` 的冲突会删除本地条目，这就是在另一个标签页中被移除的评价在此处消失的方式。mutation 在 per-Session 的尾部串行化，因此排队中的操作总是与已提交的版本比较，而不是与点击落下那一刻读到的版本比较。
 

@@ -11,7 +11,7 @@ import { deriveEventMessage, isAppendSurfaceEvent } from '@deepseek-ai/dsh-sessi
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
+import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { messageFeedbackDomainSpec } from './spec.ts'
 import type { MessageFeedbackRow, MessageFeedbackSessionIdentity } from './spec.ts'
 import type {
@@ -147,7 +147,7 @@ type ResolvedNote =
  * Storage-domain sidecar service. It inspects persisted Session history and
  * never creates or resumes an Agent or Session.
  */
-export class MessageFeedbackService extends GatewayService {
+export class MessageFeedbackService extends TypertRemoteService {
   static inject = ['storageDomain', 'sessionPersistence', 'sessions']
 
   /** Loader validation for the required note-size policy. */

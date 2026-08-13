@@ -6,6 +6,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import type {
   ConversationSessionHeaderSlotProps, ConversationSessionSlotProps,
 } from '../contract/slots.ts'
+import type { ViewTab } from '../contract/views.ts'
 import css from './ConversationRoot.module.css'
 
 /** Full props composed from the strict session body contract. */
@@ -17,6 +18,15 @@ export type ConversationSessionHeaderProps = ConversationSessionHeaderSlotProps
 interface Breadcrumb {
   readonly id: SessionId
   readonly displayTitle: string
+}
+
+const DEFAULT_VIEW_ID = 'chat'
+
+/** Resolve by id and keep stale persisted selections on the stable Chat fallback. */
+function resolveActiveView(tabs: readonly ViewTab[], selectedId: string | null): ViewTab | undefined {
+  const requestedId = selectedId ?? DEFAULT_VIEW_ID
+  return tabs.find(view => view.id === requestedId)
+    ?? tabs.find(view => view.id === DEFAULT_VIEW_ID)
 }
 
 function deriveAncestry(list: SessionListState, id: SessionId): readonly Breadcrumb[] {
@@ -54,8 +64,8 @@ export function ConversationSessionHeader({
 }: ConversationSessionHeaderProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
-  const activeId = useStore(s => s.view) ?? 'chat'
-  const active = tabs.find(view => view.id === activeId) ?? tabs[0]
+  const selectedId = useStore(s => s.view)
+  const active = resolveActiveView(tabs, selectedId)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const composerPhase = useSession(s => s.composerPhase)
   const blank = useSession(s => s.blank)
@@ -131,8 +141,8 @@ export function ConversationSession({
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
-  const activeId = useStore(s => s.view) ?? 'chat'
-  const active = tabs.find(view => view.id === activeId) ?? tabs[0]
+  const selectedId = useStore(s => s.view)
+  const active = resolveActiveView(tabs, selectedId)
   const composerPhase = useSession(s => s.composerPhase)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)

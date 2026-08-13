@@ -111,7 +111,7 @@ export class FsSandboxController {
    * Map a thrown provider error for the model: a `FS_SANDBOX_DENIED` becomes a
    * `FsError` whose text is the shared `[sandbox: …]` denial marker plus the
    * same-turn escalation hint, so a policy denial reads identically to bash's
-   * WHILE keeping the structured `FS_SANDBOX_DENIED` code — `ToolRegistry`
+   * WHILE keeping the structured `FS_SANDBOX_DENIED` code — `ToolRuntime`
    * populates `result.error` only for `HarnessError` instances, so a plain
    * `Error` would strip the code retry/observers key off. Any other error
    * passes through unchanged. A `FS_SANDBOX_DENIED` only arises under a

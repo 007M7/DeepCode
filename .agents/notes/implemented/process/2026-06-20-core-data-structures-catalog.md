@@ -18,7 +18,7 @@ A new `docs/subsystems/` folder catalogs the vocabulary, with a new `verify-type
 
 > **Superseded as the page-scoping rule** by [package-anchored subsystem pages](2026-08-03-package-anchored-subsystem-pages.md): each page now anchors to the package group that declares its vocabulary. The `ts type-equiv` mechanism below remains current.
 
-The decisive test for the scoping line is `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own subsystem page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
+The decisive test for the scoping line is `ShellExecRequest`/`ShellExecSpec`/`ShellRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own subsystem page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
 
 The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a subsystem-page detail.*** Worked through:
 
@@ -27,7 +27,7 @@ The rule that settled the remaining cases: ***the type you write, hold, or recei
 - `ToolSchema` is core (it is a field of `GenerateOptions`, the model request that flows through every step) even though it is conceptually part of the tool pipeline — *flows through the spine* wins over *conceptual home* when they conflict.
 - The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary belong on subsystem pages.
 
-`core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sibling subsystem pages for package-owned detail; the folder's [README](../../../../docs/subsystems/README.md) indexes every page. The original subsystem pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `bash.md`.
+`core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sibling subsystem pages for package-owned detail; the folder's [README](../../../../docs/subsystems/README.md) indexes every page. The original subsystem pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `shell.md`.
 
 ### The `ts type-equiv` mechanism — literal AND drift-proof
 
@@ -44,7 +44,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 ## Alternatives considered
 
-- **A flat dump of all cross-package vocabulary** — the `BashExecRequest` test case killed it: if seam vocabulary is "core", the catalog helps no one; the tiered spine-vs-subsystem structure won.
+- **A flat dump of all cross-package vocabulary** — the `ShellExecRequest` test case killed it: if seam vocabulary is "core", the catalog helps no one; the tiered spine-vs-subsystem structure won.
 - **A compiled `_Check` assignability assertion** instead of the source match — rejected because assignability does not preserve names or JSDoc: a renamed field with the same type or a changed contract comment would pass.
 - **Put each type block's source in a directive comment** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 

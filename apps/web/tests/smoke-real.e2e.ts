@@ -143,8 +143,8 @@ async function detailsTrack(page: Page): Promise<number> {
 // the frame never appears.
 const UI_PLUGIN_DIRS = [
   'connection', 'runtime', 'ui-theme', 'locale', 'ui-layout', 'ui-sidebar',
-  'ui-settings', 'ui-settings-general', 'ui-models', 'ui-conversation',
-  'ui-model', 'ui-question', 'ui-trajectory', '../session-query/session-export',
+  'ui-settings', 'ui-settings-general', 'ui-settings-models', 'ui-conversation',
+  'ui-model-selection', 'ui-user-questions', 'ui-trajectory', '../session-query/session-log-export',
 ]
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {

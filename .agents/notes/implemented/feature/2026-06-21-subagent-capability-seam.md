@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-21-subagent-capability-seam.zh.md)
 
-> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process ACP, Codex, and Claude Code backends ([ACP Agent Note](2026-06-22-acp-subagent-backend.md), [product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)).
+> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn-in-process`, `dsh-subagent-fork-in-process`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process ACP, Codex, and Claude Code backends ([ACP Agent Note](2026-06-22-acp-subagent-backend.md), [product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)).
 
 ## Problem
 
@@ -21,7 +21,7 @@ The harness has a long-deferred seam for **subagents** — an agent delegating w
 
 ### Why not the bash seam shape
 
-The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `BashExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmService.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service provider / Consumer); only the "one vs. many implementations" axis differs.
+The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `ShellExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmRuntime.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service provider / Consumer); only the "one vs. many implementations" axis differs.
 
 ## Decision
 
@@ -31,9 +31,9 @@ A new package group `packages/subagent/`:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-subagent` | interface: `SubagentService` (`ctx.subagents`), `SubagentProvider`, `SubagentRun`, the request/result/capability vocabulary, the `subagent/*` events |
-| `@deepseek-ai/dsh-subagent-spawn` | implementation: a fresh in-process child via `ctx.agents.create` |
-| `@deepseek-ai/dsh-subagent-fork` | implementation: an in-process child seeded with a snapshot of the parent's log |
+| `@deepseek-ai/dsh-subagent` | interface: `SubagentRuntime` (`ctx.subagents`), `SubagentProvider`, `SubagentRun`, the request/result/capability vocabulary, the `subagent/*` events |
+| `@deepseek-ai/dsh-subagent-spawn-in-process` | implementation: a fresh in-process child via `ctx.agents.create` |
+| `@deepseek-ai/dsh-subagent-fork-in-process` | implementation: an in-process child seeded with a snapshot of the parent's log |
 | `@deepseek-ai/dsh-subagent-acp` | implementation: an ACP client driving a configured child process |
 | `@deepseek-ai/dsh-subagent-codex` | implementation: a one-shot official Codex app-server process |
 | `@deepseek-ai/dsh-subagent-claude-code` | implementation: a one-shot official Claude Code process through the Agent SDK |
@@ -50,7 +50,7 @@ A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publis
 
 ### Fork vs. fresh are separate backends, not a flag
 
-Fresh and forked children are separate providers, not a request flag. `dsh-subagent-spawn` starts an isolated child; `dsh-subagent-fork` seeds a balanced prefix containing only completed parent turns. The in-flight turn is excluded because its subagent call has no result yet and cannot form valid replay history.
+Fresh and forked children are separate providers, not a request flag. `dsh-subagent-spawn-in-process` starts an isolated child; `dsh-subagent-fork-in-process` seeds a balanced prefix containing only completed parent turns. The in-flight turn is excluded because its subagent call has no result yet and cannot form valid replay history.
 
 ### Child isolation and the parent log
 
@@ -66,11 +66,11 @@ Each in-process subagent runs in its **own `Session`** (own id, `parentSession` 
 
 ## Testing
 
-Registry and tool tests replace only the nondeterministic child with a package-local scripted provider while exercising the real `SubagentService`, lifecycle, task integration, and model-facing tool. Loader regression tests still cover the provider and consumer exports for the failure described in [postmortem 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
+Registry and tool tests replace only the nondeterministic child with a package-local scripted provider while exercising the real `SubagentRuntime`, lifecycle, task integration, and model-facing tool. Loader regression tests still cover the provider and consumer exports for the failure described in [postmortem 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md). Registry tests cover reload safety, duplicate names, and start-time capability rejection; nested-agent scenarios replay keylessly through [per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md); in-process backends also have real-loop unit tests and a with-key e2e.
 
 ## Consequences
 
 - **Recursion.** Without a bound, an in-process child can see the delegation tool and recurse. The in-process backends implement the optional absolute depth limit and scoped live-global `toolFilter`; ACP advertises both capabilities off and rejects such a request. The [subagent composition-controls Agent Note](2026-07-12-subagent-persona-tool-filter-and-depth.md) owns their exact semantics and security limits.
-- **Blocking the parent turn.** Foreground collection holds the parent's step open for the child's full duration. Background delegation uses the shared `ctx.tasks` runtime and generic `task_*` tools, the same collection mechanism as background bash; the subagent seam itself remains task-agnostic.
+- **Blocking the parent turn.** Foreground collection holds the parent's step open for the child's full duration. Background delegation uses the shared `ctx.jobs` runtime and generic `job_*` tools, the same collection mechanism as background bash; the subagent seam itself remains task-agnostic.
 - **Live progress.** Only lifecycle + the final result surface; a per-chunk child→parent update stream is deferred with the background redesign.
 - **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the backend advertises neither capability, so the child self-serves in its own process.

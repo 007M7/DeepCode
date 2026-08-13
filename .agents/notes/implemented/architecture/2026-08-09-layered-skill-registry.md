@@ -12,13 +12,13 @@ The tools registry never had this problem: it is one host singleton layered per 
 
 ## Decision
 
-`SkillService` adopts the same shape. It holds `ScopedLayers<SkillLayer>`; `registerProvider()` and `register()` file into the layer of the calling context's scope, so host rows and repository plugins land in the global layer while a preset's `skill-local` — mounted by the standing composition, whose context carries the preset's scope key — lands in that preset's layer. Provider names are unique per layer rather than process-wide, which is what lets every preset mount its own `local` provider.
+`SkillRegistry` adopts the same shape. It holds `ScopedLayers<SkillLayer>`; `registerProvider()` and `register()` file into the layer of the calling context's scope, so host rows and repository plugins land in the global layer while a preset's `skill-filesystem` — mounted by the standing composition, whose context carries the preset's scope key — lands in that preset's layer. Provider names are unique per layer rather than process-wide, which is what lets every preset mount its own `local` provider.
 
 Reads take the viewing scope through `SkillViewOptions` (the calling agent, which is its own scope key). The registry merges the global layer with the scope's chain: **the nearest layer wins a duplicate name outright, and rank decides duplicates only within one layer** — the tools registry's shadowing rule. Rank-pooling across layers was considered and rejected: ranks were designed to order sources that know about each other, and under a global pool a later-installed repository plugin could silently displace a preset's own same-named skill by registration-order tiebreak, changing a preset's behavior remotely. Nearest-wins keeps a composition's behavior decided by its author.
 
 Discovery caches are keyed by the resolved scope chain plus one revision counter, so a blank-session recompose — which re-parents the agent's scope key without touching the registry — is visible to the next read.
 
-The composition moves with it: the web-app bundle re-enables the base `skill` registry row (only `skill-local` and `tool-skill` stay preset-owned), and preset compositions drop their `isolate: skills` realm for bare rows over the host registry. The gateway's skills domain reads the host registry in the presenter scope — the live agent, else the recorded preset's standing key — so a cold session lists the catalog its composition actually serves instead of failing; the `serviceFor` branch stays for compositions that still realm-mount their own registry.
+The composition moves with it: the web-app bundle re-enables the base `skill` registry row (only `skill-filesystem` and `tool-skill` stay preset-owned), and preset compositions drop their `isolate: skills` realm for bare rows over the host registry. The gateway's skills domain reads the host registry in the presenter scope — the live agent, else the recorded preset's standing key — so a cold session lists the catalog its composition actually serves instead of failing; the `serviceFor` branch stays for compositions that still realm-mount their own registry.
 
 ## Consequences
 

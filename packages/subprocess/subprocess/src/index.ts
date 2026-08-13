@@ -67,7 +67,7 @@ export function scrubbedParentEnv(): Record<string, string> {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    subprocess: SubprocessService
+    subprocess: SubprocessRuntime
   }
 }
 
@@ -99,7 +99,7 @@ declare module '@deepseek-ai/cordis' {
  *   in the PTY consumer. Its output stream ends after queued terminal output
  *   when the top-level process exits.
  */
-export abstract class SubprocessService extends Service {
+export abstract class SubprocessRuntime extends Service {
   constructor(ctx: Context) {
     super(ctx, 'subprocess')
   }
@@ -139,4 +139,4 @@ export abstract class SubprocessService extends Service {
   abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 }
 
-export default SubprocessService
+export default SubprocessRuntime

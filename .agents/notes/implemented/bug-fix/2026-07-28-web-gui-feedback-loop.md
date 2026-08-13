@@ -18,7 +18,7 @@ The prompt makes the agent, rather than the user, own the hidden startup contrac
 
 The `apps/web` development script and Vite configuration reject serve mode before opening a port. Their diagnostics identify `apps/web` as a build-only shell, explain that only `dsh web` injects `window.__DSH_BOOT__`, and name the production and HMR entry paths. Vite build mode remains unchanged.
 
-No server restart or replacement is required merely because static artifacts changed. The host reads `index.html` and static assets on each request, while client bundles are also served from their current files with `no-cache`; a refresh of the existing URL is therefore the acceptance path after the relevant shell and plugin bundles are rebuilt. Starting a separate server proves only that a separate server works. If the user explicitly requests another long-running server, the existing managed background-task contract owns its lifecycle and completion notices; shell `&` is not an alternative lifecycle.
+No server restart or replacement is required merely because static artifacts changed. The host reads `index.html` and static assets on each request, while client bundles are also served from their current files with `no-cache`; a refresh of the existing URL is therefore the acceptance path after the relevant shell and plugin bundles are rebuilt. Starting a separate server proves only that a separate server works. If the user explicitly requests another long-running server, the existing managed background-job contract owns its lifecycle and completion notices; shell `&` is not an alternative lifecycle.
 
 ## Verification
 

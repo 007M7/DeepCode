@@ -14,7 +14,7 @@ agent preset 已经能按会话组装一个 agent 的工具，却管不了这些
 
 把注册表和它的投影拆开。注册表留在宿主平面；**呈现方式**变成它内部按 scope 的状态，与已经住在那里的作用域限制和守卫并列。
 
-`ToolRegistry.presentAs(mode)` 只接受 scoped 上下文，形状照抄 `restrict()`：它通过 `ScopedLayers.effect` 在调用方 scope 的 `ToolLayer` 上写一个单元，因此会随声明它的那个 scope 一起卸载。在随附的 Web 界面里那个 scope 是某个 agent preset 的常驻挂载——`code` preset 携带 `tool-mode` 行——因此一份声明覆盖加入该 preset 的每个 agent，而 `modeFor(scope)` 取作用域链上最近的那份声明。它与 config 的 `mode` 一并解析，后者于是成为「未作声明的 scope」的默认值，而不再是进程级事实。原先决定呈现方式的三处读取——wire schema、可见性视图里的 `run_code` 条目、以及生成的 SDK 段——改为读取该 scope 的模式，而非服务的。
+`ToolRuntime.presentAs(mode)` 只接受 scoped 上下文，形状照抄 `restrict()`：它通过 `ScopedLayers.effect` 在调用方 scope 的 `ToolLayer` 上写一个单元，因此会随声明它的那个 scope 一起卸载。在随附的 Web 界面里那个 scope 是某个 agent preset 的常驻挂载——`code` preset 携带 `tool-presentation` 行——因此一份声明覆盖加入该 preset 的每个 agent，而 `modeFor(scope)` 取作用域链上最近的那份声明。它与 config 的 `mode` 一并解析，后者于是成为「未作声明的 scope」的默认值，而不再是进程级事实。原先决定呈现方式的三处读取——wire schema、可见性视图里的 `run_code` 条目、以及生成的 SDK 段——改为读取该 scope 的模式，而非服务的。
 
 有两个随之而来的结果，且都是承重的：
 
@@ -23,11 +23,11 @@ agent preset 已经能按会话组装一个 agent 的工具，却管不了这些
 
 SDK 提示词段由 code 模式的部署全局注册（不变），并由 `presentAs` 额外按 scope 注册一份，后者按名字遮蔽前者。它的正文对 native scope 渲染为空，而提示词渲染器会丢弃空段——正是这一点让「在 code 模式部署下选择退出」的 agent 不带 SDK 段。
 
-preset 用一行来表达这个选择：`@deepseek-ai/dsh-agent-tool-mode`，其全部内容就是一次 `presentAs` 调用。code 类模式通过 `ctx.inject` 等待 `ctx.codeRuntime` 而非假定它存在：运行时在宿主平面，而一个 pending 的行正是 `dsh-agent-presets` 已经会报告的「不可用挂载」并会指名该行——于是在无运行时的部署上选择 Code Mode 的 preset，会在操作者能够动手的地方失败。
+preset 用一行来表达这个选择：`@deepseek-ai/dsh-agent-tool-presentation`，其全部内容就是一次 `presentAs` 调用。code 类模式通过 `ctx.inject` 等待 `ctx.codeRuntime` 而非假定它存在：运行时在宿主平面，而一个 pending 的行正是 `dsh-agent-presets` 已经会报告的「不可用挂载」并会指名该行——于是在无运行时的部署上选择 Code Mode 的 preset，会在操作者能够动手的地方失败。
 
 ## 考虑过的替代方案
 
-**在 preset 的 isolate realm 里再起一个 `ToolRegistry`。** 否决：`dsh-agent-loop` 通过一个私有 symbol 从宿主上下文一次性解析注册表，因此按 agent 的注册表对调度器不可见。把 loop 改成按 agent 解析注册表，远比把一个字段变成 scope 感知的改动大。
+**在 preset 的 isolate realm 里再起一个 `ToolRuntime`。** 否决：`dsh-agent-loop` 通过一个私有 symbol 从宿主上下文一次性解析注册表，因此按 agent 的注册表对调度器不可见。把 loop 改成按 agent 解析注册表，远比把一个字段变成 scope 感知的改动大。
 
 **在 preset 自己的 YAML 里加一个顶层键。** 否决，理由与 preset 展示元数据落到独立 `preset.yml` 相同：组装是一个顶层的插件行列表，装不下并列的键。
 
