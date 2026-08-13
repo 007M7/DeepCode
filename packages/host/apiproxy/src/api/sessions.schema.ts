@@ -12,7 +12,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -214,6 +214,12 @@ export const sessionProjectionsBlockSchema = z.object({
   asOfSeq: z.number().int().min(-1),
   values: z.record(z.string(), z.unknown()),
 }) as unknown as z.ZodType<Wire<SessionProjectionsBlock>>
+
+/** Host-side validation for the persisted Session-list projection. */
+export const sessionListMetadataProjectionSchema: z.ZodType<SessionListMetadata> = z.object({
+  blank: z.boolean(),
+  lastPromptAt: z.number().nullable(),
+})
 
 /**
  * imageLimits projection unit schema (host-side view validation). zod widens

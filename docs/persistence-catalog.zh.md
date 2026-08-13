@@ -98,6 +98,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `agent/*`
 
+<a id="agentinboxspliced--log-only"></a>
+
 #### `agent/inbox/spliced` — log-only
 
 ```ts persistence-catalog
@@ -119,6 +121,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `agent-preset/*`
 
+<a id="agent-presetselected--log-only"></a>
+
 #### `agent-preset/selected` — log-only
 
 ```ts persistence-catalog
@@ -134,6 +138,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/preset/agent-presets/src/session.ts:26`](../packages/preset/agent-presets/src/session.ts)
 
 ### `approval/*`
+
+<a id="approvalasked--log-only"></a>
 
 #### `approval/asked` — log-only
 
@@ -158,6 +164,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
+<a id="approvaldecided--log-only"></a>
+
 #### `approval/decided` — log-only
 
 ```ts persistence-catalog
@@ -173,6 +181,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
+
+<a id="approvalpolicy--log-only"></a>
 
 #### `approval/policy` — log-only
 
@@ -196,6 +206,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `assistant/*`
 
+<a id="assistantchunk--log-only"></a>
+
 #### `assistant/chunk` — log-only
 
 ```ts persistence-catalog
@@ -206,6 +218,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 类型：[StreamChunk](subsystems/llm-streaming.md)
 
 来源：[`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+
+<a id="assistantmessage--surface"></a>
 
 #### `assistant/message` — surface
 
@@ -225,6 +239,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `command/*`
 
+<a id="commanddone--log-only"></a>
+
 #### `command/done` — log-only
 
 ```ts persistence-catalog
@@ -243,6 +259,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/interaction/commands/src/types.ts:95`](../packages/interaction/commands/src/types.ts)
+
+<a id="commandrun--log-only"></a>
 
 #### `command/run` — log-only
 
@@ -264,6 +282,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `compaction/*`
 
+<a id="compactionend--log-only"></a>
+
 #### `compaction/end` — log-only
 
 ```ts persistence-catalog
@@ -275,6 +295,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/compaction/compaction/src/types.ts:71`](../packages/compaction/compaction/src/types.ts)
+
+<a id="compactionprune--log-only"></a>
 
 #### `compaction/prune` — log-only
 
@@ -300,6 +322,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/compaction/compaction/src/types.ts:81`](../packages/compaction/compaction/src/types.ts)
 
+<a id="compactionstart--log-only"></a>
+
 #### `compaction/start` — log-only
 
 ```ts persistence-catalog
@@ -312,6 +336,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/compaction/compaction/src/types.ts:23`](../packages/compaction/compaction/src/types.ts)
+
+<a id="compactionsummary--log-only"></a>
 
 #### `compaction/summary` — log-only
 
@@ -367,6 +393,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `feedback/*`
 
+<a id="feedbackrecord--log-only"></a>
+
 #### `feedback/record` — log-only
 
 ```ts persistence-catalog
@@ -381,6 +409,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `goal/*`
 
+<a id="goalchange--log-only"></a>
+
 #### `goal/change` — log-only
 
 ```ts persistence-catalog
@@ -393,6 +423,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
+
+<a id="hookinvoked--log-only"></a>
 
 #### `hook/invoked` — log-only
 
@@ -417,6 +449,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-protocol/src/types.ts)
 
+<a id="hookresult--log-only"></a>
+
 #### `hook/result` — log-only
 
 ```ts persistence-catalog
@@ -440,6 +474,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `llm/*`
 
+<a id="llmretry--log-only"></a>
+
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
@@ -448,6 +484,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/types.ts)
+
+<a id="llmretry-started--log-only"></a>
 
 #### `llm/retry-started` — log-only
 
@@ -459,6 +497,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
+
+<a id="permissionpreset--log-only"></a>
 
 #### `permission/preset` — log-only
 
@@ -476,6 +516,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `plan/*`
 
+<a id="planmode--log-only"></a>
+
 #### `plan/mode` — log-only
 
 ```ts persistence-catalog
@@ -491,6 +533,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `request/*`
 
+<a id="requestcontext--log-only"></a>
+
 #### `request/context` — log-only
 
 ```ts persistence-catalog
@@ -502,6 +546,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/session/src/types.ts:309`](../packages/core/session/src/types.ts)
+
+<a id="requestheader--log-only"></a>
 
 #### `request/header` — log-only
 
@@ -516,6 +562,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
+
+<a id="sandboxmode--log-only"></a>
 
 #### `sandbox/mode` — log-only
 
@@ -538,6 +586,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `schedule/*`
 
+<a id="schedulechange--log-only"></a>
+
 #### `schedule/change` — log-only
 
 ```ts persistence-catalog
@@ -553,6 +603,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
 
 ### `session/*`
+
+<a id="sessionend-seed--log-only"></a>
 
 #### `session/end-seed` — log-only
 
@@ -584,6 +636,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
 
+<a id="sessiontitle--log-only"></a>
+
 #### `session/title` — log-only
 
 ```ts persistence-catalog
@@ -598,6 +652,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
+<a id="sessiontitle-llm-request--log-only"></a>
+
 #### `session/title-llm-request` — log-only
 
 ```ts persistence-catalog
@@ -611,6 +667,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `step/*`
 
+<a id="stepend--log-only"></a>
+
 #### `step/end` — log-only
 
 ```ts persistence-catalog
@@ -619,6 +677,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+
+<a id="stepstart--log-only"></a>
 
 #### `step/start` — log-only
 
@@ -630,6 +690,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
+
+<a id="subagentdescriptor--log-only"></a>
 
 #### `subagent/descriptor` — log-only
 
@@ -648,6 +710,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `todo/*`
 
+<a id="todowrite--log-only"></a>
+
 #### `todo/write` — log-only
 
 ```ts persistence-catalog
@@ -660,6 +724,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
+
+<a id="toolcall--log-only"></a>
 
 #### `tool/call` — log-only
 
@@ -675,6 +741,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 类型：[CallId](subsystems/core.md)
 
 来源：[`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
+
+<a id="toolcode-dispatch--log-only"></a>
 
 #### `tool/code-dispatch` — log-only
 
@@ -699,6 +767,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
 
+<a id="toolcode-dispatch-start--log-only"></a>
+
 #### `tool/code-dispatch-start` — log-only
 
 ```ts persistence-catalog
@@ -719,6 +789,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
+
+<a id="toolresult--surface"></a>
 
 #### `tool/result` — surface
 
@@ -747,6 +819,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `tool-workflow/*`
 
+<a id="tool-workflowagent-end--log-only"></a>
+
 #### `tool-workflow/agent-end` — log-only
 
 ```ts persistence-catalog
@@ -758,6 +832,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/workflow/tool-workflow/src/types.ts:57`](../packages/workflow/tool-workflow/src/types.ts)
+
+<a id="tool-workflowagent-start--log-only"></a>
 
 #### `tool-workflow/agent-start` — log-only
 
@@ -771,6 +847,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow/tool-workflow/src/types.ts)
 
+<a id="tool-workflowrun-end--log-only"></a>
+
 #### `tool-workflow/run-end` — log-only
 
 ```ts persistence-catalog
@@ -782,6 +860,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
+
+<a id="tool-workflowrun-start--log-only"></a>
 
 #### `tool-workflow/run-start` — log-only
 
@@ -796,6 +876,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
 
 ### `turn/*`
+
+<a id="turnend--log-only"></a>
 
 #### `turn/end` — log-only
 
@@ -815,6 +897,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
+<a id="turnstart--log-only"></a>
+
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
@@ -830,6 +914,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
 
 ### `user/*`
+
+<a id="usermessage--surface"></a>
 
 #### `user/message` — surface
 
@@ -847,6 +933,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 来源：[`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `web/*`
+
+<a id="webdeepseek-search-llm-request--log-only"></a>
 
 #### `web/deepseek-search-llm-request` — log-only
 

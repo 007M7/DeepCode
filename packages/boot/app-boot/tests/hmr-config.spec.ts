@@ -62,7 +62,7 @@ describe('HMR exact config paths', () => {
       expect(cacheHas).toHaveBeenCalledWith(expected)
     } finally {
       await ctx.fiber.dispose()
-      rmSync(alias, { force: true })
+      unlinkSync(alias)
       rmSync(target, { recursive: true, force: true })
     }
   })
@@ -78,7 +78,7 @@ describe('HMR exact config paths', () => {
         .rejects.toThrow('config path already registered')
     } finally {
       await ctx.fiber.dispose()
-      rmSync(alias, { force: true })
+      unlinkSync(alias)
       rmSync(target, { recursive: true, force: true })
     }
   })

@@ -36,6 +36,8 @@ interface SessionLocation {
 }
 ```
 
+<a id="sessionheader--metadata-beside-the-log"></a>
+
 ## `SessionHeader`：日志旁的元数据
 
 每个会话的元数据与事件日志**分开**存储：格式版本、cwd、血统与 seed 边界是存储层关注点而非对话事件，因此不进入 `SessionEventMap`，也不会到达 `deriveMessages()`。header 通过 `session.header` 附加到 `Session` 上。

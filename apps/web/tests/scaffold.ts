@@ -23,7 +23,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -703,6 +703,38 @@ export async function seedSession(
     delegationDepth: 0,
     ...agentPreset === undefined ? {} : { agentPreset },
   }
+  await persistSeedSession(scaffold, meta, events)
+  return meta.id
+}
+
+/** Seed one materialized cold Session whose log has no turn/start event. */
+export async function seedBlankSession(
+  scaffold: WebScaffold,
+  id: string,
+  cwd: string,
+): Promise<SessionId> {
+  const meta: SessionHeader = {
+    version: SESSION_FORMAT_VERSION,
+    id: SessionId(id),
+    createdAt: Date.now() - 60_000,
+    cwd,
+    delegationDepth: 0,
+  }
+  await persistSeedSession(scaffold, meta, [{
+    type: 'session/end-seed',
+    seq: 0,
+    time: meta.createdAt,
+    data: {},
+  }])
+  return meta.id
+}
+
+/** Materialize one detached Session fixture through the shipped JSONL provider. */
+async function persistSeedSession(
+  scaffold: WebScaffold,
+  meta: SessionHeader,
+  events: readonly SessionEvent[],
+): Promise<void> {
   const seeder = new Context()
   try {
     await seeder.plugin(SessionStore)
@@ -711,16 +743,9 @@ export async function seedSession(
     await seeder.plugin(JsonlSessionPersistence, { root: scaffold.persistenceRoot })
     await seeder.sessionPersistence.create(meta)
     await seeder.sessionPersistence.append(meta.id, events)
-    // Deterministic sidebar order: cold summaries take updatedAt from mtime.
-    const located = seeder.sessionPersistence.locate(meta)
-    if (located !== undefined) {
-      const backdated = new Date(meta.createdAt)
-      await utimes(located.path, backdated, backdated)
-    }
   } finally {
     await seeder.fiber.dispose()
   }
-  return meta.id
 }
 
 /**

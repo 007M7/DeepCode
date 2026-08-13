@@ -23,7 +23,7 @@ The Bash execution capability consists of:
 └─────────────┘     └──────────────────┘     └──────────────┘
        ▲                                            │
        └────────────────────────────────────────────┘
-                    inject: ['bash']
+                    inject: ['shell']
 ```
 
 ## Benefits of the split

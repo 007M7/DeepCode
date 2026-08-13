@@ -70,6 +70,10 @@ Publication runs only from GitHub Actions; there is no local publication path. P
 
 The third state catches code that changed without a version bump. The first two provide idempotence — re-running publish over one artifact republishes nothing and needs no manual selection of packages. The same rule resolves the tension between one vendor release carrying several tags and a workflow that can only run from one ref: the workflow never infers which packages to publish from the tag it ran from.
 
+All three sequences decide this way, including the native one: it publishes through its own script rather than a shell loop, because a loop of bare `npm publish` calls cannot be retried — the registry answers a repeat of an existing version permanently, so one failure partway through left no way forward.
+
+Two registry behaviours shape how a publish is attempted. Writes are spaced by at least two seconds and retried with a backoff, because publishing several packages back to back outruns the registry's own processing and earns `E409 Failed to save packument`. And every retry re-reads the registry first: a reported failure can answer a write that landed anyway, so a version that now exists with this tarball's integrity counts as published rather than as a version to place again.
+
 ### Workspace-internal references use the `workspace:` protocol
 
 Every reference to a workspace member uses `workspace:^`, so `pnpm pack` substitutes a range matching the target version: sibling `peerDependencies` follow the family version, and a reference to a vendored package follows that package's own line. The Landlock platform packages keep `workspace:*`, which publishes the exact version, because a platform package and its entry must agree exactly.

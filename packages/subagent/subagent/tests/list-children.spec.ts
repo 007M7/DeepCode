@@ -28,7 +28,7 @@ type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 const roots: string[] = []
 afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 /** Boot the continuable stack with real JSONL session persistence. */

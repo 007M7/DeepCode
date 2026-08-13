@@ -45,13 +45,15 @@ export function apply(ctx: Context) {
 
 ## 注册到 cordis.yml
 
-创建 `scratch-plugin/cordis.yml`，作为插入本地插件的 Web 覆盖层：
+在仓库根目录运行 `pwd`，然后创建 `scratch-plugin/cordis.yml`，作为插入本地插件的 Web 覆盖层。请将下文的 `/absolute/path/to/deepseek-harness` 替换为命令打印的路径：
 
 ```yaml
 - insert:
     - id: hello
-      name: './src/my-plugin.ts'
+      name: '/absolute/path/to/deepseek-harness/scratch-plugin/src/my-plugin.ts'
 ```
+
+插件路径必须是绝对路径。patch 文件只贡献配置，不会改变 loader 解析模块路径时使用的 profile 目录。
 
 使用该覆盖层启动 Web UI：
 

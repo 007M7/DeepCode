@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeFixtureSafely, unlinkFixtureLinks } from './test-fixture-cleanup.ts'
 
 const installer = fileURLToPath(new URL('./install-lefthook.mjs', import.meta.url))
 const pairingMergeDriver = 'scripts/merge-translation-pairing-driver.sh %O %A %B %P'
@@ -40,7 +41,7 @@ interface CommandResult {
 }
 
 afterEach(() => {
-  for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true })
+  for (const fixture of fixtures.splice(0)) removeFixtureSafely(fixture)
 })
 
 function commandResult(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
@@ -282,6 +283,10 @@ describe('worktree-local Lefthook installer', { timeout: 15_000 }, () => {
     expect(gitResult(fixture, fixture.main, ['config', '--file', commonConfig, '--get', 'core.bare']).status).toBe(1)
 
     const mainHookBeforeRemoval = readFileSync(join(mainHooks, 'pre-commit'), 'utf8')
+    // Windows Git follows the fixture's MOUNT_POINT junctions into their real
+    // targets while removing a worktree; unlink them first so the removal
+    // cannot delete the repository's scripts/ or tsx package.
+    unlinkFixtureLinks(fixture.linked)
     git(fixture, fixture.main, ['worktree', 'remove', '--force', fixture.linked])
     expect(readFileSync(join(mainHooks, 'pre-commit'), 'utf8')).toBe(mainHookBeforeRemoval)
     expect(readFileSync(legacyHook, 'utf8')).toBe('#!/bin/sh\n# legacy hook\n')
