@@ -3,11 +3,11 @@
  * `sidebar.workspaces` hole: section header (title + view options + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace), each requesting shell expansion
- * through the owner share. Adding is the header button's one action, so it
- * raises the directory flow with no menu in between; the flow and its error
- * dialog live in WorkspacePicker (same package — direct composition, no slot
- * between them).
+ * region icons (search / add workspace) as 36px controls on the shell's shared
+ * rail entry path, each requesting expansion through the owner share. Adding
+ * is the header button's one action, so it raises the directory flow with no
+ * menu in between; the flow and its error dialog live in WorkspacePicker
+ * (same package — direct composition, no slot between them).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'

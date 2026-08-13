@@ -2,10 +2,11 @@
  * Scrollbar stylesheet contract, asserted against the CSS text on disk: every
  * --dsw-alias-scrollbar-* token design-platform.css defines has a consumer,
  * scrollbar.css binds the base-surface pair through the rebindable
- * indirection, and elevated surfaces rebind that indirection in complete
- * pairs. The expected token set is scanned out of design-platform.css, so
- * adding, renaming, or dropping a scrollbar token moves these assertions with
- * it.
+ * indirection, the width variable mirrors the ::-webkit-scrollbar rule for
+ * consumers that align beside the bar, and elevated surfaces rebind that
+ * indirection in complete pairs. The expected token set is scanned out of
+ * design-platform.css, so adding, renaming, or dropping a scrollbar token
+ * moves these assertions with it.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -338,6 +339,67 @@ describe('scrollbar.css base-surface binding', () => {
     const indirection = varReferences(thumbColor!)[0]
     expect(indirection).toBe(`${INDIRECTION_PREFIX}thumb`)
     expect(varReferences(declaration('background', '::-webkit-scrollbar-thumb')!)).toEqual([indirection])
+  })
+})
+
+describe('scrollbar.css width variable', () => {
+  const WIDTH_VARIABLE = `${INDIRECTION_PREFIX}width`
+
+  it('defines the width variable on body as a static length', () => {
+    // The overlay seat compensation reads a fixed number, not a second
+    // indirection: the mirror check below compares the WebKit rule against
+    // this value, so a var()-to-var() chain would compare one indirection to
+    // another instead of pinning the number.
+    const value = scrollbarRules
+      .filter(rule => rule.selectors.includes('body'))
+      .flatMap(rule => rule.declarations)
+      .findLast(([property]) => property === WIDTH_VARIABLE)?.[1]
+    expect(value, WIDTH_VARIABLE).toBeDefined()
+    expect(value, WIDTH_VARIABLE).toMatch(/^\d+(?:\.\d+)?px$/)
+  })
+
+  it('mirrors the ::-webkit-scrollbar width rule with the variable value', () => {
+    // The compensation stays aligned with the WebKit bar only while both read
+    // the same number. A change to one side without the other puts the overlay
+    // seat a band off from Chat on WebKit engines.
+    const variableValue = scrollbarRules
+      .filter(rule => rule.selectors.includes('body'))
+      .flatMap(rule => rule.declarations)
+      .findLast(([property]) => property === WIDTH_VARIABLE)?.[1]
+    const webkitWidth = scrollbarRules
+      .filter(rule => rule.selectors.includes('::-webkit-scrollbar'))
+      .flatMap(rule => rule.declarations)
+      .findLast(([property]) => property === 'width')?.[1]
+    expect(webkitWidth, '::-webkit-scrollbar width').toBeDefined()
+    expect(webkitWidth).toBe(variableValue)
+  })
+
+  it('every reader of the width variable outside ui-theme references a defined variable', () => {
+    // The consumer is ConversationRoot's overlay composer seat
+    // (`right: var(--dsh-scrollbar-width)`); a rename in scrollbar.css without
+    // the consumer, or a typo in the consumer, leaves the value
+    // guaranteed-invalid and the seat loses the band. The equal-rectangle e2e
+    // would catch it only on an engine that draws the bar, so the sheet
+    // contract states it here.
+    const defined = new Set(
+      scrollbarRules
+        .flatMap(rule => rule.declarations)
+        .filter(([property]) => property.startsWith(INDIRECTION_PREFIX))
+        .map(([property]) => property),
+    )
+    expect(defined).toContain(WIDTH_VARIABLE)
+    const readers: string[] = []
+    for (const file of packageStylesheets()) {
+      if (file === fileURLToPath(new URL('scrollbar.css', STYLES))) continue
+      for (const rule of parseRules(readFileSync(file, 'utf8'))) {
+        for (const [property, value] of rule.declarations) {
+          for (const name of varReferences(value)) {
+            if (name === WIDTH_VARIABLE) readers.push(`${file} ${rule.selectors.join(', ')}: ${property}`)
+          }
+        }
+      }
+    }
+    expect(readers.length, 'compensation consumer').toBeGreaterThan(0)
   })
 })
 

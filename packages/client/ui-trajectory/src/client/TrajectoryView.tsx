@@ -141,8 +141,8 @@ export function TrajectoryView({
   } | null>(null)
   const inspection = useSession(snapshot =>
     snapshot.views.get('trajectory') ?? EMPTY_TRAJECTORY_SNAPSHOT)
-  const historyLoading = useSession(snapshot =>
-    snapshot.openState === 'loading' || snapshot.loadingOlder)
+  const historyLoading = useSession(snapshot => snapshot.openState === 'loading')
+  const olderHistoryLoading = useSession(snapshot => snapshot.loadingOlder)
   const hasOlderHistory = useSession(snapshot => snapshot.hasMore)
   const nodes = inspection.eventNodes
   const eventLocations = inspection.eventLocations
@@ -488,6 +488,7 @@ export function TrajectoryView({
           recordSelection={timelineRecordSelection}
           recordFocus={timelineRecordFocus}
           historyLoading={historyLoading}
+          olderHistoryLoading={olderHistoryLoading}
           historyStartSeq={historyBaseSeq}
           hasOlderRecords={hasOlderHistory}
           onLoadOlder={loadEarlierHistory}
