@@ -28,6 +28,7 @@ const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the preset module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+const EXAMPLES_INSTALL_ANCHOR = join(REPO_ROOT, 'examples/package.json')
 const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
 const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
@@ -43,7 +44,11 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
  * touch the network, or write outside the test. Everything that decides an
  * agent's capabilities is the real thing, including both shipped presets.
  */
-async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promise<Context> {
+async function bootWeb(
+  settingsFile: string,
+  extra: PatchOptions[] = [],
+  extraInstallAnchor?: string,
+): Promise<Context> {
   const storageRoot = join(dirname(settingsFile), 'storages')
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', BASE_PATCH),
@@ -110,6 +115,7 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
   // them resolvable — the same mechanism, not a test-only shim.
   const home = dirname(settingsFile)
   healProfilesModuleFallback(INSTALL_ANCHOR, home)
+  if (extraInstallAnchor !== undefined) healProfilesModuleFallback(extraInstallAnchor, home)
   const profileDir = join(home, 'profiles', 'spec')
   await mkdir(profileDir, { recursive: true })
   const rootConfig = join(profileDir, 'cordis.yml')
@@ -440,17 +446,23 @@ describe('product subagent rows in user presets', () => {
       await mkdir(directory, { recursive: true })
       await writeFile(join(directory, 'agent.cordis.yml'), composition)
     }
-    productCtx = await bootWeb(settingsFile, [{
-      id: 'agent-presets',
-      config: {
-        default: 'standard',
-        roots: [
-          { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
-          { path: userRoot, trust: 'user' },
-        ],
-        includeUserRoot: false,
+    productCtx = await bootWeb(settingsFile, [
+      { insert: [
+        { id: 'subagent-codex', name: '@deepseek-ai/dsh-subagent-codex' },
+        { id: 'subagent-claude-code', name: '@deepseek-ai/dsh-subagent-claude-code' },
+      ] },
+      {
+        id: 'agent-presets',
+        config: {
+          default: 'standard',
+          roots: [
+            { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
+            { path: userRoot, trust: 'user' },
+          ],
+          includeUserRoot: false,
+        },
       },
-    }])
+    ], EXAMPLES_INSTALL_ANCHOR)
   }, 120_000)
 
   afterAll(async () => {

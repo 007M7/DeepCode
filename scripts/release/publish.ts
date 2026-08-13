@@ -20,9 +20,6 @@ import { releaseFamily } from './families.ts'
 import { attempt, isEntry, run } from './process.ts'
 import { packedIdentity, readPublishOrder } from './tarball.ts'
 
-/** npm access level for every package this repository publishes. */
-const ACCESS = 'restricted'
-
 /** What the registry knows about one version. */
 type RegistryState =
   | { readonly kind: 'absent' }
@@ -91,7 +88,11 @@ function main(): void {
     }
     // A prerelease version never takes the latest dist-tag.
     const tagArgs = version.includes('-') ? ['--tag', 'next'] : []
-    run('npm', ['publish', tarball, '--access', ACCESS, ...tagArgs])
+    // No --access: the sequences do not share one access level, so a
+    // command-line flag could not serve both and would override the manifest
+    // that does. Each packed manifest decides, and
+    // check-workspace-constraints holds every manifest to its sequence's level.
+    run('npm', ['publish', tarball, ...tagArgs])
     published += 1
   }
 

@@ -26,6 +26,6 @@
   },
   "license": "BSD-3-Clause",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   }
 }
