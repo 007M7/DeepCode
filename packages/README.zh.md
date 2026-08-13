@@ -22,12 +22,12 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`subprocess/`](subprocess/README.md) | 子进程能力系列：Service Definition + 本地进程树提供方 | 产品：稳定 API |
 | [`shell/`](shell/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定 API |
 | [`terminal/`](terminal/README.md) | 持久 PTY 能力系列：限定所有者范围的会话、本地实现和面向模型的工具 | 产品：稳定 API |
-| [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：Service Definition + worker 线程提供方 + Code Mode 消费方 | 产品：稳定 API |
+| [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：Service Definition + worker 线程提供方 + Code Mode Consumer | 产品：稳定 API |
 | [`sandbox/`](sandbox/README.md) | 进程限制 seam；bwrap/Landlock/Seatbelt 后端 | 产品：稳定 API |
 | [`fs/`](fs/README.md) | 文件系统能力系列：seam、本地实现、面向模型的文件工具、由 bash 支持的发现工具 | 产品：稳定 API |
 | [`lsp/`](lsp/README.md) | LSP 能力系列：seam、通用 stdio 提供方和 `lsp` 工具 | 产品：稳定 API |
 | [`skill/`](skill/README.md) | skill（技能）能力系列：提供方注册表、本地提供方和面向模型的目录／loader | 产品：稳定 API |
-| [`compaction/`](compaction/README.md) | 压缩（compaction）能力系列：Service Definition + 基础提供方 + 命令消费方 | 产品：稳定 API |
+| [`compaction/`](compaction/README.md) | 压缩（compaction）能力系列：Service Definition + 基础提供方 + 命令 Consumer | 产品：稳定 API |
 | [`context/`](context/README.md) | 模型可见请求上下文，包括 workspace 指令和时间上下文 | 产品：稳定 API |
 | [`subagent/`](subagent/README.md) | subagent 能力系列：提供方注册表约定和面向模型的委托工具 | 产品：稳定 API |
 | [`jobs/`](jobs/README.md) | 通用后台任务运行时和面向模型的 `job_*` 控制工具 | 产品：稳定 API |
@@ -64,6 +64,6 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 
 依赖图由工具生成：[docs/module-graph.md](../docs/module-graph.md)（`pnpm run gen-module-graph`，CI 中有新鲜度门禁）。
 
-**扩展插件依赖 Service Definition，绝不依赖具体提供方。** `dsh-agent-loop` 可替换；UI、钩子和工具插件使用 `dsh-agent`。包括 `dsh-agent-spine-demo` 在内的组合包可以依赖主干插件。能力会将需要独立演进的 Service Definition／Service Provider／消费方角色分离；详见[能力 seam](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)。
+**扩展插件依赖 Service Definition，绝不依赖具体提供方。** `dsh-agent-loop` 可替换；UI、钩子和工具插件使用 `dsh-agent`。包括 `dsh-agent-spine-demo` 在内的组合包可以依赖主干插件。能力会将需要独立演进的 Service Definition／Service Provider／Consumer 角色分离；详见[能力 seam](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)。
 
 包 README 覆盖用途、API、扩展点和[模型体验](../docs/cookbook/adding-a-package.md#4-write-the-package-readme)；列入模型无关[省略允许清单](../scripts/verify-package-readme-model-experience.ts)的包除外。它们还要包含 `## Known Limitations and Deferred Work`，或列入其[允许清单](../scripts/verify-package-readme-limitations.ts)。

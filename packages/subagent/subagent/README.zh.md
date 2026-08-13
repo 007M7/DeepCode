@@ -16,16 +16,16 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `getProvider(name)` | 返回提供方；不存在时返回 `undefined`。 |
 | `list()` | 按插入顺序返回提供方名称。 |
 | `start(name, request)` | 校验普通调用方请求，解析其已分离的 `one-shot` 描述符，然后等待提供方发布真正的一次性子 agent。兑现时返回由持有方拥有的 `SubagentRun`；如果调用被拒绝，提供方已经清理所有尚未发布的启动资源。发布后的轮次故障或基础设施故障则通过该 run 结算。可继续子 agent 绝不通过此操作进入。 |
-| `startContinuable(spec)` | 建立一个持久化的可继续子 agent，并投递其初始提示词。子 agent 的 inbox 一接受该提示词，调用就会兑现为 `{ childId, messageId }`，无需等待轮次开始，也无需等待消息写入会话日志。在此之前发生的任何失败都会使调用被拒绝，不返回任何 ID，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
+| `startContinuable(spec)` | 建立一个持久化的可继续子 agent，并投递其初始提示词。子 agent 的 inbox 一接受该提示词，调用就会兑现为 `{ childId, messageId }`，无需等待轮次开始，也无需等待消息写入会话日志。在此之前发生的任何失败都会使调用被拒绝，不返回任何 id，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
 | `followup(parent, childId, content, { source, signal })` | 将来自确切在线直接父级的一条后续消息作为子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `MessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 waiting 的 Activation）；不驻留的则从其持久化会话冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
 | `interrupt(targetSessionId, authority)` | 凭人类出示的持久化父级地址 `{ kind: 'user', parentSessionId }`，或确切在线的祖先 Agent `{ kind: 'ancestor', agent }` 进行授权，中断一个在线可继续子级的当前轮次。准入判定同步完成，但取消异步生效：该操作发出 `Agent.cancel(cause, { keepInbox: true })` 后立即返回，不等待目标观察到信号。尚未领取的待处理 inbox 工作、Activation 和已发布的后代均会保留；已经领取到被中断轮次中的工作不会重新入队。目标不存在时视为已接受的空操作；错误的父级地址，或陈旧、指向自身、并非祖先的调用方，会以 `UNAUTHORIZED` 被拒绝。 |
 | `reportFrom(child, content, { delivery, signal })` | 从确切在线可继续 child 向其确切在线直接 parent 投递一条选中消息，并返回已接受的稳定 `MessageId`。静默投递会注入上下文；唤醒投递会提交一个后续 parent 轮次。 |
 | `registerContinuableSetup(contribution)` | 把一项可选部署能力组合到每个可继续 child 尚未发布的作用域中，并支持从驻留 child 立即撤销。 |
-| `drainContinuableDescendants(parents)` | 在由 host 持有的确切在线父级 Agent 之下关闭准入，只停止这些父级可见的可继续后代；等待已在这些根节点下获准的物化过程完成发布或回滚后，再按子级优先顺序释放所选的各棵树。该截止状态会持续到每个确切父级离开注册表；无关的父级树和管理器全局准入仍保持可用。 |
-| `listChildren(parentSessionId, signal?)` | 按 `createdAt`、再按 ID 的顺序列出由会话支撑的直接 subagent，包括其 `one-shot`／`continuable` 模式、`running`／`inactive` 活动状态、根据 origin 分类得出的一层 `hasChildren` 提示，以及每个子级的诊断信息，且不会加载或恢复它们。该操作直接读取在线会话存储和可选的会话持久化（没有持久化时只枚举在线子级），并要求已挂载 `sessionProjections` 注册表；不要求 `ctx.agents`、继续执行管理器或任何查询服务。 |
+| `drainContinuableDescendants(parents)` | 在由 host 拥有的确切在线父级 Agent 之下关闭准入，只停止这些父级可见的可继续后代；等待已在这些根节点下获准的物化过程完成发布或回滚后，再按子级优先顺序释放所选的各棵树。该截止状态会持续到每个确切父级离开注册表；无关的父级树仍在线，管理器全局准入仍保持开放。 |
+| `listChildren(parentSessionId, signal?)` | 按 `createdAt`、再按 id 的顺序列出由会话支撑的直接 subagent，包括其 `one-shot`／`continuable` 模式、`running`／`inactive` 活动状态、根据 origin 分类得出的一层 `hasChildren` 提示，以及每个子级的诊断信息，且不会加载或恢复它们。该操作直接读取在线会话存储和可选的会话持久化（没有持久化时只枚举在线子级），并要求已挂载 `sessionProjections` 注册表；不要求 `ctx.agents`、继续执行管理器或任何查询服务。 |
 | `listDescendants(rootSessionId, signal?)` | 从同一份在线优先语料按稳定 pre-order 展平根的完整会话树，并为每个 subagent 条目附加持久 `parentId` 与相对根的 `depth`。普通会话与一次性 child 仍作为遍历节点，因此其下的可继续后代仍可发现。身份、diagnostic、依赖与取消约定均沿用 `listChildren()`。 |
 
-`SubagentStartRequest.label` 是由会话支撑的一次性 child 所使用的可选简短持久化显示标签。面向模型的委派会提供其已有的 `description`；底层调用方无需凭空构造展示元数据。可继续启动始终携带自身的必填标签。`signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消已返回 run 的剩余轮次工作，但不会隐藏其 id。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号的控制范围只包括 inbox 接受之前的查找、物化和准入。一旦 inbox 接受消息，Activation 就由管理器独立拥有；此后调用方取消既不会取消已接受的轮次，也不会 dispose（资源释放）子 agent。
+`SubagentStartRequest.label` 是由会话支撑的一次性 child 所使用的可选简短持久化显示标签。面向模型的委派会提供其已有的 `description`；底层调用方无需凭空构造展示元数据。可继续启动始终携带自身的必填标签。`signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消已返回 run 的剩余轮次工作，但不会隐藏其 id。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只负责 inbox 接受前的查找、物化和准入；此后，Activation 由管理器独立拥有，因此调用方取消既不会取消已接受的轮次，也不会 dispose（资源释放）子 agent。
 
 后续操作的权限来自子 agent 持久化 header 中记录的确切在线直接父级。冷恢复会在重建前检查该权限，并在最终无 await 的 inbox 准入区间再次检查，因此在物化期间被注销或替换的 parent 无法授权投递。后续操作上的 `source` 记录谁提供了所投递的消息，不授予任何权限。
 
@@ -40,7 +40,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 - `toolFilter`：应用请求的子 agent 工具限制；
 - `persona`：应用每个子 agent 独立的 persona。
 
-每个进程内子 agent 都通过一次 `applyChildComposition(childCtx, parent, composition)` 调用完成组装：先加入父级的 agent-preset 组合，再应用子 agent 自己的 persona 和工具限制。加入父级组合正是子 agent 获得能力的途径：所有面向模型的行都位于 agent 平面，完全没有加入任何组合的子 agent 抵达模型时会看到空的工具注册表（见 [`dsh-agent-presets`](../../preset/agent-presets/README.md)）。将父级作为参数是刻意设计：这让“组装子 agent 却不做该加入”在各调用点无法表达，而这正是这一次调用所要杜绝的缺陷。未组装 preset roster 的部署不加入任何组合、也不需要加入；其面向模型的注册项位于宿主组合中，子 agent 已能通过工具注册表的全局层解析到它们。
+每个进程内子 agent 都通过一次 `applyChildComposition(childCtx, parent, composition)` 调用完成组装：先加入父级的 agent-preset 组合，再应用子 agent 自己的 persona 和工具限制。加入父级组合正是子 agent 获得能力的途径：所有面向模型的行都位于 agent 平面，完全没有加入任何组合的子 agent 抵达模型时会看到空的工具注册表（见 [`dsh-agent-presets`](../../preset/agent-presets/README.md)）。将父级作为参数是刻意设计：这让“组装子 agent 却不做该加入”在各调用点无法表达，而这正是这一次调用所要杜绝的缺陷。未组装 preset roster 的部署不加入任何组合、也不需要加入；其面向模型的行位于宿主组合中，子 agent 已能通过工具注册表的全局层解析到它们。
 
 `childSessionMeta()` 把所加入的 preset id 记在子 agent 的持久化 header 上，理由与顶层会话记录自己的那一个相同：preset 决定了模型所见的工具 schema 与提示段，因此冷读子 agent 的历史时必须重建那份组装，而不是部署默认值。该值从父方**活着的** scope 链读取，而不是从父方 header 读取，因为在空白期切换过 preset 的父方运行在更新的那份组装上，而它的 header 仍写着旧的那个。
 
@@ -64,13 +64,13 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `provider.start(request): Promise<SubagentRun>` 是所有权转移边界；委派工具也会在其由 Task 支撑的一次性后台路径中使用它。兑现前，提供方拥有设置过程，并且在任何失败路径上都必须取消、回滚并使尚未发布的资源完全停稳。兑现后，run 的所有权转移给调用方；调用方必须在每条路径上调用 `dispose()`。剩余提示词和轮次工作属于 `SubagentRun.result`。
 
-`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的拒绝只通过 `result` 本身报告；只有与结果无关的资源释放失败，才会使 `dispose()` 被拒绝。`output` 与 `subagent/end` 事件的 `lastAssistantMessage` 使用导出的 `AssistantOutputFold`／`finalAssistantOutput` 辅助函数选取子 agent 最后一条非空 assistant 消息；若没有这类消息，则选取其累积的 assistant 文本。子 agent 两种输出均未产生时，`output` 为 `[]`，该事件字段缺省（结果约定归 [`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) 所有）。
+`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的拒绝只通过 `result` 本身报告；只有独立的资源释放失败，才会使 `dispose()` 被拒绝。`output` 与 `subagent/end` 事件的 `lastAssistantMessage` 使用导出的 `AssistantOutputFold`／`finalAssistantOutput` 辅助函数选取子 agent 最后一条非空 assistant 消息；若没有这类消息，则选取其累积的 assistant 文本。子 agent 两种输出均未产生时，`output` 为 `[]`，该事件字段缺省（结果约定归 [`SubagentResult.output`](../../../docs/subsystems/subagent.md#the-terminal-result-subagentresult) 所有）。
 
 本地运行会在 `start()` 兑现前发布普通的子 agent／会话，把该共享会话 id 作为 `SubagentRun.id` 返回，以 `SubagentRun.localAgent` 公开准确的子 agent，把 `request.parent.session.id` 记录到子 agent 的 `parentSession` header，并在其初始轮次内追加已解析的描述符。远程提供方则生成 parent 作用域的生命周期 id，并返回 `localAgent: undefined`；由于没有本地 child 会话，其一次性运行不会进入基于追踪的枚举结果。
 
 ## 可继续子 agent 与 Activation
 
-每个可继续子 agent 都有一个持久化 Session，并且同一时刻至多有一个进程内 **Activation**。Activation 表示重建后的子 agent 的一次驻留时段，不是请求、结果、取消或 Task 的边界。Agent inbox 是唯一的轮次队列，因此继续执行管理器负责驻留，而 agent loop（智能体循环）负责所有轮次排序与执行。任何可继续路径都不会创建 Task 或中间的承载结果的包装层。
+每个可继续子 agent 都有一个持久化 Session，并且同一时刻至多有一个进程内 **Activation**。Activation 表示重建后的子 agent 的一次驻留时段，不是请求、结果、取消或 Task 的边界。Agent inbox 是唯一的轮次队列，因此驻留归继续执行管理器，所有轮次排序与执行归 agent loop（智能体循环）。任何可继续路径都不会创建 Task 或中间的承载结果的包装层。
 
 管理器根据 Agent 的完全停稳状态和所拥有的子级集合推导三种内部驻留状态，而不维护第二套状态机：`running` 表示存在正在进行的准入、尚未结束的轮次，或会唤醒 Agent 的 inbox 工作；`waiting` 表示 Agent 已完全停稳，但仍拥有至少一个尚未 dispose 的子级；`settled` 表示 Agent 已完全停稳且所有拥有的子级均已 dispose，此时管理器会 dispose `AgentHandle` 并移除 Activation。每条后续消息都使用 `Agent.followup()` 并成为一个 FIFO 轮次，且不会对当前轮次进行 steering（中途引导）。路由只取决于驻留状态：running 入队、waiting 唤醒同一 Agent，无 Activation 时则冷恢复一个新的。
 
@@ -78,7 +78,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ### 结算投递
 
-当一个驻留 Activation 结算时，管理器会在父级自身的轮次流中告知该子级持久化的直接父级：这个子级已经产出它将产出的全部内容。对于每个已经向调用方返回过 ID 的子级，管理器都会无条件投递结算通知，不考虑该子级是否调用过 `report`。最需要说明结局的终止情形，包括达到 token 上限、模型失败、取消或拆卸，恰恰是子级根本没有机会选择的那些情形。在第一条消息被接受之前就回滚的物化保持静默，因为那位调用方已被告知该子级未建立。消息会携带该 epoch 的终止原因、它产出过的最终 assistant 内容，以及持久化来源 `{ kind: 'subagent-settled', form: 'notice', senderSessionId: <child-id> }`——与子级自撰的 `subagent-report` 是不同的来源 kind，因此 transcript（文本记录）绝不会把运行时写下的话算到子级头上。
+当一个驻留 Activation 结算时，管理器会在父级自身的轮次流中告知该子级持久化的直接父级：这个子级已经产出它将产出的全部内容。对于每个已经向调用方返回过 id 的子级，管理器都会无条件投递结算通知，不考虑该子级是否调用过 `report`。最需要说明结局的终止情形，包括达到 token 上限、模型失败、取消或拆卸，恰恰是子级根本没有机会选择的那些情形。在第一条消息被接受之前就回滚的物化保持静默，因为那位调用方已被告知该子级未建立。消息会携带该 epoch 的终止原因、它产出过的最终 assistant 内容，以及持久化来源 `{ kind: 'subagent-settled', form: 'notice', senderSessionId: <child-id> }`——与子级自撰的 `subagent-report` 是不同的来源 kind，因此 transcript（文本记录）绝不会把运行时写下的话算到子级头上。
 
 有两条顺序规则让这条投递可靠而非侥幸，它们也正是这件事属于管理器而非外部 `subagent/end` listener 的原因。第一，发送发生在子级所有权释放**之前**，此时父级仍然计入该子级，因此在结构上不可能被判定为已结算。第二，如果父级本身也是驻留 Activation，该消息会采用与 report 相同的唤醒准入记账。这样，从同步发送消息到负责准入该消息的 microtask 运行之间的窗口，不会被误判为完全停稳——`Agent.status` 会把上下文维护折叠成 `idle`，而维护期间的唤醒发送只会预置一次延后唤醒。缺少其中任一条规则，父级都可能在通知仍留在 inbox 时被 dispose，而 `cancel()` 会清空该 inbox，于是通知被静默丢失。
 

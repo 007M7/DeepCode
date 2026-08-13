@@ -17,7 +17,7 @@
 - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` 为本插件负责的 settings namespace 提供查询提供方端点的能力。每个 namespace 只能有一个（`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`），并随调用 fiber dispose。
 - `ctx.llm.listModelDiscoveryNamespaces(): string[]` 列出可以询问端点的 namespace，让界面只在可用之处提供该动作。
 - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` 询问某个端点它公布了哪些模型。
-- `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方重试策略，并解析 `normal` 默认值。
+- `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方自身的重试策略，并解析 `normal` 默认值。
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
 - `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从负责该精确路由的适配器中，解析并校验确切模型身份，以及可用上下文、输出默认值和推理（reasoning）元数据；异步适配器可选地支持取消。
 - `ctx.llm.resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>` 校验显式推理强度，并填入适配器配置的调用默认值，但不自动调整。
@@ -28,13 +28,13 @@
 
 询问端点属于配置期针对**草稿**的操作，以 settings namespace 而非提供方路由为键——界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器会用自己的知识作答，无需联网；路由名称和 `baseURL` 至少需要提供一项。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据。这里既不读取也不写入 settings 或 credentials；返回内容是界面可以提供给用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
 
-提供方和模型元数据用于发现，不构成路由白名单。`registerAdapter()` 仍负责保证提供方路由的排他注册，并为每条路由捕获适配器的重试策略；适配器可以接受未出现在 `listModels()` 中的模型 ID，消费方不得仅因模型未列出而拒绝请求。返回的 selector 元数据已分离；无效或重复的适配器条目会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
+提供方和模型元数据用于发现，不构成路由白名单。`registerAdapter()` 仍负责保证提供方路由的排他注册，并为每条路由捕获适配器的重试策略；适配器可以接受未出现在 `listModels()` 中的模型 id，消费方不得仅因模型未列出而拒绝请求。返回的 selector 元数据已分离；无效或重复的适配器条目会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
 每个拓扑提交点——适配器路由注册或 dispose、目录条目出现或撤回——都会在变更之后发出无载荷的 `llm/adapters-updated` 事件，消费方因此会重新读取 `listProviders()`/`listModels()`/`listConfigurableProviders()`，而不是轮询。观察者故障会被记录并隔离，不能否决变更；只有带 `INVARIANT` 码的故障会在通知完所有观察者后重新抛出。
 
-确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型。缺少 `context` 表示模型容量未知；缺少 `defaultMaxTokens` 表示继续沿用提供方自身的输出默认行为；缺少 `reasoning` 则表示推理能力不可用。无效的身份、上下文、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
+确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型。缺少 `context` 表示模型容量未知；缺少 `defaultMaxTokens` 表示继续沿用提供方自身的输出默认值；缺少 `reasoning` 则表示推理能力不可用。无效的身份、上下文、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
 
-`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器持有的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 `signal`，并且必须在取消后尽快结算。`prepareCall()` 还会返回同一次查询得到的、与适配器内部状态分离的上下文元数据，通过 `adapterDefaults` 标明填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并在请求头记录和最终分发期间始终保留同一项精确的适配器注册。因此，HMR（热模块替换）不会把一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器定义的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 `signal`，并且必须在取消后尽快结算。`prepareCall()` 还会返回同一次查询得到的、与适配器内部状态分离的上下文元数据，通过 `adapterDefaults` 标明填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并在请求头记录和最终分发期间始终保留同一项精确的适配器注册。因此，HMR（热模块替换）不会把一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 ### 事件
 
@@ -44,7 +44,7 @@
 
 ### 扩展点
 
-- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方持有的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
+- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方定义的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
 - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。包装层如果在已经发出分片后重试，就没有可持久记录的尝试边界；因此，随产品交付的 agent 重试策略改用 `agent/request-error`。
 
 ### 消息（`message.ts`）与内容块（`types.ts`）
