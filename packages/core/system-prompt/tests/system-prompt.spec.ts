@@ -49,6 +49,25 @@ describe('SystemPrompt', () => {
       expect(renderPrompt(assembly)).toBe('You are a helpful software engineer assistant.')
     })
 
+    it('can suppress runtime context without evaluating providers or accepting waterfall additions', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt, { includeRuntimeContext: false })
+      let providerCalls = 0
+      ctx.systemPrompt.context({
+        name: 'policy',
+        order: 0,
+        text: () => `policy ${++providerCalls}`,
+      })
+      ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+        assembly.contexts.push({ name: 'late', text: 'late context' })
+        return next()
+      })
+
+      const assembly = await ctx.systemPrompt.assemble()
+      expect(assembly.contexts).toEqual([])
+      expect(providerCalls).toBe(0)
+    })
+
     it('tolerates a schema-bypassing direct construction (persona omitted)', async () => {
       // ctx.plugin validates + defaults the config first; a direct construction
       // skips the schema, so the ctor's `?? ''` narrowing is what fires.

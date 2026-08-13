@@ -186,6 +186,8 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
 export interface Config {
   /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
   includeHarnessIdentity?: boolean
+  /** Include dynamic runtime-context snapshots in model history (default true). */
+  includeRuntimeContext?: boolean
   /**
    * Deployment-wide order-0 persona template. A scoped section named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
@@ -302,6 +304,7 @@ type VariableProvider = (context: AssembleContext) => string | undefined
 class PromptLayer implements ScopeLayer {
   readonly sections: NamedEntries<PromptSection>
   readonly contexts: NamedEntries<PromptContext>
+  readonly runtimeContextSuppressors = new AnonymousEntries<true>()
   readonly toolProviders = new AnonymousEntries<ToolProvider>()
   readonly variables: NamedEntries<VariableProvider>
 
@@ -325,6 +328,7 @@ class PromptLayer implements ScopeLayer {
   isEmpty(): boolean {
     return this.sections.isEmpty()
       && this.contexts.isEmpty()
+      && this.runtimeContextSuppressors.isEmpty()
       && this.toolProviders.isEmpty()
       && this.variables.isEmpty()
   }
@@ -334,6 +338,7 @@ class PromptLayer implements ScopeLayer {
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
     includeHarnessIdentity: z.boolean().default(true),
+    includeRuntimeContext: z.boolean().default(true),
     persona: z.string().default(''),
     // Preserve omission because an explicit empty order lacks the rest marker.
     toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
@@ -362,6 +367,7 @@ export class SystemPrompt extends Service {
       // The fallback narrows the optional input type; the schema already defaults it.
       text: config.persona ?? '',
     })
+    if (!(config.includeRuntimeContext ?? true)) this.suppressRuntimeContext()
   }
 
   /**
@@ -397,6 +403,20 @@ export class SystemPrompt extends Service {
       this.ctx,
       layer => layer.contexts.insert(context.name, context),
       { label: 'systemPrompt.context()' },
+    )
+  }
+
+  /**
+   * Suppress every dynamic runtime-context contribution in the calling
+   * context's scope without changing the services that own or enforce those
+   * facts. Multiple suppressors remain independently disposable.
+   * @returns the exact Cordis effect disposer.
+   */
+  suppressRuntimeContext(): () => void {
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.runtimeContextSuppressors.append(true),
+      { label: 'systemPrompt.suppressRuntimeContext()' },
     )
   }
 
@@ -446,13 +466,16 @@ export class SystemPrompt extends Service {
   // Keep configuration failures on the declared asynchronous error path.
   async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
     const scope = context.scope
+    const scopeLayers = this.layers.chainLayers(scope)
+    const runtimeContextSuppressed = !this.layers.global.runtimeContextSuppressors.isEmpty()
+      || scopeLayers.some(layer => !layer.runtimeContextSuppressors.isEmpty())
     // Scoped variables shadow globals.
     const variables: Record<string, string | undefined> = {}
     for (const [name, provider] of this.layers.global.variables.entries()) {
       variables[name] = provider(context)
     }
     // Scope-chain variables, farthest first, so the nearest scope wins a name.
-    for (const layer of this.layers.chainLayers(scope)) {
+    for (const layer of scopeLayers) {
       for (const [name, provider] of layer.variables.entries()) {
         variables[name] = provider(context)
       }
@@ -463,7 +486,7 @@ export class SystemPrompt extends Service {
     // Validate order against pre-restriction names while collecting visible schemas.
     const providers = [
       ...this.layers.global.toolProviders.values(),
-      ...this.layers.chainLayers(scope).flatMap(layer => [...layer.toolProviders.values()]),
+      ...scopeLayers.flatMap(layer => [...layer.toolProviders.values()]),
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()
@@ -495,12 +518,14 @@ export class SystemPrompt extends Service {
       })
     const assembly: PromptAssembly = {
       sections,
-      contexts: [...contextByName.values()]
-        .sort((a, b) => a.order - b.order)
-        .map(entry => ({
-          name: entry.name,
-          text: typeof entry.text === 'function' ? entry.text(context) : entry.text,
-        })),
+      contexts: runtimeContextSuppressed
+        ? []
+        : [...contextByName.values()]
+          .sort((a, b) => a.order - b.order)
+          .map(entry => ({
+            name: entry.name,
+            text: typeof entry.text === 'function' ? entry.text(context) : entry.text,
+          })),
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
@@ -508,8 +533,12 @@ export class SystemPrompt extends Service {
       scopeTarget(this, scope), 'system-prompt/assemble', assembly, context,
       () => Promise.resolve(assembly),
     )
-    if (completeSection === undefined) return transformed
-    return { ...transformed, sections: [completeSection] }
+    if (completeSection === undefined && !runtimeContextSuppressed) return transformed
+    return {
+      ...transformed,
+      sections: completeSection === undefined ? transformed.sections : [completeSection],
+      contexts: runtimeContextSuppressed ? [] : transformed.contexts,
+    }
   }
 }
 

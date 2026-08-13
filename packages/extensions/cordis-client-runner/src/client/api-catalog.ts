@@ -73,7 +73,7 @@ export interface InheritedApiEntry {
 
 /** One named type declaration referenced by a Service or Event signature. */
 export interface TypeApiEntry {
-  /** The exported type/interface name, e.g. `BashRunResult`. */
+  /** The exported type/interface name, e.g. `ShellRunResult`. */
   name: string
   /** The full declaration text, comments stripped. */
   declaration: string
@@ -411,7 +411,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentContext',
-    declaration: 'export type AgentContext = Omit<Context, \'remote\'> & {\n    readonly remote: TypeRTClientRemote & TypeRTRemoteScopeApi<\'agent\'>;\n};',
+    declaration: 'export type AgentContext = Omit<Context, \'remote\'> & {\n    readonly remote: TypertClientRemote & TypertRemoteScopeApi<\'agent\'>;\n};',
   },
   {
     name: 'AssistantBlock',
