@@ -88,13 +88,13 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
 describe('web command-line provider', () => {
   it('publishes each flag and releases direct service expressions', async () => {
     const { values, observed } = await bootProvider([
-      '--host', '0.0.0.0',
+      '--host', '127.0.0.1',
       '--port', '8080',
       '--trusted-host', 'lab.internal', 'lab-2.internal',
       '--trusted-host', '10.0.0.9',
     ])
     expect(values).toEqual({
-      host: '0.0.0.0',
+      host: '127.0.0.1',
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
     })
@@ -124,6 +124,14 @@ describe('web command-line provider', () => {
   it('rejects a non-numeric port before the consumer activates', async () => {
     const { values, observed } = await bootProvider(['--port', 'abc'])
     expect(observed.out).toContain('--port must be a number')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
+    const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
+    expect(observed.out).toContain('--host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])

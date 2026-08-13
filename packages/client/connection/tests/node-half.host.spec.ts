@@ -199,8 +199,8 @@ describe('connection node half', () => {
     const loopback = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), loopback.response)
     expect(loopback.state.status).toBe(404)
-    // LAN authority declared as a port-less IP literal — the shape the CLI
-    // derives for `--host 0.0.0.0` — passes markerless curl on any port.
+    // An all-interfaces composition derives port-less LAN IP literals, which
+    // pass markerless curl on any port.
     const lan = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: '192.168.1.5:3080' }), lan.response)
     expect(lan.state.status).toBe(404)
