@@ -418,7 +418,9 @@ describe('TrajectoryTable', () => {
     await waitFor(() => { expect(onLoadOlder).toHaveBeenCalledOnce() })
     expect(screen.getByRole('status').textContent).toContain('Loading earlier history…')
     resolveOlder?.(true)
-    await waitFor(() => { expect(screen.queryByRole('status')).toBeNull() })
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe('')
+    })
     scrollHeight = 260
     view.rerender(
       <TrajectoryTable
@@ -458,7 +460,10 @@ describe('TrajectoryTable', () => {
 
     const table = screen.getByRole('table')
     const loadButton = screen.getByRole('button', { name: 'Load earlier history' })
-    expect(table.querySelector('tbody > tr:first-child')?.contains(loadButton)).toBe(true)
+    const loadRow = table.querySelector('tbody > tr:first-child')
+    expect(loadRow?.contains(loadButton)).toBe(true)
+    expect(loadRow?.getAttribute('aria-rowindex')).toBe('1')
+    expect(screen.getByRole('status').textContent).toBe('')
     expect(table.getAttribute('aria-rowcount')).toBe('4')
     expect((await screen.findByRole('row', { name: /ASSISTANT/ })).getAttribute('aria-rowindex'))
       .toBe('2')

@@ -30,6 +30,7 @@ import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
 const OLDER_LOAD_THRESHOLD_PX = 48
+const HISTORY_LOAD_ROW_HEIGHT_PX = 30
 const VIRTUALIZATION_THRESHOLD = 100
 const VIRTUAL_OVERSCAN_ROWS = 12
 const VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX = 600
@@ -364,7 +365,7 @@ export interface TrajectoryTableProps {
   recordFocus?: { readonly index: number } | null
   /** Whether the initial history tail is still loading. */
   historyLoading?: boolean
-  /** Whether another surface is loading one older history page. */
+  /** Whether one older history page request is pending anywhere. */
   olderHistoryLoading?: boolean
   /** First loaded raw event, used to preserve scroll position after prepending a page. */
   historyStartSeq?: number | undefined
@@ -1772,6 +1773,7 @@ export function TrajectoryTable({
   const virtualRowStructure = useStableVirtualRowStructure(projectedVirtualRows)
   const virtualizationEnabled = hasOlderRecords
     || records.length > VIRTUALIZATION_THRESHOLD
+  const virtualScrollMargin = hasOlderRecords ? HISTORY_LOAD_ROW_HEIGHT_PX : 0
   const estimateVirtualRowSize = useCallback(
     (index: number) => virtualRowStructure[index]?.height ?? 30,
     [virtualRowStructure],
@@ -1790,6 +1792,7 @@ export function TrajectoryTable({
     initialRect: { width: 0, height: VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX },
     anchorTo: 'end',
     overscan: VIRTUAL_OVERSCAN_ROWS,
+    scrollMargin: virtualScrollMargin,
     scrollEndThreshold: BOTTOM_FOLLOW_THRESHOLD_PX,
   })
   const virtualIndexByRecordId = useMemo(() => {
@@ -1804,10 +1807,15 @@ export function TrajectoryTable({
     return indexes
   }, [projectedVirtualRows])
   const virtualItems = virtualizationEnabled ? rowVirtualizer.getVirtualItems() : []
-  const virtualTop = virtualItems[0]?.start ?? 0
+  const virtualTop = Math.max(0, (virtualItems[0]?.start ?? 0) - virtualScrollMargin)
   const virtualBottom = virtualItems.length === 0
     ? 0
-    : Math.max(0, rowVirtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0))
+    : Math.max(
+      0,
+      rowVirtualizer.getTotalSize()
+        + virtualScrollMargin
+        - (virtualItems.at(-1)?.end ?? 0),
+    )
   const renderedRecords = virtualizationEnabled
     ? virtualItems.flatMap((item) => {
       const row = projectedVirtualRows[item.index]
@@ -2220,12 +2228,19 @@ export function TrajectoryTable({
           </colgroup>
           <tbody>
             {hasOlderRecords && (
-              <tr className={css.historyLoadRow} data-history-load="">
+              <tr
+                className={css.historyLoadRow}
+                data-history-load=""
+                aria-rowindex={1}
+              >
                 <td colSpan={2}>
                   <button
                     type="button"
                     className={css.historyLoadButton}
                     disabled={olderBusy || onLoadOlder === undefined}
+                    aria-label={olderBusy
+                      ? 'Loading earlier history…'
+                      : 'Load earlier history'}
                     onClick={() => {
                       const pane = tablePaneRef.current
                       if (pane !== null) requestOlder(pane, false)
@@ -2234,11 +2249,11 @@ export function TrajectoryTable({
                     {olderBusy && (
                       <span className={css.historyLoadingSpinner} aria-hidden="true" />
                     )}
-                    <span
-                      role={olderBusy ? 'status' : undefined}
-                      aria-live={olderBusy ? 'polite' : undefined}
-                    >
+                    <span aria-hidden="true">
                       {olderBusy ? 'Loading earlier history…' : 'Load earlier history'}
+                    </span>
+                    <span className={css.visuallyHidden} role="status" aria-live="polite">
+                      {olderBusy ? 'Loading earlier history…' : ''}
                     </span>
                   </button>
                 </td>

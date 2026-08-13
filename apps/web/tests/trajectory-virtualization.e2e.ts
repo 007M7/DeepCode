@@ -157,10 +157,16 @@ async function loadToFirstTurn(page: Page): Promise<void> {
     await scrollToRatio(page, 0)
     if (await page.getByText(marker, { exact: false }).count() > 0) return
     const before = await logicalRows(page)
+    const anchor = await firstVisibleRow(page)
     await expect.poll(async () => ({
       marker: await page.getByText(marker, { exact: false }).count() > 0,
       rows: await logicalRows(page),
     }), { timeout: 30_000 }).not.toEqual({ marker: false, rows: before })
+    await nextPaint(page)
+    await expect.poll(async () => {
+      const top = await rowTop(page, anchor.key)
+      return top === null ? Number.POSITIVE_INFINITY : Math.abs(top - anchor.top)
+    }, { timeout: 15_000 }).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
   }
   throw new Error('trajectory did not reach the first turn after twelve older-page requests')
 }
@@ -246,11 +252,12 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
         scaffold.workspaceCwd,
       )
       await compareOrRefreshGolden(LOAD_MORE_EXPECTED, loadMoreSnapshot, MODE)
+      // Avoid Playwright scrolling the offscreen first row into the automatic-load threshold.
       await loadMore.evaluate((button: HTMLButtonElement) => { button.click() })
       await expect.poll(() => held, { timeout: 15_000 }).toBe(true)
       await expect.poll(async () => ({
         disabled: await loadMore.isDisabled(),
-        label: await loadMore.textContent(),
+        label: await loadMore.getAttribute('aria-label'),
       }), { timeout: 15_000 }).toEqual({
         disabled: true,
         label: 'Loading earlier history…',
