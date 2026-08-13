@@ -37,7 +37,7 @@ ACP（Agent Client Protocol）与 tool-bash 的若干限制是同一个所有权
 
 ## 会话所有者令牌在存活 agent 中唯一
 
-bash 所有者 token 比较依赖共享的 `Agent.id`/`SessionId` 在存活 agent 中唯一。并发的同 ID 操作可以都私下准备，但发布时会依次登记会话和 agent；`SessionStore.enter()` 拒绝重复的存活会话 id，每个失败事务都回滚自己的私有状态。因此程序化调用方无法发布两个共享同一会话 token 的存活 agent。访问*策略*（token 比较）留在 Consumer `tool-bash`；bash 能力只存储不透明的 `owner` 字符串且从不解释它——这是正确的 Service Definition / Service provider / Consumer 拆分。
+bash 所有者 token 比较依赖共享的 `Agent.id`/`SessionId` 在存活 agent 中唯一。并发的同 ID 操作可以都私下准备，但发布时会依次登记会话和 agent；`SessionStore.enter()` 拒绝重复的存活会话 id，每个失败事务都回滚自己的私有状态。因此程序化调用方无法发布两个共享同一会话 token 的存活 agent。访问*策略*（token 比较）留在 Consumer `tool-bash`；bash 能力只存储不透明的 `owner` 字符串且从不解释它——这是正确的 Service Definition / Service Provider / Consumer 拆分。
 
 ## 曾考虑的替代方案
 

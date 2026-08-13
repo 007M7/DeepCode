@@ -10,7 +10,7 @@ stdio JSON-RPC 对外服务接口（`@deepseek-ai/dsh-sdk-jsonrpc-server`，见[
 
 ## 决策
 
-三个包，分层与既有 Python 栈完全一致，外加一个 Service provider 注册：
+三个包，分层与既有 Python 栈完全一致，外加一个 Service Provider 注册：
 
 - **`@deepseek-ai/dsh-sdk-protocol`**（`packages/sdk/protocol/`）—— 把线协议做成共享且具名。`JsonRpcLineTransport` 从 `dsh-sdk-jsonrpc-server` 原样移入（后者现在导入它），`types.ts` 为服务器所说的每个载荷命名：`InitializeParams/Result`、`SessionPromptParams/Result`、四个通知载荷，以及 `HarnessSdkRequestMap`/`HarnessSdkNotificationMap` 索引。该包根显式导出这一完整接口，且不提供指向源模块的深层导入。服务器的 `notify()` 调用点以这些具名载荷标注类型，服务器漂移会先破坏编译而不是破坏客户端。一处行为变化：错误响应现在以携带线上 `code`/`data` 的 `JsonRpcResponseError` 拒绝（Python 客户端本就保留这些；旧传输只抛携带消息的裸 `Error`）。
 - **`@deepseek-ai/dsh-sdk-client`**（`packages/sdk/client/`）—— `python/sdk` 的 TypeScript 孪生：`HarnessClient`（spawn、分帧、通知扇出、有类型的错误表面、经共享 dispose（资源释放）阶梯关闭至完全停稳）之上是 `DeepSeekHarness`/`HarnessSession`（惰性启动、记忆化 `initialize`、`run()` 把一个 `session/prompt` 与其 `session.finished` 配对）。其包根消费方接口显式导出两层客户端、面向调用方的类型，以及协议包所拥有的 `JsonRpcResponseError`；源模块、规范化辅助函数和通知投递端都保留为内部实现。`TurnResult.events` 只包含根会话的类型化事件，而 `notifications` 则保留根会话及从 `subagent.started` 发现的后代各自的会话 id；基于 `subagent.started` 血缘边的会话树范围限定在客户端完成，镜像 `client.py`。与 Python 的刻意不对称：启动规格是显式 `command`/`args`（无捆绑运行时解析——那是尚无 TS 消费方的发行问题）；`env` 整体替换而非合并（凭据策略归调用方；subprocess seam 的 `scrubbedParentEnv` 一个 import 即得）；`TurnResult` 携带结构化 `reason`（Python 只暴露 `status`）；拆除走私有的 stdin-EOF → SIGTERM → SIGKILL 阶梯直到真正退出（客户端运行在任何 harness 上下文之外，无法搭乘 `ctx.subprocess`）。
@@ -30,7 +30,7 @@ stdio JSON-RPC 对外服务接口（`@deepseek-ai/dsh-sdk-jsonrpc-server`，见[
 
 ## 考虑过的替代方案
 
-**从 `dsh-sdk-jsonrpc-server` 导入协议类型而不是提取协议包。** 会让每个 SDK 消费方（包括绝不能提供 JSON-RPC 服务的 `subagent-dsh-sdk`）依赖服务器插件及其 `dsh-agent`/`dsh-llm-deepseek` peer 集合，且通知载荷仍然匿名。能力 seam 规则（Service Definition/Service provider/Consumer 三个包分立）已经点名了这种形态；这个传输是货真价实的双边物。
+**从 `dsh-sdk-jsonrpc-server` 导入协议类型而不是提取协议包。** 会让每个 SDK 消费方（包括绝不能提供 JSON-RPC 服务的 `subagent-dsh-sdk`）依赖服务器插件及其 `dsh-agent`/`dsh-llm-deepseek` peer 集合，且通知载荷仍然匿名。能力 seam 规则（Service Definition/Service Provider/Consumer 三个包分立）已经点名了这种形态；这个传输是货真价实的双边物。
 
 **让 `subagent-dsh-sdk` 直说裸 JSON-RPC、绕开客户端 SDK。** 会复制 SDK 存在意义所在的请求/通知配对、订阅扇出、超时与拆除逻辑；用户的要求明确是一个*使用* SDK 的后端，分层的回报是后端成为可复用客户端之上约 200 行的纯策略。
 

@@ -53,7 +53,7 @@ The filesystem seam uses the same dependency direction as the bash trio:
 
 `@deepseek-ai/dsh-tool-fs` depends on `@deepseek-ai/dsh-fs`, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-system-prompt`, and `cordis`. It registers model-facing tools and prompt sections. It must not import `node:fs`, `node:path`, or `@deepseek-ai/dsh-fs-local`; filesystem execution always goes through `ctx.fs`. If the implementation needs concrete agent or session helper types, those dependencies belong in `tool-fs`; they must not leak back into `dsh-fs`.
 
-The root `tool-fs` plugin registers the full filesystem tool suite (`read`, `write`, and `edit`) by composing the per-tool registration helpers. It injects `fs` and never imports a Service provider package.
+The root `tool-fs` plugin registers the full filesystem tool suite (`read`, `write`, and `edit`) by composing the per-tool registration helpers. It injects `fs` and never imports a Service Provider package.
 
 ## `ctx.fs` contract
 
@@ -139,7 +139,7 @@ The defensive-pattern classes this repo has been bitten by are pinned directly:
 ## Alternatives considered
 
 - **Model-facing tools directly over `node:fs`** — the tool package would own execution policy, path resolution, atomic writes, text decoding, and edit semantics at once, coupling the three independently-changing concerns the Problem names and churning schemas on any backend swap.
-- **One combined `dsh-fs-tools` package** — the pre-seam shape; rejected for the same Service Definition / Service provider / Consumer split as bash, and the combined name never became public API.
+- **One combined `dsh-fs-tools` package** — the pre-seam shape; rejected for the same Service Definition / Service Provider / Consumer split as bash, and the combined name never became public API.
 - **Observed-state on `ctx.fs`** — the shape this Agent Note first landed; superseded by [the split-fs-seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) and [the event-gate Agent Note](2026-06-26-file-context-as-event-gate.md): a sandboxed/remote backend must not inherit model-facing observation policy, so the provider keeps only the version token and the optional version-guarded mutation.
 
 ## Consequences

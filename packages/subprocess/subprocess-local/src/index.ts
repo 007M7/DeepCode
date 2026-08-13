@@ -1,5 +1,5 @@
 /**
- * Local Service provider for the subprocess capability seam. Each spawn is a detached
+ * Local Service Provider for the subprocess capability seam. Each spawn is a detached
  * process tree with the spec's per-stream stdio dispositions. Normal disposal
  * terminates and joins live trees; Node's synchronous exit phase force-stops
  * any trees the service still owns. It has no config: every disposition and

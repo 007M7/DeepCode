@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-### 压缩是一个能力 seam，Service Definition 与 Service 提供方角色分离
+### 压缩是一个能力 seam，Service Definition 与 Service Provider 角色分离
 
 遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使约定、算法和（后续的）消费方 API 各自独立演进：
 

@@ -9,7 +9,7 @@
  * one by name. The shape mirrors the LLM adapter registry
  * (`LlmRuntime.registerAdapter`), not the single-service bash executor.
  *
- * This package owns the Service Definition role of the capability seam. Service providers
+ * This package owns the Service Definition role of the capability seam. Service Providers
  * (`@deepseek-ai/dsh-subagent-spawn-in-process`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *

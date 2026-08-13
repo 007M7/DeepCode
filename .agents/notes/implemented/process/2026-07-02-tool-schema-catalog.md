@@ -29,7 +29,7 @@ Booting has a cost the AST pass did not: there is no source declaration set to e
 
 ### A hand-maintained boot manifest is the irreducible policy
 
-The filesystem discovers the tool-package inventory and the completeness guard rejects omissions. `TOOL_PACKAGES` still owns an explicit boot recipe for each package because required Service providers and config are policy, not facts that can be inferred safely from layout or injection names.
+The filesystem discovers the tool-package inventory and the completeness guard rejects omissions. `TOOL_PACKAGES` still owns an explicit boot recipe for each package because required Service Providers and config are policy, not facts that can be inferred safely from layout or injection names.
 
 ### Scope
 

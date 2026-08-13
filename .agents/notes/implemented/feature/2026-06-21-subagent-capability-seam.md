@@ -21,7 +21,7 @@ The harness has a long-deferred seam for **subagents** — an agent delegating w
 
 ### Why not the bash seam shape
 
-The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `ShellExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmRuntime.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service provider / Consumer); only the "one vs. many implementations" axis differs.
+The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `ShellExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmRuntime.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service Provider / Consumer); only the "one vs. many implementations" axis differs.
 
 ## Decision
 

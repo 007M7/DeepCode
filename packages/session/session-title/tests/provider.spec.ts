@@ -47,7 +47,7 @@ function appendRoute(session: ReturnType<Context['sessions']['create']>, reason:
   })
 }
 
-describe('SessionTitleService provider lifecycle', () => {
+describe('SessionTitleService Provider lifecycle', () => {
   it('inherits title events across forks, skips first-prompt retitling, and lets all-messages update later', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

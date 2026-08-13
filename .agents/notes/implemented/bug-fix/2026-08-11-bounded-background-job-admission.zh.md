@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`LocalJobRegistry` 拥有 `maxConcurrentJobsPerOwner` 配置字段。它只接受正的安全整数，默认值为 `10`，并通过 Service provider 的 Cordis schema、typed `agent-spine-demo` 组合包与 ACP 应用配置提供。组合包只传输该值；其含义归进程内 Service provider 所有。
+`LocalJobRegistry` 拥有 `maxConcurrentJobsPerOwner` 配置字段。它只接受正的安全整数，默认值为 `10`，并通过 Service Provider 的 Cordis schema、typed `agent-spine-demo` 组合包与 ACP 应用配置提供。组合包只传输该值；其含义归进程内 Service Provider 所有。
 
 [通用任务运行时决策](../architecture/2026-06-20-generic-long-running-tool-runtime.md)拥有共享 Task 生命周期与控制 API；本记录只拥有进程内准入策略。
 
@@ -34,7 +34,7 @@ owner 与服务释放保留现有顺序：请求取消，在生产方释放资�
 
 ## 验证
 
-任务 Service provider 测试覆盖默认与显式上限、生产方执行前拒绝、id 计数器不变、`stopping` 占位、每种终态释放、确切 owner 隔离、同会话替代对象、共享无 owner 桶、非法配置、owner 清理和服务拆除。spine 与 ACP 组合测试固定 typed 转发。一条 keyless ACP 回放以 1 为上限启动真实 Loader 组合，启动一个真实后台 Bash 进程，观察第二次启动返回可操作错误，按返回的 job id 停止第一个任务，并验证被拒绝生产方的标记文件从未生成。
+任务 Service Provider 测试覆盖默认与显式上限、生产方执行前拒绝、id 计数器不变、`stopping` 占位、每种终态释放、确切 owner 隔离、同会话替代对象、共享无 owner 桶、非法配置、owner 清理和服务拆除。spine 与 ACP 组合测试固定 typed 转发。一条 keyless ACP 回放以 1 为上限启动真实 Loader 组合，启动一个真实后台 Bash 进程，观察第二次启动返回可操作错误，按返回的 job id 停止第一个任务，并验证被拒绝生产方的标记文件从未生成。
 
 ## 曾考虑的替代方案
 
