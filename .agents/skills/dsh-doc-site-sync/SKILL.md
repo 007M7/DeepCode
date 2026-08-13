@@ -49,6 +49,7 @@ Write normal repository-relative Markdown links in canonical docs. The projector
 - An image is the exception: its file is copied into the generated tree and referenced from there, so the site serves it regardless of repository visibility. It must be a regular file inside the repository.
 - External URLs, site-absolute URLs, email links, and fragment-only links remain unchanged.
 - A missing repository-relative target fails projection instead of silently producing a broken link.
+- Cross-language and generated-document fragments use the English GitHub heading id as their canonical id. If a translated or generated heading emits another id, place an explicit `<a id="..."></a>` immediately before it; add generated aliases in the owning generator.
 
 Do not write website-specific routes into canonical Markdown just to satisfy VitePress. Use `sourceAliases` for directory-style repository links that should resolve to a mapped index page.
 
