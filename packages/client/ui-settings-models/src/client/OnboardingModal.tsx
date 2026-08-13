@@ -41,7 +41,7 @@ export function OnboardingModal({
       title={title}
       onClose={ignoreImplicitDismiss}
       headless
-      className={css['dialog'] ?? ''}
+      className={css.dialog as string}
     >
       <div className={css.content}>
         <h2 ref={titleRef} className={css.title} tabIndex={focusTitle ? -1 : undefined}>{title}</h2>

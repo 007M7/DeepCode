@@ -14,7 +14,7 @@ import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
 
-async function bench() {
+async function bench(isLoopback = true) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
@@ -24,7 +24,7 @@ async function bench() {
   new TestRemote(ctx)
   // The apply path only captures the wire face; no call leaves this fake
   // until a section actually loads.
-  ctx.provide('connection', { api: {}, isLoopback: true } as never)
+  ctx.provide('connection', { api: {}, isLoopback } as never)
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale }
 }
 
@@ -141,6 +141,22 @@ describe('ui-settings-models apply', () => {
     // The (ns, locale) seats are free again — the dictionary disposers ran.
     expect(() => b.locale.register('settings.models', 'zh', {})).not.toThrow()
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
+  })
+
+  it('keeps remote-browser acknowledgement in process memory', async () => {
+    const b = await bench(false)
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.onboarding')
+      .find(candidate => candidate.options.id === 'welcome-notice')!
+    const injected = (
+      entry.inject as unknown as () => import('../src/client/WelcomeNotice.tsx').WelcomeNoticeInjected
+    )()
+
+    await injected.controller.load()
+    expect(injected.controller.store.getSnapshot()).toEqual({
+      status: 'ready', acknowledged: false, error: null,
+    })
   })
 })
 

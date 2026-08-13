@@ -146,6 +146,13 @@ function harness(options: {
 }
 
 describe('DeepSeekOnboardingDialog', () => {
+  it('renders when the shell root is absent', async () => {
+    const h = harness()
+    document.getElementById('root')!.remove()
+    render(<DeepSeekOnboardingDialog {...h.props} />)
+    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+  })
+
   it('loads a credential-only modal, inerts the product, and focuses the key', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
