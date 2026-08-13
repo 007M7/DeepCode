@@ -53,7 +53,7 @@
     "@deepseek-ai/schemastery": "workspace:^",
     "commander": "^15.0.0",
     "ink": "5.2.1",
-    "react": "18.3.1"
+    "react": "19.2.7"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -86,6 +86,6 @@
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-questions": "workspace:^",
-    "@types/react": "~18.3.31"
+    "@types/react": "~19.2.17"
   }
 }
