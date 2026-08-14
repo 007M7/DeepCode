@@ -389,6 +389,24 @@ export type Config = LocalConfig
 
 来源：[`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-cli-app"></a>
+
+## `@deepseek-ai/dsh-cli-app`
+
+依赖：`agentDefaultModel` · `agents` · `sessions` · `sessionPersistence` · `cliStartup` · `approval` · `userQuestions` · `credentials` · `llm` · `commands` · `settings`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Absolute working directory for fresh sessions and resume filtering. */
+  cwd: string
+  /** Product version shown in the welcome card. */
+  version?: string
+}
+```
+
+来源：[`packages/bundle/cli-app/src/index.ts:49`](../packages/bundle/cli-app/src/index.ts)
+
 <a id="deepseek-aidsh-client-connection"></a>
 
 ## `@deepseek-ai/dsh-client-connection`
