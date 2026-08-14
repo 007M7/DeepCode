@@ -12,7 +12,7 @@ Windows 还有一项独立的组合约束。持久终端能力依赖 POSIX 进�
 
 ## Decision
 
-`deepseek` 是随附 `cli` profile 的直接可执行入口；`dsh cli` 和 `dsh --profile cli` 仍是等价的启动形式。Windows 下载源码安装器会恢复并构建 workspace、全局链接 CLI 包，并把 npm 命令目录持久写入用户 `PATH`，因此新的命令提示符、PowerShell 或 Windows Terminal 会话都能从任意工作目录到达同一入口。它会删除 npm 生成的同名 PowerShell shim，使两种 shell 都解析 `deepseek.cmd`，且无需修改 Restricted 脚本策略。该链接明确保留 checkout 作为产物来源；重复运行安装器会原地更新，卸载则移除链接包但不删除共享的 npm PATH 项。两种启动形式都会把进程标题设为 `DeepCode`。profile 的组合包列表依次为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-cli-app`。两个可执行名称共用同一启动分派，CLI 组合包包含一个由应用持有的启动提供方和直接 runner；它不挂载 Host、HTTP server、Web 运行时、浏览器客户端、ACP server 或外部编排器集成。
+`deepseek` 是随附 `cli` profile 的直接可执行入口；`dsh cli` 和 `dsh --profile cli` 仍是等价的启动形式。Windows 下载源码安装器会恢复并构建 workspace、在 npm 命令目录写入直接的 `deepseek.cmd` 启动器，并把该目录持久写入用户 `PATH`，因此新的命令提示符、PowerShell 或 Windows Terminal 会话都能从任意工作目录到达同一入口。启动器直接调用 checkout 的构建入口，不创建 npm 包链接，因此包不会作为 Junction 出现在自身 `node_modules` 树中；两种 shell 都解析同一个 `.cmd`，且无需修改 Restricted 脚本策略。重复运行安装器会原地更新，卸载则只移除带标记的启动器，不删除共享的 npm PATH 项。两种启动形式都会把进程标题设为 `DeepCode`。profile 的组合包列表依次为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-cli-app`。两个可执行名称共用同一启动分派，CLI 组合包包含一个由应用持有的启动提供方和直接 runner；它不挂载 Host、HTTP server、Web 运行时、浏览器客户端、ACP server 或外部编排器集成。
 
 runner 等待 Loader 完全加载，读取 `ctx.agentDefaultModel.currentSelection()`，并通过 `ctx.agents.create` 为调用目录创建一个持久化 Agent。完成编辑的 composer 值会成为一条普通用户 follow-up。`/new` 用全新 Session 替换持有的 Agent；`/resume` 在校验身份、root 来源、工作区且会话没有 Agent preset 后调用 `ctx.agents.resume`。Session header 不标识由哪个无 roster surface 创建，因此同一工作区内其他无 roster 会话仍可恢复。旧 Session 只会在命令完成后刷新并释放 handle。runner 在每个轮次后和最终清理期间等待 Agent 空闲并刷新会话。
 
