@@ -36,7 +36,10 @@ concurrency:
 jobs:
   lifecycle:
     name: Issue lifecycle
-    if: ${{ github.event_name != 'pull_request_review' || (github.event.action == 'submitted' && github.event.review.state == 'changes_requested') }}
+    if: >-
+      vars.DEEPCODE_ISSUE_AUTOMATION_ENABLED == 'true'
+      && (github.event_name != 'pull_request_review'
+      || (github.event.action == 'submitted' && github.event.review.state == 'changes_requested'))
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted policy
@@ -44,15 +47,20 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      # The automation GitHub App is optional repository configuration. When
+      # its client id is not configured, skip the token and the handler so the
+      # check degrades to a no-op success instead of failing every PR.
       - name: Create project token
         id: app-token
+        if: vars.DSH_ISSUE_APP_CLIENT_ID != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           client-id: ${{ vars.DSH_ISSUE_APP_CLIENT_ID }}
           private-key: ${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
+          owner: 007M7
+          repositories: DeepCode
       - name: Handle repository event
+        if: steps.app-token.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node .github/issue-management/policy.mjs lifecycle

@@ -1,6 +1,6 @@
 /** Windows user-level install acceptance for the downloaded-source workflow. */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -32,6 +32,9 @@ describe.skipIf(process.platform !== 'win32' || !existsSync(builtBin))('Windows 
       const powerShellShim = join(prefix, 'deepseek.ps1')
       expect(existsSync(cmdShim)).toBe(true)
       expect(existsSync(powerShellShim)).toBe(false)
+      expect(existsSync(join(prefix, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(false)
+      expect(readFileSync(cmdShim, 'utf8')).toContain('DeepCode downloaded-source launcher')
+      expect(readFileSync(cmdShim, 'utf8')).toContain('lib\\deepseek.js')
 
       const shellEnvironment = {
         ...environment,

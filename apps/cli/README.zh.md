@@ -19,7 +19,7 @@
 
 package manifest 同时暴露 `dsh` 与 `deepseek` 两个 bin。兼容 npm 的安装器会生成 POSIX 无扩展名 shim，以及 Windows 的 `.cmd` 和 `.ps1` shim，因此在命令提示符、PowerShell，以及 Windows Terminal 承载的这两种 shell 中都使用同一个 `deepseek` 命令。`deepseek` 与 `dsh cli` 都会先把进程标题设为 `DeepCode`，再启动同一个 `cli` profile；不存在按 shell 分叉的 CLI 实现。
 
-仓库根目录的 `install-deepcode.cmd` 是 Windows 上受支持的下载源码安装器。它会恢复锁定的 workspace、构建 Host 产物、全局链接本包，并把 npm 全局命令目录持久写入用户 `PATH`。它会删除生成的 `deepseek.ps1`，使 PowerShell 在 Restricted 脚本策略下也与 CMD 一样解析 `deepseek.cmd`，然后按命令名验证两种 shell。重复运行会原地更新链接与构建。源码 checkout 必须保留在安装位置；`uninstall-deepcode.cmd` 会移除链接包，但会为其他全局工具保留共享的 npm 命令目录 PATH 项。
+仓库根目录的 `install-deepcode.cmd` 是 Windows 上受支持的下载源码安装器。它会恢复锁定的 workspace、构建 Host 产物，在 npm 全局命令目录写入直接的 `deepseek.cmd` 启动器，并把该目录持久写入用户 `PATH`。启动器无需创建 npm 包自链接，即可在 CMD 与 Restricted 脚本策略下的 PowerShell 中运行。重复执行会原地更新启动器与构建。源码 checkout 必须保留在安装位置；`uninstall-deepcode.cmd` 会移除本项目拥有的启动器，但会为其他全局工具保留共享的 npm 命令目录 PATH 项。
 
 ## 应用参数
 

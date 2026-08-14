@@ -2,6 +2,8 @@
 
 English | [中文](README.zh.md)
 
+![DeepCode terminal CLI](assets/deepcode-cli-preview.png)
+
 DeepCode is a local, terminal-native coding-agent CLI built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and [Cordis](https://github.com/cordiverse/cordis). The user-facing command is `deepseek`; the shipped profile opens the DeepCode interface directly in CMD, PowerShell, Windows Terminal, and compatible POSIX terminals.
 
 DeepCode is in developer preview. The local CLI is the first delivery milestone; Herdr integration is deliberately deferred and does not block local use.
@@ -31,20 +33,18 @@ cd DeepCode
 install-deepcode.cmd
 ```
 
-The installer restores dependencies, builds the CLI, creates one `deepseek.cmd` entry shared by CMD and PowerShell, and adds npm's global command directory to the current user's persistent `PATH`. Using the shared `.cmd` entry also works when PowerShell script execution is restricted. Keep the downloaded repository at the same location after installation because the global package is linked to that checkout. Open a new Command Prompt, PowerShell, or Windows Terminal window, then run:
+The installer restores dependencies, builds the CLI, creates one `deepseek.cmd` entry shared by CMD and PowerShell, and adds npm's global command directory to the current user's persistent `PATH`. The direct launcher avoids recursive npm package links and works when PowerShell script execution is restricted. Keep the downloaded repository at the same location because the command points to that checkout's built entry. Open a new Command Prompt, PowerShell, or Windows Terminal window, then run:
 
 ```cmd
 deepseek
 ```
 
-Installation is idempotent. Run `install-deepcode.cmd` again after pulling an update; run `uninstall-deepcode.cmd` to remove the global package. Developers and POSIX users can perform the same source setup explicitly:
+Installation is idempotent. Run `install-deepcode.cmd` again after pulling an update; run `uninstall-deepcode.cmd` to remove the global command. Developers and POSIX users can run the source entry explicitly:
 
 ```sh
 corepack pnpm install
 corepack pnpm run build:lib:host
-cd apps/cli
-npm link
-deepseek
+node apps/cli/lib/deepseek.js
 ```
 
 The profile-launcher form remains equivalent:

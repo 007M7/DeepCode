@@ -2,6 +2,8 @@
 
 [English](README.md) | 中文
 
+![DeepCode 终端 CLI](assets/deepcode-cli-preview.png)
+
 DeepCode 是一个本地优先、原生运行于终端的 coding-agent CLI，建立在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 与 [Cordis](https://github.com/cordiverse/cordis) 的插件架构之上。面向用户的命令是 `deepseek`；随附 profile 会在 CMD、PowerShell、Windows Terminal 及兼容的 POSIX 终端中直接打开 DeepCode 界面。
 
 DeepCode 目前处于开发者预览阶段。本地 CLI 是第一期交付目标；Herdr 适配明确暂缓，不阻塞本地使用。
@@ -31,20 +33,18 @@ cd DeepCode
 install-deepcode.cmd
 ```
 
-安装器会恢复依赖、构建 CLI、生成一份由 CMD 与 PowerShell 共用的 `deepseek.cmd` 入口，并把 npm 全局命令目录写入当前用户的持久 `PATH`。共用 `.cmd` 入口在 PowerShell 禁止脚本执行时也能使用。全局包会链接到该仓库，因此安装后请勿移动或删除下载目录。打开新的命令提示符、PowerShell 或 Windows Terminal 窗口，然后运行：
+安装器会恢复依赖、构建 CLI、生成一份由 CMD 与 PowerShell 共用的 `deepseek.cmd` 入口，并把 npm 全局命令目录写入当前用户的持久 `PATH`。直接启动器不会产生递归 npm 包链接，在 PowerShell 禁止脚本执行时也能使用。该命令指向检出目录中的构建入口，因此安装后请勿移动或删除下载目录。打开新的命令提示符、PowerShell 或 Windows Terminal 窗口，然后运行：
 
 ```cmd
 deepseek
 ```
 
-安装过程可安全重复执行；拉取更新后再次运行 `install-deepcode.cmd` 即可，运行 `uninstall-deepcode.cmd` 可移除全局包。开发者及 POSIX 用户也可以显式执行相同的源码安装步骤：
+安装过程可安全重复执行；拉取更新后再次运行 `install-deepcode.cmd` 即可，运行 `uninstall-deepcode.cmd` 可移除全局命令。开发者及 POSIX 用户也可以直接运行源码入口：
 
 ```sh
 corepack pnpm install
 corepack pnpm run build:lib:host
-cd apps/cli
-npm link
-deepseek
+node apps/cli/lib/deepseek.js
 ```
 
 profile 启动形式仍与其等价：
