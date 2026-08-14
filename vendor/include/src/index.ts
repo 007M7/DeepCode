@@ -8,9 +8,14 @@ import * as yaml from 'js-yaml'
 
 // js-yaml v5 replaced the `Type` constructor with `defineScalarTag`: `resolve`
 // now constructs the value directly (`kind` is fixed per define*Tag function),
-// `predicate` became `identify`, and `Schema.extend` became `withTags`.
+// `predicate` became `identify`, and `Schema.extend` became `withTags`. The
+// empty-body guard keeps the v4 parse contract: `a: !!js` with no expression
+// body is a parse failure, not a silent empty expression.
 const JsExpr = yaml.defineScalarTag<JsExpr>('tag:yaml.org,2002:js', {
-  resolve: (source) => (typeof source === 'string' ? { __jsExpr: source } : yaml.NOT_RESOLVED),
+  resolve: (source) => {
+    if (source === '') throw new Error('empty !!js expression body')
+    return typeof source === 'string' ? { __jsExpr: source } : yaml.NOT_RESOLVED
+  },
   identify: isJsExpr,
   represent: (data) => data.__jsExpr,
 })
@@ -249,7 +254,10 @@ export class Include extends EntryTree {
     let data: any
     try {
       if (this.type === 'application/yaml') {
-        data = yaml.load(content, { schema })
+        // js-yaml v5 throws on an empty document where v4 returned undefined.
+        // Keep the v4 contract: an empty file is a validate failure, not a
+        // parse failure.
+        data = content.trim() === '' ? undefined : yaml.load(content, { schema })
       } else if (this.type === 'application/json') {
         data = JSON.parse(content)
       } else {
