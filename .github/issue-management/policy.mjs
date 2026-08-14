@@ -416,8 +416,14 @@ async function graphql(query, variables) {
 }
 
 async function issueSnapshot(number, status = undefined) {
-  const issue = await api(`/repos/${config.organization}/${config.repository}/issues/${number}`)
-  if (issue.pull_request) return null
+  // Tolerate numbers that are not same-repo issues: dependabot bodies embed
+  // upstream changelogs full of bare `#NNN` references, and `retainIssueReferences`
+  // filters them out only after every referenced number resolves. A 404 here
+  // must therefore skip the number instead of failing the whole check.
+  const issue = await api(`/repos/${config.organization}/${config.repository}/issues/${number}`, {
+    allow404: true,
+  })
+  if (!issue || issue.pull_request) return null
   const values = await api(
     `/repos/${config.organization}/${config.repository}/issues/${number}/issue-field-values?per_page=100`,
   )
