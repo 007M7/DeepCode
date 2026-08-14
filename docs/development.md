@@ -118,7 +118,7 @@ Contributors can opt into the comprehensive local gate set with `pnpm run check:
 
 ### CI gates
 
-The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
+The keyless [CI workflow](../.github/workflows/ci.yml) runs the complete primary aggregate on `main` and groups pull-request checks into broad lanes on standard GitHub-hosted Linux and Windows runners. Artifact consumers wait for one build within their lane. The separate [real-API workflow](../.github/workflows/e2e.yml) runs `pnpm run test:e2e` only when `DEEPSEEK_API_KEY_EXTERNAL` is configured; otherwise it reports that the credential-dependent suite was not run. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current check and job inventory.
 
 ### Daily commands
 

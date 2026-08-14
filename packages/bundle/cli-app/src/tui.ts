@@ -14,7 +14,6 @@ import { PRODUCT_NAME, WORKING_LABEL } from './brand.ts'
 
 const h = React.createElement
 const BLUE = '#4D8DFF'
-const WHALE_BLUE = '#4D6BFE'
 const PALE_BLUE = '#8CB4FF'
 const MUTED = '#7F8EA3'
 const GOOD = '#58C98D'
@@ -62,6 +61,7 @@ interface TuiSnapshot {
   readonly running: boolean
   readonly toolDetails: boolean
   readonly commandNames: readonly string[]
+  readonly queuedChats: number
 }
 
 /** One immutable output committed to terminal scrollback. */
@@ -107,6 +107,8 @@ export class TerminalTui {
   private resolveClosed!: () => void
   private readonly closedPromise: Promise<void>
   private cancelHandler: (() => void) | undefined
+  private readonly queuedChats: string[] = []
+  private lastChatPrompt: TuiPrompt | undefined
   private instance: Instance
   private readonly stdin: NodeJS.ReadStream
   private readonly stdout: NodeJS.WriteStream
@@ -129,6 +131,7 @@ export class TerminalTui {
       running: false,
       toolDetails: false,
       commandNames: [],
+      queuedChats: 0,
     }
     this.closedPromise = new Promise((resolve) => { this.resolveClosed = resolve })
     this.instance = this.renderRoot()
@@ -166,7 +169,10 @@ export class TerminalTui {
    * @param running - Whether Escape and Ctrl+C should cancel active work.
    */
   setRunning(running: boolean): void {
-    this.update({ running })
+    const backgroundPrompt = running && this.pending === undefined
+      ? this.lastChatPrompt
+      : this.snapshotValue.prompt
+    this.update({ running, prompt: backgroundPrompt })
   }
 
   /**
@@ -258,6 +264,14 @@ export class TerminalTui {
     if (this.closedFlag) return Promise.reject(new TuiClosedError())
     if (this.pending !== undefined) return Promise.reject(new Error('TerminalTui.ask: prompt already pending'))
     signal?.throwIfAborted()
+    if (prompt.kind === 'chat') {
+      this.lastChatPrompt = prompt
+      const queued = this.queuedChats.shift()
+      if (queued !== undefined) {
+        this.update({ queuedChats: this.queuedChats.length, prompt: undefined })
+        return Promise.resolve(queued)
+      }
+    }
     this.historyIndex = this.history.length
     this.update({ prompt, buffer: '', cursor: 0, selected: 0 })
     return new Promise<string>((resolve, reject) => {
@@ -266,7 +280,10 @@ export class TerminalTui {
         const abort = (): void => {
           if (this.pending !== pending) return
           this.pending = undefined
-          this.update({ prompt: undefined, buffer: '', cursor: 0, selected: 0 })
+          this.update({
+            prompt: this.snapshotValue.running ? this.lastChatPrompt : undefined,
+            buffer: '', cursor: 0, selected: 0,
+          })
           reject(signal.reason instanceof Error ? signal.reason : new Error('terminal prompt aborted'))
         }
         signal.addEventListener('abort', abort, { once: true })
@@ -457,7 +474,16 @@ export class TerminalTui {
   private submit(value: string): void {
     const prompt = this.snapshotValue.prompt
     const pending = this.pending
-    if (prompt === undefined || pending === undefined) return
+    if (prompt === undefined) return
+    if (pending === undefined) {
+      if (prompt.kind !== 'chat' || !this.snapshotValue.running || value.trim() === '') return
+      this.history.push(value)
+      this.historyIndex = this.history.length
+      this.queuedChats.push(value)
+      this.addUser(value)
+      this.update({ buffer: '', cursor: 0, selected: 0, queuedChats: this.queuedChats.length })
+      return
+    }
     this.pending = undefined
     if (pending.signal !== undefined && pending.abort !== undefined) {
       pending.signal.removeEventListener('abort', pending.abort)
@@ -467,7 +493,10 @@ export class TerminalTui {
       this.historyIndex = this.history.length
       this.addUser(value)
     }
-    this.update({ prompt: undefined, buffer: '', cursor: 0, selected: 0 })
+    this.update({
+      prompt: this.snapshotValue.running && prompt.kind !== 'chat' ? this.lastChatPrompt : undefined,
+      buffer: '', cursor: 0, selected: 0,
+    })
     pending.resolve(value)
   }
 }
@@ -500,48 +529,20 @@ function TuiRoot({ tui }: { readonly tui: TerminalTui }): ReactElement {
   )
 }
 
-/** Preview-derived whale pixels; `E` is the white eye on the blue head. */
-const WHALE_PIXELS = [
-  '        B   B     ',
-  '  BBBBBBB   BB   B',
-  ' BBBBBBBBB  BBBBBB',
-  'BBBBBBBBBBB  BBBB ',
-  'BB BBBBBBBBBBBB   ',
-  'B     BBBE BBBB   ',
-  'BB     BBBB BBB   ',
-  'BB      BBBBBB    ',
-  ' BB      BBBBB    ',
-  '  BB  BB BBBB     ',
-  '   BBBBBBBBBBB    ',
-  '    BBBBBB        ',
-] as const
-
-/** Render the reference whale with two terminal columns per source pixel. */
-function PixelWhale(): ReactElement {
-  return h(Box, { flexDirection: 'column', flexShrink: 0 }, ...WHALE_PIXELS.map((row, rowIndex) =>
-    h(Box, { key: rowIndex }, ...row.split('').map((pixel, columnIndex) => h(Text, {
-      key: columnIndex,
-      ...pixel === 'B' || pixel === 'E' ? { backgroundColor: WHALE_BLUE } : {},
-      ...pixel === 'E' ? { color: '#FFFFFF', bold: true } : {},
-    }, pixel === 'E' ? 'o ' : '  '))),
-  ))
-}
-
-/** Branded welcome card with the reference pixel whale and current runtime facts. */
+/** Compact welcome row with the current workspace and authentication state. */
 function WelcomeCard({ identity }: { readonly identity: TuiIdentity }): ReactElement {
   const model = `${identity.provider}/${identity.model}${identity.reasoningEffort === undefined ? '' : ` · ${identity.reasoningEffort}`}`
   const auth = identity.authenticated
     ? `authenticated${identity.credentialSource === undefined ? '' : ` via ${identity.credentialSource}`}`
     : 'not authenticated · run /login'
-  return h(Box, { borderStyle: 'round', borderColor: BLUE, paddingX: 1, marginBottom: 1 },
-    h(Box, { marginRight: 2 }, h(PixelWhale)),
-    h(Box, { flexDirection: 'column', justifyContent: 'center', flexGrow: 1 },
+  return h(Box, { flexDirection: 'column', marginBottom: 1 },
+    h(Text, null,
       h(Text, { color: PALE_BLUE, bold: true }, PRODUCT_NAME),
-      h(Text, { dimColor: true }, `Local Agent CLI · v${identity.version}`),
+      h(Text, { color: MUTED }, ` v${identity.version} · `),
       h(Text, null, model),
-      h(Text, { color: identity.authenticated ? GOOD : '#E6B450' }, auth),
-      h(Text, { color: MUTED, wrap: 'truncate-middle' }, identity.cwd),
+      h(Text, { color: identity.authenticated ? GOOD : '#E6B450' }, ` · ${auth}`),
     ),
+    h(Text, { color: MUTED, wrap: 'truncate-middle' }, identity.cwd),
   )
 }
 
@@ -608,7 +609,7 @@ function StatusLine({ state }: { readonly state: TuiSnapshot }): ReactElement {
   const mode = state.running ? 'working' : state.prompt?.kind === 'secret' ? 'login'
     : state.prompt?.kind === 'approval' ? 'approval' : state.prompt?.kind === 'question' ? 'question' : 'ready'
   const shortcut = state.running
-    ? 'Esc/Ctrl+C cancel · Ctrl+O tool details'
+    ? `Enter queue${state.queuedChats === 0 ? '' : ` (${state.queuedChats})`} · Esc/Ctrl+C cancel · Ctrl+O tools`
     : 'Enter send · Ctrl+J newline · ↑↓ history · Tab complete · Ctrl+N new · Ctrl+C exit'
   const model = `${state.identity.provider}/${state.identity.model}${state.identity.reasoningEffort === undefined ? '' : ` · ${state.identity.reasoningEffort}`}`
   const session = state.identity.sessionId.length > 12
