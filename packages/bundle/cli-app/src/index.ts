@@ -82,6 +82,7 @@ interface LiveSession {
   handle: AgentHandle
   selection: ModelSelectionRef
   streamedSteps: Set<string>
+  toolNames: Map<string, string>
 }
 
 const BUILTIN_COMMANDS = [
@@ -214,13 +215,17 @@ function renderSessionEvent(surface: CliSurface, live: LiveSession, event: Sessi
     return
   }
   if (event.type === 'tool/call') {
-    surface.addTool(`${event.data.name} …`, event.data.arguments)
+    live.toolNames.set(event.data.callId, event.data.name)
+    surface.addTool(event.data.name, event.data.arguments)
     return
   }
   if (event.type === 'tool/result') {
-    const failed = event.data.error !== undefined
-    surface.addTool(`${failed ? 'failed' : 'completed'} ${event.data.message.source.callId}`,
-      failed ? `${event.data.error?.code}: ${event.data.error?.name}` : undefined, failed)
+    const callId = event.data.message.source.callId
+    const name = live.toolNames.get(callId) ?? callId
+    live.toolNames.delete(callId)
+    if (event.data.error !== undefined) {
+      surface.addTool(`failed ${name}`, `${event.data.error.code}: ${event.data.error.name}`, true)
+    }
     return
   }
   if (event.type === 'turn/end') {
@@ -300,7 +305,7 @@ async function createFresh(ctx: Context, cwd: string): Promise<LiveSession> {
     agentOptions: { provider: current.provider, model: current.model },
     setup: selectionSetup(selection),
   })
-  return { handle, selection, streamedSteps: new Set() }
+  return { handle, selection, streamedSteps: new Set(), toolNames: new Map() }
 }
 
 /** Restore the latest logged selection or the live default for a resumed Agent. */
@@ -330,7 +335,7 @@ async function resumeSession(ctx: Context, sessionId: string, cwd: string): Prom
     agentOptions: { provider: current.provider, model: current.model },
     setup: selectionSetup(selection),
   })
-  return { handle, selection, streamedSteps: new Set() }
+  return { handle, selection, streamedSteps: new Set(), toolNames: new Map() }
 }
 
 /** Compact one session header for `/sessions`. */

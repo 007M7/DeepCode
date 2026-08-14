@@ -16,7 +16,7 @@ Windows 还有一项独立的组合约束。持久终端能力依赖 POSIX 进�
 
 runner 等待 Loader 完全加载，读取 `ctx.agentDefaultModel.currentSelection()`，并通过 `ctx.agents.create` 为调用目录创建一个持久化 Agent。完成编辑的 composer 值会成为一条普通用户 follow-up。`/new` 用全新 Session 替换持有的 Agent；`/resume` 在校验身份、root 来源、工作区且会话没有 Agent preset 后调用 `ctx.agents.resume`。Session header 不标识由哪个无 roster surface 创建，因此同一工作区内其他无 roster 会话仍可恢复。旧 Session 只会在命令完成后刷新并释放 handle。runner 在每个轮次后和最终清理期间等待 Agent 空闲并刷新会话。
 
-一个 surface 持有进程 stdin。TTY 使用一个不占用 alternate screen 的 Ink tree；已提交输出进入不可变 `Static` 区域，流式生成只更新实时回答与 composer，因此 token 增量不会重绘终端回滚。实时状态行显示当前模型、认证与 Session 身份，无需重复打印静态欢迎卡。Ctrl+O 只在实时区域渲染最近一次工具详情，不会修改或复制已提交行。`/clear` 会替换 Ink owner 并发送终端屏幕与回滚重置序列，再绘制新的欢迎卡，因此旧 `Static` 累积内容不会稍后重新出现。从产品效果图提取的鲸鱼使用 ANSI 背景像素而非 Unicode 方块字符，使原生 Windows CMD 与 POSIX 终端共享同一环形轮廓。重定向流使用排队纯文本 reader，使下一次提示出现前到达的行不会丢失。聊天、遮罩凭据、`approval/request` waterfall（瀑布式事件）answerer 与 `ctx.userQuestions` 提供方都通过该 surface 串行交互。Agent turn 或可取消插件命令运行时收到 Ctrl+C/Escape 会取消当前操作；空闲 Ctrl+C、空缓冲区 Ctrl+D 与 stdin EOF 会产生成功的有界关闭。所有退出路径都会注销监听器和提供方。
+一个 surface 持有进程 stdin。TTY 使用一个紧凑且不占用 alternate screen 的 Ink tree；已提交输出进入不可变 `Static` 区域，流式生成只更新实时回答与 composer，因此 token 增量不会重绘终端回滚。实时状态行显示当前模型、认证、Session 身份与排队消息数，无需重复打印静态欢迎行。成功的工具调用提交一条带名称的记录，其调用参数仍可通过 Ctrl+O 查看；失败结果会额外添加一条带名称的错误记录。`/clear` 会替换 Ink owner 并发送终端屏幕与回滚重置序列，再绘制新的欢迎行，因此旧 `Static` 累积内容不会稍后重新出现。重定向流使用排队纯文本 reader，使下一次提示出现前到达的行不会丢失。Agent 运行时，TTY composer 会把完整聊天消息保留在内存 FIFO；Agent 空闲后，runner 通过现有 follow-up 路径依次分派。聊天、遮罩凭据、`approval/request` waterfall（瀑布式事件）answerer 与 `ctx.userQuestions` 提供方都通过该 surface 串行交互，交互请求在待处理期间持有 composer。Agent turn 或可取消插件命令运行时收到 Ctrl+C/Escape 会取消当前操作；空闲 Ctrl+C、空缓冲区 Ctrl+D 与 stdin EOF 会产生成功的有界关闭。所有退出路径都会注销监听器和提供方。
 
 内置命令层持有 `/login`、`/logout`、`/status`、`/model`、`/models`、`/new`、`/sessions`、`/resume`、`/clear`、`/help` 和 `/exit`。认证从 LLM 可配置 provider 目录和已解析 settings 中获得当前 provider 的 credential reference，且只通过 `ctx.credentials` 写入；命令 argv 中的 secret 会被拒绝，secret 不会进入输出或 Session 日志。模型发现与选择把 provider 目录、精确模型元数据和 reasoning effort 的解析交给 `ctx.llm`；因此官方路由与 Web surface 共用 V4 Flash/V4 Pro settings 目录，第三方路由也仍可发现。其他 slash command 通过 `ctx.commands` 分派，从而保留插件持有的 `/compact`、`/goal` 和未来扩展。
 
@@ -28,7 +28,7 @@ CLI 组合包会挂载现有 `ask_user_question` Consumer 与 worker-thread Code
 
 ## Verification
 
-聚焦包测试固定启动服务激活、非 TTY 输入排队、唯一 stdin 持有者、多行编辑、slash 补全、secret 遮罩、同一 Agent 上的多轮输入、流式文本去重、审批与问题路由、命令分派、运行中轮次取消、空闲 Ctrl+C 与 EOF 关闭，以及 flush 先于 dispose 的顺序。profile 组合测试会真实加载 base 与 CLI 组合包 patch，不吞掉解析失败，并断言平台特定的终端配置项。构建形式与源码形式的 CLI 冒烟测试覆盖 `deepseek --version`、应用帮助和不发起模型请求的无密钥命令 transcript。Windows 安装器验收使用隔离的 npm prefix，连续执行两次安装，在全新的 CMD 与 Restricted 策略 PowerShell 进程中按名称解析 `deepseek` 并比较版本，最后验证重复卸载会移除命令。
+聚焦包测试固定启动服务激活、非 TTY 与运行中 TTY 输入排队、唯一 stdin 持有者、多行编辑、slash 补全、secret 遮罩、紧凑工具行、同一 Agent 上的多轮输入、流式文本去重、审批与问题路由、命令分派、运行中轮次取消、空闲 Ctrl+C 与 EOF 关闭，以及 flush 先于 dispose 的顺序。profile 组合测试会真实加载 base 与 CLI 组合包 patch，不吞掉解析失败，并断言平台特定的终端配置项。构建形式与源码形式的 CLI 冒烟测试覆盖 `deepseek --version`、应用帮助和不发起模型请求的无密钥命令 transcript。Windows 安装器验收使用隔离的 npm prefix，连续执行两次安装，在全新的 CMD 与 Restricted 策略 PowerShell 进程中按名称解析 `deepseek` 并比较版本，最后验证重复卸载会移除命令。
 
 ## Alternatives considered
 

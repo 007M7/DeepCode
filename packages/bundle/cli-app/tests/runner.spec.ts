@@ -9,7 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createAssistantMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
@@ -321,6 +321,62 @@ describe('cli runner', () => {
     expect(test.order.filter(entry => entry === 'flush')).toHaveLength(3)
     expect(test.order.at(-2)).toBe('dispose')
     expect(test.order.at(-1)).toBe('exit')
+  })
+
+  it('queues terminal chat input during a running turn and dispatches it after idle', async () => {
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const messages: string[] = []
+    const test = await bench({
+      async afterPrompt(session, message) {
+        const text = message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+        messages.push(text)
+        if (messages.length === 1) await firstBlocked
+        appendAnswer(session, messages.length, message, `answer-${messages.length}`, '')
+      },
+    }, true)
+
+    test.stdin.write('first')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    test.stdin.write('\r')
+    await waitUntil(() => messages.length === 1, 'first running turn')
+    test.stdin.write('second')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    test.stdin.write('\r')
+    await waitUntil(() => test.output().includes('Enter queue (1)'), 'queued message status')
+    releaseFirst()
+    await waitUntil(() => messages.length === 2, 'queued second turn')
+    test.stdin.end()
+
+    await expect(test.exited).resolves.toBe(0)
+    expect(messages).toEqual(['first', 'second'])
+  })
+
+  it('renders one compact row for a successful tool call', async () => {
+    const callId = CallId('call-1')
+    const test = await bench({
+      afterPrompt(session, message) {
+        session.append('turn/start', { turn: 1 })
+        session.append('step/start', { turn: 1, step: 1 })
+        session.append('user/message', message, { surfaceOp: 'append' })
+        session.append('tool/call', { turn: 1, step: 1, callId, name: 'read', arguments: '{"path":"a.ts"}' })
+        session.append('tool/result', {
+          turn: 1,
+          step: 1,
+          message: createToolResultMessage({ callId, content: [{ type: 'text', text: 'ok' }], isError: false }),
+        }, { surfaceOp: 'append' })
+        session.append('step/end', { turn: 1, step: 1 })
+        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      },
+    })
+
+    test.stdin.write('inspect\n')
+    await waitUntil(() => test.output().endsWith('\n> '), 'post-tool prompt')
+    test.stdin.end()
+
+    await expect(test.exited).resolves.toBe(0)
+    expect(test.output()).toContain('[tool] read {"path":"a.ts"}')
+    expect(test.output()).not.toContain('completed call-1')
   })
 
   it('routes approval and exact-label questions through the shared input', async () => {
