@@ -15,6 +15,13 @@ updates:
     labels:
       - "kind/dependency"
       - "area/infra"
+    ignore:
+      # knip 6.17+ changed configuration semantics incompatibly with the
+      # repo's knip.json (workspace overrides, built-in binaries). Minor
+      # bumps are reviewed manually; patches still flow.
+      - dependency-name: "knip"
+        update-types:
+          - "version-update:semver-minor"
 
   - package-ecosystem: "uv"
     directory: "/python/sdk"
