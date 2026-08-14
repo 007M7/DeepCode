@@ -16,6 +16,19 @@ async function rendered(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 50))
 }
 
+/**
+ * Poll until rendered output satisfies a predicate. Ink commits frames
+ * asynchronously; a fixed sleep races the renderer under loaded runners
+ * (e.g. coverage), so assertions on rendered bytes wait instead.
+ */
+async function waitForOutput(output: () => string, predicate: (output: string) => boolean, label: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!predicate(output())) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}: ${JSON.stringify(output())}`)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
+
 /** Create one deterministic fake TTY and capture its rendered bytes. */
 function createTui(): { tui: TerminalTui; stdin: PassThrough; output: () => string } {
   const stdin = new PassThrough()
@@ -111,7 +124,7 @@ describe('TerminalTui', () => {
     await expect(answer).resolves.toBe(secret)
 
     test.tui.setRunning(true)
-    await rendered()
+    await waitForOutput(test.output, output => output.includes('DeepCode is working'), 'running status line')
     expect(test.output()).toContain('DeepCode is working')
     test.tui.handleInput('c', { ctrl: true } as Key)
     expect(cancellations).toBe(1)
@@ -129,7 +142,7 @@ describe('TerminalTui', () => {
     expect(test.output()).not.toContain('secret.ts')
 
     test.tui.handleInput('o', { ctrl: true } as Key)
-    await rendered()
+    await waitForOutput(test.output, output => output.includes('secret.ts'), 'tool detail toggle')
     expect(test.output()).toContain('secret.ts')
   })
 
@@ -161,7 +174,7 @@ describe('TerminalTui', () => {
       version: '1.2.3', cwd: 'C:\\workspace', sessionId: 'session-next',
       provider: 'deepseek-official', model: 'deepseek-reasoner', authenticated: true,
     })
-    await rendered()
+    await waitForOutput(test.output, output => output.includes('deepseek-official/deepseek-reasoner'), 'updated identity line')
 
     expect(test.output().match(/DeepCode v1\.2\.3/gu)).toHaveLength(1)
     expect(test.output()).toContain('deepseek-official/deepseek-reasoner')
@@ -195,7 +208,7 @@ describe('TerminalTui', () => {
     const before = test.output().length
 
     test.tui.handleInput('o', { ctrl: true } as Key)
-    await rendered()
+    await waitForOutput(test.output, output => output.slice(before).includes('current detail'), 'latest tool detail panel')
     const details = test.output().slice(before)
 
     expect(details).toContain('current detail')
