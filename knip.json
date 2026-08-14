@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "cmd.exe",
     "icacls",
     "musl-gcc",
     "python3",
@@ -728,6 +729,7 @@
     },
     "apps/cli": {
       "entry": [
+        "src/deepseek.ts",
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/**/*.snapshot.ts"
@@ -738,6 +740,15 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "packages/bundle/cli-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-code-runtime-worker-thread",
+        "@deepseek-ai/dsh-terminal",
+        "@deepseek-ai/dsh-terminal-bash",
+        "@deepseek-ai/dsh-tool-ask-user",
+        "@deepseek-ai/dsh-tool-terminal"
       ]
     },
     "packages/client/modules": {

@@ -403,7 +403,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/cli-app/src/index.ts:48`](../packages/bundle/cli-app/src/index.ts)
+Source: [`packages/bundle/cli-app/src/index.ts:49`](../packages/bundle/cli-app/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
