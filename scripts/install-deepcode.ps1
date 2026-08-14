@@ -21,6 +21,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $cliRoot = Join-Path $repositoryRoot 'apps\cli'
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
 $corepack = (Get-Command corepack.cmd -ErrorAction Stop).Source
+$node = (Get-Command node.exe -ErrorAction Stop).Source
 
 function Invoke-DeepCodeCommand {
   param(
@@ -57,12 +58,6 @@ try {
   if (-not $SkipBuild) {
     Invoke-DeepCodeCommand $corepack @('pnpm', 'run', 'build:lib:host')
   }
-  Push-Location $cliRoot
-  try {
-    Invoke-DeepCodeCommand $npm @('link')
-  } finally {
-    Pop-Location
-  }
 } finally {
   Pop-Location
 }
@@ -74,15 +69,50 @@ if ($LASTEXITCODE -ne 0 -or $npmPrefix -eq '') {
 Add-DeepCodePath -Directory $npmPrefix -Target $PathTarget
 
 $cmdShim = Join-Path $npmPrefix 'deepseek.cmd'
+$posixShim = Join-Path $npmPrefix 'deepseek'
 $powerShellShim = Join-Path $npmPrefix 'deepseek.ps1'
-if (-not (Test-Path -LiteralPath $cmdShim -PathType Leaf)) {
-  throw "The expected command shim was not installed: $cmdShim"
+$legacyPackage = Join-Path $npmPrefix 'node_modules\@deepseek-ai\dsh'
+$selfLink = Join-Path $cliRoot 'node_modules\@deepseek-ai\dsh'
+
+# Older installers used `npm link`, which can create a package junction back
+# into its own node_modules tree. Remove only links that resolve to this CLI.
+foreach ($candidate in @($legacyPackage, $selfLink)) {
+  if (-not (Test-Path -LiteralPath $candidate)) { continue }
+  $item = Get-Item -LiteralPath $candidate -Force
+  if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+    throw "Refusing to replace a non-link path: $candidate"
+  }
+  $targets = @($item.Target | ForEach-Object {
+    if ([IO.Path]::IsPathRooted($_)) { [IO.Path]::GetFullPath($_) }
+    else { [IO.Path]::GetFullPath((Join-Path $item.Parent.FullName $_)) }
+  })
+  if ($targets -notcontains [IO.Path]::GetFullPath($cliRoot)) {
+    throw "Refusing to replace a link not owned by this checkout: $candidate"
+  }
+  [IO.Directory]::Delete($candidate)
 }
 
-# PowerShell resolves a same-name .ps1 before .cmd and refuses that script
-# under Restricted policy. The .cmd shim works in both shells without changing
-# the user's policy, so the downloaded-source installer exposes one shared shim.
+# A direct command shim avoids an npm package self-link while preserving the
+# downloaded-source workflow. PowerShell resolves the same .cmd under Restricted
+# policy, so no .ps1 launcher is created.
+$escapedNode = $node.Replace('%', '%%')
+$escapedEntry = (Join-Path $cliRoot 'lib\deepseek.js').Replace('%', '%%')
+$cmdContents = @"
+@echo off
+rem DeepCode downloaded-source launcher
+"$escapedNode" "$escapedEntry" %*
+exit /b %errorlevel%
+"@
+[IO.File]::WriteAllText($cmdShim, $cmdContents, [Text.UTF8Encoding]::new($false))
 Remove-Item -LiteralPath $powerShellShim -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $posixShim -Force -ErrorAction SilentlyContinue
+foreach ($legacyShim in @('dsh', 'dsh.cmd', 'dsh.ps1')) {
+  $legacyPath = Join-Path $npmPrefix $legacyShim
+  if (-not (Test-Path -LiteralPath $legacyPath -PathType Leaf)) { continue }
+  if ((Get-Content -LiteralPath $legacyPath -Raw) -match 'node_modules[/\\]@deepseek-ai[/\\]dsh') {
+    Remove-Item -LiteralPath $legacyPath -Force
+  }
+}
 
 $cmdVersion = (& $cmdShim '--version').Trim()
 if ($LASTEXITCODE -ne 0 -or $cmdVersion -eq '') {
