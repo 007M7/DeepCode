@@ -26,7 +26,9 @@ afterEach(async () => {
 
 /** Wait for an observable runner condition without racing the async driver. */
 async function waitUntil(condition: () => boolean, label: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+  // Coverage-instrumented runs render far slower than local ones; the budget
+  // covers a cold CI worker mounting the runner and committing its first frame.
+  const deadline = Date.now() + 10_000
   while (!condition()) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`)
     await new Promise(resolve => setTimeout(resolve, 5))
