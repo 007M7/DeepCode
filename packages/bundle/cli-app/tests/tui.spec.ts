@@ -44,7 +44,7 @@ function createTui(): { tui: TerminalTui; stdin: PassThrough; output: () => stri
 }
 
 describe('TerminalTui', () => {
-  it('renders the branded non-full-screen shell and completes slash commands', async () => {
+  it('renders the compact non-full-screen shell and completes slash commands', async () => {
     const test = createTui()
     test.tui.setCommandNames(['help', 'login'])
     const answer = test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })
@@ -55,10 +55,47 @@ describe('TerminalTui', () => {
     await expect(answer).resolves.toBe('/help ')
     await rendered()
     expect(test.output()).toContain('DeepCode')
-    expect(test.output()).toContain('o ')
-    expect(test.output()).not.toContain('(o)')
+    expect(test.output()).toContain('v1.2.3')
+    expect(test.output()).not.toContain('Local Agent CLI')
     expect(test.output()).toContain('not authenticated')
     expect(test.output()).not.toContain('\u001B[?1049h')
+  })
+
+  it('queues complete chat messages while a turn is running', async () => {
+    const test = createTui()
+    const first = test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })
+    test.tui.handleInput('first', {} as Key)
+    test.tui.handleInput('', { return: true } as Key)
+    await expect(first).resolves.toBe('first')
+
+    test.tui.setRunning(true)
+    test.tui.handleInput('second', {} as Key)
+    test.tui.handleInput('', { return: true } as Key)
+    expect(test.tui.getSnapshot()).toMatchObject({ queuedChats: 1, buffer: '' })
+
+    test.tui.setRunning(false)
+    await expect(test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })).resolves.toBe('second')
+    expect(test.tui.getSnapshot().queuedChats).toBe(0)
+  })
+
+  it('lets an approval own the composer without discarding queued chat', async () => {
+    const test = createTui()
+    const first = test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })
+    test.tui.handleInput('first', {} as Key)
+    test.tui.handleInput('', { return: true } as Key)
+    await expect(first).resolves.toBe('first')
+    test.tui.setRunning(true)
+    test.tui.handleInput('queued', {} as Key)
+    test.tui.handleInput('', { return: true } as Key)
+
+    const approval = test.tui.ask({ kind: 'approval', label: 'Allow read?', options: ['Reject', 'Allow once'] })
+    expect(test.tui.getSnapshot()).toMatchObject({ prompt: { kind: 'approval' }, queuedChats: 1 })
+    test.tui.handleInput('', { return: true } as Key)
+    await expect(approval).resolves.toBe('Reject')
+    expect(test.tui.getSnapshot()).toMatchObject({ prompt: { kind: 'chat' }, queuedChats: 1 })
+
+    test.tui.setRunning(false)
+    await expect(test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })).resolves.toBe('queued')
   })
 
   it('masks a login secret and maps Ctrl+C by running state', async () => {
@@ -106,7 +143,7 @@ describe('TerminalTui', () => {
     test.tui.appendAssistant('third')
     await rendered()
 
-    expect(test.output().match(/Local Agent CLI/gu)).toHaveLength(1)
+    expect(test.output().match(/DeepCode v1\.2\.3/gu)).toHaveLength(1)
     expect(test.output().match(/keep the scrollbar stable/gu)).toHaveLength(1)
     expect(test.tui.getSnapshot().activeAssistant).toBe('first second third')
 
@@ -126,7 +163,7 @@ describe('TerminalTui', () => {
     })
     await rendered()
 
-    expect(test.output().match(/Local Agent CLI/gu)).toHaveLength(1)
+    expect(test.output().match(/DeepCode v1\.2\.3/gu)).toHaveLength(1)
     expect(test.output()).toContain('deepseek-official/deepseek-reasoner')
     expect(test.output()).toContain('authenticated')
     expect(test.output()).toContain('session session-next')
