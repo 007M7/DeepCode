@@ -52,6 +52,14 @@ const addReplacing = (
   cacheWriteTokens: totals.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0) + next.cacheWriteTokens,
 })
 
+/** Add one independently billed request to cumulative disjoint buckets. */
+const addUsage = (totals: TokenUsageProjection, next: TokenUsageProjection): TokenUsageProjection => ({
+  uncachedInputTokens: totals.uncachedInputTokens + next.uncachedInputTokens,
+  outputTokens: totals.outputTokens + next.outputTokens,
+  cacheReadTokens: totals.cacheReadTokens + next.cacheReadTokens,
+  cacheWriteTokens: totals.cacheWriteTokens + next.cacheWriteTokens,
+})
+
 const projectionSchema = z.object({
   uncachedInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -130,6 +138,51 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
       : undefined
     if (previous !== undefined && bucketsEqual(previous, buckets)) return state
 
+    return {
+      totals: addReplacing(state.totals, previous, buckets),
+      last: { turn, step, buckets },
+    }
+  },
+  view: state => state.totals,
+  stateVersion: 1,
+}
+
+/**
+ * Complete durable usage ledger for one session.
+ *
+ * Ordinary step samples retain the same last-sample replacement rule as
+ * `tokenUsage`; each `llm/aux-usage` event represents a distinct completed
+ * provider request and is therefore added exactly once by log sequence.
+ */
+export const usageLedgerProjectionDefinition:
+ProjectionDefinition<'usageLedger', TokenUsageState> = {
+  key: 'usageLedger',
+  schema: projectionSchema,
+  init: () => ({ totals: zeroBuckets(), last: null }),
+  apply: (state, event) => {
+    if (event.type === 'llm/aux-usage') {
+      return { totals: addUsage(state.totals, bucketsFrom(event.data.usage)), last: state.last }
+    }
+
+    let turn: number
+    let step: number
+    let usage: TokenUsage
+    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
+      ;({ turn, step } = event.data)
+      usage = event.data.chunk.usage
+    } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
+      ;({ turn, step, usage } = event.data)
+    } else {
+      return state
+    }
+
+    const buckets = bucketsFrom(usage)
+    const previous = state.last !== null
+      && state.last.turn === turn
+      && state.last.step === step
+      ? state.last.buckets
+      : undefined
+    if (previous !== undefined && bucketsEqual(previous, buckets)) return state
     return {
       totals: addReplacing(state.totals, previous, buckets),
       last: { turn, step, buckets },

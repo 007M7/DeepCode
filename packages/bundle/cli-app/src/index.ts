@@ -18,6 +18,8 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
@@ -33,7 +35,7 @@ import type {
 } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-commands'
 import { createCliSurface, isSurfaceClosed } from './surface.ts'
-import type { CliIdentity, CliSurface } from './surface.ts'
+import type { CliIdentity, CliSurface, CliUsageStatus } from './surface.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'cli-runner'
@@ -42,7 +44,7 @@ export const name = 'cli-runner'
 export const inject = [
   'agentDefaultModel', 'agents', 'sessions', 'sessionPersistence', 'cliStartup',
   'approval', 'userQuestions', 'credentials', 'llm', 'commands',
-  'settings',
+  'settings', 'sessionProjections',
 ]
 
 /** Plugin configuration. */
@@ -83,12 +85,50 @@ interface LiveSession {
   selection: ModelSelectionRef
   streamedSteps: Set<string>
   toolNames: Map<string, string>
+  toolCounts: Map<string, number>
+  toolDetails: string[]
 }
 
 const BUILTIN_COMMANDS = [
   'help', 'login', 'logout', 'status', 'model', 'models', 'new', 'sessions',
   'resume', 'clear', 'exit',
 ] as const
+
+const TOOL_LABELS: Readonly<Record<string, string>> = {
+  read: 'Read files',
+  grep: 'Search text',
+  glob: 'Find files',
+  edit: 'Edit files',
+  write: 'Write files',
+  pwsh: 'Run PowerShell',
+  bash: 'Run shell',
+  todo_write: 'Update tasks',
+}
+
+/** Human-facing label for a model tool name. */
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name.replaceAll('_', ' ')
+}
+
+/** Bound raw arguments kept for the optional Ctrl+O detail panel. */
+function compactToolArguments(argumentsJson: string): string {
+  const limit = 240
+  return argumentsJson.length <= limit ? argumentsJson : `${argumentsJson.slice(0, limit - 1)}…`
+}
+
+/** Collapse one turn's successful and failed calls into a readable activity summary. */
+function flushToolSummary(surface: CliSurface, live: LiveSession): void {
+  const count = [...live.toolCounts.values()].reduce((total, value) => total + value, 0)
+  if (count === 0) return
+  const groups = [...live.toolCounts]
+    .map(([name, calls]) => `${toolLabel(name)} ×${calls}`)
+    .join(' · ')
+  const omitted = count - live.toolDetails.length
+  const details = [...live.toolDetails, ...omitted > 0 ? [`… ${omitted} more calls`] : []].join('\n')
+  surface.addTool(`${count} tool call${count === 1 ? '' : 's'} · ${groups}`, details)
+  live.toolCounts.clear()
+  live.toolDetails.length = 0
+}
 
 /** Option lookup by 1-based index. */
 function optionByNumber(options: readonly AskUserQuestionOption[], token: string): AskUserQuestionOption | undefined {
@@ -199,6 +239,7 @@ async function answerApproval(surface: CliSurface, request: ApprovalRequest): Pr
 
 /** Render durable events without inventing model-visible state. */
 function renderSessionEvent(surface: CliSurface, live: LiveSession, event: SessionEvent): void {
+  surface.markActivity()
   if (event.type === 'assistant/chunk') {
     if (event.data.chunk.type !== 'text-delta') return
     surface.appendAssistant(event.data.chunk.text)
@@ -216,7 +257,10 @@ function renderSessionEvent(surface: CliSurface, live: LiveSession, event: Sessi
   }
   if (event.type === 'tool/call') {
     live.toolNames.set(event.data.callId, event.data.name)
-    surface.addTool(event.data.name, event.data.arguments)
+    live.toolCounts.set(event.data.name, (live.toolCounts.get(event.data.name) ?? 0) + 1)
+    if (live.toolDetails.length < 20) {
+      live.toolDetails.push(`${toolLabel(event.data.name)}: ${compactToolArguments(event.data.arguments)}`)
+    }
     return
   }
   if (event.type === 'tool/result') {
@@ -229,6 +273,7 @@ function renderSessionEvent(surface: CliSurface, live: LiveSession, event: Sessi
     return
   }
   if (event.type === 'turn/end') {
+    flushToolSummary(surface, live)
     surface.endAssistant(event.data.reason)
   }
 }
@@ -305,7 +350,7 @@ async function createFresh(ctx: Context, cwd: string): Promise<LiveSession> {
     agentOptions: { provider: current.provider, model: current.model },
     setup: selectionSetup(selection),
   })
-  return { handle, selection, streamedSteps: new Set(), toolNames: new Map() }
+  return { handle, selection, streamedSteps: new Set(), toolNames: new Map(), toolCounts: new Map(), toolDetails: [] }
 }
 
 /** Restore the latest logged selection or the live default for a resumed Agent. */
@@ -335,7 +380,7 @@ async function resumeSession(ctx: Context, sessionId: string, cwd: string): Prom
     agentOptions: { provider: current.provider, model: current.model },
     setup: selectionSetup(selection),
   })
-  return { handle, selection, streamedSteps: new Set(), toolNames: new Map() }
+  return { handle, selection, streamedSteps: new Set(), toolNames: new Map(), toolCounts: new Map(), toolDetails: [] }
 }
 
 /** Compact one session header for `/sessions`. */
@@ -606,13 +651,56 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   let stopApproval: (() => void) | undefined
   let stopQuestions: (() => void) | undefined
   let stopCommands: (() => void) | undefined
+  let stopSubagentStart: (() => void) | undefined
+  let stopSubagentEnd: (() => void) | undefined
   let activeCommand: AbortController | undefined
+  let trackedUsageSessions = new Set([String(live.handle.agent.session.id)])
+  const usageBySession = new Map<string, CliUsageStatus>()
   try {
+    const publishUsage = (): void => {
+      const totals = { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 }
+      for (const usage of usageBySession.values()) {
+        totals.uncachedInputTokens += usage.uncachedInputTokens
+        totals.cacheReadTokens += usage.cacheReadTokens
+        totals.cacheWriteTokens += usage.cacheWriteTokens
+        totals.outputTokens += usage.outputTokens
+      }
+      surface.setUsage(totals)
+    }
+    const refreshUsage = (session: Agent['session']): void => {
+      if (!trackedUsageSessions.has(String(session.id))) return
+      const values = ctx.get('sessionProjections')?.snapshot(session).values as
+        | Partial<Record<'usageLedger', CliUsageStatus>>
+        | undefined
+      const usage = values?.usageLedger
+      if (usage === undefined) return
+      usageBySession.set(String(session.id), usage)
+      publishUsage()
+    }
+    const resetUsageRoot = (): void => {
+      trackedUsageSessions = new Set([String(live.handle.agent.session.id)])
+      usageBySession.clear()
+      surface.setUsage({
+        uncachedInputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 0,
+      })
+      refreshUsage(live.handle.agent.session)
+    }
     const render = (session: Agent['session'], event: SessionEvent): void => {
+      refreshUsage(session)
       if (session !== live.handle.agent.session) return
       renderSessionEvent(surface, live, event)
     }
     stopRendering = ctx.on('session/event', render)
+    stopSubagentStart = ctx.on('subagent/start', (info) => {
+      surface.startBackgroundTask(String(info.runId))
+      trackedUsageSessions.add(String(info.id))
+      const child = ctx.agents.get(info.id)
+      if (child !== undefined) refreshUsage(child.session)
+    })
+    stopSubagentEnd = ctx.on('subagent/end', (info) => { surface.endBackgroundTask(String(info.runId)) })
     stopApproval = ctx.on('approval/request', (request, next) => {
       if (request.agent !== live.handle.agent) return next()
       return answerApproval(surface, request)
@@ -632,6 +720,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       surface.setCommandNames([...BUILTIN_COMMANDS, ...ctx.commands.list(live.handle.agent).map(command => command.name)])
     }
     refreshCommands()
+    resetUsageRoot()
     stopCommands = ctx.on('commands/change', refreshCommands)
     surface.onCancel(() => {
       if (live.handle.agent.status === 'running') live.handle.agent.cancel({ kind: 'user' })
@@ -658,6 +747,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           await ctx.sessions.flush(previous.handle.agent.session)
           await previous.handle.dispose()
           surface.setIdentity(await identityFor(ctx, config, live))
+          resetUsageRoot()
           refreshCommands()
         }
         if (builtin.handled) {
@@ -694,6 +784,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
     }
   } finally {
+    stopSubagentEnd?.()
+    stopSubagentStart?.()
     stopCommands?.()
     stopQuestions?.()
     stopApproval?.()

@@ -39,7 +39,39 @@ afterEach(() => {
 const t = makeTranslate(zh, commonZh)
 
 describe('ReasoningRow', () => {
-  it('follows the latest streaming line, scrolls to its end, then restores the settled first line', () => {
+  it('starts collapsed so settled reasoning remains compact', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
+        streaming={false}
+      />,
+    )
+    const row = view.getByRole('button')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.container.querySelector('[class*="thinkBody"]')).toBeNull()
+    expect(view.queryByText(/Check persistence/)).toBeNull()
+  })
+
+  it('collapses to the one-line summary and re-expands from either Think or the summary', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
+        streaming={false}
+      />,
+    )
+    const row = view.getByRole('button')
+
+    fireEvent.click(view.getByText('Inspect the session'))
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText(/Check persistence/)).toBeTruthy()
+
+    fireEvent.click(view.getByText('Think'))
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a collapsed streaming row follows the latest line, then restores the settled first line', () => {
     const view = render(
       <AssistantMarkdown
         t={t}
@@ -80,24 +112,6 @@ describe('ReasoningRow', () => {
     expect(view.queryByText('运行中')).toBeNull()
     expect(summary.scrollLeft).toBe(0)
     expect(summary.hasAttribute('data-follow-end')).toBe(false)
-  })
-
-  it('expands from either Think or the reasoning summary', () => {
-    const view = render(
-      <AssistantMarkdown
-        t={t}
-        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
-        streaming={false}
-      />,
-    )
-    const row = view.getByRole('button')
-
-    fireEvent.click(view.getByText('Inspect the session'))
-    expect(row.getAttribute('aria-expanded')).toBe('true')
-    expect(view.getByText(/Check persistence/)).toBeTruthy()
-
-    fireEvent.click(view.getByText('Think'))
-    expect(row.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('expanded Think drops the inline summary and renders plain prose, no IN card', () => {

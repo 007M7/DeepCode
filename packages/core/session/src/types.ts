@@ -227,6 +227,18 @@ export interface RequestContext {
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
+/** Provider-reported usage for one auxiliary LLM request outside an Agent step. */
+export interface AuxiliaryLlmUsage {
+  /** Stable purpose used to group auxiliary spend. */
+  purpose: string
+  /** Provider route that served the request. */
+  provider: string
+  /** Model route that served the request. */
+  model: string
+  /** Disjoint provider usage buckets. */
+  usage: TokenUsage
+}
+
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
@@ -271,6 +283,8 @@ export interface SessionEventMap {
    * usage record). `usage` is absent when the adapter reported none.
    */
   'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
+  /** Durable accounting for an auxiliary model request that has no Agent step. */
+  'llm/aux-usage': AuxiliaryLlmUsage
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the

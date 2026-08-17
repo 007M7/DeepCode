@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import React, { useSyncExternalStore } from 'react'
+import React, { useCallback, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import { Box, Static, Text, render, useInput } from 'ink'
 import type { Instance, Key } from 'ink'
@@ -14,6 +14,7 @@ import { PRODUCT_NAME, WORKING_LABEL } from './brand.ts'
 
 const h = React.createElement
 const BLUE = '#4D8DFF'
+const WHALE_BLUE = '#4D6BFE'
 const PALE_BLUE = '#8CB4FF'
 const MUTED = '#7F8EA3'
 const GOOD = '#58C98D'
@@ -49,9 +50,18 @@ export interface TuiIdentity {
   readonly credentialSource?: string
 }
 
+/** Cumulative provider usage and optional deployment-priced cost for the owned task tree. */
+export interface CliUsageStatus {
+  readonly uncachedInputTokens: number
+  readonly cacheReadTokens: number
+  readonly cacheWriteTokens: number
+  readonly outputTokens: number
+  readonly estimatedCostUsd?: number
+}
+
 interface TuiSnapshot {
   readonly identity: TuiIdentity
-  readonly staticOutputs: readonly TuiStaticOutput[]
+  readonly staticOutputs: TuiStaticOutput[]
   readonly staticGeneration: number
   readonly activeAssistant: string
   readonly prompt: TuiPrompt | undefined
@@ -59,6 +69,11 @@ interface TuiSnapshot {
   readonly cursor: number
   readonly selected: number
   readonly running: boolean
+  readonly runningSince: number | undefined
+  readonly lastActivityAt: number | undefined
+  readonly backgroundTasks: Readonly<Record<string, number>>
+  readonly now: number
+  readonly usage: CliUsageStatus | undefined
   readonly toolDetails: boolean
   readonly commandNames: readonly string[]
   readonly queuedChats: number
@@ -108,6 +123,8 @@ export class TerminalTui {
   private readonly closedPromise: Promise<void>
   private cancelHandler: (() => void) | undefined
   private readonly queuedChats: string[] = []
+  private renderFrame: ReturnType<typeof setTimeout> | undefined
+  private ticker: ReturnType<typeof setInterval> | undefined
   private lastChatPrompt: TuiPrompt | undefined
   private instance: Instance
   private readonly stdin: NodeJS.ReadStream
@@ -129,6 +146,11 @@ export class TerminalTui {
       cursor: 0,
       selected: 0,
       running: false,
+      runningSince: undefined,
+      lastActivityAt: undefined,
+      backgroundTasks: {},
+      now: performance.now(),
+      usage: undefined,
       toolDetails: false,
       commandNames: [],
       queuedChats: 0,
@@ -169,10 +191,56 @@ export class TerminalTui {
    * @param running - Whether Escape and Ctrl+C should cancel active work.
    */
   setRunning(running: boolean): void {
+    const now = performance.now()
     const backgroundPrompt = running && this.pending === undefined
       ? this.lastChatPrompt
       : this.snapshotValue.prompt
-    this.update({ running, prompt: backgroundPrompt })
+    this.update({
+      running,
+      prompt: backgroundPrompt,
+      runningSince: running ? this.snapshotValue.runningSince ?? now : undefined,
+      lastActivityAt: running ? now : undefined,
+      now,
+    })
+    this.syncTicker()
+  }
+
+  /**
+   * Replace the cumulative task-tree usage displayed by the live status area.
+   * @param usage - Current cumulative usage for the foreground task and owned subagents.
+   */
+  setUsage(usage: CliUsageStatus): void {
+    this.update({ usage: { ...usage } })
+  }
+
+  /** Record observable progress for the running task without resetting its elapsed time. */
+  markActivity(): void {
+    if (!this.snapshotValue.running) return
+    const now = performance.now()
+    this.update({ lastActivityAt: now, now })
+  }
+
+  /**
+   * Add one authoritative background-subagent lifecycle epoch to the status clock.
+   * @param id - Stable identifier for the running background task.
+   */
+  startBackgroundTask(id: string): void {
+    if (this.snapshotValue.backgroundTasks[id] !== undefined) return
+    const now = performance.now()
+    this.update({ backgroundTasks: { ...this.snapshotValue.backgroundTasks, [id]: now }, now })
+    this.syncTicker()
+  }
+
+  /**
+   * Settle one background-subagent lifecycle epoch.
+   * @param id - Stable identifier for the completed background task.
+   */
+  endBackgroundTask(id: string): void {
+    if (this.snapshotValue.backgroundTasks[id] === undefined) return
+    const tasks = { ...this.snapshotValue.backgroundTasks }
+    Reflect.deleteProperty(tasks, id)
+    this.update({ backgroundTasks: tasks, now: performance.now() })
+    this.syncTicker()
   }
 
   /**
@@ -314,6 +382,10 @@ export class TerminalTui {
       pending.reject(new TuiClosedError())
     }
     this.resolveClosed()
+    if (this.ticker !== undefined) clearInterval(this.ticker)
+    this.ticker = undefined
+    if (this.renderFrame !== undefined) clearTimeout(this.renderFrame)
+    this.renderFrame = undefined
     this.instance.unmount()
   }
 
@@ -428,7 +500,22 @@ export class TerminalTui {
 
   private update(patch: Partial<TuiSnapshot>): void {
     this.snapshotValue = { ...this.snapshotValue, ...patch }
-    this.events.emit('change')
+    if (this.renderFrame !== undefined) return
+    this.renderFrame = setTimeout(() => {
+      this.renderFrame = undefined
+      if (!this.closedFlag) this.events.emit('change')
+    }, 16)
+  }
+
+  /** Tick only while a foreground or background task has a moving duration. */
+  private syncTicker(): void {
+    const active = this.snapshotValue.running || Object.keys(this.snapshotValue.backgroundTasks).length > 0
+    if (active && this.ticker === undefined) {
+      this.ticker = setInterval(() => { this.update({ now: performance.now() }) }, 1_000)
+    } else if (!active && this.ticker !== undefined) {
+      clearInterval(this.ticker)
+      this.ticker = undefined
+    }
   }
 
   /** Create one Ink owner for the current terminal state. */
@@ -504,21 +591,17 @@ export class TerminalTui {
 /** Root Ink component: permanent transcript above one live status/composer. */
 function TuiRoot({ tui }: { readonly tui: TerminalTui }): ReactElement {
   const state = useSyncExternalStore(tui.subscribe, tui.getSnapshot, tui.getSnapshot)
-  useInput((input, key) => { tui.handleInput(input, key) })
+  const handleInput = useCallback((input: string, key: Key) => { tui.handleInput(input, key) }, [tui])
+  useInput(handleInput)
   return h(Box, { flexDirection: 'column' },
     h(Static, {
       key: state.staticGeneration,
-      items: [...state.staticOutputs],
-      children: (value: unknown) => {
-        const output = value as TuiStaticOutput
-        return output.kind === 'welcome'
-          ? h(WelcomeCard, { key: output.id, identity: output.identity })
-          : h(TranscriptItem, { key: output.id, item: output.item })
-      },
+      items: state.staticOutputs,
+      children: renderStaticOutput,
     }),
-    state.activeAssistant === '' ? null : h(Box, { marginTop: 1 },
-      h(Text, { color: BLUE, bold: true }, '◆ '),
-      h(Text, null, state.activeAssistant),
+    state.activeAssistant === '' ? null : h(Box, { flexDirection: 'column', marginTop: 1 },
+      h(Text, { color: PALE_BLUE, bold: true }, 'DEEPCODE'),
+      h(TerminalMarkdown, { text: liveTail(state.activeAssistant) }),
     ),
     state.running && state.activeAssistant === '' ? h(Box, { marginTop: 1 },
       h(Text, { color: BLUE }, '● '), h(Text, { dimColor: true }, WORKING_LABEL),
@@ -529,35 +612,115 @@ function TuiRoot({ tui }: { readonly tui: TerminalTui }): ReactElement {
   )
 }
 
-/** Compact welcome row with the current workspace and authentication state. */
+/** Stable renderer identity required by Ink Static's effect dependencies. */
+function renderStaticOutput(value: unknown): ReactElement {
+  const output = value as TuiStaticOutput
+  return output.kind === 'welcome'
+    ? h(WelcomeCard, { key: output.id, identity: output.identity })
+    : h(TranscriptItem, { key: output.id, item: output.item })
+}
+
+/** Preview-derived whale pixels; `E` is the white eye on the blue head. */
+const WHALE_PIXELS = [
+  '        B   B     ',
+  '  BBBBBBB   BB   B',
+  ' BBBBBBBBB  BBBBBB',
+  'BBBBBBBBBBB  BBBB ',
+  'BB BBBBBBBBBBBB   ',
+  'B     BBBE BBBB   ',
+  'BB     BBBB BBB   ',
+  'BB      BBBBBB    ',
+  ' BB      BBBBB    ',
+  '  BB  BB BBBB     ',
+  '   BBBBBBBBBBB    ',
+  '    BBBBBB        ',
+] as const
+
+/** Render the reference whale with two terminal columns per source pixel. */
+function PixelWhale(): ReactElement {
+  return h(Box, { flexDirection: 'column', flexShrink: 0 }, ...WHALE_PIXELS.map((row, rowIndex) =>
+    h(Box, { key: rowIndex }, ...row.split('').map((pixel, columnIndex) => h(Text, {
+      key: columnIndex,
+      ...pixel === 'B' || pixel === 'E' ? { backgroundColor: WHALE_BLUE } : {},
+      ...pixel === 'E' ? { color: '#FFFFFF', bold: true } : {},
+    }, pixel === 'E' ? 'o ' : '  '))),
+  ))
+}
+
+/** Branded welcome card with the reference pixel whale and current runtime facts. */
 function WelcomeCard({ identity }: { readonly identity: TuiIdentity }): ReactElement {
   const model = `${identity.provider}/${identity.model}${identity.reasoningEffort === undefined ? '' : ` · ${identity.reasoningEffort}`}`
   const auth = identity.authenticated
     ? `authenticated${identity.credentialSource === undefined ? '' : ` via ${identity.credentialSource}`}`
     : 'not authenticated · run /login'
-  return h(Box, { flexDirection: 'column', marginBottom: 1 },
-    h(Text, null,
+  return h(Box, { borderStyle: 'round', borderColor: BLUE, paddingX: 1, marginBottom: 1 },
+    h(Box, { marginRight: 2 }, h(PixelWhale)),
+    h(Box, { flexDirection: 'column', justifyContent: 'center', flexGrow: 1 },
       h(Text, { color: PALE_BLUE, bold: true }, PRODUCT_NAME),
-      h(Text, { color: MUTED }, ` v${identity.version} · `),
+      h(Text, { dimColor: true }, `Local Agent CLI · v${identity.version}`),
       h(Text, null, model),
-      h(Text, { color: identity.authenticated ? GOOD : '#E6B450' }, ` · ${auth}`),
+      h(Text, { color: identity.authenticated ? GOOD : '#E6B450' }, auth),
+      h(Text, { color: MUTED, wrap: 'truncate-middle' }, identity.cwd),
     ),
-    h(Text, { color: MUTED, wrap: 'truncate-middle' }, identity.cwd),
   )
 }
 
 /** One permanent transcript row. */
 function TranscriptItem({ item }: { readonly item: TuiItem }): ReactElement {
-  const icon = item.kind === 'user' ? '›'
-    : item.kind === 'assistant' ? '◆'
-      : item.kind === 'tool' ? (item.failed ? '✗' : '◈')
-        : item.kind === 'error' ? '!' : item.kind === 'command' ? '/' : '•'
+  if (item.kind === 'user' || item.kind === 'assistant') {
+    const assistant = item.kind === 'assistant'
+    return h(Box, { flexDirection: 'column', marginTop: 1 },
+      h(Text, { color: assistant ? PALE_BLUE : GOOD, bold: true }, assistant ? 'DEEPCODE' : 'YOU'),
+      assistant ? h(TerminalMarkdown, { text: item.text }) : h(Text, { wrap: 'wrap' }, item.text))
+  }
+  const icon = item.kind === 'tool' ? (item.failed ? '✗' : '◈')
+    : item.kind === 'error' ? '!' : item.kind === 'command' ? '/' : '•'
   const color = item.kind === 'error' || item.failed ? BAD
-    : item.kind === 'assistant' || item.kind === 'tool' ? BLUE
-      : item.kind === 'user' ? PALE_BLUE : MUTED
-  return h(Box, { flexDirection: 'column', marginTop: item.kind === 'assistant' || item.kind === 'user' ? 1 : 0 },
-    h(Box, null, h(Text, { color, bold: true }, `${icon} `), h(Text, null, item.text)),
+    : item.kind === 'tool' ? BLUE : MUTED
+  return h(Box, { flexDirection: 'column', marginTop: item.kind === 'tool' ? 1 : 0 },
+    h(Box, null,
+      item.kind === 'tool' ? h(Text, { color: MUTED, bold: true }, 'TOOLS  ') : null,
+      h(Text, { color, bold: true }, `${icon} `),
+      h(Text, { ...item.kind === 'tool' ? { color: MUTED } : {} }, item.text),
+    ),
   )
+}
+
+/** Keep the mutable streaming region below one terminal-sized block. */
+function liveTail(text: string): string {
+  const lines = text.split('\n')
+  const visible = lines.slice(-12).join('\n')
+  return lines.length > 12 ? `…\n${visible}` : visible
+}
+
+/** Render the small Markdown subset models use most without exposing markers. */
+function TerminalMarkdown({ text }: { readonly text: string }): ReactElement {
+  let fenced = false
+  const rows: ReactElement[] = []
+  for (const [index, raw] of text.split('\n').entries()) {
+    if (/^\s*```/u.test(raw)) {
+      fenced = !fenced
+      continue
+    }
+    const heading = /^(#{1,6})\s+(.+)$/u.exec(raw)
+    const bullet = /^\s*[-*]\s+(.+)$/u.exec(raw)
+    const line = heading?.[2] ?? (bullet === null ? raw : `• ${bullet[1]}`)
+    rows.push(h(Text, {
+      key: index,
+      wrap: 'wrap',
+      ...heading === null ? {} : { bold: true, color: PALE_BLUE },
+      ...fenced ? { color: MUTED } : {},
+    }, ...inlineMarkdown(line)))
+  }
+  return h(Box, { flexDirection: 'column' }, ...rows)
+}
+
+/** Convert paired strong markers into nested Ink text spans. */
+function inlineMarkdown(text: string): ReactElement[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/u)
+  return parts.filter(part => part !== '').map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? h(Text, { key: index, bold: true }, part.slice(2, -2))
+    : h(Text, { key: index }, part))
 }
 
 /** Dynamic latest-tool detail panel; history remains immutable in `<Static>`. */
@@ -606,7 +769,8 @@ function Composer({ state }: { readonly state: TuiSnapshot }): ReactElement {
 
 /** Compact always-visible state and shortcut row. */
 function StatusLine({ state }: { readonly state: TuiSnapshot }): ReactElement {
-  const mode = state.running ? 'working' : state.prompt?.kind === 'secret' ? 'login'
+  const backgroundStarts = Object.values(state.backgroundTasks)
+  const mode = state.running ? 'working' : backgroundStarts.length > 0 ? 'background' : state.prompt?.kind === 'secret' ? 'login'
     : state.prompt?.kind === 'approval' ? 'approval' : state.prompt?.kind === 'question' ? 'question' : 'ready'
   const shortcut = state.running
     ? `Enter queue${state.queuedChats === 0 ? '' : ` (${state.queuedChats})`} · Esc/Ctrl+C cancel · Ctrl+O tools`
@@ -615,11 +779,43 @@ function StatusLine({ state }: { readonly state: TuiSnapshot }): ReactElement {
   const session = state.identity.sessionId.length > 12
     ? `${state.identity.sessionId.slice(0, 8)}…${state.identity.sessionId.slice(-4)}`
     : state.identity.sessionId
+  const taskMetrics = [
+    state.runningSince === undefined ? undefined : `task ${formatElapsed(state.now - state.runningSince)}`,
+    state.lastActivityAt === undefined ? undefined : `update ${formatElapsed(state.now - state.lastActivityAt)} ago`,
+    backgroundStarts.length === 0 ? undefined : `subagents ${backgroundStarts.length}`,
+    backgroundStarts.length === 0 ? undefined : `oldest ${formatElapsed(state.now - Math.min(...backgroundStarts))}`,
+  ].filter((value): value is string => value !== undefined).join(' · ')
   return h(Box, { flexDirection: 'column' },
     h(Text, { color: MUTED, wrap: 'truncate-middle' }, `${PRODUCT_NAME} · ${model} · ${state.identity.authenticated ? 'authenticated' : 'login required'} · session ${session}`),
-    h(Box, { justifyContent: 'space-between' },
-      h(Text, { color: state.running ? '#E6B450' : GOOD }, `● ${mode}`),
+    state.usage === undefined ? null : h(Text, { color: MUTED }, formatUsageStatus(state.usage)),
+    h(Box, { flexDirection: 'column' },
+      h(Text, { color: state.running || backgroundStarts.length > 0 ? '#E6B450' : GOOD }, `● ${mode}${taskMetrics === '' ? '' : `  ${taskMetrics}`}`),
       h(Text, { color: MUTED }, shortcut),
     ),
   )
+}
+
+/** Compact cumulative billing facts without hiding the cache denominator. */
+function formatUsageStatus(usage: CliUsageStatus): string {
+  const billedInput = usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
+  const cacheHit = billedInput === 0 ? 0 : Math.round(usage.cacheReadTokens / billedInput * 100)
+  const cost = usage.estimatedCostUsd === undefined ? 'cost n/a' : `cost $${usage.estimatedCostUsd.toFixed(4)}`
+  return `usage · cache ${cacheHit}% · input ${formatTokenCount(billedInput)} (${formatTokenCount(usage.uncachedInputTokens)} new) · output ${formatTokenCount(usage.outputTokens)} · ${cost}`
+}
+
+/** Abbreviate token counts while preserving useful billing precision. */
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 1 : 2)}M`
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 100_000 ? 0 : 1)}K`
+  return String(tokens)
+}
+
+/** Compact whole-second duration for live status rows. */
+function formatElapsed(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1_000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  if (hours > 0) return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
+  if (minutes > 0) return `${minutes}m${String(seconds % 60).padStart(2, '0')}s`
+  return `${seconds}s`
 }

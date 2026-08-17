@@ -48,6 +48,8 @@ Provider failures become `WEB_PROVIDER_ERROR`; caller cancellation becomes `WEB_
 
 Immediately before dispatch, a search running under an initiating Agent appends the log-only `web/deepseek-search-llm-request` session event. It contains the resolved endpoint, API version, and exact secret-free JSON body sent to DeepSeek; headers and credentials are excluded. Credential failures and cancellations before dispatch create no event, while later HTTP or response failures leave the attempted request durable. Direct programmatic provider calls outside an Agent have no initiating session to log.
 
+After a successful response body is parsed, provider-reported input, output, cache-read, and cache-write buckets are appended to the initiating session as `llm/aux-usage`. Responses without usage fields add no estimate; malformed usage fails the search instead of silently corrupting billing totals.
+
 ## Model Experience
 
 ### Auxiliary DeepSeek search request

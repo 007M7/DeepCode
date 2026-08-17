@@ -2,9 +2,9 @@
  * Automation-only Agent Client Protocol server over JSON-RPC stdio.
  *
  * The bridge exposes fresh harness sessions to trusted programmatic clients. It
- * carries prompt text, committed assistant text, cancellation, and one-shot
- * permission decisions; presentation and human-interaction features stay with
- * the harness's UI modules.
+ * carries prompt text, committed assistant text and reasoning, cancellation,
+ * and one-shot permission decisions; presentation and human-interaction
+ * features stay with the harness's UI modules.
  *
  * @module @deepseek-ai/dsh-acp
  */
@@ -149,9 +149,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight.reject(internalError(`turn failed: ${reason.error.message}`))
   }
 
-  // Emit only committed assistant text. Raw chunks, reasoning, tools, plans,
-  // titles, and retry markers are presentation or trace data and stay off the
-  // automation wire.
+  // Emit committed assistant text and reasoning only. Reasoning blocks surface
+  // as agent_thought_chunk so clients can show the model's thinking; raw
+  // chunks, tools, plans, titles, and retry markers are presentation or trace
+  // data and stay off the automation wire.
   ctx.on('session/event', (session, event: SessionEvent) => {
     const record = sessions.get(session.header.id)
     if (record === undefined || record.agent.session !== session) return
@@ -175,6 +176,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
                   type: 'text',
                   text: `[image attachment ${block.attachment.attachmentId}]`,
                 },
+              },
+            })
+          } else if (block.type === 'reasoning' && block.text.length > 0) {
+            notify({
+              sessionId: record.agent.session.id,
+              update: {
+                sessionUpdate: 'agent_thought_chunk',
+                content: { type: 'text', text: block.text },
               },
             })
           }

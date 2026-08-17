@@ -62,6 +62,8 @@ interface SessionEventMap {
    * usage record). `usage` is absent when the adapter reported none.
    */
   'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
+  /** Durable accounting for an auxiliary model request that has no Agent step. */
+  'llm/aux-usage': AuxiliaryLlmUsage
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the

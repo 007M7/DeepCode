@@ -12,7 +12,7 @@ import {
   DEEPSEEK_PROVIDER_ID,
 } from '@deepseek-ai/dsh-web-search-deepseek'
 import * as deepseekPlugin from '@deepseek-ai/dsh-web-search-deepseek'
-import { citationSnippets, mapAnthropicResponse } from '../src/provider.ts'
+import { citationSnippets, mapAnthropicResponse, mapAnthropicUsage } from '../src/provider.ts'
 import type { AnthropicResponse } from '@deepseek-ai/dsh-web-search-deepseek/src/types.ts'
 
 /** Construct the provider over a fixed options value; production passes a live thunk. */
@@ -167,6 +167,42 @@ describe('DeepSeekSearchProvider availability', () => {
 })
 
 describe('DeepSeekSearchProvider request mapping', () => {
+  it('maps disjoint provider usage buckets and rejects invalid billing data', () => {
+    expect(mapAnthropicUsage({
+      input_tokens: 30,
+      output_tokens: 5,
+      cache_read_input_tokens: 70,
+      cache_creation_input_tokens: 4,
+    })).toEqual({
+      inputTokens: 30,
+      outputTokens: 5,
+      cacheReadTokens: 70,
+      cacheWriteTokens: 4,
+    })
+    expect(() => mapAnthropicUsage({ input_tokens: -1 })).toThrow(/invalid usage field input_tokens/)
+  })
+
+  it('reports successful response usage before returning search results', async () => {
+    const recordUsage = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...searchResponse(),
+      usage: {
+        input_tokens: 30,
+        output_tokens: 5,
+        cache_read_input_tokens: 70,
+      },
+    })))
+
+    await expect(searchProvider({ ...options, recordUsage }).search({ query: 'hello' }))
+      .resolves.toMatchObject({ truncated: false })
+    expect(recordUsage).toHaveBeenCalledOnce()
+    expect(recordUsage).toHaveBeenCalledWith({
+      inputTokens: 30,
+      outputTokens: 5,
+      cacheReadTokens: 70,
+    })
+  })
+
   it('records and posts the same Anthropic Messages request with the web_search server tool', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
     const recordRequest = vi.fn()

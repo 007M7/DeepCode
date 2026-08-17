@@ -425,6 +425,11 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText('do the thing')).toBeTruthy()
     expect(view.getByText('running tools')).toBeTruthy()
+    // Consecutive same-name settled tools collapse into one group row; the
+    // members stay out of the DOM until the group is expanded.
+    expect(view.queryByTestId('tool-seat-a')).toBeNull()
+    expect(view.getByText('bash × 2')).toBeTruthy()
+    fireEvent.click(view.getByText('bash × 2'))
     expect(view.getByTestId('tool-seat-a').textContent).toBe('bash:a')
     expect(view.getByTestId('tool-seat-b').textContent).toBe('bash:b')
     expect([...view.container.querySelectorAll('[data-chat-flow-key]')].map(row => ({
@@ -441,7 +446,8 @@ describe('ChatView', () => {
     expect([...view.container.querySelectorAll('[data-chat-anchor-key]')].map(row => row.getAttribute('data-chat-anchor-key')))
       .toEqual([
         'fixture:user:1', 'fixture:assistant:2',
-        'fixture:tool:a', 'call:a', 'fixture:tool:b', 'call:b',
+        // The group header and its first member both anchor the first node key.
+        'fixture:tool:a', 'fixture:tool:a', 'call:a', 'fixture:tool:b', 'call:b',
       ])
   })
 

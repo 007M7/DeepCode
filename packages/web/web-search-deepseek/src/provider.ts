@@ -13,11 +13,13 @@ import type {
   WebSearchResult,
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-session'
 import type {
   AnthropicError,
   AnthropicResponse,
+  AnthropicUsage,
   ContentBlock,
   TextBlock,
   WebSearchToolResultBlock,
@@ -107,6 +109,13 @@ export interface DeepSeekSearchProviderOptions {
    * prevents dispatch so model-visible auxiliary input cannot escape logging.
    */
   recordRequest?: (request: DeepSeekSearchLlmRequest) => void
+  /**
+   * Report the provider's token usage for one completed search dispatch.
+   * Called after a response body parses successfully, before the result is
+   * mapped; a throw fails the search (the accounting boundary must not be
+   * silently skipped). Absent `usage` on the wire reports nothing.
+   */
+  recordUsage?: (usage: TokenUsage) => void
 }
 
 /**
@@ -171,6 +180,31 @@ export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResu
     }
   }
   return { sources, truncated: false }
+}
+
+/**
+ * Map the provider's disjoint Anthropic usage buckets into the shared vocabulary.
+ * @param usage - Usage fields returned by the Anthropic-compatible response.
+ * @returns Validated token usage with cache buckets preserved when present.
+ */
+export function mapAnthropicUsage(usage: AnthropicUsage): TokenUsage {
+  const read = (name: string, value: number | undefined): number => {
+    if (value === undefined) return 0
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new WebError(`DeepSeek returned invalid usage field ${name}`, 'WEB_PROVIDER_ERROR')
+    }
+    return value
+  }
+  return {
+    inputTokens: read('input_tokens', usage.input_tokens),
+    outputTokens: read('output_tokens', usage.output_tokens),
+    ...usage.cache_read_input_tokens === undefined
+      ? {}
+      : { cacheReadTokens: read('cache_read_input_tokens', usage.cache_read_input_tokens) },
+    ...usage.cache_creation_input_tokens === undefined
+      ? {}
+      : { cacheWriteTokens: read('cache_creation_input_tokens', usage.cache_creation_input_tokens) },
+  }
 }
 
 /** The DeepSeek-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
@@ -261,6 +295,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as AnthropicResponse
+      if (payload.usage !== undefined) options.recordUsage?.(mapAnthropicUsage(payload.usage))
       return mapAnthropicResponse(payload)
     } catch (error: unknown) {
       if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error)

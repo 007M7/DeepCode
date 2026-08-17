@@ -1,7 +1,7 @@
 /** Ink surface keyboard and secret-rendering behavior over fake TTY streams. */
 
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Key } from 'ink'
 import { TerminalTui } from '../src/tui.ts'
 
@@ -57,7 +57,28 @@ function createTui(): { tui: TerminalTui; stdin: PassThrough; output: () => stri
 }
 
 describe('TerminalTui', () => {
-  it('renders the compact non-full-screen shell and completes slash commands', async () => {
+  it('coalesces rapid live task updates without recursive React renders', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const test = createTui()
+      test.tui.setRunning(true)
+      for (let index = 0; index < 30; index++) {
+        test.tui.appendAssistant(String(index))
+        test.tui.setUsage({
+          uncachedInputTokens: index,
+          cacheReadTokens: index,
+          cacheWriteTokens: 0,
+          outputTokens: index,
+        })
+      }
+      await rendered()
+      expect(errors.mock.calls.flat().join(' ')).not.toContain('Maximum update depth exceeded')
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('renders the branded non-full-screen shell and completes slash commands', async () => {
     const test = createTui()
     test.tui.setCommandNames(['help', 'login'])
     const answer = test.tui.ask({ kind: 'chat', label: 'Ask DeepCode' })
@@ -68,8 +89,9 @@ describe('TerminalTui', () => {
     await expect(answer).resolves.toBe('/help ')
     await rendered()
     expect(test.output()).toContain('DeepCode')
-    expect(test.output()).toContain('v1.2.3')
-    expect(test.output()).not.toContain('Local Agent CLI')
+    expect(test.output()).toContain('o ')
+    expect(test.output()).not.toContain('(o)')
+    expect(test.output()).toContain('Local Agent CLI · v1.2.3')
     expect(test.output()).toContain('not authenticated')
     expect(test.output()).not.toContain('\u001B[?1049h')
   })
@@ -156,7 +178,9 @@ describe('TerminalTui', () => {
     test.tui.appendAssistant('third')
     await rendered()
 
-    expect(test.output().match(/DeepCode v1\.2\.3/gu)).toHaveLength(1)
+    expect(test.output()).toContain('YOU')
+    expect(test.output()).toContain('DEEPCODE')
+    expect(test.output().match(/Local Agent CLI · v1\.2\.3/gu)).toHaveLength(1)
     expect(test.output().match(/keep the scrollbar stable/gu)).toHaveLength(1)
     expect(test.tui.getSnapshot().activeAssistant).toBe('first second third')
 
@@ -165,6 +189,25 @@ describe('TerminalTui', () => {
     await rendered()
     expect(test.output().slice(beforeCommit).match(/first second third/gu)).toHaveLength(1)
     expect(test.tui.getSnapshot().activeAssistant).toBe('')
+  })
+
+  it('bounds the mutable response and renders common Markdown without markers', async () => {
+    const test = createTui()
+    const lines = Array.from({ length: 15 }, (_, index) => `line ${index + 1}`)
+    test.tui.appendAssistant(`${lines.join('\n')}\n## Result\n**important**`)
+    await rendered()
+
+    const live = test.output()
+    expect(live).not.toMatch(/line 1\r?\n/u)
+    expect(live).toContain('line 15')
+    expect(live).toContain('Result')
+    expect(live).toContain('important')
+    expect(live).not.toContain('## Result')
+    expect(live).not.toContain('**important**')
+
+    test.tui.endAssistant()
+    await rendered()
+    expect(test.output()).toMatch(/line 1\r?\n/u)
   })
 
   it('updates live identity without reprinting the static welcome card', async () => {
@@ -176,7 +219,7 @@ describe('TerminalTui', () => {
     })
     await waitForOutput(test.output, output => output.includes('deepseek-official/deepseek-reasoner'), 'updated identity line')
 
-    expect(test.output().match(/DeepCode v1\.2\.3/gu)).toHaveLength(1)
+    expect(test.output().match(/Local Agent CLI · v1\.2\.3/gu)).toHaveLength(1)
     expect(test.output()).toContain('deepseek-official/deepseek-reasoner')
     expect(test.output()).toContain('authenticated')
     expect(test.output()).toContain('session session-next')
@@ -198,6 +241,38 @@ describe('TerminalTui', () => {
 
     expect(cleared).toContain('\u001B[2J\u001B[3J\u001B[H')
     expect(cleared).not.toContain('history before clear')
+  })
+
+  it('shows foreground progress and independently tracks background subagents', async () => {
+    const test = createTui()
+    test.tui.setRunning(true)
+    test.tui.startBackgroundTask('run-1')
+    await rendered()
+
+    expect(test.output()).toContain('● working  task 0s · update 0s ago · subagents 1 · oldest 0s')
+
+    test.tui.setRunning(false)
+    await rendered()
+    expect(test.output()).toContain('● background  subagents 1 · oldest 0s')
+
+    test.tui.endBackgroundTask('run-1')
+    await rendered()
+    expect(test.tui.getSnapshot().backgroundTasks).toEqual({})
+    expect(test.output()).toContain('● ready')
+  })
+
+  it('shows cumulative cache, token, and priced-cost monitoring', async () => {
+    const test = createTui()
+    test.tui.setUsage({
+      uncachedInputTokens: 230_000,
+      cacheReadTokens: 770_000,
+      cacheWriteTokens: 0,
+      outputTokens: 34_600,
+      estimatedCostUsd: 1.23456,
+    })
+    await rendered()
+
+    expect(test.output()).toContain('usage · cache 77% · input 1.00M (230K new) · output 34.6K · cost $1.2346')
   })
 
   it('shows only the latest tool detail in the live panel', async () => {

@@ -12,6 +12,8 @@ This package is a library, not a Cordis plugin. The provider plugins call `regis
 
 After route and input validation, the helper appends a log-only `session/title-llm-request` event directly through `Session` before model dispatch. It contains the title-provider id, exact source seqs, route, system prompt, message list, and output-token cap used by the call. Persistence observes the record eagerly; the append does not need a title-specific marker, cast, settlement queue, or flush. The dispatched envelope is deep-frozen, carries `purpose: 'session-title'`, and deliberately lacks dsh-agent-loop's process-local request identity. Interceptors stay aligned with the record while loop-only reconstruction observers do not compare it with the conversation header. The DeepSeek adapter maps that purpose to thinking-disabled so the small output budget is reserved for visible title text; other adapters own their purpose-specific behavior. A later model failure leaves the request record intact; validation failures that never become dispatchable requests do not create one. The event stays outside derived model history.
 
+When the stream reports provider usage, the helper appends it as `llm/aux-usage` before interpreting the finish reason. This preserves billed title usage even when the provider later reports a terminal error or the generated title is rejected.
+
 ## Configuration
 
 Every field is required except the paired route override; there are no library defaults.

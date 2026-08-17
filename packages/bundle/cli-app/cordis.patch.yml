@@ -43,7 +43,7 @@
     # command loop. Reads its invocation values from cliStartup.
     - id: cli-runner
       name: '@deepseek-ai/dsh-cli-app'
-      inject: [cliStartup]
+      inject: [cliStartup, sessionProjections]
       config:
         cwd: !!js ctx.cliStartup.cwd
 

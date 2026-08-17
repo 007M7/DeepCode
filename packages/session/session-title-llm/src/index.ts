@@ -273,6 +273,14 @@ export async function generateSessionTitleWithLlm(
     callDeadline.signal.throwIfAborted()
     assembler.push(chunk)
   }
+  if (assembler.usage !== undefined) {
+    request.session.append('llm/aux-usage', {
+      purpose: 'session-title',
+      provider: route.provider,
+      model: route.model,
+      usage: assembler.usage,
+    })
+  }
   callDeadline.signal.throwIfAborted()
   const terminalError = finishError(assembler.finish)
   if (terminalError !== undefined) throw terminalError

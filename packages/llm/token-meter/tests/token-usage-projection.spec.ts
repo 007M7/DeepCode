@@ -6,7 +6,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
-import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { ContextPressureProjection, TokenUsageProjection, UsageLedgerProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 
 const ZERO: TokenUsageProjection = {
@@ -68,6 +68,12 @@ function finalUsage(
 const projected = (ctx: Context, session: Session): TokenUsageProjection => {
   const value = ctx.sessionProjections.snapshot(session).values.tokenUsage
   if (value === undefined) throw new Error('tokenUsage projection is not registered')
+  return value
+}
+
+const ledger = (ctx: Context, session: Session): UsageLedgerProjection => {
+  const value = ctx.sessionProjections.snapshot(session).values.usageLedger
+  if (value === undefined) throw new Error('usageLedger projection is not registered')
   return value
 }
 
@@ -240,6 +246,41 @@ describe('tokenUsage session projection', () => {
       outputTokens: 2,
       cacheReadTokens: 5,
       cacheWriteTokens: 0,
+    })
+  })
+})
+
+describe('usageLedger session projection', () => {
+  it('adds auxiliary requests without double-counting a finalized main request', async () => {
+    const { ctx, session } = await harness()
+    const main = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 700 }
+    startStep(session, 1, 1)
+    const source = usageChunk(session, main, 1, 1)
+    finalUsage(session, main, 1, 1, [source])
+    session.append('llm/aux-usage', {
+      purpose: 'web-search',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      usage: { inputTokens: 30, outputTokens: 5, cacheReadTokens: 70 },
+    })
+    session.append('llm/aux-usage', {
+      purpose: 'session-title',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      usage: { inputTokens: 10, outputTokens: 2, cacheWriteTokens: 4 },
+    })
+
+    expect(projected(ctx, session)).toEqual({
+      uncachedInputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 0,
+    })
+    expect(ledger(ctx, session)).toEqual({
+      uncachedInputTokens: 140,
+      outputTokens: 27,
+      cacheReadTokens: 770,
+      cacheWriteTokens: 4,
     })
   })
 })

@@ -7,10 +7,12 @@
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import { CliInput } from './input.ts'
 import { TerminalTui, TuiClosedError } from './tui.ts'
-import type { TuiIdentity, TuiPrompt } from './tui.ts'
+import type { CliUsageStatus, TuiIdentity, TuiPrompt } from './tui.ts'
 
 /** Presentation facts the driver may update without exposing secret values. */
 export type CliIdentity = TuiIdentity
+
+export type { CliUsageStatus } from './tui.ts'
 
 /** Constructor streams shared by both presentation adapters. */
 export interface CliSurfaceOptions {
@@ -29,6 +31,10 @@ export interface CliSurface {
   setIdentity(identity: CliIdentity): void
   setCommandNames(names: readonly string[]): void
   setRunning(running: boolean): void
+  setUsage(status: CliUsageStatus): void
+  markActivity(): void
+  startBackgroundTask(id: string): void
+  endBackgroundTask(id: string): void
   onCancel(handler: () => void): void
   ask(prompt: TuiPrompt, signal?: AbortSignal): Promise<string>
   addUser(text: string): void
@@ -59,6 +65,10 @@ class PlainCliSurface implements CliSurface {
   setIdentity(_identity: CliIdentity): void {}
   setCommandNames(_names: readonly string[]): void {}
   setRunning(_running: boolean): void {}
+  setUsage(_status: CliUsageStatus): void {}
+  markActivity(): void {}
+  startBackgroundTask(_id: string): void {}
+  endBackgroundTask(_id: string): void {}
   onCancel(handler: () => void): void { this.input.onSigint(handler) }
 
   ask(prompt: TuiPrompt, signal?: AbortSignal): Promise<string> {
@@ -113,6 +123,10 @@ class RichCliSurface implements CliSurface {
   setIdentity(identity: CliIdentity): void { this.tui.setIdentity(identity) }
   setCommandNames(names: readonly string[]): void { this.tui.setCommandNames(names) }
   setRunning(running: boolean): void { this.tui.setRunning(running) }
+  setUsage(status: CliUsageStatus): void { this.tui.setUsage(status) }
+  markActivity(): void { this.tui.markActivity() }
+  startBackgroundTask(id: string): void { this.tui.startBackgroundTask(id) }
+  endBackgroundTask(id: string): void { this.tui.endBackgroundTask(id) }
   onCancel(handler: () => void): void { this.tui.onCancel(handler) }
   ask(prompt: TuiPrompt, signal?: AbortSignal): Promise<string> { return this.tui.ask(prompt, signal) }
   addUser(text: string): void { this.tui.addUser(text) }

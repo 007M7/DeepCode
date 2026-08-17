@@ -62,6 +62,7 @@ class DelayedSuccessAdapter extends LlmAdapter {
 const SCRIPT: StreamChunk[] = [
   { type: 'block-start', index: 0, blockType: 'text' },
   { type: 'text-delta', index: 0, text: '  五个字标题  ' },
+  { type: 'usage', usage: { inputTokens: 30, outputTokens: 5, cacheReadTokens: 70 } },
   { type: 'finish', reason: { kind: 'stop' } },
 ]
 
@@ -170,6 +171,13 @@ describe('generateSessionTitleWithLlm', () => {
         system: options.system,
         messages: options.messages,
         maxTokens: 32,
+      })
+    expect(providerRequest.session.events.findLast(event => event.type === 'llm/aux-usage')?.data)
+      .toEqual({
+        purpose: 'session-title',
+        provider: 'current-route',
+        model: 'current-model',
+        usage: { inputTokens: 30, outputTokens: 5, cacheReadTokens: 70 },
       })
   })
 

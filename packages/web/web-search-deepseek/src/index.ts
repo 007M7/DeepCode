@@ -20,6 +20,7 @@ import {
   DEEPSEEK_DEFAULT_MAX_TOKENS,
   DEEPSEEK_DEFAULT_MAX_USES,
   DEEPSEEK_DEFAULT_MODEL,
+  DEEPSEEK_PROVIDER_ID,
 } from './provider.ts'
 import type { DeepSeekSearchProviderOptions } from './provider.ts'
 
@@ -119,6 +120,14 @@ function resolveOptions(ctx: Context, config: Config): DeepSeekSearchProviderOpt
         'web/deepseek-search-llm-request',
         request,
       )
+    },
+    recordUsage: (usage) => {
+      ctx.get('agents')?.currentInitiator()?.session.append('llm/aux-usage', {
+        purpose: 'web-search',
+        provider: DEEPSEEK_PROVIDER_ID,
+        model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
+        usage,
+      })
     },
   }
 }

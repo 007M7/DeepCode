@@ -2,6 +2,14 @@
 
 [English](README.md) | 中文
 
+TTY 欢迎区域使用带边框的蓝色像素鲸鱼卡片，其下方的 transcript 与成功工具记录保持紧凑。
+
+用户与 assistant 消息分别使用不带逐消息边框的紧凑 `YOU` 和 `DEEPCODE` 标签。可变流式区域只显示最近十二行，避免长回答在 Windows CMD 留下重绘残影；完整回答仅在 turn 结束时进入一次回滚记录。标题、列表、围栏代码和粗体使用轻量终端格式。工具调用在 turn 运行期间保留在工作状态，结束后按操作类型提交一条便于阅读的计数摘要；失败调用仍单独显示，Ctrl+O 可查看最近一条摘要的原始参数。
+
+工作进行时，状态行显示前台任务已运行时间和最近一条 Session 事件距今时间。后台子代理独立保留运行数量与最久运行时间，使用户能够区分安静运行的长任务与已空闲的 CLI。
+
+实时 usage 行显示当前任务完整派生树的缓存命中率、计费与未缓存输入以及输出。辅助模型调用与后代会话必须先进入同一持久 usage 账本；CLI 不会根据可见 transcript 记录猜测账单。在按路由识别价格的来源提供估算值之前，货币成本显示为 `n/a`。
+
 本地交互式 CLI 组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上，挂载本包的命令行启动提供方和直接 Agent runner，并在受支持的非 Windows 主机上增加现有持久终端能力。它不挂载 Host、HTTP server、Web runtime、浏览器插件或 ACP server。
 
 使用 `deepseek`、`dsh cli` 或 `dsh --profile cli` 启动。TTY 会得到名为 `DeepCode`、不会占用 alternate screen 的紧凑 Ink 终端界面，其中包含可保留的终端回滚、流式回答、每次成功工具调用一行、实时身份与状态行、可选择的审批与问题、命令补全、输入历史和遮罩凭据提示。已提交输出使用 Ink 的不可变 `Static` 区域；流式生成只更新底部实时回答与 composer，使宿主终端滚动条保持稳定。Ctrl+O 只在实时区域打开最近一次工具详情，不会重写或无限复制回滚内容。`/clear` 会替换 Ink owner、清除可见屏幕与终端回滚，再按当前身份重绘。重定向的 stdin/stdout 使用不含 ANSI 转义的确定性纯文本。一个 surface 统一持有聊天、凭据、审批和模型问题所用的 stdin。Agent 运行时提交的完整聊天消息进入内存 FIFO，并在当前轮次空闲后分派；审批和模型问题到达时仍使用共享 composer。运行中的 Ctrl+C 取消工作，空闲 Ctrl+C 或 EOF 执行有界退出。

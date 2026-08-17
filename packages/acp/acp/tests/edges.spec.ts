@@ -14,6 +14,19 @@ function toolCallResponse(): StreamChunk[] {
   ]
 }
 
+function thoughtThenTextResponse(thought: string, text: string): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'reasoning' },
+    ...Array.from(thought, (char): StreamChunk => ({ type: 'reasoning-delta', index: 0, text: char })),
+    { type: 'block-end', index: 0, block: { type: 'reasoning', text: thought } },
+    // BlockAssembler keys partials by index, so the text blocks must not reuse
+    // index 0 after the reasoning block closed it.
+    ...textResponse(text).map(chunk => (
+      'index' in chunk ? { ...chunk, index: 1 } : chunk
+    )),
+  ]
+}
+
 describe('ACP automation output boundary', () => {
   let harness: BridgeHarness | undefined
 
@@ -22,7 +35,7 @@ describe('ACP automation output boundary', () => {
     harness = undefined
   })
 
-  it('does not emit tool, terminal, plan, title, or reasoning presentation updates', async () => {
+  it('does not emit tool, terminal, plan, or title presentation updates', async () => {
     harness = await makeBridgeHarness({ script: [toolCallResponse(), textResponse('done')] })
     harness.ctx.tools.register(defineContentToolFixture({
       name: 'echo',
@@ -39,6 +52,25 @@ describe('ACP automation output boundary', () => {
       sessionUpdate: 'agent_message_chunk',
       content: { type: 'text', text: 'done' },
     }])
+  })
+
+  it('emits committed reasoning as an agent_thought_chunk before the message', async () => {
+    harness = await makeBridgeHarness({ script: [thoughtThenTextResponse('thinking…', 'done')] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+
+    await vi.waitFor(() => { expect(harness!.updates).toHaveLength(2) })
+    expect(harness.updates).toEqual([
+      {
+        sessionUpdate: 'agent_thought_chunk',
+        content: { type: 'text', text: 'thinking…' },
+      },
+      {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'done' },
+      },
+    ])
   })
 
   it('ignores events from agents the bridge does not own', async () => {

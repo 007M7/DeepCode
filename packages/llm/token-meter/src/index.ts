@@ -19,7 +19,11 @@ import type {
   TokenSurfaceNode,
 } from './types.ts'
 import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
-import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
+import {
+  contextPressureProjectionDefinition,
+  tokenUsageProjectionDefinition,
+  usageLedgerProjectionDefinition,
+} from './usage-projection.ts'
 import { estimateContent, estimateHeader, estimateMessage, ROLE_OVERHEAD } from './estimate.ts'
 import { foldSurfaceTokens } from './surface-fold.ts'
 
@@ -86,6 +90,7 @@ export class TokenMeter extends Service {
     // generic registry keep the meter's standalone read shape.
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
+      projectionCtx.sessionProjections.register(usageLedgerProjectionDefinition)
       projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
       projectionCtx.sessionProjections.register(contextBreakdownProjectionDefinition)
     })

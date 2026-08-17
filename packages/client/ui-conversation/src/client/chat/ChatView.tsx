@@ -15,9 +15,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatNode } from '../contract/chat-nodes.ts'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { PendingSteeringBubble } from './MessageItem.tsx'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
+import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
+import { deriveFlowRows } from './tool-call-grouping.ts'
 import { formatRunDuration } from './message-chrome.ts'
 import css from './ChatView.module.css'
 
@@ -165,6 +168,12 @@ export function ChatView({
     [inbox],
   )
   const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
+  // Consecutive same-name settled tool calls render as one expandable group;
+  // the derivation is a pure function of order and the node store.
+  const flow = useMemo(
+    () => deriveFlowRows(order, key => nodeStore.get(key) as ChatNode | undefined),
+    [order, nodeStore],
+  )
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
@@ -379,10 +388,26 @@ export function ChatView({
               </button>
             </div>
           )}
-          {order.map(nodeKey => (
+          {flow.map(row => row.kind === 'node' ? (
             <ChatNodeSeat
-              key={nodeKey}
-              nodeKey={nodeKey}
+              key={row.key}
+              nodeKey={row.key}
+              useSession={useSession}
+              selectedCallId={selectedCallId}
+              cwd={cwd}
+              openFile={openFile}
+              inspectCall={inspectCall}
+              forkAt={forkAt}
+              loadImage={loadImage}
+              fileMentions={fileMentions}
+              renderSlot={renderSlot}
+              t={t}
+            />
+          ) : (
+            <ToolCallGroupRow
+              key={row.key}
+              toolName={row.toolName}
+              memberKeys={row.memberKeys}
               useSession={useSession}
               selectedCallId={selectedCallId}
               cwd={cwd}

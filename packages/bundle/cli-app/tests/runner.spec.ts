@@ -354,7 +354,7 @@ describe('cli runner', () => {
     expect(messages).toEqual(['first', 'second'])
   })
 
-  it('renders one compact row for a successful tool call', async () => {
+  it('renders one human-readable summary for a turn of tool calls', async () => {
     const callId = CallId('call-1')
     const test = await bench({
       afterPrompt(session, message) {
@@ -362,6 +362,7 @@ describe('cli runner', () => {
         session.append('step/start', { turn: 1, step: 1 })
         session.append('user/message', message, { surfaceOp: 'append' })
         session.append('tool/call', { turn: 1, step: 1, callId, name: 'read', arguments: '{"path":"a.ts"}' })
+        session.append('tool/call', { turn: 1, step: 1, callId: CallId('call-2'), name: 'grep', arguments: '{"pattern":"TODO"}' })
         session.append('tool/result', {
           turn: 1,
           step: 1,
@@ -377,7 +378,10 @@ describe('cli runner', () => {
     test.stdin.end()
 
     await expect(test.exited).resolves.toBe(0)
-    expect(test.output()).toContain('[tool] read {"path":"a.ts"}')
+    expect(test.output()).toContain('[tool] 2 tool calls · Read files ×1 · Search text ×1')
+    expect(test.output()).toContain('Read files: {"path":"a.ts"}')
+    expect(test.output()).toContain('Search text: {"pattern":"TODO"}')
+    expect(test.output()).not.toContain('[tool] read ')
     expect(test.output()).not.toContain('completed call-1')
   })
 

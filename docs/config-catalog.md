@@ -391,7 +391,7 @@ Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-s
 
 ## `@deepseek-ai/dsh-cli-app`
 
-Requires: `agentDefaultModel` · `agents` · `sessions` · `sessionPersistence` · `cliStartup` · `approval` · `userQuestions` · `credentials` · `llm` · `commands` · `settings`
+Requires: `agentDefaultModel` · `agents` · `sessions` · `sessionPersistence` · `cliStartup` · `approval` · `userQuestions` · `credentials` · `llm` · `commands` · `settings` · `sessionProjections`
 
 ```ts config-catalog
 /** Plugin configuration. */
@@ -403,7 +403,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/cli-app/src/index.ts:48`](../packages/bundle/cli-app/src/index.ts)
+Source: [`packages/bundle/cli-app/src/index.ts:51`](../packages/bundle/cli-app/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -2959,7 +2959,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:46`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:47`](../packages/web/web-search-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-web-search-exa"></a>
 
