@@ -52,10 +52,14 @@ updates:
         update-types:
           - "version-update:semver-major"
       # The 0.x -> 1.x jump is a protocol SDK major; review the API surface
-      # manually before crossing it.
+      # manually before crossing it. 0.29 also deprecates the
+      # Client/AgentSideConnection constructors the acp packages are built
+      # on (migration to the connectWith/connect API is its own reviewed
+      # change), so minors stay on manual review until that lands.
       - dependency-name: "@agentclientprotocol/sdk"
         update-types:
           - "version-update:semver-major"
+          - "version-update:semver-minor"
       # vite majors move the whole toolchain (vitest, @vitejs/plugin-react,
       # web build) together; the repo sits on the vite 6 line that the
       # plugin-react ^5.2.0 pin requires.

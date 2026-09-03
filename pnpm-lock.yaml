@@ -775,8 +775,8 @@ importers:
   packages/acp/acp:
     dependencies:
       '@agentclientprotocol/sdk':
-        specifier: 0.29.0
-        version: 0.29.0(zod@4.4.3)
+        specifier: 0.25.1
+        version: 0.25.1(zod@4.4.3)
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -7108,8 +7108,8 @@ importers:
   packages/subagent/subagent-acp:
     dependencies:
       '@agentclientprotocol/sdk':
-        specifier: 0.29.0
-        version: 0.29.0(zod@4.4.3)
+        specifier: 0.25.1
+        version: 0.25.1(zod@4.4.3)
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -7713,8 +7713,8 @@ importers:
   packages/test-support/acp-snapshot:
     dependencies:
       '@agentclientprotocol/sdk':
-        specifier: 0.29.0
-        version: 0.29.0(zod@4.4.3)
+        specifier: 0.25.1
+        version: 0.25.1(zod@4.4.3)
       '@deepseek-ai/dsh-loader-smoke':
         specifier: workspace:*
         version: link:../loader-smoke
@@ -8871,11 +8871,6 @@ packages:
 
   '@agentclientprotocol/sdk@0.25.1':
     resolution: {integrity: sha512-jx2rF3bdpGwZ75Q/meyEDLLbYmbtxk82Uh9hDCdxDvcEedBnNSF5hZAnL/kJR5VNz56JqwOmqnAqasC84MwwkQ==}
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
-
-  '@agentclientprotocol/sdk@0.29.0':
-    resolution: {integrity: sha512-Sb8xJ/cIhqlvxeJiB0+1scBk0LAkVAwJ9WAFG9XCe3LEI5JWAyOxbqaCa8O1HmNnrk4+qHN11eaKH6zL2iHIYA==}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
@@ -14714,10 +14709,6 @@ packages:
 snapshots:
 
   '@agentclientprotocol/sdk@0.25.1(zod@4.4.3)':
-    dependencies:
-      zod: 4.4.3
-
-  '@agentclientprotocol/sdk@0.29.0(zod@4.4.3)':
     dependencies:
       zod: 4.4.3
 
