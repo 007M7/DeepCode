@@ -27,6 +27,16 @@ updates:
       - dependency-name: "@vitejs/plugin-react"
         update-types:
           - "version-update:semver-major"
+      # ink 6+ requires React 19; cli-app pins ink 5.2.1 + react 18.3.1.
+      # The React major upgrade must land first, in one reviewed change.
+      - dependency-name: "ink"
+        update-types:
+          - "version-update:semver-major"
+      # @types/node majors must track the Node.js runtime line the repo
+      # builds against, not jump ahead of it.
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "uv"
     directory: "/python/sdk"
