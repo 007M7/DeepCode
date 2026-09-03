@@ -45,7 +45,7 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.deepseek-api.outputs.available == 'true'
 
       - uses: pnpm/action-setup@v4
