@@ -22,6 +22,12 @@ updates:
       - dependency-name: "knip"
         update-types:
           - "version-update:semver-minor"
+      # oxlint 1.77 breaks the lint contract: it leaks DEBUG logs into
+      # stdout and stops linting explicitly staged paths. Revisit when
+      # upstream fixes both regressions.
+      - dependency-name: "oxlint"
+        update-types:
+          - "version-update:semver-minor"
       # @vitejs/plugin-react is pinned to ^5.2.0: the 6.x line requires
       # vite 7 while the repo is on vite 6. Revisit when vite is bumped.
       - dependency-name: "@vitejs/plugin-react"
@@ -48,6 +54,16 @@ updates:
       # The 0.x -> 1.x jump is a protocol SDK major; review the API surface
       # manually before crossing it.
       - dependency-name: "@agentclientprotocol/sdk"
+        update-types:
+          - "version-update:semver-major"
+      # vite majors move the whole toolchain (vitest, @vitejs/plugin-react,
+      # web build) together; the repo sits on the vite 6 line that the
+      # plugin-react ^5.2.0 pin requires.
+      - dependency-name: "vite"
+        update-types:
+          - "version-update:semver-major"
+      # chokidar 5 is a file-watcher major; review its API changes manually.
+      - dependency-name: "chokidar"
         update-types:
           - "version-update:semver-major"
       # @types/node majors must track the Node.js runtime line the repo

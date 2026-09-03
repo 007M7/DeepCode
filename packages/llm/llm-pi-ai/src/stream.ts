@@ -109,6 +109,17 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
       const text = message.errorMessage ?? 'pi-ai stream error'
       return { kind: 'error', failure: { message: text, code: classifyPiAiError(text) } }
     }
+    case 'pending':
+      // pi-ai 0.83 marks in-flight messages with a pending stop reason; a
+      // message reaching finish classification without a terminal reason is
+      // a degenerate provider completion, not a successful turn.
+      return {
+        kind: 'error',
+        failure: {
+          message: `model "${message.model}" finished with a non-terminal pending stop reason`,
+          code: EMPTY_RESPONSE_CODE,
+        },
+      }
   }
 }
 
