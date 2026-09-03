@@ -28,8 +28,26 @@ updates:
         update-types:
           - "version-update:semver-major"
       # ink 6+ requires React 19; cli-app pins ink 5.2.1 + react 18.3.1.
-      # The React major upgrade must land first, in one reviewed change.
+      # The React major upgrade must land first, in one reviewed change —
+      # so react, react-dom, and their @types are ignored for majors too.
       - dependency-name: "ink"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react-dom"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "@types/react"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "@types/react-dom"
+        update-types:
+          - "version-update:semver-major"
+      # The 0.x -> 1.x jump is a protocol SDK major; review the API surface
+      # manually before crossing it.
+      - dependency-name: "@agentclientprotocol/sdk"
         update-types:
           - "version-update:semver-major"
       # @types/node majors must track the Node.js runtime line the repo
