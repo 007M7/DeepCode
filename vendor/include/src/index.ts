@@ -1,4 +1,4 @@
-import { EntryGroup, EntryTree, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { EntryGroup, EntryTree, isJsExpr, type EntryOptions, type JsExpr } from '@deepseek-ai/cordis-plugin-loader'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { extname } from 'node:path'
 import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
@@ -6,12 +6,18 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as yaml from 'js-yaml'
 
-const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
-  kind: 'scalar',
-  resolve: (data) => typeof data === 'string',
-  construct: (data) => ({ __jsExpr: data }),
-  predicate: isJsExpr,
-  represent: (data) => data['__jsExpr'],
+// js-yaml v5 replaced the `Type` constructor with `defineScalarTag`: `resolve`
+// now constructs the value directly (`kind` is fixed per define*Tag function),
+// `predicate` became `identify`, and `Schema.extend` became `withTags`. The
+// empty-body guard keeps the v4 parse contract: `a: !!js` with no expression
+// body is a parse failure, not a silent empty expression.
+const JsExpr = yaml.defineScalarTag<JsExpr>('tag:yaml.org,2002:js', {
+  resolve: (source) => {
+    if (source === '') throw new Error('empty !!js expression body')
+    return typeof source === 'string' ? { __jsExpr: source } : yaml.NOT_RESOLVED
+  },
+  identify: isJsExpr,
+  represent: (data) => data.__jsExpr,
 })
 
 /**
@@ -20,7 +26,7 @@ const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
  * (`dsh --dump-config`) parses and prints exactly the dialect this include
  * mounts.
  */
-export const entryListSchema = yaml.JSON_SCHEMA.extend(JsExpr)
+export const entryListSchema = yaml.JSON_SCHEMA.withTags(JsExpr)
 
 const schema = entryListSchema
 
@@ -248,7 +254,10 @@ export class Include extends EntryTree {
     let data: any
     try {
       if (this.type === 'application/yaml') {
-        data = yaml.load(content, { schema })
+        // js-yaml v5 throws on an empty document where v4 returned undefined.
+        // Keep the v4 contract: an empty file is a validate failure, not a
+        // parse failure.
+        data = content.trim() === '' ? undefined : yaml.load(content, { schema })
       } else if (this.type === 'application/json') {
         data = JSON.parse(content)
       } else {

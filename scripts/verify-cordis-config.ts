@@ -56,15 +56,12 @@ const CHOOSER_BACKEND_PACKAGES = [
   '@deepseek-ai/dsh-client-ui-directory-picker-browse',
   '@deepseek-ai/dsh-client-ui-directory-picker-native',
 ]
-const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
-  kind: 'scalar',
-  resolve: data => typeof data === 'string',
-  construct: (data: unknown): JsExpr => {
-    if (typeof data !== 'string') throw new TypeError('!!js requires a scalar string')
-    return { __jsExpr: data }
-  },
+const jsExprTag = yaml.defineScalarTag<JsExpr>('tag:yaml.org,2002:js', {
+  resolve: (source: string): JsExpr | typeof yaml.NOT_RESOLVED =>
+    typeof source === 'string' ? { __jsExpr: source } : yaml.NOT_RESOLVED,
+  identify: () => false,
 })
-const schema = yaml.JSON_SCHEMA.extend(jsExprType)
+const schema = yaml.JSON_SCHEMA.withTags(jsExprTag)
 
 const errors: string[] = []
 const pluginReferences: PluginReference[] = []
