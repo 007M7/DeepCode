@@ -99,6 +99,6 @@
     "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-        "execa": "^10.0.0"
+        "execa": "^10.0.1"
   }
 }
