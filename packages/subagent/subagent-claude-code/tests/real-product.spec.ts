@@ -212,23 +212,23 @@ function startRequest(
   })
 }
 
-describe('real Claude Agent SDK 0.3.220 and its distributed Claude Code 2.1.220 fixture', {
+describe('real Claude Agent SDK 0.3.221 and its distributed Claude Code 2.1.221 fixture', {
   timeout: 60_000,
 }, () => {
   it('inherits host settings and sends the exact task and fake key to local Messages', async () => {
-    const sentinel = 'REAL_CLAUDE_CODE_SENTINEL_2_1_220'
+    const sentinel = 'REAL_CLAUDE_CODE_SENTINEL_2_1_221'
     const task = 'Return the fixture sentinel exactly.'
     const { harness, fixture } = await realHarness({
       kind: 'complete',
       text: sentinel,
     })
-    expect(sdkPackage.version).toBe('0.3.220')
-    expect(sdkPackage.claudeCodeVersion).toBe('2.1.220')
-    expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.220')
+    expect(sdkPackage.version).toBe('0.3.221')
+    expect(sdkPackage.claudeCodeVersion).toBe('2.1.221')
+    expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.221')
     const version = await execFileAsync(process.platform === 'win32' ? claudeBin : harness.executable, ['--version'], {
       env: { ...process.env, ...harness.env },
     })
-    expect(version.stdout.trim()).toBe('2.1.220 (Claude Code)')
+    expect(version.stdout.trim()).toBe('2.1.221 (Claude Code)')
 
     const run = await startRequest(harness, task)
     await expect(run.result).resolves.toEqual({
@@ -241,7 +241,7 @@ describe('real Claude Agent SDK 0.3.220 and its distributed Claude Code 2.1.220 
       (message): message is SDKSystemMessage =>
         message.type === 'system' && message.subtype === 'init',
     )
-    expect(initMessage?.claude_code_version).toBe('2.1.220')
+    expect(initMessage?.claude_code_version).toBe('2.1.221')
     if (process.platform === 'win32') {
       expect(harness.spawnSpecs[0]?.argv.slice(0, 6)).toEqual([
         'cmd.exe', '/d', '/v:off', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
