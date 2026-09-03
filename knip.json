@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "cmd.exe",
     "icacls",
     "musl-gcc",
     "python3",
@@ -730,7 +731,8 @@
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
-        "tests/**/*.snapshot.ts"
+        "tests/**/*.snapshot.ts",
+        "src/deepseek.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -769,6 +771,11 @@
       ]
     },
     "packages/bundle/base": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "packages/bundle/cli-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
       ]
