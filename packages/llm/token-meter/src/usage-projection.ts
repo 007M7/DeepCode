@@ -60,6 +60,37 @@ const addUsage = (totals: TokenUsageProjection, next: TokenUsageProjection): Tok
   cacheWriteTokens: totals.cacheWriteTokens + next.cacheWriteTokens,
 })
 
+/**
+ * Fold one usage-bearing event with the last-sample replacement rule: a
+ * repeated sample replaces that step's earlier value instead of double
+ * counting it, and an identical repeat is a no-op.
+ */
+const applyReplacingUsage = (state: TokenUsageState, event: SessionEvent): TokenUsageState => {
+  let turn: number
+  let step: number
+  let usage: TokenUsage
+  if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
+    ;({ turn, step } = event.data)
+    usage = event.data.chunk.usage
+  } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
+    ;({ turn, step, usage } = event.data)
+  } else {
+    return state
+  }
+
+  const buckets = bucketsFrom(usage)
+  const previous = state.last !== null
+    && state.last.turn === turn
+    && state.last.step === step
+    ? state.last.buckets
+    : undefined
+  if (previous !== undefined && bucketsEqual(previous, buckets)) return state
+  return {
+    totals: addReplacing(state.totals, previous, buckets),
+    last: { turn, step, buckets },
+  }
+}
+
 const projectionSchema = z.object({
   uncachedInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -117,32 +148,7 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
   key: 'tokenUsage',
   schema: projectionSchema,
   init: () => ({ totals: zeroBuckets(), last: null }),
-  apply: (state, event) => {
-    let turn: number
-    let step: number
-    let usage: TokenUsage
-    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
-      ;({ turn, step } = event.data)
-      usage = event.data.chunk.usage
-    } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
-      ;({ turn, step, usage } = event.data)
-    } else {
-      return state
-    }
-
-    const buckets = bucketsFrom(usage)
-    const previous = state.last !== null
-      && state.last.turn === turn
-      && state.last.step === step
-      ? state.last.buckets
-      : undefined
-    if (previous !== undefined && bucketsEqual(previous, buckets)) return state
-
-    return {
-      totals: addReplacing(state.totals, previous, buckets),
-      last: { turn, step, buckets },
-    }
-  },
+  apply: applyReplacingUsage,
   view: state => state.totals,
   stateVersion: 1,
 }
@@ -163,30 +169,7 @@ ProjectionDefinition<'usageLedger', TokenUsageState> = {
     if (event.type === 'llm/aux-usage') {
       return { totals: addUsage(state.totals, bucketsFrom(event.data.usage)), last: state.last }
     }
-
-    let turn: number
-    let step: number
-    let usage: TokenUsage
-    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
-      ;({ turn, step } = event.data)
-      usage = event.data.chunk.usage
-    } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
-      ;({ turn, step, usage } = event.data)
-    } else {
-      return state
-    }
-
-    const buckets = bucketsFrom(usage)
-    const previous = state.last !== null
-      && state.last.turn === turn
-      && state.last.step === step
-      ? state.last.buckets
-      : undefined
-    if (previous !== undefined && bucketsEqual(previous, buckets)) return state
-    return {
-      totals: addReplacing(state.totals, previous, buckets),
-      last: { turn, step, buckets },
-    }
+    return applyReplacingUsage(state, event)
   },
   view: state => state.totals,
   stateVersion: 1,

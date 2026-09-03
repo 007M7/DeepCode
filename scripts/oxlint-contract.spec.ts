@@ -5,7 +5,11 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// Each contract test spawns oxlint one or more times; on a loaded CI
+// worker a single spawn chain can exceed vitest's 5s default.
+vi.setConfig({ testTimeout: 30_000 })
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const oxlintCli = fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url))

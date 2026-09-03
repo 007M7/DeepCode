@@ -61,27 +61,15 @@ export class CliInput {
       this.resolveClose = resolve
     })
     this.rl.on('line', (line) => {
-      const pending = this.pending
-      if (pending === undefined) {
+      if (this.pending === undefined) {
         this.queuedLines.push(line)
         return
       }
-      this.pending = undefined
-      if (pending.signal !== undefined && pending.abort !== undefined) {
-        pending.signal.removeEventListener('abort', pending.abort)
-      }
-      pending.resolve(line)
+      this.settlePending((pending) => { pending.resolve(line) })
     })
     this.rl.once('close', () => {
       this.closedFlag = true
-      const pending = this.pending
-      this.pending = undefined
-      if (pending !== undefined) {
-        if (pending.signal !== undefined && pending.abort !== undefined) {
-          pending.signal.removeEventListener('abort', pending.abort)
-        }
-        pending.reject(new Error('CliInput.ask: the input closed before an answer arrived'))
-      }
+      this.settlePending((pending) => { pending.reject(new Error('CliInput.ask: the input closed before an answer arrived')) })
       this.resolveClose()
     })
     // Forward readline's terminal-mode Ctrl+C to the single runner handler.
@@ -161,16 +149,21 @@ export class CliInput {
     if (this.closedFlag) return
     this.closedFlag = true
     this.queuedLines.length = 0
+    this.settlePending((pending) => { pending.reject(new Error('CliInput.ask: the input closed before an answer arrived')) })
+    this.resolveClose()
+    this.rl.removeAllListeners('SIGINT')
+    this.rl.close()
+  }
+
+  /** Settle the pending read, removing its abort wiring; no-op without one. */
+  private settlePending(settle: (pending: PendingLine) => void): void {
     const pending = this.pending
     this.pending = undefined
     if (pending !== undefined) {
       if (pending.signal !== undefined && pending.abort !== undefined) {
         pending.signal.removeEventListener('abort', pending.abort)
       }
-      pending.reject(new Error('CliInput.ask: the input closed before an answer arrived'))
+      settle(pending)
     }
-    this.resolveClose()
-    this.rl.removeAllListeners('SIGINT')
-    this.rl.close()
   }
 }

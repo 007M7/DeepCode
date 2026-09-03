@@ -227,14 +227,14 @@ describe('DeepSeek real-API workflow', () => {
     const e2e = workflowJob(workflow, 'e2e')
     if (!Array.isArray(e2e.steps)) throw new TypeError('E2E workflow must define steps')
 
-    const detect = e2e.steps.find(step => isRecord(step) && step.id === 'deepseek-api')
+    const detect = e2e.steps.find((step): step is Record<string, unknown> => isRecord(step) && step.id === 'deepseek-api')
     expect(detect).toMatchObject({
       env: { DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}' },
     })
     expect(JSON.stringify(detect)).toContain('available=false')
     expect(JSON.stringify(detect)).not.toContain('exit 1')
 
-    const guarded = e2e.steps.filter(step => isRecord(step) && step.id !== 'deepseek-api')
+    const guarded = e2e.steps.filter((step): step is Record<string, unknown> => isRecord(step) && step.id !== 'deepseek-api')
     expect(guarded.length).toBeGreaterThan(0)
     for (const step of guarded) {
       expect(step.if).toBe("steps.deepseek-api.outputs.available == 'true'")
