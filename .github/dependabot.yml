@@ -22,6 +22,11 @@ updates:
       - dependency-name: "knip"
         update-types:
           - "version-update:semver-minor"
+      # @vitejs/plugin-react is pinned to ^5.2.0: the 6.x line requires
+      # vite 7 while the repo is on vite 6. Revisit when vite is bumped.
+      - dependency-name: "@vitejs/plugin-react"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "uv"
     directory: "/python/sdk"
