@@ -42,7 +42,7 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.83.0",
+    "@earendil-works/pi-ai": "^0.84.0",
     "@deepseek-ai/schemastery": "workspace:^"
   },
   "devDependencies": {
